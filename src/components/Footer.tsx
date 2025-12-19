@@ -1,15 +1,12 @@
 import { MapPin, Phone, Mail } from "lucide-react";
-
 const Footer = () => {
   const currentYear = new Date().getFullYear();
-
-  return (
-    <footer className="bg-foreground text-background py-12">
+  return <footer className="bg-foreground text-background py-12">
       <div className="container mx-auto px-4">
         <div className="grid md:grid-cols-3 gap-8 mb-8">
           {/* Brand */}
           <div>
-            <h3 className="text-2xl font-bold mb-4">TechCell BH</h3>
+            <h3 className="text-2xl font-bold mb-4">Conectize</h3>
             <p className="text-background/70 mb-4">
               Assistência técnica especializada em conserto de celulares em Belo Horizonte. 
               Qualidade, rapidez e garantia em todos os serviços.
@@ -57,8 +54,6 @@ const Footer = () => {
           </div>
         </div>
       </div>
-    </footer>
-  );
+    </footer>;
 };
-
 export default Footer;
