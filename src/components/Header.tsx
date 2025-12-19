@@ -1,8 +1,10 @@
 import { Phone, MapPin, Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
+
 const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+
   const scrollToSection = (id: string) => {
     const element = document.getElementById(id);
     element?.scrollIntoView({
@@ -10,18 +12,20 @@ const Header = () => {
     });
     setIsMenuOpen(false);
   };
-  return <header className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-lg border-b border-border">
+
+  return (
+    <header className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-lg border-b border-border">
       {/* Top bar */}
       <div className="bg-primary text-primary-foreground py-2">
         <div className="container mx-auto px-4 flex flex-wrap justify-center md:justify-between items-center gap-2 text-sm">
           <div className="flex items-center gap-2">
             <MapPin className="w-4 h-4" />
-            <span>Belo Horizonte - MG</span>
+            <span>R. Padre Rolim, 620 - Santa Efigênia, BH</span>
           </div>
           <div className="flex items-center gap-2">
             <Phone className="w-4 h-4" />
-            <a href="tel:+5531999999999" className="hover:underline">
-              (31) 99999-9999
+            <a href="tel:+5531986140889" className="hover:underline">
+              (31) 9 8614-0889
             </a>
           </div>
         </div>
@@ -30,8 +34,9 @@ const Header = () => {
       {/* Main nav */}
       <nav className="container mx-auto px-4 py-4">
         <div className="flex items-center justify-between">
-          <a href="#" className="text-2xl font-bold text-gradient">Conectize
-        </a>
+          <a href="#" className="text-2xl font-bold text-gradient">
+            Conectize
+          </a>
 
           {/* Desktop menu */}
           <div className="hidden md:flex items-center gap-8">
@@ -56,7 +61,8 @@ const Header = () => {
         </div>
 
         {/* Mobile menu */}
-        {isMenuOpen && <div className="md:hidden pt-4 pb-2 animate-fade-in">
+        {isMenuOpen && (
+          <div className="md:hidden pt-4 pb-2 animate-fade-in">
             <div className="flex flex-col gap-4">
               <button onClick={() => scrollToSection("servicos")} className="text-foreground/80 hover:text-primary transition-colors font-medium text-left py-2">
                 Serviços
@@ -71,8 +77,11 @@ const Header = () => {
                 Fale Conosco
               </Button>
             </div>
-          </div>}
+          </div>
+        )}
       </nav>
-    </header>;
+    </header>
+  );
 };
+
 export default Header;
