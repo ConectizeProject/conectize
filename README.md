@@ -1,73 +1,72 @@
-# Welcome to your Lovable project
+# Conectize - Assistência Técnica de Celular e Apple
 
-## Project info
+Site institucional da Conectize, assistência técnica especializada em conserto de celulares e produtos Apple em Belo Horizonte.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Tecnologias
 
-## How can I edit this code?
+Este projeto foi construído com:
 
-There are several ways of editing your application.
+- **Next.js 15** - Framework React com App Router
+- **TypeScript** - Tipagem estática
+- **React 18** - Biblioteca UI
+- **shadcn/ui** - Componentes UI
+- **Tailwind CSS** - Estilização
+- **React Query** - Gerenciamento de estado do servidor
 
-**Use Lovable**
+## Como executar
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+### Pré-requisitos
 
-Changes made via Lovable will be committed automatically to this repo.
+- Node.js 18+ instalado
+- npm, yarn ou bun
 
-**Use your preferred IDE**
+### Instalação
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+```bash
+# Instalar dependências
+npm install
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# Executar em modo desenvolvimento
 npm run dev
+
+# Build para produção
+npm run build
+
+# Executar build de produção
+npm start
 ```
 
-**Edit a file directly in GitHub**
+O projeto estará disponível em `http://localhost:3000`
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## Estrutura do Projeto
 
-**Use GitHub Codespaces**
+```
+conectize/
+├── app/                    # App Router do Next.js
+│   ├── layout.tsx         # Layout raiz
+│   ├── page.tsx           # Página inicial
+│   ├── not-found.tsx      # Página 404
+│   └── globals.css        # Estilos globais
+├── src/
+│   ├── components/        # Componentes React
+│   ├── providers/          # Providers (QueryClient, etc)
+│   └── lib/               # Utilitários
+├── public/                # Arquivos estáticos
+└── next.config.js         # Configuração do Next.js
+```
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## Deploy
 
-## What technologies are used for this project?
+Este projeto pode ser deployado em:
 
-This project is built with:
+- **Vercel** (recomendado para Next.js)
+- **Netlify**
+- **AWS Amplify**
+- Qualquer plataforma que suporte Next.js
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+Para deploy na Vercel:
 
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+```bash
+npm install -g vercel
+vercel
+```

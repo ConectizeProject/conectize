@@ -1,6 +1,9 @@
-import { Phone, MapPin, Menu, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { useState } from "react";
+'use client'
+
+import Link from 'next/link'
+import { Phone, MapPin, Menu, X } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { useState } from 'react'
 
 const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -34,9 +37,13 @@ const Header = () => {
       {/* Main nav */}
       <nav className="container mx-auto px-4 py-4">
         <div className="flex items-center justify-between">
-          <a href="#" className="text-2xl font-bold text-gradient">
-            Conectize
-          </a>
+          <Link href="/" className="flex items-center">
+            <img
+              src="/logo_conectize.svg"
+              alt="Conectize - Assistência Técnica"
+              className="h-8 w-auto"
+            />
+          </Link>
 
           {/* Desktop menu */}
           <div className="hidden md:flex items-center gap-8">

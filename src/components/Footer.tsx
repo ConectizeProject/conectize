@@ -1,4 +1,5 @@
-import { MapPin, Phone, Mail } from "lucide-react";
+import Link from 'next/link'
+import { MapPin, Phone, Mail } from 'lucide-react'
 
 const Footer = () => {
   const currentYear = new Date().getFullYear();
@@ -9,7 +10,13 @@ const Footer = () => {
         <div className="grid md:grid-cols-3 gap-8 mb-8">
           {/* Brand */}
           <div>
-            <h3 className="text-2xl font-bold mb-4">Conectize</h3>
+            <Link href="/" className="inline-block mb-4">
+              <img
+                src="/logo_conectize.svg"
+                alt="Conectize - Assistência Técnica"
+                className="h-8 w-auto brightness-0 invert"
+              />
+            </Link>
             <p className="text-background/70 mb-4">
               Assistência técnica especializada em conserto de celulares e produtos Apple em Belo Horizonte. 
               Qualidade, rapidez e garantia em todos os serviços.

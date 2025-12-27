@@ -1,5 +1,7 @@
-import { Button } from "@/components/ui/button";
-import { Smartphone, Shield, Clock, ArrowRight } from "lucide-react";
+'use client'
+
+import { Button } from '@/components/ui/button'
+import { Smartphone, Shield, Clock, ArrowRight } from 'lucide-react'
 
 const Hero = () => {
   const scrollToContact = () => {
@@ -7,7 +9,7 @@ const Hero = () => {
   };
 
   return (
-    <section className="relative min-h-screen gradient-hero pt-32 pb-20 overflow-hidden">
+    <section className="relative min-h-screen gradient-hero pt-32 pb-20 overflow-hidden flex items-center" >
       {/* Background decoration */}
       <div className="absolute inset-0 overflow-hidden">
         <div className="absolute top-20 right-10 w-72 h-72 bg-primary/10 rounded-full blur-3xl" />

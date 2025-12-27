@@ -1,5 +1,8 @@
-import { Button } from "@/components/ui/button";
-import { Phone, Mail, MapPin, Clock, MessageCircle } from "lucide-react";
+'use client'
+
+import { Button } from '@/components/ui/button'
+import { Phone, Mail, MapPin, Clock, MessageCircle } from 'lucide-react'
+
 const Contact = () => {
   return <section id="contato" className="py-20 bg-background">
       <div className="container mx-auto px-4">
