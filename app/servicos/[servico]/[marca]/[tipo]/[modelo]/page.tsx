@@ -172,7 +172,7 @@ export default async function ModelPage ({ params }: PageProps) {
                     <p>R. Padre Rolim, 620 - Santa Efigênia</p>
                     <p>Belo Horizonte - MG, 30130-094</p>
                     <p className="mt-2">Segunda a Sexta: 8h às 18h</p>
-                    <p>Sábado: 8h às 13h</p>
+                    <p>Sábado: 10h às 14h</p>
                   </div>
                 </div>
               </div>

@@ -88,7 +88,7 @@ export default function ContatoPage () {
                 <h4 className="font-bold text-foreground mb-1">Horário de Atendimento</h4>
                 <p className="text-muted-foreground text-lg">
                   Segunda a Sexta: 9:30h às 18:30h<br />
-                  Sábado: 8h às 13h
+                  Sábado: 10h às 14h
                 </p>
               </div>
             </div>
