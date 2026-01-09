@@ -3,19 +3,52 @@ import { services, getAllBrandPaths, getAllDeviceTypePaths, getAllModelPaths } f
 
 export default function sitemap (): MetadataRoute.Sitemap {
   const baseUrl = 'https://conectize.com.br'
+  const lastModified = new Date()
   
   const routes: MetadataRoute.Sitemap = [
+    // Página principal
     {
       url: baseUrl,
-      lastModified: new Date(),
+      lastModified,
       changeFrequency: 'weekly',
       priority: 1,
     },
+    // Páginas principais
     {
       url: `${baseUrl}/servicos`,
-      lastModified: new Date(),
+      lastModified,
       changeFrequency: 'weekly',
       priority: 0.9,
+    },
+    {
+      url: `${baseUrl}/coleta`,
+      lastModified,
+      changeFrequency: 'monthly',
+      priority: 0.8,
+    },
+    {
+      url: `${baseUrl}/sobre`,
+      lastModified,
+      changeFrequency: 'monthly',
+      priority: 0.8,
+    },
+    {
+      url: `${baseUrl}/acessorios`,
+      lastModified,
+      changeFrequency: 'monthly',
+      priority: 0.8,
+    },
+    {
+      url: `${baseUrl}/lojistas`,
+      lastModified,
+      changeFrequency: 'monthly',
+      priority: 0.8,
+    },
+    {
+      url: `${baseUrl}/contato`,
+      lastModified,
+      changeFrequency: 'monthly',
+      priority: 0.8,
     },
   ]
   
@@ -23,37 +56,37 @@ export default function sitemap (): MetadataRoute.Sitemap {
   for (const service of services) {
     routes.push({
       url: `${baseUrl}/servicos/${service.slug}`,
-      lastModified: new Date(),
+      lastModified,
       changeFrequency: 'monthly',
       priority: 0.8,
     })
     
     // Adicionar páginas de marcas
     const brandPaths = getAllBrandPaths(service.slug)
-    for (const { brand } of brandPaths) {
+    for (const { marca } of brandPaths) {
       routes.push({
-        url: `${baseUrl}/servicos/${service.slug}/${brand}`,
-        lastModified: new Date(),
+        url: `${baseUrl}/servicos/${service.slug}/${marca}`,
+        lastModified,
         changeFrequency: 'monthly',
         priority: 0.7,
       })
       
       // Adicionar páginas de tipos de equipamento
-      const deviceTypePaths = getAllDeviceTypePaths(service.slug, brand)
+      const deviceTypePaths = getAllDeviceTypePaths(service.slug, marca)
       for (const { tipo } of deviceTypePaths) {
         routes.push({
-          url: `${baseUrl}/servicos/${service.slug}/${brand}/${tipo}`,
-          lastModified: new Date(),
+          url: `${baseUrl}/servicos/${service.slug}/${marca}/${tipo}`,
+          lastModified,
           changeFrequency: 'monthly',
           priority: 0.6,
         })
         
         // Adicionar páginas de modelos
-        const modelPaths = getAllModelPaths(service.slug, brand, tipo)
+        const modelPaths = getAllModelPaths(service.slug, marca, tipo)
         for (const { modelo } of modelPaths) {
           routes.push({
-            url: `${baseUrl}/servicos/${service.slug}/${brand}/${tipo}/${modelo}`,
-            lastModified: new Date(),
+            url: `${baseUrl}/servicos/${service.slug}/${marca}/${tipo}/${modelo}`,
+            lastModified,
             changeFrequency: 'monthly',
             priority: 0.5,
           })
