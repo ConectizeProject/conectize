@@ -8,14 +8,6 @@ import { useState } from 'react'
 const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-  const scrollToSection = (id: string) => {
-    const element = document.getElementById(id);
-    element?.scrollIntoView({
-      behavior: "smooth"
-    });
-    setIsMenuOpen(false);
-  };
-
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-lg border-b border-border">
       {/* Top bar */}
@@ -47,17 +39,25 @@ const Header = () => {
 
           {/* Desktop menu */}
           <div className="hidden md:flex items-center gap-8">
-            <button onClick={() => scrollToSection("servicos")} className="text-foreground/80 hover:text-primary transition-colors font-medium">
+            <Link href="/servicos" className="text-foreground/80 hover:text-primary transition-colors font-medium">
               Serviços
-            </button>
-            <button onClick={() => scrollToSection("coleta")} className="text-foreground/80 hover:text-primary transition-colors font-medium">
+            </Link>
+            <Link href="/coleta" className="text-foreground/80 hover:text-primary transition-colors font-medium">
               Coleta em Domicílio
-            </button>
-            <button onClick={() => scrollToSection("sobre")} className="text-foreground/80 hover:text-primary transition-colors font-medium">
+            </Link>
+            <Link href="/sobre" className="text-foreground/80 hover:text-primary transition-colors font-medium">
               Sobre
-            </button>
-            <Button variant="hero" size="sm" onClick={() => scrollToSection("contato")}>
-              Fale Conosco
+            </Link>
+            <Link href="/acessorios" className="text-foreground/80 hover:text-primary transition-colors font-medium">
+              Acessórios
+            </Link>
+            <Link href="/lojistas" className="text-foreground/80 hover:text-primary transition-colors font-medium">
+              Lojistas
+            </Link>
+            <Button variant="hero" size="sm" asChild>
+              <Link href="/contato">
+                Fale Conosco
+              </Link>
             </Button>
           </div>
 
@@ -71,17 +71,45 @@ const Header = () => {
         {isMenuOpen && (
           <div className="md:hidden pt-4 pb-2 animate-fade-in">
             <div className="flex flex-col gap-4">
-              <button onClick={() => scrollToSection("servicos")} className="text-foreground/80 hover:text-primary transition-colors font-medium text-left py-2">
+              <Link 
+                href="/servicos" 
+                onClick={() => setIsMenuOpen(false)}
+                className="text-foreground/80 hover:text-primary transition-colors font-medium text-left py-2"
+              >
                 Serviços
-              </button>
-              <button onClick={() => scrollToSection("coleta")} className="text-foreground/80 hover:text-primary transition-colors font-medium text-left py-2">
+              </Link>
+              <Link 
+                href="/coleta" 
+                onClick={() => setIsMenuOpen(false)}
+                className="text-foreground/80 hover:text-primary transition-colors font-medium text-left py-2"
+              >
                 Coleta em Domicílio
-              </button>
-              <button onClick={() => scrollToSection("sobre")} className="text-foreground/80 hover:text-primary transition-colors font-medium text-left py-2">
+              </Link>
+              <Link 
+                href="/sobre" 
+                onClick={() => setIsMenuOpen(false)}
+                className="text-foreground/80 hover:text-primary transition-colors font-medium text-left py-2"
+              >
                 Sobre
-              </button>
-              <Button variant="hero" onClick={() => scrollToSection("contato")}>
-                Fale Conosco
+              </Link>
+              <Link 
+                href="/acessorios" 
+                onClick={() => setIsMenuOpen(false)}
+                className="text-foreground/80 hover:text-primary transition-colors font-medium text-left py-2"
+              >
+                Acessórios
+              </Link>
+              <Link 
+                href="/lojistas" 
+                onClick={() => setIsMenuOpen(false)}
+                className="text-foreground/80 hover:text-primary transition-colors font-medium text-left py-2"
+              >
+                Lojistas
+              </Link>
+              <Button variant="hero" asChild>
+                <Link href="/contato" onClick={() => setIsMenuOpen(false)}>
+                  Fale Conosco
+                </Link>
               </Button>
             </div>
           </div>

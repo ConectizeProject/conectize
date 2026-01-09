@@ -3,7 +3,7 @@ import { Award, Users, ThumbsUp, Zap } from "lucide-react";
 const stats = [
   { icon: Users, value: "5.000+", label: "Clientes Atendidos" },
   { icon: ThumbsUp, value: "98%", label: "Satisfação" },
-  { icon: Award, value: "10+", label: "Anos de Experiência" },
+  { icon: Award, value: "15+", label: "Anos de Experiência" },
   { icon: Zap, value: "24h", label: "Tempo Médio de Reparo" },
 ];
 
@@ -45,18 +45,18 @@ const About = () => {
             <div className="space-y-4 text-muted-foreground">
               <p>
                 Somos uma assistência técnica especializada em conserto de celulares 
-                localizada em <strong className="text-foreground">Belo Horizonte</strong>. 
-                Com mais de 10 anos de experiência no mercado, nos destacamos pela qualidade 
+                com cede em <strong className="text-foreground">Belo Horizonte</strong>. 
+                Com mais de 15 anos de experiência no mercado, nos destacamos pela qualidade 
                 dos nossos serviços e atendimento personalizado.
               </p>
               <p>
                 Nossa equipe é formada por técnicos certificados e constantemente atualizados 
-                sobre as últimas tecnologias do mercado mobile. Trabalhamos com peças de 
-                qualidade e oferecemos garantia em todos os serviços realizados.
+                sobre as últimas tecnologias do mercado. Trabalhamos com peças de 
+                alta qualidade e oferecemos garantia de 6 meses em todos os serviços realizados.
               </p>
               <p>
                 Atendemos todas as marcas de smartphones: iPhone, Samsung, Motorola, Xiaomi, 
-                LG, Asus e muitas outras. Seja troca de tela, bateria, reparo de placa ou 
+                LG e muitas outras. Seja troca de tela, bateria, reparo de placa ou 
                 qualquer outro problema, temos a solução para você.
               </p>
             </div>

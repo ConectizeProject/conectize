@@ -1,36 +1,51 @@
-import { Button } from "@/components/ui/button";
-import { Truck, Clock, MapPin, CheckCircle, ArrowRight } from "lucide-react";
+import type { Metadata } from 'next'
+import { Button } from '@/components/ui/button'
+import { Truck, Clock, CheckCircle, ArrowRight } from 'lucide-react'
+
+export const metadata: Metadata = {
+  title: 'Coleta em Domicílio em Belo Horizonte | Conectize',
+  description: 'Serviço exclusivo de coleta e entrega em domicílio para conserto de celulares em Belo Horizonte. Buscamos e devolvemos seu aparelho sem custo adicional. Agende agora!',
+  keywords: 'coleta em domicilio celular belo horizonte, busca e entrega celular bh, coleta grátis celular, serviço de coleta celular',
+  alternates: {
+    canonical: 'https://conectize.com.br/coleta',
+  },
+}
 
 const benefits = [
-  "Buscamos seu celular em casa ou no trabalho",
-  "Sem custo adicional na região de BH",
-  "Diagnóstico e orçamento rápido",
-  "Devolução no mesmo local após o conserto",
-  "Acompanhamento em tempo real do serviço",
-];
+  'Buscamos seu celular em casa ou no trabalho',
+  'Sem custo adicional na região de BH',
+  'Diagnóstico rápido e orçamento sem compromisso',
+  'Devolução no mesmo local após o conserto',
+  'Acompanhamento em tempo real do serviço',
+]
 
-const PickupService = () => {
+export default function ColetaPage () {
   return (
-    <section id="coleta" className="py-20 bg-background relative overflow-hidden">
+    <div className="min-h-screen pt-32 pb-20 bg-background relative overflow-hidden">
       {/* Background decoration */}
       <div className="absolute top-0 right-0 w-1/2 h-full bg-gradient-to-l from-primary/5 to-transparent" />
       
       <div className="container mx-auto px-4 relative z-10">
-        <div className="grid lg:grid-cols-2 gap-12 items-center">
+        <div className="max-w-3xl mx-auto mb-16 text-center">
+          <span className="inline-block text-accent font-semibold text-sm uppercase tracking-wider mb-6">
+            Exclusivo
+          </span>
+          <h1 className="text-4xl md:text-5xl font-bold text-foreground mb-6">
+            Coleta em <span className="text-gradient">Domicílio</span>
+          </h1>
+          <p className="text-lg text-muted-foreground">
+            Não precisa sair de casa! Nossa equipe vai até você em toda Belo Horizonte 
+            para buscar e devolver seu celular consertado. Comodidade e praticidade 
+            para seu dia a dia.
+          </p>
+        </div>
+
+        <div className="grid lg:grid-cols-2 gap-12 items-center mb-16">
           {/* Content */}
           <div>
-            <span className="inline-block text-accent font-semibold text-sm uppercase tracking-wider mb-4">
-              Exclusivo
-            </span>
-            <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-foreground mb-6">
-              Coleta em{" "}
-              <span className="text-gradient">Domicílio</span>
+            <h2 className="text-2xl md:text-3xl font-bold text-foreground mb-6">
+              Vantagens do Nosso Serviço
             </h2>
-            <p className="text-lg text-muted-foreground mb-8">
-              Não precisa sair de casa! Nossa equipe vai até você em toda Belo Horizonte 
-              para buscar e devolver seu celular consertado. Comodidade e praticidade 
-              para seu dia a dia.
-            </p>
 
             <ul className="space-y-4 mb-8">
               {benefits.map((benefit, index) => (
@@ -40,19 +55,19 @@ const PickupService = () => {
                   style={{ animationDelay: `${index * 0.1}s` }}
                 >
                   <CheckCircle className="w-6 h-6 text-accent flex-shrink-0 mt-0.5" />
-                  <span className="text-foreground">{benefit}</span>
+                  <span className="text-foreground text-lg">{benefit}</span>
                 </li>
               ))}
             </ul>
 
             <Button variant="hero" size="lg" asChild>
               <a
-                href="https://wa.me/5531999999999?text=Olá! Gostaria de agendar a coleta do meu celular em domicílio."
+                href="https://wa.me/5531986140889?text=Olá! Gostaria de agendar a coleta do meu celular em domicílio."
                 target="_blank"
                 rel="noopener noreferrer"
               >
                 Agendar Coleta Grátis
-                <ArrowRight className="w-5 h-5" />
+                <ArrowRight className="w-5 h-5 ml-2" />
               </a>
             </Button>
           </div>
@@ -127,8 +142,7 @@ const PickupService = () => {
           </div>
         </div>
       </div>
-    </section>
-  );
-};
+    </div>
+  )
+}
 
-export default PickupService;

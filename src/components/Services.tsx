@@ -28,9 +28,14 @@ const services: Service[] = [
     description: "Substituição de telas quebradas ou com defeito para todas as marcas de celulares.",
   },
   {
+    icon: Monitor,
+    title: "Troca de Vidro da Tela",
+    description: "Substituição de vidro da tela quebrado ou arranhado para todas as marcas de celulares.",
+  },
+  {
     icon: Battery,
     title: "Troca de Bateria",
-    description: "Baterias originais e de alta qualidade para seu celular durar mais.",
+    description: "Baterias de alta qualidade para seu celular durar mais.",
   },
   {
     icon: Cpu,
@@ -77,8 +82,8 @@ const Services = () => {
             <span className="text-gradient">Apple</span> em Belo Horizonte
           </h2>
           <p className="text-lg text-muted-foreground">
-            Oferecemos assistência técnica completa para smartphones de todas as marcas, 
-            com <strong className="text-foreground">especialização em produtos Apple</strong>. 
+            Oferecemos assistência técnica completa para smartphones <strong className="text-foreground">Android</strong> e{" "}
+            <strong className="text-foreground">produtos Apple</strong> (iPhone, iPad, MacBook, Apple Watch). 
             Técnicos especializados e peças de qualidade garantida.
           </p>
         </div>

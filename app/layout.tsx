@@ -1,14 +1,11 @@
 import type { Metadata } from 'next'
-import { QueryProvider } from '@/providers/query-provider'
-import { AppTooltipProvider } from '@/providers/tooltip-provider'
-import { Toaster } from '@/components/ui/toaster'
-import { Toaster as Sonner } from '@/components/ui/sonner'
+import { Providers } from '@/providers/providers'
 import './globals.css'
 
 export const metadata: Metadata = {
   title: 'Assistência Técnica de Celular e Apple em Belo Horizonte | Conectize',
   description: 'Conserto de celulares e produtos Apple (iPhone, iPad, MacBook) em Belo Horizonte com coleta em domicílio. Especialistas Apple. Troca de tela, bateria, reparo de placa. Atendimento rápido e garantia!',
-  keywords: 'assistencia tecnica de celular em belo horizonte, concerto de celulares belo horizonte, conserto de celular bh, assistencia tecnica iphone bh, conserto iphone belo horizonte, assistencia apple bh, conserto macbook bh, troca de tela celular bh, coleta em domicilio celular',
+  keywords: 'assistencia tecnica de celular em belo horizonte, concerto de celulares belo horizonte, conserto de celular bh, assistencia tecnica iPhone bh, conserto iPhone belo horizonte, assistencia apple bh, conserto macbook bh, troca de tela celular bh, coleta em domicilio celular',
   authors: [{ name: 'Conectize' }],
   robots: 'index, follow',
   icons: {
@@ -122,13 +119,9 @@ export default function RootLayout ({
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
         />
-        <QueryProvider>
-          <AppTooltipProvider>
-            <Toaster />
-            <Sonner />
-            {children}
-          </AppTooltipProvider>
-        </QueryProvider>
+        <Providers>
+          {children}
+        </Providers>
       </body>
     </html>
   )

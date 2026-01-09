@@ -12,6 +12,9 @@ node_modules
 /.pnp
 .pnp.js
 
+# Next.js SWC binaries (problemas com OneDrive)
+node_modules/@next/swc-*
+
 # Testing
 /coverage
 

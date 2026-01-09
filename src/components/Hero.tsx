@@ -39,8 +39,8 @@ const Hero = () => {
             </h1>
 
             <p className="text-lg md:text-xl text-muted-foreground mb-8 max-w-xl mx-auto lg:mx-0 animate-fade-up" style={{ animationDelay: "0.2s" }}>
-              Conserto de celulares e{" "}
-              <strong className="text-foreground">produtos Apple</strong> (iPhone, iPad, MacBook) com qualidade e rapidez. Oferecemos{" "}
+              Conserto de celulares <strong className="text-foreground">Android</strong> e{" "}
+              <strong className="text-foreground">produtos Apple</strong> (iPhone, iPad, MacBook, Apple Watch) com qualidade e rapidez. Oferecemos{" "}
               <strong className="text-foreground">coleta em domicílio</strong> para sua comodidade em toda Belo Horizonte.
             </p>
 
