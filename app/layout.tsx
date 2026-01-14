@@ -116,15 +116,11 @@ export default function RootLayout ({
   return (
     <html lang="pt-BR">
       <body>
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
-        />
         <Script
           src="https://www.googletagmanager.com/gtag/js?id=G-1E45FFLYQY"
-          strategy="afterInteractive"
+          strategy="beforeInteractive"
         />
-        <Script id="google-analytics" strategy="afterInteractive">
+        <Script id="google-analytics" strategy="beforeInteractive">
           {`
             window.dataLayer = window.dataLayer || [];
             function gtag(){dataLayer.push(arguments);}
@@ -132,6 +128,10 @@ export default function RootLayout ({
             gtag('config', 'G-1E45FFLYQY');
           `}
         </Script>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+        />
         <Providers>
           {children}
         </Providers>
