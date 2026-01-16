@@ -1,23 +1,15 @@
 import type { Metadata } from 'next'
-import { Button } from '@/components/ui/button'
-import { Truck, Clock, CheckCircle, ArrowRight } from 'lucide-react'
+import { FreteCalculator } from '@/components/FreteCalculator'
+import { Clock } from 'lucide-react'
 
 export const metadata: Metadata = {
   title: 'Coleta em Domicílio em Belo Horizonte | Conectize',
-  description: 'Serviço exclusivo de coleta e entrega em domicílio para conserto de celulares em Belo Horizonte. Buscamos e devolvemos seu aparelho sem custo adicional. Agende agora!',
-  keywords: 'coleta em domicilio celular belo horizonte, busca e entrega celular bh, coleta grátis celular, serviço de coleta celular',
+  description: 'Serviço exclusivo de coleta e entrega em domicílio para conserto de celulares em Belo Horizonte. Calcule o frete pelo seu CEP. Buscamos e devolvemos seu aparelho. Agende agora!',
+  keywords: 'coleta em domicilio celular belo horizonte, busca e entrega celular bh, frete coleta celular bh, serviço de coleta celular, calcular frete coleta',
   alternates: {
     canonical: 'https://conectize.com.br/coleta',
   },
 }
-
-const benefits = [
-  'Buscamos seu celular em casa ou no trabalho',
-  'Sem custo adicional na região de BH',
-  'Diagnóstico rápido e orçamento sem compromisso',
-  'Devolução no mesmo local após o conserto',
-  'Acompanhamento em tempo real do serviço',
-]
 
 export default function ColetaPage () {
   return (
@@ -35,44 +27,14 @@ export default function ColetaPage () {
           </h1>
           <p className="text-lg text-muted-foreground">
             Não precisa sair de casa! Nossa equipe vai até você em toda Belo Horizonte 
-            para buscar e devolver seu celular consertado. Comodidade e praticidade 
-            para seu dia a dia.
+            para buscar e devolver seu celular consertado. Calcule o valor do frete 
+            informando seu CEP abaixo.
           </p>
         </div>
 
-        <div className="grid lg:grid-cols-2 gap-12 items-center mb-16">
-          {/* Content */}
-          <div>
-            <h2 className="text-2xl md:text-3xl font-bold text-foreground mb-6">
-              Vantagens do Nosso Serviço
-            </h2>
-
-            <ul className="space-y-4 mb-8">
-              {benefits.map((benefit, index) => (
-                <li
-                  key={benefit}
-                  className="flex items-start gap-3 animate-fade-up"
-                  style={{ animationDelay: `${index * 0.1}s` }}
-                >
-                  <CheckCircle className="w-6 h-6 text-accent flex-shrink-0 mt-0.5" />
-                  <span className="text-foreground text-lg">{benefit}</span>
-                </li>
-              ))}
-            </ul>
-
-            <Button variant="hero" size="lg" asChild>
-              <a
-                href="https://wa.me/5531986140889?text=Olá! Gostaria de agendar a coleta do meu celular em domicílio."
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Agendar Coleta Grátis
-                <ArrowRight className="w-5 h-5 ml-2" />
-              </a>
-            </Button>
-          </div>
-
-          {/* Visual */}
+        {/* Layout em 2 colunas: Textos à esquerda, Calculadora à direita */}
+        <div className="grid lg:grid-cols-2 gap-12 items-start">
+          {/* Textos à esquerda */}
           <div className="relative">
             <div className="bg-card rounded-3xl p-8 shadow-card">
               <div className="space-y-6">
@@ -130,15 +92,16 @@ export default function ColetaPage () {
               </div>
             </div>
 
-            {/* Floating badges */}
-            <div className="absolute -top-4 -left-4 bg-primary text-primary-foreground px-4 py-2 rounded-xl font-bold text-sm shadow-lg flex items-center gap-2">
-              <Truck className="w-4 h-4" />
-              Frete Grátis
-            </div>
+            {/* Floating badge */}
             <div className="absolute -bottom-4 -right-4 bg-accent text-accent-foreground px-4 py-2 rounded-xl font-bold text-sm shadow-lg flex items-center gap-2">
               <Clock className="w-4 h-4" />
               Até 24h
             </div>
+          </div>
+
+          {/* Calculadora à direita */}
+          <div className="sticky top-32">
+            <FreteCalculator />
           </div>
         </div>
       </div>
