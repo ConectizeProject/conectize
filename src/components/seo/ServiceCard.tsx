@@ -8,7 +8,7 @@ interface ServiceCardProps {
 export function ServiceCard ({ service }: ServiceCardProps) {
   return (
     <Link
-      href={`/servicos/${service.slug}`}
+      href={`/servicos?servico=${service.slug}`}
       className="block bg-card rounded-xl p-6 shadow-card hover:shadow-glow transition-all duration-300 border border-border hover:border-primary/50"
     >
       <h3 className="text-xl font-bold text-foreground mb-2">

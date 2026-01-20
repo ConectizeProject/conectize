@@ -10,7 +10,7 @@ interface DeviceTypeCardProps {
 export function DeviceTypeCard ({ deviceType, serviceSlug, brandSlug }: DeviceTypeCardProps) {
   return (
     <Link
-      href={`/servicos/${serviceSlug}/${brandSlug}/${deviceType.slug}`}
+      href={`/servicos/${brandSlug}/${serviceSlug}`}
       className="block bg-card rounded-xl p-6 shadow-card hover:shadow-glow transition-all duration-300 border border-border hover:border-primary/50 text-center"
     >
       <h3 className="text-xl font-bold text-foreground mb-2">

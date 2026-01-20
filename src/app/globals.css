@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -43,7 +45,7 @@
     --shadow-card: 0 8px 30px -8px hsl(215 25% 12% / 0.1);
     --shadow-glow: 0 0 40px hsl(199 89% 48% / 0.2);
 
-    --font-heading: var(--font-outfit);
+    --font-heading: 'Outfit', sans-serif;
   }
 
   .dark {
@@ -87,7 +89,7 @@
 
   body {
     @apply bg-background text-foreground font-sans antialiased;
-    font-family: var(--font-outfit), sans-serif;
+    font-family: 'Outfit', sans-serif;
   }
 
   h1, h2, h3, h4, h5, h6 {
@@ -185,7 +187,4 @@
     transform: scale(1);
   }
 }
-
-
-
 
