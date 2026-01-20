@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useFormik } from 'formik'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -9,8 +10,7 @@ import { calcularFrete, COLETA_PRICE_TIERS, type FreteResult } from '@/lib/utils
 import { MapPin, Truck, Loader2, AlertCircle, CheckCircle2, ArrowRight } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 
-export function FreteCalculator () {
-  const [cep, setCep] = useState('')
+export function FreteCalculator() {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<FreteResult | null>(null)
 
@@ -34,52 +34,51 @@ export function FreteCalculator () {
     return cepLimpo.slice(0, 8)
   }
 
+  const formik = useFormik({
+    initialValues: { cep: '' },
+    onSubmit: async (values) => {
+      const cepLimpo = values.cep.replace(/\D/g, '')
+
+      if (cepLimpo.length !== 8) {
+        formik.setFieldError('cep', 'Por favor, insira um CEP válido (8 dígitos)')
+        setResult({
+          distancia: 0,
+          valor: 0,
+          cepInfo: null,
+          erro: 'Por favor, insira um CEP válido (8 dígitos)'
+        })
+        return
+      }
+
+      setLoading(true)
+      setResult(null)
+
+      try {
+        const freteResult = await calcularFrete(values.cep)
+        setResult(freteResult)
+      } catch (err) {
+        setResult({
+          distancia: 0,
+          valor: 0,
+          cepInfo: null,
+          erro: 'Erro ao calcular o frete. Tente novamente.'
+        })
+      } finally {
+        setLoading(false)
+      }
+    }
+  })
+
   const handleCepChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const formatted = formatCep(e.target.value)
-    setCep(formatted)
+    formik.setFieldValue('cep', formatted)
+    formik.setFieldError('cep', undefined)
     setResult(null)
-  }
-
-  const handleCalculate = async () => {
-    const cepLimpo = cep.replace(/\D/g, '')
-    
-    if (cepLimpo.length !== 8) {
-      setResult({
-        distancia: 0,
-        valor: 0,
-        cepInfo: null,
-        erro: 'Por favor, insira um CEP válido (8 dígitos)'
-      })
-      return
-    }
-
-    setLoading(true)
-    setResult(null)
-
-    try {
-      const freteResult = await calcularFrete(cep)
-      setResult(freteResult)
-    } catch (error) {
-      setResult({
-        distancia: 0,
-        valor: 0,
-        cepInfo: null,
-        erro: 'Erro ao calcular o frete. Tente novamente.'
-      })
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      handleCalculate()
-    }
   }
 
   const handleAgendarColeta = () => {
     // Usa o CEP formatado do input ou do resultado
-    const cepFormatado = cep || (result?.cepInfo?.cep || '')
+    const cepFormatado = formik.values.cep || (result?.cepInfo?.cep || '')
     const texto = `Olá! Gostaria de agendar a coleta do meu celular em domicílio. CEP: ${cepFormatado}`
     const url = `https://wa.me/5531986140889?text=${encodeURIComponent(texto)}`
     window.open(url, '_blank', 'noopener,noreferrer')
@@ -97,23 +96,24 @@ export function FreteCalculator () {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="space-y-2">
+        <form onSubmit={formik.handleSubmit} className="space-y-2">
           <Label htmlFor="cep">CEP</Label>
           <div className="flex gap-2">
             <Input
               id="cep"
+              name="cep"
               type="text"
               placeholder="00000-000"
-              value={cep}
+              value={formik.values.cep}
               onChange={handleCepChange}
-              onKeyPress={handleKeyPress}
               maxLength={9}
               disabled={loading}
               className="flex-1"
+              aria-invalid={Boolean(formik.errors.cep)}
             />
             <Button
-              onClick={handleCalculate}
-              disabled={loading || !cep}
+              type="submit"
+              disabled={loading || !formik.values.cep}
               variant="default"
             >
               {loading ? (
@@ -129,7 +129,7 @@ export function FreteCalculator () {
           <p className="text-xs text-muted-foreground">
             * Coleta disponível apenas em Belo Horizonte
           </p>
-        </div>
+        </form>
 
         {result && (
           <div className="space-y-3">

@@ -307,6 +307,17 @@ export function getModelBySlug (brandSlug: string, deviceTypeSlug: string, model
   return { brand, deviceType, modelSlug }
 }
 
+export function getModelBySlugAnyType (brandSlug: string, modelSlug: string): { brand: Brand; deviceType: DeviceType; modelSlug: string } | undefined {
+  const brand = getBrandBySlug(brandSlug)
+  if (!brand) return undefined
+
+  for (const deviceType of Object.values(brand.deviceTypes)) {
+    if (deviceType.models.includes(modelSlug)) return { brand, deviceType, modelSlug }
+  }
+
+  return undefined
+}
+
 export function getAllServicePaths () {
   return services.map(service => ({ service: service.slug }))
 }

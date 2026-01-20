@@ -12,12 +12,7 @@ export function BrandCard ({ brand, serviceSlug }: BrandCardProps) {
     0
   )
   const totalDeviceTypes = Object.keys(brand.deviceTypes).length
-  const deviceTypes = Object.values(brand.deviceTypes)
-  
-  // Se há apenas um tipo de equipamento, redireciona direto para a lista de modelos
-  const href = totalDeviceTypes === 1
-    ? `/servicos/${serviceSlug}/${brand.slug}/${deviceTypes[0].slug}`
-    : `/servicos/${serviceSlug}/${brand.slug}`
+  const href = `/servicos/${brand.slug}/${serviceSlug}`
   
   return (
     <Link
@@ -28,10 +23,7 @@ export function BrandCard ({ brand, serviceSlug }: BrandCardProps) {
         {brand.displayName}
       </h3>
       <p className="text-muted-foreground text-sm">
-        {totalDeviceTypes === 1 
-          ? `${totalModels} ${totalModels === 1 ? 'modelo disponível' : 'modelos disponíveis'}`
-          : `${totalDeviceTypes} tipos de equipamento • ${totalModels} ${totalModels === 1 ? 'modelo' : 'modelos'}`
-        }
+        {`${totalDeviceTypes} tipos de equipamento • ${totalModels} ${totalModels === 1 ? 'modelo' : 'modelos'}`}
       </p>
     </Link>
   )

@@ -1,5 +1,9 @@
 import type { Service, Brand, DeviceType, Model, BreadcrumbItem } from '../types/seo'
 
+function getSiteUrl (): string {
+  return process.env.NEXT_PUBLIC_SITE_URL || 'https://conectize.com.br'
+}
+
 export function generatePageTitle (service: Service, brand?: Brand, deviceType?: DeviceType, model?: Model): string {
   if (model && deviceType && brand) {
     return `${service.name} do ${model.displayName || model.name} - ${deviceType.displayName} ${brand.displayName} | Conectize`
@@ -60,50 +64,34 @@ export function generateKeywords (service: Service, brand?: Brand, deviceType?: 
 export function generateBreadcrumbs (service: Service, brand?: Brand, deviceType?: DeviceType, model?: Model): BreadcrumbItem[] {
   const breadcrumbs: BreadcrumbItem[] = [
     { label: 'Home', href: '/' },
-    { label: 'Serviços', href: '/servicos' },
-    { label: service.name, href: `/servicos/${service.slug}` }
+    { label: 'Serviços', href: '/servicos' }
   ]
-  
+
   if (brand) {
-    breadcrumbs.push({
-      label: brand.displayName,
-      href: `/servicos/${service.slug}/${brand.slug}`
-    })
+    breadcrumbs.push({ label: brand.displayName, href: `/servicos?marca=${brand.slug}` })
+    breadcrumbs.push({ label: service.name, href: `/servicos/${brand.slug}/${service.slug}` })
+  } else {
+    breadcrumbs.push({ label: service.name, href: `/servicos?servico=${service.slug}` })
   }
-  
-  if (deviceType) {
-    breadcrumbs.push({
-      label: deviceType.displayName,
-      href: `/servicos/${service.slug}/${brand!.slug}/${deviceType.slug}`
-    })
-  }
-  
-  if (model) {
+
+  if (brand && model) {
     breadcrumbs.push({
       label: model.displayName || model.name,
-      href: `/servicos/${service.slug}/${brand!.slug}/${deviceType!.slug}/${model.slug}`
+      href: `/servicos/${brand.slug}/${service.slug}/${model.slug}`
     })
   }
-  
+
   return breadcrumbs
 }
 
 export function generateCanonicalUrl (service: Service, brand?: Brand, deviceType?: DeviceType, model?: Model): string {
-  const baseUrl = 'https://conectize.com.br'
-  
-  if (model && deviceType && brand) {
-    return `${baseUrl}/servicos/${service.slug}/${brand.slug}/${deviceType.slug}/${model.slug}`
-  }
-  if (deviceType && brand) {
-    return `${baseUrl}/servicos/${service.slug}/${brand.slug}/${deviceType.slug}`
-  }
-  if (brand) {
-    return `${baseUrl}/servicos/${service.slug}/${brand.slug}`
-  }
-  return `${baseUrl}/servicos/${service.slug}`
+  if (model && brand) return `/servicos/${brand.slug}/${service.slug}/${model.slug}`
+  if (brand) return `/servicos/${brand.slug}/${service.slug}`
+  return `/servicos?servico=${service.slug}`
 }
 
 export function generateStructuredData (service: Service, brand?: Brand, deviceType?: DeviceType, model?: Model) {
+  const siteUrl = getSiteUrl()
   const baseData = {
     '@context': 'https://schema.org',
     '@type': 'Service',
@@ -121,7 +109,7 @@ export function generateStructuredData (service: Service, brand?: Brand, deviceT
         addressCountry: 'BR'
       },
       telephone: '+5531986140889',
-      url: 'https://conectize.com.br'
+      url: siteUrl
     },
     areaServed: {
       '@type': 'City',
