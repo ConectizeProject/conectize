@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 
 /**
@@ -15,7 +15,7 @@ export async function GET(
   if (!id) return NextResponse.json({ error: 'ID obrigatório' }, { status: 400 })
 
   const supabase = await createSupabaseServerClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { user } = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
 
   const { data: appUser } = await supabase

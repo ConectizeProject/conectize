@@ -1,5 +1,5 @@
-﻿import { NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { NextResponse } from 'next/server'
+import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 
 function normalizeCpf (value: string) {
   return value.replace(/\D/g, '').trim()
@@ -51,8 +51,7 @@ export async function POST (request: Request) {
 
 
   const supabase = await createSupabaseServerClient()
-  const { data } = await supabase.auth.getUser()
-  const user = data?.user
+  const { user } = await getAuthUser()
 
   if (!user) {
     return NextResponse.json({ ok: false, error: 'not_authenticated' }, { status: 401 })

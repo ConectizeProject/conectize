@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 
 function cleanText(value: string) {
   return String(value || '').trim()
@@ -7,8 +7,7 @@ function cleanText(value: string) {
 
 async function requireStaffOrAdmin() {
   const supabase = await createSupabaseServerClient()
-  const { data } = await supabase.auth.getUser()
-  const user = data?.user
+  const { user } = await getAuthUser()
   if (!user) {
     return { ok: false as const, status: 401, error: 'not_authenticated' as const }
   }

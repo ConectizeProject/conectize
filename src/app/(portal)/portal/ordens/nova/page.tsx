@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 import { NovaOrdemClient } from './NovaOrdemClient'
 
 function normalizeCpf(value: string) {
@@ -85,8 +85,7 @@ async function createOrderAction(formData: FormData) {
   if (status !== 'orcamento' && status !== 'aprovado') redirect('/portal/ordens/nova?error=status_invalido')
 
   const supabase = await createSupabaseServerClient()
-  const { data: authData } = await supabase.auth.getUser()
-  const user = authData?.user
+  const { user } = await getAuthUser()
   if (!user) redirect('/portal/login')
 
   const { data: appUser } = await supabase
@@ -140,8 +139,7 @@ export default async function NovaOrdemPage({
   const { error } = await searchParams
 
   const supabase = await createSupabaseServerClient()
-  const { data: authData } = await supabase.auth.getUser()
-  const user = authData?.user
+  const { user } = await getAuthUser()
   if (!user) redirect('/portal/login')
 
   const { data: appUser } = await supabase

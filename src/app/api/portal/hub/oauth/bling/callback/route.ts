@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 
 const BLING_TOKEN_URL = 'https://www.bling.com.br/Api/v3/oauth/token'
@@ -13,8 +13,7 @@ function getBaseUrl() {
 
 export async function GET(request: NextRequest) {
   const supabase = await createSupabaseServerClient()
-  const { data: authData } = await supabase.auth.getUser()
-  const user = authData?.user
+  const { user } = await getAuthUser()
   if (!user) {
     return NextResponse.redirect(new URL('/portal/login', getBaseUrl()))
   }

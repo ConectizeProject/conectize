@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 import { OrderStatusBadge } from '@/components/orders'
 import { formatDateTimeBr } from '@/lib/utils/format-date'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -9,8 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 
 export default async function MinhasOrdensPage() {
   const supabase = await createSupabaseServerClient()
-  const { data } = await supabase.auth.getUser()
-  const user = data?.user
+  const { user } = await getAuthUser()
 
   //todo: deve ser feito de forma mais segura, com middleware, em um contxto mais global, contemplando todas as rotas protegidas
   if (!user) redirect('/portal/login')
