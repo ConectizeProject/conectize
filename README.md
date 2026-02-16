@@ -55,6 +55,16 @@ conectize/
 └── next.config.js         # Configuração do Next.js
 ```
 
+## Variáveis de ambiente (integrações)
+
+Para conectar com o Bling via OAuth 2.0, configure:
+
+- `BLING_CLIENT_ID` - Client ID do aplicativo no [developer.bling.com.br](https://developer.bling.com.br/aplicativos)
+- `BLING_CLIENT_SECRET` - Client Secret do aplicativo
+- `NEXT_PUBLIC_SITE_URL` - URL base do site (ex: `https://seu-dominio.com` ou `http://localhost:3000`)
+
+**Importante:** Cadastre a URL de redirecionamento no aplicativo Bling: `{NEXT_PUBLIC_SITE_URL}/api/portal/hub/oauth/bling/callback`
+
 ## Deploy
 
 Este projeto pode ser deployado em:

@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import { createServerClient } from '@supabase/ssr'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { parseServiceProductSlug } from './src/lib/utils/service-product-slug'
 import { brands, services } from './src/lib/data/services'
 import { buildServiceProductSlug } from './src/lib/utils/service-product-slug'
@@ -7,7 +9,32 @@ import { buildServiceProductSlug } from './src/lib/utils/service-product-slug'
 const serviceSlugs = new Set(services.map(s => s.slug))
 const brandSlugs = new Set(Object.keys(brands))
 
-export function middleware (request: NextRequest) {
+function getSupabaseEnv() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+  if (!url) throw new Error('Missing env: NEXT_PUBLIC_SUPABASE_URL')
+  if (!anonKey) throw new Error('Missing env: NEXT_PUBLIC_SUPABASE_ANON_KEY')
+
+  return { url, anonKey }
+}
+
+async function getUserRole(supabase: SupabaseClient) {
+  const { data: authData } = await supabase.auth.getUser()
+  const user = authData?.user
+  if (!user) return { user: null, role: null }
+
+  const { data: appUser } = await supabase
+    .from('users')
+    .select('role')
+    .eq('id', user.id)
+    .maybeSingle()
+
+  const role = appUser?.role || 'user'
+  return { user, role }
+}
+
+export async function middleware(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl
 
   if (
@@ -18,6 +45,108 @@ export function middleware (request: NextRequest) {
     pathname.startsWith('/sitemap.xml')
   ) {
     return NextResponse.next()
+  }
+
+  if (pathname === '/portal') {
+    // deixa a lógica de redirect do /portal centralizada no bloco abaixo
+  }
+
+  if (pathname === '/portal' || pathname.startsWith('/portal/')) {
+    const url = request.nextUrl.clone()
+
+    const isPublicPortalPath =
+      pathname === '/portal/login' ||
+      pathname === '/portal/auth/callback' ||
+      pathname === '/portal/redefinir-senha'
+
+    const response = NextResponse.next()
+    response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')
+
+    let supabaseUrl: string
+    let anonKey: string
+    try {
+      const env = getSupabaseEnv()
+      supabaseUrl = env.url
+      anonKey = env.anonKey
+    } catch (err) {
+      if (isPublicPortalPath) return response
+
+      url.pathname = '/portal/login'
+      url.searchParams.set('redirectTo', pathname)
+      const redirect = NextResponse.redirect(url)
+      redirect.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')
+      return redirect
+    }
+
+    const supabase = createServerClient(supabaseUrl, anonKey, {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll()
+        },
+        setAll(cookiesToSet) {
+          for (const cookie of cookiesToSet) {
+            response.cookies.set(cookie.name, cookie.value, cookie.options)
+          }
+        }
+      }
+    })
+
+    const { user, role } = await getUserRole(supabase)
+
+    if (!user) {
+      if (isPublicPortalPath) return response
+
+      url.pathname = '/portal/login'
+      url.searchParams.set('redirectTo', pathname)
+      const redirect = NextResponse.redirect(url)
+      redirect.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')
+      return redirect
+    }
+
+    const isBasicUser = role === 'user' || role === 'customer' || !role
+
+    // Logged in
+    if (pathname === '/portal') {
+      url.pathname = isBasicUser ? '/portal/minhas-ordens' : '/portal/dashboard'
+      url.search = ''
+      const redirect = NextResponse.redirect(url)
+      redirect.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')
+      return redirect
+    }
+
+    // Cliente: só pode ver as próprias OS (+ completar perfil)
+    if (isBasicUser) {
+      const allowed =
+        pathname === '/portal/minhas-ordens' ||
+        pathname.startsWith('/portal/minhas-ordens/') ||
+        pathname === '/portal/complete-profile' ||
+        pathname.startsWith('/portal/complete-profile/')
+
+      if (!allowed && !isPublicPortalPath) {
+        url.pathname = '/portal/minhas-ordens'
+        url.search = ''
+        const redirect = NextResponse.redirect(url)
+        redirect.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')
+        return redirect
+      }
+
+      return response
+    }
+
+    // Staff: não pode admin
+    if (role === 'staff') {
+      if (pathname.startsWith('/portal/admin')) {
+        url.pathname = '/portal/dashboard'
+        url.search = ''
+        const redirect = NextResponse.redirect(url)
+        redirect.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')
+        return redirect
+      }
+      return response
+    }
+
+    // Admin: acesso total
+    return response
   }
 
   if (!pathname.startsWith('/servicos/')) return NextResponse.next()
@@ -107,6 +236,6 @@ export function middleware (request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/servicos/:path*'],
+  matcher: ['/servicos/:path*', '/portal/:path*'],
 }
 
