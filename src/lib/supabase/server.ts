@@ -1,3 +1,4 @@
+import { cache } from 'react'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { getSupabaseEnv } from './env'
@@ -22,6 +23,21 @@ export async function getAuthUser () {
     },
   }
 }
+
+/** Auth + role do portal. Cacheado por request para evitar fetches duplicados (layout + page). */
+export const getPortalAuth = cache(async () => {
+  const supabase = await createSupabaseServerClient()
+  const { user } = await getAuthUser()
+  if (!user) return { user: null, role: 'user' as const, fullName: '' }
+  const { data: appUser } = await supabase
+    .from('users')
+    .select('role, full_name')
+    .eq('id', user.id)
+    .maybeSingle()
+  const role = appUser?.role || 'user'
+  const fullName = String(appUser?.full_name || '').trim()
+  return { user, role, fullName }
+})
 
 export async function createSupabaseServerClient () {
   const { url, anonKey } = getSupabaseEnv()

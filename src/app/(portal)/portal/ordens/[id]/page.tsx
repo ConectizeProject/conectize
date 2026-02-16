@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
+import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -78,20 +78,13 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
   const { id } = await params
   const { error } = await searchParams
 
-  const supabase = await createSupabaseServerClient()
-  const { user } = await getAuthUser()
+  const { user, role } = await getPortalAuth()
   if (!user) redirect('/portal/login')
 
-  const { data: appUser } = await supabase
-    .from('users')
-    .select('role')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  const role = appUser?.role || 'user'
   const normalizedRole = role === 'customer' ? 'user' : role
   if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
 
+  const supabase = await createSupabaseServerClient()
   const [{ data: order }, { data: companySettings }] = await Promise.all([
     supabase
       .from('service_orders')
@@ -155,20 +148,13 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
     if (!title) redirect(`/portal/ordens/${id}?error=titulo_obrigatorio`)
     if (!isValidStatus(status)) redirect(`/portal/ordens/${id}?error=status_invalido`)
 
-    const supabase = await createSupabaseServerClient()
-    const { user } = await getAuthUser()
+    const { user, role } = await getPortalAuth()
     if (!user) redirect('/portal/login')
 
-    const { data: appUser } = await supabase
-      .from('users')
-      .select('role')
-      .eq('id', user.id)
-      .maybeSingle()
-
-    const role = appUser?.role || 'user'
     const normalizedRole = role === 'customer' ? 'user' : role
     if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
 
+    const supabase = await createSupabaseServerClient()
     const { error } = await supabase
       .from('service_orders')
       .update({
@@ -198,20 +184,13 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
     const orderId = String(formData.get('orderId') || '').trim()
     if (!orderId) redirect('/portal/ordens?error=dados_invalidos')
 
-    const supabase = await createSupabaseServerClient()
-    const { user } = await getAuthUser()
+    const { user, role } = await getPortalAuth()
     if (!user) redirect('/portal/login')
 
-    const { data: appUser } = await supabase
-      .from('users')
-      .select('role')
-      .eq('id', user.id)
-      .maybeSingle()
-
-    const role = appUser?.role || 'user'
     const normalizedRole = role === 'customer' ? 'user' : role
     if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
 
+    const supabase = await createSupabaseServerClient()
     const { error } = await supabase
       .from('service_orders')
       .delete()
@@ -232,7 +211,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
           <p className="text-sm text-muted-foreground">
             {customer?.is_company
               ? customer?.company_name
-              : customer?.full_name} • {customer?.cnpj ? `CNPJ ${customer.cnpj}` : `CPF ${customer?.cpf || '-'}`}
+              : customer?.full_name} • {customer?.cnpj ? `CNPJ ${formatCpfCnpj(customer.cnpj)}` : `CPF ${customer?.cpf ? formatCpfCnpj(customer.cpf) : '-'}`}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">

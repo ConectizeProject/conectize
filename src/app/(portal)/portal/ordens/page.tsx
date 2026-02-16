@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
+import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import { Button } from '@/components/ui/button'
 import { OrderStatusBadge } from '@/components/orders'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -52,26 +52,20 @@ export default async function OrdensPage({
   const toastId = String(id || '').trim()
   const toastError = String(error || '').trim()
 
-  const supabase = await createSupabaseServerClient()
-  const { user } = await getAuthUser()
+  const { user, role } = await getPortalAuth()
   if (!user) redirect('/portal/login')
 
-  const { data: appUser } = await supabase
-    .from('users')
-    .select('role')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  const role = appUser?.role || 'user'
   const normalizedRole = role === 'customer' ? 'user' : role
   if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
+
+  const supabase = await createSupabaseServerClient()
 
   const from = (currentPage - 1) * pageSize
   const to = from + pageSize - 1
 
   const baseQuery = supabase
     .from('service_orders')
-    .select('id, display_number, status, title, created_at, updated_at, estimated_ready_at, share_token, customers ( cpf, cnpj, is_company, full_name, company_name, email, mobile_phone ), device_models ( brand, device_type, model )', { count: 'exact' })
+    .select('id, display_number, status, title, created_at, updated_at, estimated_ready_at, share_token, customers ( cpf, cnpj, is_company, full_name, company_name, email, mobile_phone ), device_models ( brand, device_type, model )', { count: 'planned' })
     .order('created_at', { ascending: false })
 
   if (query) {
@@ -157,8 +151,8 @@ export default async function OrdensPage({
                 id="cpf"
                 name="cpf"
                 inputMode="numeric"
-                placeholder="Somente números"
-                defaultValue={cpfDigits}
+                placeholder="Ex: 000.000.000-00"
+                defaultValue={cpfDigits ? formatCpfCnpj(cpfDigits) : ''}
               />
             </div>
             <div className="space-y-2">
@@ -255,8 +249,13 @@ export default async function OrdensPage({
               </TableBody>
             </Table>
           ) : (
-            <div className="text-sm text-muted-foreground">
-              Nenhuma ordem encontrada.
+            <div className="flex flex-col items-center justify-center py-12 px-4">
+              <img src="/empty-ordens.svg" alt="" className="w-36 h-36 mx-auto mb-5 object-contain" aria-hidden />
+              <p className="text-base font-medium text-muted-foreground">Nenhuma ordem encontrada</p>
+              <p className="text-sm text-muted-foreground/80 mt-1.5 max-w-xs text-center">Cadastre uma nova ordem ou ajuste os filtros da busca.</p>
+              <Button asChild className="mt-4">
+                <Link href="/portal/ordens/nova">Nova ordem</Link>
+              </Button>
             </div>
           )}
 

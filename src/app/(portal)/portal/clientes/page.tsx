@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
+import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -25,19 +25,13 @@ export default async function ClientesPage({
 	const query = String(q || '').trim()
 	const documentDigits = normalizeCpf(String(document || ''))
 
-	const supabase = await createSupabaseServerClient()
-	const { user } = await getAuthUser()
+	const { user, role } = await getPortalAuth()
 	if (!user) redirect('/portal/login')
 
-	const { data: appUser } = await supabase
-		.from('users')
-		.select('role')
-		.eq('id', user.id)
-		.maybeSingle()
-
-	const role = appUser?.role || 'user'
 	const normalizedRole = role === 'customer' ? 'user' : role
 	if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
+
+	const supabase = await createSupabaseServerClient()
 
 	const customersQuery = supabase
 		.from('customers')

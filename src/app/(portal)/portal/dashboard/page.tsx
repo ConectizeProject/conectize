@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
+import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { OrderStatusBadge } from '@/components/orders'
@@ -9,19 +9,13 @@ import { formatDateTimeBr } from '@/lib/utils/format-date'
 export const dynamic = 'force-dynamic'
 
 export default async function DashboardPage() {
-  const supabase = await createSupabaseServerClient()
-  const { user } = await getAuthUser()
+  const { user, role } = await getPortalAuth()
   if (!user) redirect('/portal/login')
 
-  const { data: appUser } = await supabase
-    .from('users')
-    .select('role')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  const role = appUser?.role || 'user'
   const normalizedRole = role === 'customer' ? 'user' : role
   if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
+
+  const supabase = await createSupabaseServerClient()
 
   const openStatuses = [
     'orcamento',
@@ -34,11 +28,11 @@ export default async function DashboardPage() {
   const [{ count: openOrdersCount }, { count: customersCount }, { data: latestOrders }] = await Promise.all([
     supabase
       .from('service_orders')
-      .select('id', { count: 'exact', head: true })
+      .select('id', { count: 'planned', head: true })
       .in('status', openStatuses),
     supabase
       .from('customers')
-      .select('id', { count: 'exact', head: true }),
+      .select('id', { count: 'planned', head: true }),
     supabase
       .from('service_orders')
       .select('id, display_number, status, title, created_at, customers ( full_name, company_name, is_company )')

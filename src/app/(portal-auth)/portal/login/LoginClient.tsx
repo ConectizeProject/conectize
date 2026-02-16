@@ -461,7 +461,11 @@ export function LoginClient() {
                       ))}
                     </div>
                   ) : (
-                    <p className="text-sm text-muted-foreground">Nenhuma OS encontrada.</p>
+                    <div className="flex flex-col items-center justify-center py-8 px-4">
+                      <img src="/empty-ordens.svg" alt="" className="w-28 h-28 mx-auto mb-4 object-contain" aria-hidden />
+                      <p className="text-sm font-medium text-muted-foreground">Nenhuma OS encontrada</p>
+                      <p className="text-xs text-muted-foreground/80 mt-1 text-center">Verifique o CPF e data de nascimento informados.</p>
+                    </div>
                   )
                 ) : null}
               </TabsContent>

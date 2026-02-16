@@ -20,6 +20,7 @@ export default async function HubPage() {
   const role = appUser?.role || 'user'
   const normalizedRole = role === 'customer' ? 'user' : role
   if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
+  if (normalizedRole === 'staff') redirect('/portal/ordens')
 
   const { data: connections } = await supabase
     .from('hub_connections')
