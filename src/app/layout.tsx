@@ -1,10 +1,18 @@
 import type { Metadata } from 'next'
 import Script from 'next/script'
+import { Outfit } from 'next/font/google'
 import { Providers } from '@/providers/providers'
 import { NuqsAdapter } from 'nuqs/adapters/next/app'
 import './globals.css'
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://conectize.com.br'
+
+const outfit = Outfit({
+  subsets: ['latin'],
+  weight: ['300', '400', '500', '600', '700', '800'],
+  display: 'swap',
+  variable: '--font-outfit'
+})
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
@@ -115,7 +123,7 @@ export default function RootLayout ({
   children: React.ReactNode
 }) {
   return (
-    <html lang="pt-BR">
+    <html lang="pt-BR" className={outfit.variable}>
       <body>
         <Script
           src="https://www.googletagmanager.com/gtag/js?id=G-1E45FFLYQY"
@@ -142,4 +150,6 @@ export default function RootLayout ({
     </html>
   )
 }
+
+
 

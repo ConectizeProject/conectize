@@ -54,6 +54,11 @@ const Header = () => {
             <Link href="/lojistas" className="text-foreground/80 hover:text-primary transition-colors font-medium">
               Lojistas
             </Link>
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/portal">
+                Área do cliente
+              </Link>
+            </Button>
             <Button variant="hero" size="sm" asChild>
               <Link href="/contato">
                 Fale Conosco
@@ -105,6 +110,13 @@ const Header = () => {
                 className="text-foreground/80 hover:text-primary transition-colors font-medium text-left py-2"
               >
                 Lojistas
+              </Link>
+              <Link
+                href="/portal"
+                onClick={() => setIsMenuOpen(false)}
+                className="text-foreground/80 hover:text-primary transition-colors font-medium text-left py-2"
+              >
+                Área do cliente
               </Link>
               <Button variant="hero" asChild>
                 <Link href="/contato" onClick={() => setIsMenuOpen(false)}>
