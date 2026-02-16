@@ -10,6 +10,13 @@ import Footer from '@/components/Footer'
 
 export const dynamic = 'force-dynamic'
 
+export const metadata = {
+  robots: {
+    index: false,
+    follow: false,
+  },
+}
+
 function getCustomerFromOrder(order: any) {
   const customer = order?.customers
   if (Array.isArray(customer)) return customer[0] || null

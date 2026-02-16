@@ -8,20 +8,10 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { getAuthErrorMessage } from '@/lib/utils/error-messages'
 
 function isValidPassword (value: string) {
   return value.length >= 8
-}
-
-function getAuthErrorMessage (error: unknown) {
-  const message = typeof error === 'object' && error && 'message' in error ? String((error as any).message || '') : ''
-  const normalized = message.toLowerCase()
-
-  if (normalized.includes('password should be at least')) return 'Sua senha não atende aos requisitos mínimos.'
-  if (normalized.includes('same password')) return 'A nova senha precisa ser diferente da senha atual.'
-  if (normalized.includes('too many requests')) return 'Muitas tentativas. Aguarde um pouco e tente novamente.'
-
-  return 'Não foi possível redefinir sua senha. Tente novamente.'
 }
 
 export function ResetPasswordClient () {
@@ -96,7 +86,7 @@ export function ResetPasswordClient () {
       const { error } = await supabase.auth.updateUser({ password })
 
       if (error) {
-        setErrorMessage(getAuthErrorMessage(error))
+        setErrorMessage(getAuthErrorMessage(error, 'Não foi possível redefinir sua senha. Tente novamente.'))
         return
       }
 
