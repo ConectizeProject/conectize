@@ -58,20 +58,28 @@ export function PortalShell(props: PortalShellProps) {
 
 	const normalizedRole = props.role === 'customer' ? 'user' : props.role
 	const isBasicUser = normalizedRole === 'user' || !normalizedRole
+	const isStaff = normalizedRole === 'staff'
 	const displayName = props.userName || props.userEmail
 
 	const items = isBasicUser
 		? [
 			{ href: '/portal/minhas-ordens', label: 'Minhas ordens', icon: ClipboardList },
 		]
-		: [
-			{ href: '/portal/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-			{ href: '/portal/ordens', label: 'Ordens de serviço', icon: ClipboardList },
-			{ href: '/portal/clientes', label: 'Clientes', icon: Users },
-			{ href: '/portal/admin/usuarios', label: 'Usuários', icon: UserCheck },
-			{ href: '/portal/hub', label: 'HUB', icon: Plug2 },
-			{ href: '/portal/aparelhos', label: 'Aparelhos', icon: Smartphone },
-		]
+		: isStaff
+			? [
+				{ href: '/portal/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+				{ href: '/portal/ordens', label: 'Ordens de serviço', icon: ClipboardList },
+				{ href: '/portal/clientes', label: 'Clientes', icon: Users },
+				{ href: '/portal/aparelhos', label: 'Aparelhos', icon: Smartphone },
+			]
+			: [
+				{ href: '/portal/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+				{ href: '/portal/ordens', label: 'Ordens de serviço', icon: ClipboardList },
+				{ href: '/portal/clientes', label: 'Clientes', icon: Users },
+				{ href: '/portal/admin/usuarios', label: 'Usuários', icon: UserCheck },
+				{ href: '/portal/hub', label: 'HUB', icon: Plug2 },
+				{ href: '/portal/aparelhos', label: 'Aparelhos', icon: Smartphone },
+			]
 
 	return (
 		<SidebarProvider defaultOpen>
@@ -128,14 +136,6 @@ export function PortalShell(props: PortalShellProps) {
 								<Link href="/">
 									<Home />
 									<span>Voltar para o site</span>
-								</Link>
-							</SidebarMenuButton>
-						</SidebarMenuItem>
-						<SidebarMenuItem>
-							<SidebarMenuButton asChild tooltip="Sair">
-								<Link href="/portal/logout">
-									<LogOut />
-									<span>Sair</span>
 								</Link>
 							</SidebarMenuButton>
 						</SidebarMenuItem>

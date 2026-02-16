@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
+import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { OrderStatusBadge } from '@/components/orders'
 import { formatDateTimeBr } from '@/lib/utils/format-date'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -64,7 +65,7 @@ export default async function MinhasOrdensPage() {
       <div>
         <h1 className="text-2xl font-bold">Minhas ordens de serviço</h1>
         <p className="text-sm text-muted-foreground">
-          {customer?.full_name ? customer.full_name : 'Cliente'} • CPF {effectiveCpf || '-'}
+          {customer?.full_name ? customer.full_name : 'Cliente'} • CPF {effectiveCpf ? formatCpfCnpj(effectiveCpf) : '-'}
         </p>
       </div>
 
@@ -102,16 +103,14 @@ export default async function MinhasOrdensPage() {
               </TableBody>
             </Table>
           ) : (
-            <div className="text-sm text-muted-foreground">
-              Nenhuma OS encontrada.
+            <div className="flex flex-col items-center justify-center py-12 px-4">
+              <img src="/empty-ordens.svg" alt="" className="w-36 h-36 mx-auto mb-5 object-contain" aria-hidden />
+              <p className="text-base font-medium text-muted-foreground">Nenhuma OS encontrada</p>
+              <p className="text-sm text-muted-foreground/80 mt-1.5 max-w-xs text-center">Suas ordens de serviço aparecerão aqui quando forem vinculadas ao seu CPF.</p>
             </div>
           )}
         </CardContent>
       </Card>
-
-      <p className="text-sm text-muted-foreground">
-        Precisa de ajuda? <Link href="/contato" className="underline">Fale conosco</Link>.
-      </p>
     </div>
   )
 }

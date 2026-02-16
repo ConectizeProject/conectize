@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
+import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import { NovaOrdemClient } from './NovaOrdemClient'
 
 function normalizeCpf(value: string) {
@@ -84,19 +84,13 @@ async function createOrderAction(formData: FormData) {
   if (!title) redirect('/portal/ordens/nova?error=title_obrigatorio')
   if (status !== 'orcamento' && status !== 'aprovado') redirect('/portal/ordens/nova?error=status_invalido')
 
-  const supabase = await createSupabaseServerClient()
-  const { user } = await getAuthUser()
+  const { user, role } = await getPortalAuth()
   if (!user) redirect('/portal/login')
 
-  const { data: appUser } = await supabase
-    .from('users')
-    .select('role')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  const role = appUser?.role || 'user'
   const normalizedRole = role === 'customer' ? 'user' : role
   if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
+
+  const supabase = await createSupabaseServerClient()
 
   const { data: insertedOrder, error } = await supabase
     .from('service_orders')
@@ -138,21 +132,13 @@ export default async function NovaOrdemPage({
 }) {
   const { error } = await searchParams
 
-  const supabase = await createSupabaseServerClient()
-  const { user } = await getAuthUser()
+  const { user, role, fullName } = await getPortalAuth()
   if (!user) redirect('/portal/login')
 
-  const { data: appUser } = await supabase
-    .from('users')
-    .select('role, full_name')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  const role = appUser?.role || 'user'
   const normalizedRole = role === 'customer' ? 'user' : role
   if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
 
-  const sellerName = String(appUser?.full_name || user.email || '')
+  const sellerName = fullName || user.email || ''
 
   return (
     <NovaOrdemClient

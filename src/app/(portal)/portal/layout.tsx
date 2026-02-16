@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
+import { getPortalAuth } from '@/lib/supabase/server'
 import { PortalShell } from './PortalShell'
 
 export const dynamic = 'force-dynamic'
@@ -16,25 +16,16 @@ export default async function PortalLayout({
 }: {
   children: React.ReactNode
 }) {
-  const supabase = await createSupabaseServerClient()
-  const { user } = await getAuthUser()
+  const { user, role, fullName } = await getPortalAuth()
   if (!user) {
     redirect('/portal/login?redirectTo=/portal')
   }
-
-  const { data: appUser } = await supabase
-    .from('users')
-    .select('role, full_name')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  const role = appUser?.role || 'user'
 
   return (
     <PortalShell
       role={role}
       userEmail={user.email || ''}
-      userName={String(appUser?.full_name || '').trim()}
+      userName={fullName}
     >
       {children}
     </PortalShell>

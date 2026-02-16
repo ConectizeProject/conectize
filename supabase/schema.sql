@@ -11,6 +11,8 @@ create or replace function public.is_admin ()
 returns boolean
 language sql
 stable
+security definer
+set search_path = public
 as $$
   select exists (
     select 1
@@ -24,6 +26,8 @@ create or replace function public.is_staff_or_admin ()
 returns boolean
 language sql
 stable
+security definer
+set search_path = public
 as $$
   select exists (
     select 1
@@ -579,6 +583,7 @@ where seller_user_id is null and created_by is not null;
 
 create index if not exists service_orders_customer_id_idx on public.service_orders(customer_id);
 create index if not exists service_orders_created_at_idx on public.service_orders(created_at desc);
+create index if not exists service_orders_status_idx on public.service_orders(status);
 
 -- Identificador único visível para usuários (OS #0, #1, #2...)
 do $$

@@ -137,10 +137,10 @@ export async function middleware(request: NextRequest) {
       return response
     }
 
-    // Staff: não pode admin
+    // Staff: não pode admin nem hub
     if (role === 'staff') {
-      if (pathname.startsWith('/portal/admin')) {
-        url.pathname = '/portal/dashboard'
+      if (pathname.startsWith('/portal/admin') || pathname === '/portal/hub' || pathname.startsWith('/portal/hub/')) {
+        url.pathname = '/portal/ordens'
         url.search = ''
         const redirect = NextResponse.redirect(url)
         redirect.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')
