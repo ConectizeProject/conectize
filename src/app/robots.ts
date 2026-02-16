@@ -6,7 +6,7 @@ export default function robots (): MetadataRoute.Robots {
       {
         userAgent: '*',
         allow: '/',
-        disallow: ['/api/', '/_next/', '/portal/'],
+        disallow: ['/api/', '/_next/', '/portal/', '/os/'],
       },
     ],
     sitemap: 'https://conectize.com.br/sitemap.xml',

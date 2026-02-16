@@ -1,16 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-
-function onlyDigits(value: string) {
-  return String(value || '').replace(/\D/g, '')
-}
-
-function isValidCpf(value: string) {
-  const cpf = onlyDigits(value)
-  if (cpf.length !== 11) return false
-  if (/^(\d)\1{10}$/.test(cpf)) return false
-  return true
-}
+import { isValidCpf, onlyDigits } from '@/lib/utils/strings'
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL

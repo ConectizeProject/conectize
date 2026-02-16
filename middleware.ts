@@ -19,19 +19,23 @@ function getSupabaseEnv() {
   return { url, anonKey }
 }
 
+/**
+ * Valida sessão via getClaims (JWT nos cookies, sem chamada ao Auth server).
+ * getUser() no Edge pode falhar mesmo com cookies corretos; getClaims() valida localmente.
+ */
 async function getUserRole(supabase: SupabaseClient) {
-  const { data: authData } = await supabase.auth.getUser()
-  const user = authData?.user
-  if (!user) return { user: null, role: null }
+  const { data: claimsData } = await supabase.auth.getClaims()
+  const sub = claimsData?.claims?.sub
+  if (!sub) return { user: null, role: null }
 
   const { data: appUser } = await supabase
     .from('users')
     .select('role')
-    .eq('id', user.id)
+    .eq('id', sub)
     .maybeSingle()
 
   const role = appUser?.role || 'user'
-  return { user, role }
+  return { user: { id: sub }, role }
 }
 
 export async function middleware(request: NextRequest) {

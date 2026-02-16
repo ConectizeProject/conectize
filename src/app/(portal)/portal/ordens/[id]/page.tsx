@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -79,8 +79,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
   const { error } = await searchParams
 
   const supabase = await createSupabaseServerClient()
-  const { data: authData } = await supabase.auth.getUser()
-  const user = authData?.user
+  const { user } = await getAuthUser()
   if (!user) redirect('/portal/login')
 
   const { data: appUser } = await supabase
@@ -157,8 +156,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
     if (!isValidStatus(status)) redirect(`/portal/ordens/${id}?error=status_invalido`)
 
     const supabase = await createSupabaseServerClient()
-    const { data } = await supabase.auth.getUser()
-    const user = data?.user
+    const { user } = await getAuthUser()
     if (!user) redirect('/portal/login')
 
     const { data: appUser } = await supabase
@@ -201,8 +199,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
     if (!orderId) redirect('/portal/ordens?error=dados_invalidos')
 
     const supabase = await createSupabaseServerClient()
-    const { data } = await supabase.auth.getUser()
-    const user = data?.user
+    const { user } = await getAuthUser()
     if (!user) redirect('/portal/login')
 
     const { data: appUser } = await supabase

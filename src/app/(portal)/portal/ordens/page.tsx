@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 import { Button } from '@/components/ui/button'
 import { OrderStatusBadge } from '@/components/orders'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -53,8 +53,7 @@ export default async function OrdensPage({
   const toastError = String(error || '').trim()
 
   const supabase = await createSupabaseServerClient()
-  const { data } = await supabase.auth.getUser()
-  const user = data?.user
+  const { user } = await getAuthUser()
   if (!user) redirect('/portal/login')
 
   const { data: appUser } = await supabase

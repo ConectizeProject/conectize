@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 
 const BLING_AUTHORIZE_URL = 'https://www.bling.com.br/Api/v3/oauth/authorize'
@@ -12,8 +12,7 @@ function getBaseUrl() {
 
 async function requireAdmin() {
   const supabase = await createSupabaseServerClient()
-  const { data } = await supabase.auth.getUser()
-  const user = data?.user
+  const { user } = await getAuthUser()
   if (!user) return { ok: false as const, status: 401, error: 'not_authenticated' }
 
   const { data: appUser } = await supabase
