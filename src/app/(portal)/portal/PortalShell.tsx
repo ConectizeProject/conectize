@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Building2, ChevronDown, ClipboardList, Home, LayoutDashboard, LogOut, Plug2, Settings, UserCheck, Smartphone, Users } from 'lucide-react'
+import { Building2, ChevronDown, ClipboardList, Home, LayoutDashboard, LogOut, Moon, Plug2, Settings, Sun, UserCheck, Smartphone, Users } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
 	DropdownMenu,
@@ -14,12 +14,10 @@ import {
 import {
 	Sidebar,
 	SidebarContent,
-	SidebarFooter,
 	SidebarGroup,
 	SidebarGroupContent,
 	SidebarGroupLabel,
 	SidebarHeader,
-	SidebarSeparator,
 	SidebarInset,
 	SidebarMenu,
 	SidebarMenuButton,
@@ -28,6 +26,7 @@ import {
 	SidebarRail,
 	SidebarTrigger,
 } from '@/components/ui/sidebar'
+import { useTheme } from 'next-themes'
 import { cn } from '@/lib/utils'
 
 type PortalShellProps = {
@@ -55,6 +54,11 @@ function isActivePath(pathname: string, href: string) {
 
 export function PortalShell(props: PortalShellProps) {
 	const pathname = usePathname()
+	const { setTheme, resolvedTheme } = useTheme()
+
+	function toggleTheme() {
+		setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')
+	}
 
 	const normalizedRole = props.role === 'customer' ? 'user' : props.role
 	const isBasicUser = normalizedRole === 'user' || !normalizedRole
@@ -82,12 +86,12 @@ export function PortalShell(props: PortalShellProps) {
 			]
 
 	return (
-		<SidebarProvider defaultOpen>
+		<SidebarProvider defaultOpen={false}>
 			<Sidebar collapsible="icon" variant="inset">
 				<SidebarHeader>
 					<Link href="/portal" className="flex items-center gap-2 px-2 py-1">
-						<img src="/logo_conectize.svg" alt="Conectize" width={90} height={88} className="h-6 w-auto" />
-						<span className="font-semibold">Portal</span>
+						<img src="/logo_conectize.svg" alt="Conectize" className="h-6 w-auto shrink-0" />
+						<span className="font-semibold truncate group-data-[collapsible=icon]:hidden">Portal</span>
 					</Link>
 				</SidebarHeader>
 
@@ -128,19 +132,6 @@ export function PortalShell(props: PortalShellProps) {
 					</SidebarGroup>
 				</SidebarContent>
 
-				<SidebarFooter>
-					<SidebarSeparator />
-					<SidebarMenu>
-						<SidebarMenuItem>
-							<SidebarMenuButton asChild variant="outline" tooltip="Voltar para o site">
-								<Link href="/">
-									<Home />
-									<span>Voltar para o site</span>
-								</Link>
-							</SidebarMenuButton>
-						</SidebarMenuItem>
-					</SidebarMenu>
-				</SidebarFooter>
 				<SidebarRail />
 			</Sidebar>
 
@@ -154,6 +145,24 @@ export function PortalShell(props: PortalShellProps) {
 					</div>
 
 					<div className="flex items-center gap-3">
+						<Link
+							href="/"
+							className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+						>
+							<Home className="h-4 w-4" />
+							<span className="hidden sm:inline">Voltar para o site</span>
+						</Link>
+						<button
+							type="button"
+							onClick={toggleTheme}
+							className="relative rounded-md p-2 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+							aria-label="Alternar tema"
+						>
+							<Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+							<Moon className="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+							<span className="sr-only">Alternar tema</span>
+						</button>
+
 						<DropdownMenu>
 							<DropdownMenuTrigger asChild>
 								<button

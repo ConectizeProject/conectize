@@ -2,7 +2,13 @@
  * Mapeamento de erros para mensagens amigáveis ao usuário
  */
 
-/** Padrões de erro de autenticação (substring) -> mensagem em português */
+/** Códigos de erro de autenticação -> mensagem em português */
+export const AUTH_ERROR_CODES: Record<string, string> = {
+  over_email_send_rate_limit:
+    'Por segurança, há um limite de envio de e-mails. Aguarde alguns segundos antes de solicitar novame nte.',
+}
+
+/** Padrões de erro de autenticação (substring na mensagem) -> mensagem em português */
 export const AUTH_ERROR_PATTERNS: Array<[string, string]> = [
   ['invalid login credentials', 'E-mail ou senha inválidos.'],
   ['email not confirmed', 'Seu e-mail ainda não foi confirmado.'],
@@ -13,6 +19,7 @@ export const AUTH_ERROR_PATTERNS: Array<[string, string]> = [
   ['user not found', 'Usuário não encontrado.'],
   ['too many requests', 'Muitas tentativas. Aguarde um pouco e tente novamente.'],
   ['email rate limit exceeded', 'Você já solicitou muitos e-mails. Tente novamente mais tarde.'],
+  ['you can only request this after', 'Por segurança, há um limite de envio de e-mails. Aguarde alguns segundos antes de solicitar novamente.'],
 ]
 
 /** Códigos de erro da busca de OS -> mensagem em português */
@@ -33,6 +40,11 @@ export function getAuthErrorMessage(
   error: unknown,
   fallback = 'Não foi possível concluir a operação. Tente novamente.'
 ): string {
+  if (typeof error === 'object' && error && 'code' in error) {
+    const code = String((error as { code?: string }).code ?? '')
+    const msg = AUTH_ERROR_CODES[code]
+    if (msg) return msg
+  }
   const message =
     typeof error === 'object' && error && 'message' in error
       ? String((error as { message?: string }).message ?? '')
