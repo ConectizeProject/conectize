@@ -14,7 +14,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
-import { Printer, MessageCircle, Mail, MoreHorizontal, ExternalLink } from 'lucide-react'
+import { Printer, MessageCircle, Mail, MoreHorizontal, ExternalLink, Copy } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 
 const STATUS_LABELS: Record<string, string> = {
@@ -179,6 +179,12 @@ export function OrdensRowActions({ order }: Props) {
           </DropdownMenuItem>
         ) : null}
         <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link href={`/portal/ordens/nova?duplicate=${order.id}`}>
+            <Copy className="h-4 w-4 mr-2" />
+            Duplicar OS
+          </Link>
+        </DropdownMenuItem>
         <DropdownMenuSub>
           <DropdownMenuSubTrigger disabled={updating}>
             Alterar status

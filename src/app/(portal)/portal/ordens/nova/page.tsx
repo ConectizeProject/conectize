@@ -128,9 +128,9 @@ async function createOrderAction(formData: FormData) {
 export default async function NovaOrdemPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>
+  searchParams: Promise<{ error?: string; duplicate?: string }>
 }) {
-  const { error } = await searchParams
+  const { error, duplicate } = await searchParams
 
   const { user, role, fullName } = await getPortalAuth()
   if (!user) redirect('/portal/login')
@@ -145,6 +145,7 @@ export default async function NovaOrdemPage({
       action={createOrderAction}
       sellerName={sellerName}
       initialError={error ? getStatusLabel(error) : undefined}
+      duplicateOrderId={duplicate || undefined}
     />
   )
 }
