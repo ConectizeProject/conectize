@@ -17,6 +17,8 @@ const Header = () => {
             <img
               src="/logo_conectize.svg"
               alt="Conectize - Assistência Técnica"
+              width={120}
+              height={118}
               className="h-8 w-auto"
             />
           </Link>
