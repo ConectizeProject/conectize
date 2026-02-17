@@ -7,6 +7,8 @@ const nextConfig = {
 	// Turbopack: cache em disco para dev mais rápido entre reinícios (Next.js 16)
 	experimental: {
 		turbopackFileSystemCacheForDev: true,
+		// Inline critical CSS para reduzir render-blocking (melhora FCP/LCP)
+		inlineCss: true,
 	},
 	async redirects() {
 		const serviceSlugs = [

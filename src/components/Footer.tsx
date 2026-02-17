@@ -25,7 +25,7 @@ const Footer = () => {
 
           {/* Services */}
           <div>
-            <h4 className="text-lg font-bold mb-4">Serviços</h4>
+            <p className="text-lg font-bold mb-4">Serviços</p>
             <ul className="space-y-2 text-background/70">
               <li>Assistência Apple (iPhone, iPad, Mac)</li>
               <li>Troca de Tela</li>
@@ -37,7 +37,7 @@ const Footer = () => {
 
           {/* Contact */}
           <div>
-            <h4 className="text-lg font-bold mb-4">Contato</h4>
+            <p className="text-lg font-bold mb-4">Contato</p>
             <ul className="space-y-3 text-background/70">
               <li className="flex items-start gap-2">
                 <MapPin className="w-4 h-4 mt-1 flex-shrink-0" />

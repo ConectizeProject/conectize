@@ -23,19 +23,19 @@ const Header = () => {
 
           {/* Desktop menu */}
           <div className="hidden md:flex items-center gap-8">
-            <Link href="/servicos" className="text-foreground/80 hover:text-primary transition-colors font-medium">
+            <Link href="/servicos" className="text-foreground hover:text-primary-accessible transition-colors font-medium">
               Serviços
             </Link>
-            <Link href="/coleta" className="text-foreground/80 hover:text-primary transition-colors font-medium">
+            <Link href="/coleta" className="text-foreground hover:text-primary-accessible transition-colors font-medium">
               Coleta em Domicílio
             </Link>
-            <Link href="/sobre" className="text-foreground/80 hover:text-primary transition-colors font-medium">
+            <Link href="/sobre" className="text-foreground hover:text-primary-accessible transition-colors font-medium">
               Sobre
             </Link>
-            <Link href="/acessorios" className="text-foreground/80 hover:text-primary transition-colors font-medium">
+            <Link href="/acessorios" className="text-foreground hover:text-primary-accessible transition-colors font-medium">
               Acessórios
             </Link>
-            <Link href="/lojistas" className="text-foreground/80 hover:text-primary transition-colors font-medium">
+            <Link href="/lojistas" className="text-foreground hover:text-primary-accessible transition-colors font-medium">
               Lojistas
             </Link>
             <Button variant="outline" size="sm" asChild>
@@ -63,42 +63,42 @@ const Header = () => {
               <Link
                 href="/servicos"
                 onClick={() => setIsMenuOpen(false)}
-                className="text-foreground/80 hover:text-primary transition-colors font-medium text-left py-2"
+                className="text-foreground hover:text-primary-accessible transition-colors font-medium text-left py-2"
               >
                 Serviços
               </Link>
               <Link
                 href="/coleta"
                 onClick={() => setIsMenuOpen(false)}
-                className="text-foreground/80 hover:text-primary transition-colors font-medium text-left py-2"
+                className="text-foreground hover:text-primary-accessible transition-colors font-medium text-left py-2"
               >
                 Coleta em Domicílio
               </Link>
               <Link
                 href="/sobre"
                 onClick={() => setIsMenuOpen(false)}
-                className="text-foreground/80 hover:text-primary transition-colors font-medium text-left py-2"
+                className="text-foreground hover:text-primary-accessible transition-colors font-medium text-left py-2"
               >
                 Sobre
               </Link>
               <Link
                 href="/acessorios"
                 onClick={() => setIsMenuOpen(false)}
-                className="text-foreground/80 hover:text-primary transition-colors font-medium text-left py-2"
+                className="text-foreground hover:text-primary-accessible transition-colors font-medium text-left py-2"
               >
                 Acessórios
               </Link>
               <Link
                 href="/lojistas"
                 onClick={() => setIsMenuOpen(false)}
-                className="text-foreground/80 hover:text-primary transition-colors font-medium text-left py-2"
+                className="text-foreground hover:text-primary-accessible transition-colors font-medium text-left py-2"
               >
                 Lojistas
               </Link>
               <Link
                 href="/portal"
                 onClick={() => setIsMenuOpen(false)}
-                className="text-foreground/80 hover:text-primary transition-colors font-medium text-left py-2"
+                className="text-foreground hover:text-primary-accessible transition-colors font-medium text-left py-2"
               >
                 Área do cliente
               </Link>
