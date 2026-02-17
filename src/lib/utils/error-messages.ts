@@ -22,6 +22,22 @@ export const AUTH_ERROR_PATTERNS: Array<[string, string]> = [
   ['you can only request this after', 'Por segurança, há um limite de envio de e-mails. Aguarde alguns segundos antes de solicitar novamente.'],
 ]
 
+/** Códigos de erro de ordem de serviço (criação/edição) -> mensagem em português */
+export const ORDEM_ERROR_MESSAGES: Record<string, string> = {
+  cpf_invalido: 'CPF inválido.',
+  cnpj_invalido: 'CNPJ inválido.',
+  title_obrigatorio: 'Título é obrigatório.',
+  titulo_obrigatorio: 'Título é obrigatório.',
+  customer_obrigatorio: 'Selecione um cliente (CPF/CNPJ).',
+  status_invalido: 'Status inválido.',
+  dados_invalidos: 'Dados inválidos.',
+  nao_foi_possivel_criar_cliente: 'Não foi possível criar o cliente.',
+  nao_foi_possivel_criar_os: 'Não foi possível criar a ordem de serviço.',
+  nao_foi_possivel_salvar: 'Não foi possível salvar agora.',
+  nao_foi_possivel_excluir: 'Não foi possível excluir agora.',
+  sem_permissao: 'Você não tem permissão para excluir ordens.',
+}
+
 /** Códigos de erro da busca de OS -> mensagem em português */
 export const OS_SEARCH_ERROR_MESSAGES: Record<string, string> = {
   cpf_invalido: 'CPF inválido. Confira e tente novamente.',
@@ -55,6 +71,19 @@ export function getAuthErrorMessage(
     if (normalized.includes(pattern)) return msg
   }
   return fallback
+}
+
+/**
+ * Converte um código de erro de ordem de serviço em mensagem amigável
+ * @param errorCode - Código retornado (ex: 'title_obrigatorio', 'nao_foi_possivel_salvar')
+ * @param fallback - Mensagem padrão quando o código não for conhecido
+ */
+export function getOrdemErrorMessage(
+  errorCode?: string | null,
+  fallback = 'Não foi possível concluir. Tente novamente.'
+): string {
+  if (!errorCode) return fallback
+  return ORDEM_ERROR_MESSAGES[errorCode] ?? fallback
 }
 
 /**

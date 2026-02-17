@@ -14,7 +14,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
-import { Printer, MessageCircle, Mail, MoreHorizontal, ExternalLink, Copy } from 'lucide-react'
+import { Printer, MessageCircle, Mail, MoreHorizontal, Copy, Tag } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 
 const STATUS_LABELS: Record<string, string> = {
@@ -160,7 +160,13 @@ export function OrdensRowActions({ order }: Props) {
           onClick={() => window.open(`/api/portal/ordens/${order.id}/print`, '_blank', 'width=800,height=600')}
         >
           <Printer className="h-4 w-4 mr-2" />
-          Imprimir
+          Imprimir OS
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => window.open(`/api/portal/ordens/${order.id}/label`, '_blank', 'width=200,height=120')}
+        >
+          <Tag className="h-4 w-4 mr-2" />
+          Imprimir etiqueta
         </DropdownMenuItem>
         {whatsappHref ? (
           <DropdownMenuItem asChild>
@@ -201,12 +207,6 @@ export function OrdensRowActions({ order }: Props) {
             ))}
           </DropdownMenuSubContent>
         </DropdownMenuSub>
-        <DropdownMenuItem asChild>
-          <Link href={`/portal/ordens/${order.id}`}>
-            <ExternalLink className="h-4 w-4 mr-2" />
-            Abrir ordem
-          </Link>
-        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   )

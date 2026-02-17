@@ -28,11 +28,11 @@ export default async function DashboardPage() {
   const [{ count: openOrdersCount }, { count: customersCount }, { data: latestOrders }] = await Promise.all([
     supabase
       .from('service_orders')
-      .select('id', { count: 'planned', head: true })
+      .select('id', { count: 'exact', head: true })
       .in('status', openStatuses),
     supabase
       .from('customers')
-      .select('id', { count: 'planned', head: true }),
+      .select('id', { count: 'exact', head: true }),
     supabase
       .from('service_orders')
       .select('id, display_number, status, title, created_at, customers ( full_name, company_name, is_company )')

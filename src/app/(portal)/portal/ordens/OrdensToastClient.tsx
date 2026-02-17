@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from '@/hooks/use-toast'
 import { ToastAction } from '@/components/ui/toast'
+import { getOrdemErrorMessage } from '@/lib/utils/error-messages'
 
 function cleanParams(params: URLSearchParams) {
   params.delete('toast')
@@ -37,7 +38,7 @@ export function OrdensToastClient() {
     } else if (toastType === 'order_error') {
       toast({
         title: 'Não foi possível criar',
-        description: error || 'Tente novamente.',
+        description: getOrdemErrorMessage(error, error || 'Tente novamente.'),
         variant: 'destructive',
       })
     }
