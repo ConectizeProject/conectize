@@ -1,8 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { UsuariosClient } from './UsuariosClient'
 
 function isValidRole (value: string) {
   return value === 'user' || value === 'customer' || value === 'staff' || value === 'admin'
@@ -63,10 +61,14 @@ export default async function AdminUsuariosPage ({
   const myNormalizedRole = myRole === 'customer' ? 'user' : myRole
   if (myNormalizedRole !== 'admin') redirect('/portal/ordens')
 
-  const { data: users } = await supabase
+  const { data: adminsAndStaff } = await supabase
     .from('users')
     .select('id, email, role, created_at')
+    .in('role', ['admin', 'staff'])
     .order('created_at', { ascending: false })
+
+  const admins = (adminsAndStaff ?? []).filter((u: { role?: string }) => u.role === 'admin')
+  const staff = (adminsAndStaff ?? []).filter((u: { role?: string }) => u.role === 'staff')
 
   return (
     <div className="space-y-6">
@@ -89,58 +91,12 @@ export default async function AdminUsuariosPage ({
         </p>
       ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Usuários</CardTitle>
-          <CardDescription>
-            Roles: user, staff, admin.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {users && users.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>E-mail</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead className="w-[220px]">Ação</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {users.map((u: any) => (
-                  <TableRow key={u.id}>
-                    <TableCell className="font-medium">{u.email || u.id}</TableCell>
-                    <TableCell>
-                      <form action={updateRoleAction} className="flex items-center gap-2">
-                        <input type="hidden" name="userId" value={u.id} />
-                        <select
-                          name="role"
-                          defaultValue={(u.role === 'customer' ? 'user' : u.role) || 'user'}
-                          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-                        >
-                          <option value="user">user</option>
-                          <option value="staff">staff</option>
-                          <option value="admin">admin</option>
-                        </select>
-                        <Button type="submit" size="sm" variant="secondary">
-                          Salvar
-                        </Button>
-                      </form>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground text-sm">
-                      {u.id === user.id ? 'Você' : ''}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          ) : (
-            <div className="text-sm text-muted-foreground">
-              Nenhum usuário encontrado.
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <UsuariosClient
+        initialAdmins={admins}
+        initialStaff={staff}
+        currentUserId={user.id}
+        updateRoleAction={updateRoleAction}
+      />
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
+import { getOrdemErrorMessage } from '@/lib/utils/error-messages'
 import { NovaOrdemClient } from './NovaOrdemClient'
 
 function normalizeCpf(value: string) {
@@ -31,17 +32,6 @@ function parseServicesJson(raw: unknown) {
   const totalCostCents = normalized.reduce((acc: number, s: any) => acc + s.costCents, 0)
 
   return { items: normalized, totalValueCents, totalCostCents }
-}
-
-function getStatusLabel(status: string) {
-  if (status === 'cpf_invalido') return 'CPF inválido.'
-  if (status === 'cnpj_invalido') return 'CNPJ inválido.'
-  if (status === 'title_obrigatorio') return 'Título é obrigatório.'
-  if (status === 'customer_obrigatorio') return 'Selecione um cliente (CPF/CNPJ).'
-  if (status === 'status_invalido') return 'Status inválido.'
-  if (status === 'nao_foi_possivel_criar_cliente') return 'Não foi possível criar o cliente.'
-  if (status === 'nao_foi_possivel_criar_os') return 'Não foi possível criar a ordem de serviço.'
-  return 'Não foi possível salvar. Tente novamente.'
 }
 
 async function createOrderAction(formData: FormData) {
@@ -120,7 +110,7 @@ async function createOrderAction(formData: FormData) {
     .select('id')
     .single()
 
-  if (error) redirect('/portal/ordens?toast=order_error&error=Não%20foi%20poss%C3%ADvel%20criar%20a%20ordem%20de%20servi%C3%A7o.')
+  if (error) redirect('/portal/ordens?toast=order_error&error=nao_foi_possivel_criar_os')
 
   redirect(`/portal/ordens/${insertedOrder.id}?toast=order_created`)
 }
@@ -144,7 +134,7 @@ export default async function NovaOrdemPage({
     <NovaOrdemClient
       action={createOrderAction}
       sellerName={sellerName}
-      initialError={error ? getStatusLabel(error) : undefined}
+      initialError={error ? getOrdemErrorMessage(error) : undefined}
       duplicateOrderId={duplicate || undefined}
     />
   )

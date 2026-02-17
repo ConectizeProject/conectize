@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { OrdensRowActions } from './OrdensRowActions'
+import { OrdensTableRow } from './OrdensTableRow'
 import { OrdensToastClient } from './OrdensToastClient'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { formatDateTimeBr } from '@/lib/utils/format-date'
@@ -211,40 +211,7 @@ export default async function OrdensPage({
               </TableHeader>
               <TableBody>
                 {orders.map((order: any) => (
-                  <TableRow key={order.id}>
-                    <TableCell className="font-medium">#{order.display_number ?? order.id}</TableCell>
-                    <TableCell>
-                      <OrderStatusBadge status={order.status} />
-                    </TableCell>
-                    <TableCell className="font-medium">
-                      <Link href={`/portal/ordens/${order.id}`} className="hover:underline">
-                        {order.title}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      {order.customers?.is_company
-                        ? (order.customers?.company_name || '-')
-                        : (order.customers?.full_name || '-')}
-                    </TableCell>
-                    <TableCell>
-                      {order.device_models?.model || '-'}
-                    </TableCell>
-                    <TableCell>
-                      {formatCpfCnpj(String(order.customers?.cnpj || order.customers?.cpf))}
-                    </TableCell>
-                    <TableCell>
-                      {formatDateTimeBr(order.estimated_ready_at)}
-                    </TableCell>
-                    <TableCell>{formatDateTimeBr(order.created_at)}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button variant="outline" size="sm" asChild>
-                          <Link href={`/portal/ordens/${order.id}`}>Abrir</Link>
-                        </Button>
-                        <OrdensRowActions order={order} />
-                      </div>
-                    </TableCell>
-                  </TableRow>
+                  <OrdensTableRow key={order.id} order={order} />
                 ))}
               </TableBody>
             </Table>

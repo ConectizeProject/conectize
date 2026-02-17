@@ -9,11 +9,13 @@ import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { OrderStatusBadge } from '@/components/orders'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
+import { getOrdemErrorMessage } from '@/lib/utils/error-messages'
 import { formatDateTimeBr } from '@/lib/utils/format-date'
 import { OrderDeviceSelector, OrderServicesCard } from '@/components/orders'
 import { OrderCustomerCard } from './OrderCustomerCard'
 import { OrderPasscodeFields } from './OrderPasscodeFields'
 import { OrdemDetalheToastClient } from './OrdemDetalheToastClient'
+import { OrdemLabelPrintButton } from './OrdemLabelPrintButton'
 import { OrdemPrintButton } from './OrdemPrintButton'
 import { OrdemShareButtons } from './OrdemShareButtons'
 import { UpdateOrderSubmitButton } from './UpdateOrderSubmitButton'
@@ -221,6 +223,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 
     const normalizedRole = role === 'customer' ? 'user' : role
     if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
+    if (normalizedRole !== 'admin') redirect(`/portal/ordens/${orderId}?error=sem_permissao`)
 
     const supabase = await createSupabaseServerClient()
     const { error } = await supabase
@@ -247,8 +250,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <OrdemPrintButton
-            data={{
+          <OrdemPrintButton data={{
               displayNumber: order.display_number ?? order.id,
               status: order.status,
               title: order.title,
@@ -289,6 +291,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
               logoUrl: companySettings.logo_url ?? null,
             } : null}
           />
+          <OrdemLabelPrintButton orderId={order.id} />
           <OrdemShareButtons
             orderId={order.id}
             publicOrderPath={order.share_token ? `/os/${order.share_token}` : null}
@@ -308,14 +311,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 
       {error ? (
         <p className="text-sm text-destructive">
-          {error === 'titulo_obrigatorio' ? 'Título é obrigatório.' : null}
-          {error === 'status_invalido' ? 'Status inválido.' : null}
-          {error === 'nao_foi_possivel_salvar' ? 'Não foi possível salvar agora.' : null}
-          {error === 'nao_foi_possivel_excluir' ? 'Não foi possível excluir agora.' : null}
-          {error === 'dados_invalidos' ? 'Dados inválidos.' : null}
-          {error && !['titulo_obrigatorio', 'status_invalido', 'nao_foi_possivel_salvar', 'nao_foi_possivel_excluir', 'dados_invalidos'].includes(error)
-            ? 'Não foi possível concluir agora.'
-            : null}
+          {getOrdemErrorMessage(error)}
         </p>
       ) : null}
 
@@ -444,21 +440,23 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
         </CardContent>
       </Card>
 
-      <Card className="border-destructive/30">
-        <CardHeader>
-          <CardTitle>Excluir</CardTitle>
-          <CardDescription>Essa ação não pode ser desfeita.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form action={deleteOrderAction} className="flex items-center justify-between gap-3 flex-wrap">
-            <input type="hidden" name="orderId" value={order.id} />
-            <p className="text-sm text-muted-foreground">
-              Excluir ordem <b>#{order.display_number ?? order.id}</b> — {order.title}
-            </p>
-            <Button type="submit" variant="destructive">Excluir</Button>
-          </form>
-        </CardContent>
-      </Card>
+      {role === 'admin' && (
+        <Card className="border-destructive/30">
+          <CardHeader>
+            <CardTitle>Excluir</CardTitle>
+            <CardDescription>Essa ação não pode ser desfeita.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form action={deleteOrderAction} className="flex items-center justify-between gap-3 flex-wrap">
+              <input type="hidden" name="orderId" value={order.id} />
+              <p className="text-sm text-muted-foreground">
+                Excluir ordem <b>#{order.display_number ?? order.id}</b> — {order.title}
+              </p>
+              <Button type="submit" variant="destructive">Excluir</Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
