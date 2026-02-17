@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { OrderStatusBadge } from '@/components/orders'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { formatDateTimeBr } from '@/lib/utils/format-date'
+import { OrderDeviceSelector, OrderServicesCard } from '@/components/orders'
 import { OrderCustomerCard } from './OrderCustomerCard'
 import { OrderPasscodeFields } from './OrderPasscodeFields'
 import { OrdemDetalheToastClient } from './OrdemDetalheToastClient'
@@ -56,6 +57,30 @@ function getDeviceModelFromOrder(order: any) {
   return deviceModel || null
 }
 
+function parseServicesJson(raw: unknown): { items: Array<{ description: string; valueCents: number; costCents: number }>; totalValueCents: number; totalCostCents: number } {
+  if (!raw) return { items: [], totalValueCents: 0, totalCostCents: 0 }
+  try {
+    const parsed = JSON.parse(String(raw)) as { items?: unknown[]; totals?: { totalValueCents?: number; totalCostCents?: number } }
+    const items = Array.isArray(parsed?.items) ? parsed.items : []
+    const normalized = items
+      .slice(0, 100)
+      .map((item: unknown) => {
+        const i = item as Record<string, unknown>
+        return {
+          description: String(i?.description ?? '').trim().slice(0, 240),
+          valueCents: Math.max(0, Number(i?.valueCents ?? 0) || 0),
+          costCents: Math.max(0, Number(i?.costCents ?? 0) || 0),
+        }
+      })
+      .filter((s) => s.description || s.valueCents > 0 || s.costCents > 0)
+    const totalValueCents = normalized.reduce((acc, s) => acc + s.valueCents, 0)
+    const totalCostCents = normalized.reduce((acc, s) => acc + s.costCents, 0)
+    return { items: normalized, totalValueCents, totalCostCents }
+  } catch {
+    return { items: [], totalValueCents: 0, totalCostCents: 0 }
+  }
+}
+
 function formatDateTimeLocal(value: any) {
   if (!value) return ''
   const dt = new Date(String(value))
@@ -88,7 +113,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
   const [{ data: order }, { data: companySettings }] = await Promise.all([
     supabase
       .from('service_orders')
-      .select('id, display_number, status, title, imei, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, customer_description, internal_description, receiving_notes, assistance_info, device_model_id, brand, model, created_at, updated_at, share_token, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date, zip_code, state, city, neighborhood, street, street_number, street_complement, referral_source, referral_source_other ), device_models ( brand, device_type, model )')
+      .select('id, display_number, status, title, imei, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, customer_description, internal_description, receiving_notes, assistance_info, device_model_id, brand, model, services, services_total_cents, services_cost_total_cents, created_at, updated_at, share_token, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date, zip_code, state, city, neighborhood, street, street_number, street_complement, referral_source, referral_source_other ), device_models ( id, brand, device_type, model )')
       .eq('id', id)
       .maybeSingle(),
     supabase.from('company_settings').select('name, cnpj, address, complement, zip_code, city, state, phone, email, logo_url').eq('id', 1).maybeSingle(),
@@ -136,6 +161,9 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
     const internalDescription = String(formData.get('internalDescription') || '').trim()
     const receivingNotes = String(formData.get('receivingNotes') || '').trim()
     const assistanceInfo = String(formData.get('assistanceInfo') || '').trim()
+    const deviceModelId = String(formData.get('deviceModelId') || '').trim()
+    const servicesJson = formData.get('servicesJson')
+    const services = parseServicesJson(servicesJson)
 
     const estimatedReadyAt = (() => {
       if (!estimatedReadyAtRaw) return null
@@ -170,6 +198,10 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
         internal_description: internalDescription || null,
         receiving_notes: receivingNotes || null,
         assistance_info: assistanceInfo || null,
+        device_model_id: deviceModelId || null,
+        services: services.items,
+        services_total_cents: services.totalValueCents,
+        services_cost_total_cents: services.totalCostCents,
       })
       .eq('id', orderId)
 
@@ -242,6 +274,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
               internalDescription: order.internal_description ?? null,
               receivingNotes: order.receiving_notes ?? null,
               assistanceInfo: order.assistance_info ?? null,
+              services: (order.services as Array<{ description?: string; valueCents?: number; costCents?: number }>) ?? [],
             }}
             company={companySettings ? {
               name: companySettings.name ?? null,
@@ -300,7 +333,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form action={updateOrderAction} className="space-y-6">
+          <form id="order-edit-form" action={updateOrderAction} className="space-y-6">
             <input type="hidden" name="orderId" value={order.id} />
 
             <div className="grid md:grid-cols-2 gap-4">
@@ -309,7 +342,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
                 <select
                   id="status"
                   name="status"
-                  className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                  className="w-full h-10 rounded-md border border-input px-3 text-sm"
                   defaultValue={order.status}
                 >
                   <option value="orcamento">Orçamento</option>
@@ -362,13 +395,24 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
               <Input id="title" name="title" defaultValue={order.title} placeholder="Título" />
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-4">
               <Label>Dispositivo</Label>
-              <Input
-                value={deviceModel ? `${deviceModel.brand} • ${deviceModel.device_type} • ${deviceModel.model}` : (order.brand || order.model ? `${order.brand || ''} ${order.model || ''}`.trim() : '-')}
-                readOnly
+              <OrderDeviceSelector
+                initialValue={{
+                  deviceModelId: (deviceModel as { id?: string })?.id ?? order.device_model_id ?? null,
+                  brand: deviceModel?.brand ?? order.brand ?? null,
+                  deviceType: deviceModel?.device_type ?? null,
+                  model: deviceModel?.model ?? order.model ?? null,
+                }}
+                formId="order-edit-form"
               />
             </div>
+
+            <OrderServicesCard
+              initialServices={(order.services as Array<{ description?: string; valueCents?: number; costCents?: number }>) ?? []}
+              inputName="servicesJson"
+              formId="order-edit-form"
+            />
 
             <div className="space-y-2">
               <Label htmlFor="customerDescription">Descrição para o cliente</Label>

@@ -3,10 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Formik, Form, Field, FieldArray } from 'formik'
 import * as Yup from 'yup'
-import { Loader2, Plus } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -15,22 +14,10 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { PatternLockInput } from '@/components/pattern-lock/PatternLockInput'
 import { CreateCustomerDialog, EditCustomerDialog, type CustomerHit } from '@/components/customers'
+import { OrderDeviceSelector, OrderServicesCard, type ServiceLine } from '@/components/orders'
 import { NovaOrdemCustomerCard } from './NovaOrdemCustomerCard'
+import { parseMoneyToCents } from '@/lib/utils/format-money'
 import { portalFetch } from '@/lib/portal/portal-fetch'
-
-type DeviceModel = {
-	id: string
-	brand: string
-	device_type: string
-	model: string
-}
-
-type ServiceLine = {
-	id: string
-	description: string
-	value: string
-	cost: string
-}
 
 const statusOptions = [
 	{ value: 'orcamento', label: 'Orçamento' },
@@ -46,36 +33,6 @@ function makeId() {
 		return crypto.randomUUID()
 	}
 	return String(Date.now()) + String(Math.random()).slice(2)
-}
-
-function parseMoneyToCents(value: string) {
-	const cleaned = String(value || '')
-		.trim()
-		.replace(/\s/g, '')
-		.replace(/\./g, '')
-		.replace(',', '.')
-		.replace(/[^0-9.-]/g, '')
-
-	const n = Number.parseFloat(cleaned)
-	if (!Number.isFinite(n)) return 0
-	if (n <= 0) return 0
-	return Math.round(n * 100)
-}
-
-function formatCentsBr(cents: number) {
-	const n = Number(cents || 0) / 100
-	return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-}
-
-function formatMoneyInputBr(value: string) {
-	const digits = String(value || '').replace(/\D/g, '').slice(0, 12) // até 9999999999,99
-	if (!digits) return ''
-
-	const cents = Number.parseInt(digits, 10)
-	if (!Number.isFinite(cents) || cents <= 0) return '0,00'
-
-	const n = cents / 100
-	return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 function formatCpf(value: string) {
@@ -117,14 +74,11 @@ function getCustomerDocumentDigits(customer: CustomerHit) {
 	return onlyDigits(String(customer.cnpj || customer.cpf || '')).slice(0, 14)
 }
 
-function uniqueSorted(values: string[]) {
-	return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b))
-}
-
 type Props = {
 	action: (formData: FormData) => void
 	initialError?: string
 	sellerName: string
+	duplicateOrderId?: string
 }
 
 type FormValues = {
@@ -180,6 +134,9 @@ export function NovaOrdemClient(props: Props) {
 	const documentDigits = useMemo(() => onlyDigits(documentInput).slice(0, 14), [documentInput])
 	const documentPrefix = useMemo(() => documentDigits.slice(0, 5), [documentDigits])
 
+	const [duplicateFormValues, setDuplicateFormValues] = useState<FormValues | null>(null)
+	const [duplicateLoaded, setDuplicateLoaded] = useState(false)
+
 	const [customersBase, setCustomersBase] = useState<CustomerHit[]>([])
 	const [isSearchingDocument, setIsSearchingDocument] = useState(false)
 	const [documentSearchError, setDocumentSearchError] = useState<string | null>(null)
@@ -196,19 +153,56 @@ export function NovaOrdemClient(props: Props) {
 
 	const [isCpfPopoverOpen, setIsCpfPopoverOpen] = useState(false)
 
-	const [deviceModels, setDeviceModels] = useState<DeviceModel[]>([])
-	const [deviceModelsError, setDeviceModelsError] = useState<string | null>(null)
-	const [isLoadingDeviceModels, setIsLoadingDeviceModels] = useState(false)
-
-
-	const brands = useMemo(() => uniqueSorted(deviceModels.map(d => d.brand)), [deviceModels])
-
-	const [isCreateDeviceOpen, setIsCreateDeviceOpen] = useState(false)
-	const [isCreatingDevice, setIsCreatingDevice] = useState(false)
-	const [newDeviceBrand, setNewDeviceBrand] = useState('')
-	const [newDeviceType, setNewDeviceType] = useState('')
-	const [newDeviceModel, setNewDeviceModel] = useState('')
-	const [createDeviceError, setCreateDeviceError] = useState<string | null>(null)
+	useEffect(() => {
+		if (!props.duplicateOrderId) {
+			setDuplicateLoaded(true)
+			return
+		}
+		let cancelled = false
+		portalFetch(`/api/portal/ordens/${props.duplicateOrderId}/duplicate`)
+			.then((res) => res.json())
+			.then((data) => {
+				if (cancelled || !data?.ok || !data?.order) return
+				const o = data.order
+				setDuplicateFormValues({
+					customerId: o.customerId ?? '',
+					document: o.documentDigits ?? '',
+					title: o.title ?? '',
+					status: o.status ?? 'orcamento',
+					deviceModelId: o.deviceModelId ?? '',
+					brand: o.brand ?? '',
+					model: o.model ?? '',
+					deviceType: o.deviceType ?? '',
+					imei: o.imei ?? '',
+					isWarranty: Boolean(o.isWarranty),
+					estimatedReadyAt: o.estimatedReadyAt ?? '',
+					passcodeType: o.passcodeType ?? 'none',
+					passcodeText: o.passcodeText ?? '',
+					passcodePattern: o.passcodePattern ?? '',
+					customerDescription: o.customerDescription ?? '',
+					internalDescription: o.internalDescription ?? '',
+					receivingNotes: o.receivingNotes ?? '',
+					services: o.services ?? [],
+				})
+				if (o.customer) {
+					setSelectedCustomer(o.customer as CustomerHit)
+					setCustomersBase((prev) => {
+						const exists = prev.some((c) => getCustomerDocumentDigits(c) === (o.documentDigits ?? ''))
+						if (exists) return prev
+						return [o.customer, ...prev].filter(Boolean) as CustomerHit[]
+					})
+				}
+				if (o.documentDigits) {
+					setDocumentInput(formatCpfCnpj(o.documentDigits))
+					setLastPrefixFetched(String(o.documentDigits).slice(0, 5))
+				}
+				setDuplicateLoaded(true)
+			})
+			.catch(() => {
+				if (!cancelled) setDuplicateLoaded(true)
+			})
+		return () => { cancelled = true }
+	}, [props.duplicateOrderId])
 
 	useEffect(() => {
 		if (!selectedCustomer) return
@@ -217,34 +211,6 @@ export function NovaOrdemClient(props: Props) {
 			setDocumentInput(formatCpfCnpj(doc))
 		}
 	}, [documentDigits, selectedCustomer])
-
-	useEffect(() => {
-		let cancelled = false
-
-		async function run() {
-			setDeviceModelsError(null)
-			setIsLoadingDeviceModels(true)
-
-			try {
-				const res = await portalFetch('/api/portal/device-models?limit=2000')
-				const data = await res.json().catch(() => null)
-				if (!res.ok || !data?.ok) {
-					if (!cancelled) setDeviceModelsError('Não foi possível carregar o catálogo de dispositivos.')
-					return
-				}
-				if (!cancelled) setDeviceModels(data.deviceModels || [])
-			} catch (err) {
-				if (!cancelled) setDeviceModelsError('Não foi possível carregar o catálogo de dispositivos.')
-			} finally {
-				if (!cancelled) setIsLoadingDeviceModels(false)
-			}
-		}
-
-		run()
-		return () => {
-			cancelled = true
-		}
-	}, [])
 
 	useEffect(() => {
 		if (documentDigits.length < 5) {
@@ -338,45 +304,6 @@ export function NovaOrdemClient(props: Props) {
 		return customersBase.filter(c => getCustomerDocumentDigits(c).startsWith(documentDigits))
 	}, [documentDigits, customersBase, hasFetchedDocPrefix])
 
-	async function handleCreateDeviceModel(setFieldValue: (field: string, value: unknown) => void) {
-		setIsCreatingDevice(true)
-		setCreateDeviceError(null)
-
-		try {
-			const res = await portalFetch('/api/portal/device-models', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					brand: newDeviceBrand.trim(),
-					deviceType: newDeviceType.trim(),
-					model: newDeviceModel.trim(),
-				}),
-			})
-			const data = await res.json().catch(() => null)
-			if (!res.ok || !data?.ok || !data?.deviceModel?.id) {
-				setCreateDeviceError('Não foi possível cadastrar o dispositivo.')
-				return
-			}
-
-			const dm = data.deviceModel as DeviceModel
-			setDeviceModels((prev) => {
-				const exists = prev.some(p => p.id === dm.id)
-				if (exists) return prev
-				return prev.concat(dm)
-			})
-
-			setFieldValue('brand', dm.brand)
-			setFieldValue('deviceType', dm.device_type)
-			setFieldValue('deviceModelId', dm.id)
-			setFieldValue('model', dm.model)
-			setIsCreateDeviceOpen(false)
-		} catch (err) {
-			setCreateDeviceError('Não foi possível cadastrar o dispositivo.')
-		} finally {
-			setIsCreatingDevice(false)
-		}
-	}
-
 	function buildFormDataFromValues(values: FormValues, documentDigits: string): FormData {
 		const servicesNormalized = (values.services || [])
 			.map((s) => ({
@@ -411,40 +338,39 @@ export function NovaOrdemClient(props: Props) {
 		return fd
 	}
 
+	if (props.duplicateOrderId && !duplicateLoaded) {
+		return (
+			<div className="max-w-4xl space-y-6">
+				<div>
+					<h1 className="text-2xl font-bold">Nova ordem de serviço</h1>
+					<p className="text-sm text-muted-foreground">
+						Carregando dados da ordem para duplicar…
+					</p>
+				</div>
+			</div>
+		)
+	}
+
 	return (
 		<div className="max-w-4xl space-y-6">
 
 			<div>
 				<h1 className="text-2xl font-bold">Nova ordem de serviço</h1>
 				<p className="text-sm text-muted-foreground">
-					Busque o cliente por CPF/CNPJ e preencha os dados da OS.
+					{duplicateFormValues ? 'Revise os dados e salve para criar a cópia.' : 'Busque o cliente por CPF/CNPJ e preencha os dados da OS.'}
 				</p>
 			</div>
 
 			<Formik
-				initialValues={initialFormValues}
+				initialValues={duplicateFormValues ?? initialFormValues}
 				validationSchema={orderFormSchema}
+				enableReinitialize={!!duplicateFormValues}
 				onSubmit={async (values) => {
 					const fd = buildFormDataFromValues(values, documentDigits)
 					await props.action(fd)
 				}}
 			>
-				{(formik) => {
-					const deviceTypes = !formik.values.brand ? [] : uniqueSorted(deviceModels.filter(d => d.brand === formik.values.brand).map(d => d.device_type))
-					const models = !formik.values.brand || !formik.values.deviceType ? [] : deviceModels.filter(d => d.brand === formik.values.brand && d.device_type === formik.values.deviceType)
-					const servicesNormalized = (formik.values.services || [])
-						.map((s) => ({
-							description: String(s.description || '').trim(),
-							valueCents: parseMoneyToCents(s.value),
-							costCents: parseMoneyToCents(s.cost),
-						}))
-						.filter((s) => s.description || s.valueCents > 0 || s.costCents > 0)
-					const servicesTotals = servicesNormalized.reduce(
-						(acc, s) => ({ totalValueCents: acc.totalValueCents + s.valueCents, totalCostCents: acc.totalCostCents + s.costCents }),
-						{ totalValueCents: 0, totalCostCents: 0 }
-					)
-
-					return (
+				{(formik) => (
 						<>
 						<Form className="relative space-y-6">
 							<NovaOrdemCustomerCard
@@ -499,7 +425,7 @@ export function NovaOrdemClient(props: Props) {
 												as="select"
 												id="status"
 												name="status"
-												className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+												className="w-full h-10 rounded-md border border-input px-3 text-sm"
 											>
 												{statusOptions.map(s => (
 													<option key={s.value} value={s.value}>{s.label}</option>
@@ -539,90 +465,17 @@ export function NovaOrdemClient(props: Props) {
 										</div>
 									</div>
 
-									<div className="grid gap-4 md:grid-cols-3">
-										<div className="space-y-2">
-											<Label>Marca</Label>
-											<Field
-												as="select"
-												className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-												name="brand"
-												disabled={isLoadingDeviceModels}
-												onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
-													formik.setFieldValue('brand', e.target.value)
-													formik.setFieldValue('deviceType', '')
-													formik.setFieldValue('deviceModelId', '')
-													formik.setFieldValue('model', '')
-												}}
-											>
-												<option value="">Selecione…</option>
-												{brands.map(b => (
-													<option key={b} value={b}>{b}</option>
-												))}
-											</Field>
-										</div>
-										<div className="space-y-2">
-											<Label>Dispositivo</Label>
-											<Field
-												as="select"
-												className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-												name="deviceType"
-												disabled={!formik.values.brand || isLoadingDeviceModels}
-												onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
-													formik.setFieldValue('deviceType', e.target.value)
-													formik.setFieldValue('deviceModelId', '')
-													formik.setFieldValue('model', '')
-												}}
-											>
-												<option value="">Selecione…</option>
-												{deviceTypes.map(t => (
-													<option key={t} value={t}>{t}</option>
-												))}
-											</Field>
-										</div>
-										<div className="space-y-2">
-											<Label>Modelo</Label>
-											<Field
-												as="select"
-												className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-												name="deviceModelId"
-												disabled={!formik.values.brand || !formik.values.deviceType || isLoadingDeviceModels}
-												onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
-													const id = e.target.value
-													const m = deviceModels.find(d => d.id === id)
-													formik.setFieldValue('deviceModelId', id)
-													if (m) {
-														formik.setFieldValue('model', m.model)
-													}
-												}}
-											>
-												<option value="">Selecione…</option>
-												{models.map(m => (
-													<option key={m.id} value={m.id}>{m.model}</option>
-												))}
-											</Field>
-										</div>
-									</div>
-
-									{deviceModelsError ? (
-										<p className="text-sm text-destructive">{deviceModelsError}</p>
-									) : null}
-
-									<div className="flex items-center justify-end">
-										<Button
-											type="button"
-											variant="outline"
-											onClick={() => {
-												setCreateDeviceError(null)
-												setNewDeviceBrand(formik.values.brand)
-												setNewDeviceType(formik.values.deviceType)
-												setNewDeviceModel('')
-												setIsCreateDeviceOpen(true)
-											}}
-										>
-											<Plus className="h-4 w-4 mr-2" />
-											Cadastrar novo dispositivo
-										</Button>
-									</div>
+									<OrderDeviceSelector
+										formik={{
+											values: {
+												brand: formik.values.brand,
+												deviceType: formik.values.deviceType,
+												deviceModelId: formik.values.deviceModelId,
+												model: formik.values.model,
+											},
+											setFieldValue: formik.setFieldValue,
+										}}
+									/>
 
 									<div className="rounded-md border p-4 space-y-3">
 										<div className="flex items-center justify-between gap-3 flex-wrap">
@@ -686,85 +539,18 @@ export function NovaOrdemClient(props: Props) {
 										<Field as={Textarea} id="customerDescription" name="customerDescription" placeholder="Texto que o cliente vê" />
 									</div>
 
-									<div className="rounded-md border p-4 space-y-3">
-										<div className="flex items-center justify-between gap-3 flex-wrap">
-											<div>
-												<div className="text-sm font-medium">Serviços a realizar</div>
-												<div className="text-xs text-muted-foreground">Adicione 1 ou mais serviços com valores.</div>
-											</div>
-											<FieldArray name="services">
-												{({ push, remove }) => (
-													<>
-														<Button
-															type="button"
-															variant="outline"
-															size="sm"
-															onClick={() => push({ id: makeId(), description: '', value: '', cost: '' })}
-														>
-															<Plus className="h-4 w-4 mr-2" />
-															Adicionar serviço
-														</Button>
-														{formik.values.services && formik.values.services.length > 0 ? (
-															<div className="space-y-3 mt-3">
-																{formik.values.services.map((s, idx) => (
-																	<div key={s.id} className="grid gap-3 md:grid-cols-12 items-end">
-																		<div className="md:col-span-6 space-y-1">
-																			<Label>Descrição</Label>
-																			<Field as={Input} name={`services.${idx}.description`} placeholder="Ex: Troca de tela, diagnóstico, limpeza..." />
-																		</div>
-																		<div className="md:col-span-2 space-y-1">
-																			<Label>Valor</Label>
-																			<Input
-																				value={formik.values.services?.[idx]?.value ?? ''}
-																				onChange={(e) => formik.setFieldValue(`services.${idx}.value`, formatMoneyInputBr(e.target.value))}
-																				inputMode="numeric"
-																				placeholder="0,00"
-																			/>
-																		</div>
-																		<div className="md:col-span-2 space-y-1">
-																			<Label>Valor de custo</Label>
-																			<Input
-																				value={formik.values.services?.[idx]?.cost ?? ''}
-																				onChange={(e) => formik.setFieldValue(`services.${idx}.cost`, formatMoneyInputBr(e.target.value))}
-																				inputMode="numeric"
-																				placeholder="0,00"
-																			/>
-																		</div>
-																		<div className="md:col-span-2 flex justify-end">
-																			<Button type="button" variant="outline" size="sm" onClick={() => remove(idx)}>
-																				Remover
-																			</Button>
-																		</div>
-																		{idx !== formik.values.services!.length - 1 ? <div className="md:col-span-12 border-t" /> : null}
-																	</div>
-																))}
-															</div>
-														) : null}
-													</>
-												)}
-											</FieldArray>
-										</div>
-										{formik.values.services && formik.values.services.length > 0 ? (
-											<div className="flex items-center justify-end gap-6 flex-wrap pt-2 border-t">
-												<div className="text-sm">
-													<span className="text-muted-foreground">Total serviços: </span>
-													<span className="font-medium">{formatCentsBr(servicesTotals.totalValueCents)}</span>
-												</div>
-												<div className="text-sm">
-													<span className="text-muted-foreground">Total custo: </span>
-													<span className="font-medium">{formatCentsBr(servicesTotals.totalCostCents)}</span>
-												</div>
-												<div className="text-sm">
-													<span className="text-muted-foreground">Resultado: </span>
-													<span className="font-medium">{formatCentsBr(servicesTotals.totalValueCents - servicesTotals.totalCostCents)}</span>
-												</div>
-											</div>
-										) : (
-											<div className="text-sm text-muted-foreground">
-												Nenhum serviço adicionado ainda.
-											</div>
+									<FieldArray name="services">
+										{({ push, remove }) => (
+											<OrderServicesCard
+												formik={{
+													services: formik.values.services ?? [],
+													onAdd: (item) => push(item),
+													onRemove: remove,
+													onUpdate: (idx, field, value) => formik.setFieldValue(`services.${idx}.${field}`, value),
+												}}
+											/>
 										)}
-									</div>
+									</FieldArray>
 
 									<div className="space-y-2">
 										<Label htmlFor="receivingNotes">Observações do recebimento</Label>
@@ -812,6 +598,8 @@ export function NovaOrdemClient(props: Props) {
 								onSaved={(customer) => {
 									setSelectedCustomer(customer)
 									setIsCpfPopoverOpen(false)
+									formik.setFieldValue('customerId', customer.id)
+									formik.setFieldValue('document', getCustomerDocumentDigits(customer))
 								}}
 							/>
 						) : (
@@ -823,52 +611,14 @@ export function NovaOrdemClient(props: Props) {
 								onCreated={(customer) => {
 									setSelectedCustomer(customer)
 									setIsCpfPopoverOpen(false)
+									formik.setFieldValue('customerId', customer.id)
+									formik.setFieldValue('document', getCustomerDocumentDigits(customer))
 								}}
 							/>
 						)}
 
-						<Dialog open={isCreateDeviceOpen} onOpenChange={setIsCreateDeviceOpen}>
-				<DialogContent>
-					<DialogHeader>
-						<DialogTitle>Cadastrar dispositivo</DialogTitle>
-						<DialogDescription>
-							Adicione um novo modelo ao catálogo.
-						</DialogDescription>
-					</DialogHeader>
-
-					<div className="grid gap-4">
-						<div className="grid gap-4 md:grid-cols-2">
-							<div className="space-y-2">
-								<Label>Marca</Label>
-								<Input value={newDeviceBrand} onChange={(e) => setNewDeviceBrand(e.target.value)} placeholder="Ex: Apple" />
-							</div>
-							<div className="space-y-2">
-								<Label>Dispositivo</Label>
-								<Input value={newDeviceType} onChange={(e) => setNewDeviceType(e.target.value)} placeholder="Ex: smartphone" />
-							</div>
-						</div>
-						<div className="space-y-2">
-							<Label>Modelo</Label>
-							<Input value={newDeviceModel} onChange={(e) => setNewDeviceModel(e.target.value)} placeholder="Ex: iPhone 13" />
-						</div>
-						{createDeviceError ? (
-							<p className="text-sm text-destructive">{createDeviceError}</p>
-						) : null}
-					</div>
-
-					<DialogFooter>
-						<Button type="button" variant="outline" onClick={() => setIsCreateDeviceOpen(false)}>
-							Cancelar
-						</Button>
-						<Button type="button" onClick={() => handleCreateDeviceModel(formik.setFieldValue)} disabled={isCreatingDevice}>
-							{isCreatingDevice ? 'Salvando…' : 'Salvar dispositivo'}
-						</Button>
-					</DialogFooter>
-				</DialogContent>
-						</Dialog>
 					</>
-					)
-				}}
+				)}
 			</Formik>
 		</div>
 	)
