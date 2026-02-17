@@ -123,7 +123,7 @@ export default function RootLayout ({
   children: React.ReactNode
 }) {
   return (
-    <html lang="pt-BR" className={outfit.variable}>
+    <html lang="pt-BR" className={outfit.variable} suppressHydrationWarning>
       <body>
         <Script
           src="https://www.googletagmanager.com/gtag/js?id=G-1E45FFLYQY"
