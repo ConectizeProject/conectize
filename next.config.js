@@ -10,6 +10,13 @@ const nextConfig = {
 		// Inline critical CSS para reduzir render-blocking (melhora FCP/LCP)
 		inlineCss: true,
 	},
+	// Remove polyfills legados em navegadores modernos (~14KB economia)
+	turbopack: {
+		resolveAlias: {
+			'../build/polyfills/polyfill-module': './src/lib/modern-polyfill.js',
+			'next/dist/build/polyfills/polyfill-module': './src/lib/modern-polyfill.js',
+		},
+	},
 	async redirects() {
 		const serviceSlugs = [
 			'troca-de-tela',

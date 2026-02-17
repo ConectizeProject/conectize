@@ -86,7 +86,7 @@ export function PortalShell(props: PortalShellProps) {
 			<Sidebar collapsible="icon" variant="inset">
 				<SidebarHeader>
 					<Link href="/portal" className="flex items-center gap-2 px-2 py-1">
-						<img src="/logo_conectize.svg" alt="Conectize" className="h-6 w-auto" />
+						<img src="/logo_conectize.svg" alt="Conectize" width={90} height={88} className="h-6 w-auto" />
 						<span className="font-semibold">Portal</span>
 					</Link>
 				</SidebarHeader>
