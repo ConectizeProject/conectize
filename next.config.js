@@ -2,11 +2,11 @@
 const nextConfig = {
 	reactStrictMode: true,
 	images: {
-		domains: [],
 		formats: ['image/avif', 'image/webp'],
 	},
-	eslint: {
-		ignoreDuringBuilds: true,
+	// Turbopack: cache em disco para dev mais rápido entre reinícios (Next.js 16)
+	experimental: {
+		turbopackFileSystemCacheForDev: true,
 	},
 	async redirects() {
 		const serviceSlugs = [

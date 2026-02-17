@@ -10,22 +10,6 @@ const Header = () => {
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-lg border-b border-border">
-      {/* Top bar */}
-      <div className="bg-primary text-primary-foreground py-2">
-        <div className="container mx-auto px-4 flex flex-wrap justify-center md:justify-between items-center gap-2 text-sm">
-          <div className="flex items-center gap-2">
-            <MapPin className="w-4 h-4" />
-            <span>R. Padre Rolim, 620 - Santa Efigênia, BH</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Phone className="w-4 h-4" />
-            <a href="tel:+5531986140889" className="hover:underline">
-              (31) 9 8614-0889
-            </a>
-          </div>
-        </div>
-      </div>
-
       {/* Main nav */}
       <nav className="container mx-auto px-4 py-4">
         <div className="flex items-center justify-between">
@@ -76,36 +60,36 @@ const Header = () => {
         {isMenuOpen && (
           <div className="md:hidden pt-4 pb-2 animate-fade-in">
             <div className="flex flex-col gap-4">
-              <Link 
-                href="/servicos" 
+              <Link
+                href="/servicos"
                 onClick={() => setIsMenuOpen(false)}
                 className="text-foreground/80 hover:text-primary transition-colors font-medium text-left py-2"
               >
                 Serviços
               </Link>
-              <Link 
-                href="/coleta" 
+              <Link
+                href="/coleta"
                 onClick={() => setIsMenuOpen(false)}
                 className="text-foreground/80 hover:text-primary transition-colors font-medium text-left py-2"
               >
                 Coleta em Domicílio
               </Link>
-              <Link 
-                href="/sobre" 
+              <Link
+                href="/sobre"
                 onClick={() => setIsMenuOpen(false)}
                 className="text-foreground/80 hover:text-primary transition-colors font-medium text-left py-2"
               >
                 Sobre
               </Link>
-              <Link 
-                href="/acessorios" 
+              <Link
+                href="/acessorios"
                 onClick={() => setIsMenuOpen(false)}
                 className="text-foreground/80 hover:text-primary transition-colors font-medium text-left py-2"
               >
                 Acessórios
               </Link>
-              <Link 
-                href="/lojistas" 
+              <Link
+                href="/lojistas"
                 onClick={() => setIsMenuOpen(false)}
                 className="text-foreground/80 hover:text-primary transition-colors font-medium text-left py-2"
               >

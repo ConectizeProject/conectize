@@ -21,7 +21,7 @@ function getSupabaseEnv() {
 
 /**
  * Valida sessão via getClaims (JWT nos cookies, sem chamada ao Auth server).
- * getUser() no Edge pode falhar mesmo com cookies corretos; getClaims() valida localmente.
+ * Proxy roda em Node.js (Next.js 16+); getClaims() valida localmente.
  */
 async function getUserRole(supabase: SupabaseClient) {
   const { data: claimsData } = await supabase.auth.getClaims()
@@ -38,7 +38,7 @@ async function getUserRole(supabase: SupabaseClient) {
   return { user: { id: sub }, role }
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl
 
   if (
@@ -242,4 +242,3 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: ['/servicos/:path*', '/portal/:path*'],
 }
-

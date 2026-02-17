@@ -59,7 +59,7 @@ const Footer = () => {
 
         <div className="border-t border-background/20 pt-8">
           <div className="text-center text-background/60 text-sm">
-            <p>© {currentYear} Conectize - Assistência Técnica de Celular e Apple em Belo Horizonte. Todos os direitos reservados.</p>
+            <p>© {currentYear} Conectize - Assistência Técnica de Celular e Apple em Belo Horizonte. CNPJ 44.957.050/0001-37. Todos os direitos reservados.</p>
             <p className="mt-2">
               Conserto de celulares Belo Horizonte | Assistência técnica iPhone BH | Coleta em domicílio | Especialista Apple
             </p>
