@@ -21,7 +21,7 @@ const Hero = () => {
           {/* Content */}
           <div className="text-center lg:text-left">
             <div className="flex flex-wrap gap-2 justify-center lg:justify-start mb-6">
-              <div className="inline-flex items-center gap-2 bg-primary/10 text-primary px-4 py-2 rounded-full text-sm font-medium animate-fade-up">
+              <div className="inline-flex items-center gap-2 bg-primary/15 text-primary-accessible px-4 py-2 rounded-full text-sm font-medium animate-fade-up">
                 <Shield className="w-4 h-4" />
                 Assistência Técnica Especializada
               </div>
@@ -66,11 +66,11 @@ const Hero = () => {
             {/* Trust badges */}
             <div className="flex flex-wrap gap-6 justify-center lg:justify-start mt-12 animate-fade-up" style={{ animationDelay: "0.4s" }}>
               <div className="flex items-center gap-2 text-muted-foreground">
-                <Clock className="w-5 h-5 text-primary" />
+                <Clock className="w-5 h-5 text-primary-accessible" />
                 <span className="text-sm font-medium">Atendimento Rápido</span>
               </div>
               <div className="flex items-center gap-2 text-muted-foreground">
-                <Shield className="w-5 h-5 text-accent" />
+                <Shield className="w-5 h-5 text-primary-accessible" />
                 <span className="text-sm font-medium">Garantia em Todos Serviços</span>
               </div>
             </div>
@@ -81,7 +81,7 @@ const Hero = () => {
             <div className="relative">
               <div className="absolute inset-0 gradient-primary rounded-3xl blur-2xl opacity-30 scale-105" />
               <div className="relative bg-card rounded-3xl p-8 shadow-card">
-                <Smartphone className="w-48 h-48 md:w-64 md:h-64 text-primary" strokeWidth={1} />
+                <Smartphone className="w-48 h-48 md:w-64 md:h-64 text-primary-accessible" strokeWidth={1} />
                 <div className="absolute -top-4 -right-4 bg-accent text-accent-foreground px-4 py-2 rounded-xl font-bold text-sm shadow-lg">
                   Coleta Grátis!
                 </div>

@@ -7,7 +7,7 @@ const Contact = () => {
   return <section id="contato" className="py-20 bg-background">
       <div className="container mx-auto px-4">
         <div className="text-center max-w-3xl mx-auto mb-16">
-          <span className="inline-block text-primary font-semibold text-sm uppercase tracking-wider mb-4">
+          <span className="inline-block text-primary-accessible font-semibold text-sm uppercase tracking-wider mb-4">
             Contato
           </span>
           <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-foreground mb-6">
@@ -28,8 +28,8 @@ const Contact = () => {
                 <Phone className="w-6 h-6 text-primary-foreground" />
               </div>
               <div>
-                <h4 className="font-bold text-foreground mb-1">Telefone</h4>
-                <a href="tel:+5531986140889" className="text-muted-foreground hover:text-primary transition-colors">
+                <p className="font-bold text-foreground mb-1">Telefone</p>
+                <a href="tel:+5531986140889" className="text-foreground hover:text-primary-accessible transition-colors">
                   (31) 9 8614-0889
                 </a>
               </div>
@@ -40,8 +40,8 @@ const Contact = () => {
                 <MessageCircle className="w-6 h-6 text-primary-foreground" />
               </div>
               <div>
-                <h4 className="font-bold text-foreground mb-1">WhatsApp</h4>
-                <a href="https://wa.me/5531986140889" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
+                <p className="font-bold text-foreground mb-1">WhatsApp</p>
+                <a href="https://wa.me/5531986140889" target="_blank" rel="noopener noreferrer" className="text-foreground hover:text-primary-accessible transition-colors">
                   (31) 9 8614-0889
                 </a>
               </div>
@@ -52,8 +52,8 @@ const Contact = () => {
                 <Mail className="w-6 h-6 text-primary-foreground" />
               </div>
               <div>
-                <h4 className="font-bold text-foreground mb-1">E-mail</h4>
-                <a href="mailto:contato@conectize.com.br" className="text-muted-foreground hover:text-primary transition-colors">
+                <p className="font-bold text-foreground mb-1">E-mail</p>
+                <a href="mailto:contato@conectize.com.br" className="text-foreground hover:text-primary-accessible transition-colors">
                   contato@conectize.com.br
                 </a>
               </div>
@@ -64,7 +64,7 @@ const Contact = () => {
                 <MapPin className="w-6 h-6 text-primary-foreground" />
               </div>
               <div>
-                <h4 className="font-bold text-foreground mb-1">Endereço</h4>
+                <p className="font-bold text-foreground mb-1">Endereço</p>
                 <p className="text-muted-foreground">
                   R. Padre Rolim, 620 - Santa Efigênia<br />
                   Belo Horizonte - MG, 30130-094
@@ -77,7 +77,7 @@ const Contact = () => {
                 <Clock className="w-6 h-6 text-primary-foreground" />
               </div>
               <div>
-                <h4 className="font-bold text-foreground mb-1">Horário de Atendimento</h4>
+                <p className="font-bold text-foreground mb-1">Horário de Atendimento</p>
                 <p className="text-muted-foreground">
                   Segunda a Sexta: 9:30h às 18:30h<br />
                   Sábado: 10h às 14h
@@ -94,7 +94,7 @@ const Contact = () => {
               border: 0
             }} allowFullScreen loading="lazy" referrerPolicy="no-referrer-when-downgrade" title="Localização Conectize" className="w-full" />
               <div className="p-4">
-                <a href="https://www.google.com/maps/dir//R.+Padre+Rolim,+620+-+Santa+Efigênia,+Belo+Horizonte+-+MG,+30130-094" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline text-sm font-medium flex items-center gap-2">
+                <a href="https://www.google.com/maps/dir//R.+Padre+Rolim,+620+-+Santa+Efigênia,+Belo+Horizonte+-+MG,+30130-094" target="_blank" rel="noopener noreferrer" className="text-primary-accessible hover:underline text-sm font-medium flex items-center gap-2">
                   <MapPin className="w-4 h-4" />
                   Abrir no Google Maps
                 </a>

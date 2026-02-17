@@ -74,7 +74,7 @@ const Services = () => {
     <section id="servicos" className="py-20 bg-secondary/30">
       <div className="container mx-auto px-4">
         <div className="text-center max-w-3xl mx-auto mb-16">
-          <span className="inline-block text-primary font-semibold text-sm uppercase tracking-wider mb-4">
+          <span className="inline-block text-primary-accessible font-semibold text-sm uppercase tracking-wider mb-4">
             Nossos Serviços
           </span>
           <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-foreground mb-6">
@@ -100,7 +100,7 @@ const Services = () => {
                 style={{ animationDelay: `${index * 0.05}s` }}
               >
                 {service.highlight && (
-                  <div className="absolute top-0 right-0 bg-primary text-primary-foreground text-xs font-bold px-3 py-1 rounded-bl-lg">
+                  <div className="absolute top-0 right-0 bg-primary-accessible text-white text-xs font-bold px-3 py-1 rounded-bl-lg">
                     Especialidade
                   </div>
                 )}

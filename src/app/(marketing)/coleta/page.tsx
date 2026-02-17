@@ -40,7 +40,7 @@ export default function ColetaPage () {
                     <span className="text-primary-foreground font-bold">1</span>
                   </div>
                   <div>
-                    <h4 className="font-bold text-foreground mb-1">Agende a Coleta</h4>
+                    <p className="font-bold text-foreground mb-1">Agende a Coleta</p>
                     <p className="text-sm text-muted-foreground">
                       Entre em contato pelo WhatsApp e escolha o melhor horário
                     </p>
@@ -52,7 +52,7 @@ export default function ColetaPage () {
                     <span className="text-primary-foreground font-bold">2</span>
                   </div>
                   <div>
-                    <h4 className="font-bold text-foreground mb-1">Buscamos seu Celular</h4>
+                    <p className="font-bold text-foreground mb-1">Buscamos seu Celular</p>
                     <p className="text-sm text-muted-foreground">
                       Nossa equipe vai até você em qualquer região de BH
                     </p>
@@ -64,7 +64,7 @@ export default function ColetaPage () {
                     <span className="text-primary-foreground font-bold">3</span>
                   </div>
                   <div>
-                    <h4 className="font-bold text-foreground mb-1">Conserto Rápido</h4>
+                    <p className="font-bold text-foreground mb-1">Conserto Rápido</p>
                     <p className="text-sm text-muted-foreground">
                       Diagnóstico, orçamento e reparo com qualidade
                     </p>
@@ -76,7 +76,7 @@ export default function ColetaPage () {
                     <span className="text-accent-foreground font-bold">4</span>
                   </div>
                   <div>
-                    <h4 className="font-bold text-foreground mb-1">Entrega em Domicílio</h4>
+                    <p className="font-bold text-foreground mb-1">Entrega em Domicílio</p>
                     <p className="text-sm text-muted-foreground">
                       Devolvemos seu celular funcionando no mesmo local
                     </p>

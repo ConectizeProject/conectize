@@ -16,7 +16,7 @@ export default function ContatoPage () {
     <div className="min-h-screen pt-32 pb-20 bg-background">
       <div className="container mx-auto px-4">
         <div className="text-center max-w-3xl mx-auto mb-16">
-          <span className="inline-block text-accent font-semibold text-sm uppercase tracking-wider mb-6">
+          <span className="inline-block text-primary-accessible font-semibold text-sm uppercase tracking-wider mb-6">
             Contato
           </span>
           <h1 className="text-4xl md:text-5xl font-bold text-foreground mb-6">
@@ -35,8 +35,8 @@ export default function ContatoPage () {
                 <Phone className="w-6 h-6 text-primary-foreground" />
               </div>
               <div>
-                <h4 className="font-bold text-foreground mb-1">Telefone</h4>
-                <a href="tel:+5531986140889" className="text-muted-foreground hover:text-primary transition-colors text-lg">
+                <p className="font-bold text-foreground mb-1">Telefone</p>
+                <a href="tel:+5531986140889" className="text-foreground hover:text-primary-accessible transition-colors text-lg">
                   (31) 9 8614-0889
                 </a>
               </div>
@@ -47,8 +47,8 @@ export default function ContatoPage () {
                 <MessageCircle className="w-6 h-6 text-primary-foreground" />
               </div>
               <div>
-                <h4 className="font-bold text-foreground mb-1">WhatsApp</h4>
-                <a href="https://wa.me/5531986140889" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors text-lg">
+                <p className="font-bold text-foreground mb-1">WhatsApp</p>
+                <a href="https://wa.me/5531986140889" target="_blank" rel="noopener noreferrer" className="text-foreground hover:text-primary-accessible transition-colors text-lg">
                   (31) 9 8614-0889
                 </a>
               </div>
@@ -59,8 +59,8 @@ export default function ContatoPage () {
                 <Mail className="w-6 h-6 text-primary-foreground" />
               </div>
               <div>
-                <h4 className="font-bold text-foreground mb-1">E-mail</h4>
-                <a href="mailto:contato@conectize.com.br" className="text-muted-foreground hover:text-primary transition-colors text-lg">
+                <p className="font-bold text-foreground mb-1">E-mail</p>
+                <a href="mailto:contato@conectize.com.br" className="text-foreground hover:text-primary-accessible transition-colors text-lg">
                   contato@conectize.com.br
                 </a>
               </div>
@@ -71,7 +71,7 @@ export default function ContatoPage () {
                 <MapPin className="w-6 h-6 text-primary-foreground" />
               </div>
               <div>
-                <h4 className="font-bold text-foreground mb-1">Endereço</h4>
+                <p className="font-bold text-foreground mb-1">Endereço</p>
                 <p className="text-muted-foreground text-lg">
                   R. Padre Rolim, 620 - Santa Efigênia<br />
                   Belo Horizonte - MG, 30130-094
@@ -84,7 +84,7 @@ export default function ContatoPage () {
                 <Clock className="w-6 h-6 text-primary-foreground" />
               </div>
               <div>
-                <h4 className="font-bold text-foreground mb-1">Horário de Atendimento</h4>
+                <p className="font-bold text-foreground mb-1">Horário de Atendimento</p>
                 <p className="text-muted-foreground text-lg">
                   Segunda a Sexta: 9:30h às 18:30h<br />
                   Sábado: 10h às 14h
@@ -111,7 +111,7 @@ export default function ContatoPage () {
                   href="https://www.google.com/maps/dir//R.+Padre+Rolim,+620+-+Santa+Efigênia,+Belo+Horizonte+-+MG,+30130-094"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-primary hover:underline text-sm font-medium flex items-center gap-2"
+                  className="text-primary-accessible hover:underline text-sm font-medium flex items-center gap-2"
                 >
                   <MapPin className="w-4 h-4" />
                   Abrir no Google Maps

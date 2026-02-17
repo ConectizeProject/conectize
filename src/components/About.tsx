@@ -35,7 +35,7 @@ const About = () => {
 
           {/* Content */}
           <div>
-            <span className="inline-block text-primary font-semibold text-sm uppercase tracking-wider mb-4">
+            <span className="inline-block text-primary-accessible font-semibold text-sm uppercase tracking-wider mb-4">
               Sobre Nós
             </span>
             <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-foreground mb-6">

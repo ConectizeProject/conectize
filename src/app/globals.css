@@ -5,22 +5,24 @@
 @layer base {
   :root {
     --background: 210 20% 98%;
-    --foreground: 215 25% 12%;
+    --foreground: 215 25% 10%;
 
     --card: 0 0% 100%;
-    --card-foreground: 215 25% 12%;
+    --card-foreground: 215 25% 10%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 215 25% 12%;
+    --popover-foreground: 215 25% 10%;
 
-    --primary: 199 89% 48%;
+    --primary: 199 89% 42%;
     --primary-foreground: 0 0% 100%;
+    /* Cor escura para texto/links em fundo claro (contraste WCAG AA) */
+    --primary-accessible: 199 89% 28%;
 
     --secondary: 210 20% 96%;
-    --secondary-foreground: 215 25% 12%;
+    --secondary-foreground: 215 25% 10%;
 
     --muted: 210 15% 93%;
-    --muted-foreground: 215 15% 45%;
+    --muted-foreground: 215 25% 30%;
 
     --accent: 168 76% 42%;
     --accent-foreground: 0 0% 100%;
