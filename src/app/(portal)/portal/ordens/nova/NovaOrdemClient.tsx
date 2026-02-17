@@ -812,6 +812,8 @@ export function NovaOrdemClient(props: Props) {
 								onSaved={(customer) => {
 									setSelectedCustomer(customer)
 									setIsCpfPopoverOpen(false)
+									formik.setFieldValue('customerId', customer.id)
+									formik.setFieldValue('document', getCustomerDocumentDigits(customer))
 								}}
 							/>
 						) : (
@@ -823,6 +825,8 @@ export function NovaOrdemClient(props: Props) {
 								onCreated={(customer) => {
 									setSelectedCustomer(customer)
 									setIsCpfPopoverOpen(false)
+									formik.setFieldValue('customerId', customer.id)
+									formik.setFieldValue('document', getCustomerDocumentDigits(customer))
 								}}
 							/>
 						)}
