@@ -31,12 +31,16 @@ export function SignupClient() {
 		return isValidPassword(password)
 	}, [email, password, passwordConfirm])
 
+	const siteOrigin = typeof window !== 'undefined'
+		? (process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') || window.location.origin)
+		: ''
+
 	async function onGoogleSignup() {
 		setErrorMessage(null)
 		setIsGoogleLoading(true)
 		try {
 			const supabase = createSupabaseBrowserClient()
-			const callbackUrl = new URL('/portal/auth/callback', window.location.origin)
+			const callbackUrl = new URL('/portal/auth/callback', siteOrigin)
 			callbackUrl.searchParams.set('redirectTo', '/portal/complete-profile')
 
 			const { data, error } = await supabase.auth.signInWithOAuth({
@@ -91,7 +95,7 @@ export function SignupClient() {
 
 		try {
 			const supabase = createSupabaseBrowserClient()
-			const redirectUrl = new URL('/portal/auth/callback', window.location.origin)
+			const redirectUrl = new URL('/portal/auth/callback', siteOrigin)
 			redirectUrl.searchParams.set('redirectTo', '/portal/complete-profile')
 
 			const { data, error } = await supabase.auth.signUp({
