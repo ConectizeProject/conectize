@@ -56,7 +56,7 @@ export function buildOrdemLabelHtml(data: OrdemLabelData): string {
     html, body { height: 100%; }
     body {
       font-family: Arial, sans-serif;
-      font-size: 8px;
+      font-size: 9px;
       line-height: 1.25;
       color: #000;
       width: 45mm;

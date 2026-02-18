@@ -16,7 +16,7 @@ export function OrdemPrintButton({
   function handlePrint() {
     const origin = typeof window !== 'undefined' ? window.location.origin : ''
     const html = buildOrdemPrintHtml(data, company, origin)
-    const w = window.open('', '_blank', 'width=800,height=600')
+    const w = window.open('', '_blank', 'width=900,height=800')
     if (!w) {
       alert('Permita pop-ups para imprimir a ordem.')
       return

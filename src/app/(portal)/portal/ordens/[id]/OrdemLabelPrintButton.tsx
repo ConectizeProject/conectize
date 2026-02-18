@@ -9,7 +9,7 @@ type Props = {
 
 export function OrdemLabelPrintButton({ orderId }: Props) {
   function handlePrint() {
-    const w = window.open(`/api/portal/ordens/${orderId}/label`, '_blank', 'width=200,height=120')
+    const w = window.open(`/api/portal/ordens/${orderId}/label`, '_blank', 'width=900,height=800')
     if (!w) {
       alert('Permita pop-ups para imprimir a etiqueta.')
     }
