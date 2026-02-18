@@ -84,7 +84,12 @@ export function OrderCustomerCard({ customer }: Props) {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between gap-3 flex-wrap">
-            <CardTitle className="text-base">Dados do cliente</CardTitle>
+            <div>
+              <CardTitle className="text-base">Dados do cliente</CardTitle>
+              <CardDescription>
+                {getCustomerDisplayName(customer)} • {getCustomerDocumentMasked(customer)}
+              </CardDescription>
+            </div>
             <Button
               type="button"
               variant="outline"
@@ -94,9 +99,6 @@ export function OrderCustomerCard({ customer }: Props) {
               Editar cliente
             </Button>
           </div>
-          <CardDescription>
-            {getCustomerDisplayName(customer)} • {getCustomerDocumentMasked(customer)}
-          </CardDescription>
         </CardHeader>
         <CardContent>
           <CustomerDataGrid customer={customer} />

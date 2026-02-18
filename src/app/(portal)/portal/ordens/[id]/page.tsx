@@ -23,441 +23,471 @@ import { UpdateOrderSubmitButton } from './UpdateOrderSubmitButton'
 export const dynamic = 'force-dynamic'
 
 function formatStatus(status: string) {
-  if (status === 'orcamento') return 'Orçamento'
-  if (status === 'aprovado') return 'Aprovado'
-  if (status === 'aguardando_pecas') return 'Aguardando peças'
-  if (status === 'em_manutencao') return 'Em manutenção'
-  if (status === 'aguardando_retirada') return 'Aguardando retirada'
-  if (status === 'finalizada') return 'Finalizada'
-  if (status === 'finalizada_sem_conserto') return 'Finalizada sem conserto'
-  if (status === 'finalizada_sem_aprovacao') return 'Finalizada sem aprovação'
-  if (status === 'cancelada') return 'Cancelada'
-  return status
+	if (status === 'orcamento') return 'Orçamento'
+	if (status === 'aprovado') return 'Aprovado'
+	if (status === 'aguardando_pecas') return 'Aguardando peças'
+	if (status === 'em_manutencao') return 'Em manutenção'
+	if (status === 'aguardando_retirada') return 'Aguardando retirada'
+	if (status === 'finalizada') return 'Finalizada'
+	if (status === 'finalizada_sem_conserto') return 'Finalizada sem conserto'
+	if (status === 'finalizada_sem_aprovacao') return 'Finalizada sem aprovação'
+	if (status === 'cancelada') return 'Cancelada'
+	return status
 }
 
 function isValidStatus(value: string) {
-  return value === 'orcamento' ||
-    value === 'aprovado' ||
-    value === 'aguardando_pecas' ||
-    value === 'em_manutencao' ||
-    value === 'aguardando_retirada' ||
-    value === 'finalizada' ||
-    value === 'finalizada_sem_conserto' ||
-    value === 'finalizada_sem_aprovacao' ||
-    value === 'cancelada'
+	return value === 'orcamento' ||
+		value === 'aprovado' ||
+		value === 'aguardando_pecas' ||
+		value === 'em_manutencao' ||
+		value === 'aguardando_retirada' ||
+		value === 'finalizada' ||
+		value === 'finalizada_sem_conserto' ||
+		value === 'finalizada_sem_aprovacao' ||
+		value === 'cancelada'
 }
 
+const FINALIZED_STATUSES = new Set([
+	'finalizada',
+	'finalizada_sem_conserto',
+	'finalizada_sem_aprovacao',
+	'cancelada',
+])
+
 function getCustomerFromOrder(order: any) {
-  const customer = order?.customers
-  if (Array.isArray(customer)) return customer[0] || null
-  return customer || null
+	const customer = order?.customers
+	if (Array.isArray(customer)) return customer[0] || null
+	return customer || null
 }
 
 function getDeviceModelFromOrder(order: any) {
-  const deviceModel = order?.device_models
-  if (Array.isArray(deviceModel)) return deviceModel[0] || null
-  return deviceModel || null
+	const deviceModel = order?.device_models
+	if (Array.isArray(deviceModel)) return deviceModel[0] || null
+	return deviceModel || null
 }
 
 function parseServicesJson(raw: unknown): { items: Array<{ description: string; valueCents: number; costCents: number }>; totalValueCents: number; totalCostCents: number } {
-  if (!raw) return { items: [], totalValueCents: 0, totalCostCents: 0 }
-  try {
-    const parsed = JSON.parse(String(raw)) as { items?: unknown[]; totals?: { totalValueCents?: number; totalCostCents?: number } }
-    const items = Array.isArray(parsed?.items) ? parsed.items : []
-    const normalized = items
-      .slice(0, 100)
-      .map((item: unknown) => {
-        const i = item as Record<string, unknown>
-        return {
-          description: String(i?.description ?? '').trim().slice(0, 240),
-          valueCents: Math.max(0, Number(i?.valueCents ?? 0) || 0),
-          costCents: Math.max(0, Number(i?.costCents ?? 0) || 0),
-        }
-      })
-      .filter((s) => s.description || s.valueCents > 0 || s.costCents > 0)
-    const totalValueCents = normalized.reduce((acc, s) => acc + s.valueCents, 0)
-    const totalCostCents = normalized.reduce((acc, s) => acc + s.costCents, 0)
-    return { items: normalized, totalValueCents, totalCostCents }
-  } catch {
-    return { items: [], totalValueCents: 0, totalCostCents: 0 }
-  }
+	if (!raw) return { items: [], totalValueCents: 0, totalCostCents: 0 }
+	try {
+		const parsed = JSON.parse(String(raw)) as { items?: unknown[]; totals?: { totalValueCents?: number; totalCostCents?: number } }
+		const items = Array.isArray(parsed?.items) ? parsed.items : []
+		const normalized = items
+			.slice(0, 100)
+			.map((item: unknown) => {
+				const i = item as Record<string, unknown>
+				return {
+					description: String(i?.description ?? '').trim().slice(0, 240),
+					valueCents: Math.max(0, Number(i?.valueCents ?? 0) || 0),
+					costCents: Math.max(0, Number(i?.costCents ?? 0) || 0),
+				}
+			})
+			.filter((s) => s.description || s.valueCents > 0 || s.costCents > 0)
+		const totalValueCents = normalized.reduce((acc, s) => acc + s.valueCents, 0)
+		const totalCostCents = normalized.reduce((acc, s) => acc + s.costCents, 0)
+		return { items: normalized, totalValueCents, totalCostCents }
+	} catch {
+		return { items: [], totalValueCents: 0, totalCostCents: 0 }
+	}
 }
 
 function formatDateTimeLocal(value: any) {
-  if (!value) return ''
-  const dt = new Date(String(value))
-  if (Number.isNaN(dt.getTime())) return ''
-  const pad = (n: number) => String(n).padStart(2, '0')
-  const y = dt.getFullYear()
-  const m = pad(dt.getMonth() + 1)
-  const d = pad(dt.getDate())
-  const h = pad(dt.getHours())
-  const min = pad(dt.getMinutes())
-  return `${y}-${m}-${d}T${h}:${min}`
+	if (!value) return ''
+	const dt = new Date(String(value))
+	if (Number.isNaN(dt.getTime())) return ''
+	const pad = (n: number) => String(n).padStart(2, '0')
+	const y = dt.getFullYear()
+	const m = pad(dt.getMonth() + 1)
+	const d = pad(dt.getDate())
+	const h = pad(dt.getHours())
+	const min = pad(dt.getMinutes())
+	return `${y}-${m}-${d}T${h}:${min}`
 }
 
 type PageProps = {
-  params: Promise<{ id: string }>
-  searchParams: Promise<{ ok?: string; error?: string }>
+	params: Promise<{ id: string }>
+	searchParams: Promise<{ ok?: string; error?: string }>
 }
 
 export default async function OrdemDetalhePage({ params, searchParams }: PageProps) {
-  const { id } = await params
-  const { error } = await searchParams
+	const { id } = await params
+	const { error } = await searchParams
 
-  const { user, role } = await getPortalAuth()
-  if (!user) redirect('/portal/login')
+	const { user, role } = await getPortalAuth()
+	if (!user) redirect('/portal/login')
 
-  const normalizedRole = role === 'customer' ? 'user' : role
-  if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
+	const normalizedRole = role === 'customer' ? 'user' : role
+	if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
 
-  const supabase = await createSupabaseServerClient()
-  const [{ data: order }, { data: companySettings }] = await Promise.all([
-    supabase
-      .from('service_orders')
-      .select('id, display_number, status, title, imei, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, customer_description, internal_description, receiving_notes, assistance_info, device_model_id, brand, model, services, services_total_cents, services_cost_total_cents, created_at, updated_at, share_token, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date, zip_code, state, city, neighborhood, street, street_number, street_complement, referral_source, referral_source_other ), device_models ( id, brand, device_type, model )')
-      .eq('id', id)
-      .maybeSingle(),
-    supabase.from('company_settings').select('name, cnpj, address, complement, zip_code, city, state, phone, email, logo_url').eq('id', 1).maybeSingle(),
-  ])
+	const supabase = await createSupabaseServerClient()
+	const [{ data: order }, { data: companySettings }] = await Promise.all([
+		supabase
+			.from('service_orders')
+			.select('id, display_number, status, title, imei, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, customer_description, internal_description, receiving_notes, assistance_info, device_model_id, brand, model, services, services_total_cents, services_cost_total_cents, created_at, updated_at, closed_at, share_token, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date, zip_code, state, city, neighborhood, street, street_number, street_complement, referral_source, referral_source_other ), device_models ( id, brand, device_type, model )')
+			.eq('id', id)
+			.maybeSingle(),
+		supabase.from('company_settings').select('name, cnpj, address, complement, zip_code, city, state, phone, email, logo_url').eq('id', 1).maybeSingle(),
+	])
 
-  if (!order) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Ordem não encontrada</CardTitle>
-          <CardDescription>Verifique o ID e tente novamente.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button asChild variant="outline">
-            <Link href="/portal/ordens">Voltar</Link>
-          </Button>
-        </CardContent>
-      </Card>
-    )
-  }
+	if (!order) {
+		return (
+			<Card>
+				<CardHeader>
+					<CardTitle>Ordem não encontrada</CardTitle>
+					<CardDescription>Verifique o ID e tente novamente.</CardDescription>
+				</CardHeader>
+				<CardContent>
+					<Button asChild variant="outline">
+						<Link href="/portal/ordens">Voltar</Link>
+					</Button>
+				</CardContent>
+			</Card>
+		)
+	}
 
-  function formatBirthDate(value: string | null | undefined) {
-    if (!value) return null
-    const date = new Date(String(value))
-    if (Number.isNaN(date.getTime())) return String(value)
-    return date.toLocaleDateString('pt-BR')
-  }
+	function formatBirthDate(value: string | null | undefined) {
+		if (!value) return null
+		const date = new Date(String(value))
+		if (Number.isNaN(date.getTime())) return String(value)
+		return date.toLocaleDateString('pt-BR')
+	}
 
-  const customer = getCustomerFromOrder(order)
-  const deviceModel = getDeviceModelFromOrder(order)
+	const customer = getCustomerFromOrder(order)
+	const deviceModel = getDeviceModelFromOrder(order)
 
-  async function updateOrderAction(formData: FormData) {
-    'use server'
+	async function updateOrderAction(formData: FormData) {
+		'use server'
 
-    const orderId = String(formData.get('orderId') || '').trim()
-    const title = String(formData.get('title') || '').trim()
-    const status = String(formData.get('status') || '').trim()
-    const imei = String(formData.get('imei') || '').trim()
-    const isWarranty = Boolean(formData.get('isWarranty'))
-    const estimatedReadyAtRaw = String(formData.get('estimatedReadyAt') || '').trim()
-    const passcodeType = String(formData.get('passcodeType') || '').trim()
-    const passcodeText = String(formData.get('passcodeText') || '').trim()
-    const passcodePattern = String(formData.get('passcodePattern') || '').trim()
-    const customerDescription = String(formData.get('customerDescription') || '').trim()
-    const internalDescription = String(formData.get('internalDescription') || '').trim()
-    const receivingNotes = String(formData.get('receivingNotes') || '').trim()
-    const assistanceInfo = String(formData.get('assistanceInfo') || '').trim()
-    const deviceModelId = String(formData.get('deviceModelId') || '').trim()
-    const servicesJson = formData.get('servicesJson')
-    const services = parseServicesJson(servicesJson)
+		const orderId = String(formData.get('orderId') || '').trim()
+		const title = String(formData.get('title') || '').trim()
+		const status = String(formData.get('status') || '').trim()
+		const imei = String(formData.get('imei') || '').trim()
+		const isWarranty = Boolean(formData.get('isWarranty'))
+		const estimatedReadyAtRaw = String(formData.get('estimatedReadyAt') || '').trim()
+		const passcodeType = String(formData.get('passcodeType') || '').trim()
+		const passcodeText = String(formData.get('passcodeText') || '').trim()
+		const passcodePattern = String(formData.get('passcodePattern') || '').trim()
+		const customerDescription = String(formData.get('customerDescription') || '').trim()
+		const internalDescription = String(formData.get('internalDescription') || '').trim()
+		const receivingNotes = String(formData.get('receivingNotes') || '').trim()
+		const assistanceInfo = String(formData.get('assistanceInfo') || '').trim()
+		const deviceModelId = String(formData.get('deviceModelId') || '').trim()
+		const servicesJson = formData.get('servicesJson')
+		const services = parseServicesJson(servicesJson)
 
-    const estimatedReadyAt = (() => {
-      if (!estimatedReadyAtRaw) return null
-      const dt = new Date(estimatedReadyAtRaw)
-      if (Number.isNaN(dt.getTime())) return null
-      return dt.toISOString()
-    })()
+		const estimatedReadyAt = (() => {
+			if (!estimatedReadyAtRaw) return null
+			const dt = new Date(estimatedReadyAtRaw)
+			if (Number.isNaN(dt.getTime())) return null
+			return dt.toISOString()
+		})()
 
-    if (!orderId) redirect(`/portal/ordens/${id}?error=dados_invalidos`)
-    if (!title) redirect(`/portal/ordens/${id}?error=titulo_obrigatorio`)
-    if (!isValidStatus(status)) redirect(`/portal/ordens/${id}?error=status_invalido`)
+		if (!orderId) redirect(`/portal/ordens/${id}?error=dados_invalidos`)
+		if (!title) redirect(`/portal/ordens/${id}?error=titulo_obrigatorio`)
+		if (!isValidStatus(status)) redirect(`/portal/ordens/${id}?error=status_invalido`)
 
-    const { user, role } = await getPortalAuth()
-    if (!user) redirect('/portal/login')
+		const { user, role } = await getPortalAuth()
+		if (!user) redirect('/portal/login')
 
-    const normalizedRole = role === 'customer' ? 'user' : role
-    if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
+		const normalizedRole = role === 'customer' ? 'user' : role
+		if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
 
-    const supabase = await createSupabaseServerClient()
-    const { error } = await supabase
-      .from('service_orders')
-      .update({
-        title,
-        status,
-        imei: imei || null,
-        is_warranty: isWarranty,
-        estimated_ready_at: estimatedReadyAt,
-        passcode_type: (passcodeType === 'text' || passcodeType === 'pattern') ? passcodeType : null,
-        passcode_text: passcodeType === 'text' ? (passcodeText || null) : null,
-        passcode_pattern: passcodeType === 'pattern' ? (passcodePattern || null) : null,
-        customer_description: customerDescription || null,
-        internal_description: internalDescription || null,
-        receiving_notes: receivingNotes || null,
-        assistance_info: assistanceInfo || null,
-        device_model_id: deviceModelId || null,
-        services: services.items,
-        services_total_cents: services.totalValueCents,
-        services_cost_total_cents: services.totalCostCents,
-      })
-      .eq('id', orderId)
+		const supabase = await createSupabaseServerClient()
+		const { data: existing } = await supabase
+			.from('service_orders')
+			.select('status')
+			.eq('id', orderId)
+			.maybeSingle()
+		if (existing && FINALIZED_STATUSES.has(existing.status)) {
+			redirect(`/portal/ordens/${id}?error=ordem_finalizada`)
+		}
+		const updatePayload: Record<string, unknown> = {
+			title,
+			status,
+			imei: imei || null,
+			is_warranty: isWarranty,
+			estimated_ready_at: estimatedReadyAt,
+			passcode_type: (passcodeType === 'text' || passcodeType === 'pattern') ? passcodeType : null,
+			passcode_text: passcodeType === 'text' ? (passcodeText || null) : null,
+			passcode_pattern: passcodeType === 'pattern' ? (passcodePattern || null) : null,
+			customer_description: customerDescription || null,
+			internal_description: internalDescription || null,
+			receiving_notes: receivingNotes || null,
+			assistance_info: assistanceInfo || null,
+			device_model_id: deviceModelId || null,
+			services: services.items,
+			services_total_cents: services.totalValueCents,
+			services_cost_total_cents: services.totalCostCents,
+		}
+		if (FINALIZED_STATUSES.has(status)) {
+			updatePayload.closed_at = new Date().toISOString()
+		}
+		const { error } = await supabase
+			.from('service_orders')
+			.update(updatePayload)
+			.eq('id', orderId)
 
-    if (error) redirect(`/portal/ordens/${id}?error=nao_foi_possivel_salvar`)
+		if (error) redirect(`/portal/ordens/${id}?error=nao_foi_possivel_salvar`)
 
-    redirect(`/portal/ordens/${id}?ok=1`)
-  }
+		redirect(`/portal/ordens/${id}?ok=1`)
+	}
 
-  async function deleteOrderAction(formData: FormData) {
-    'use server'
+	async function deleteOrderAction(formData: FormData) {
+		'use server'
 
-    const orderId = String(formData.get('orderId') || '').trim()
-    if (!orderId) redirect('/portal/ordens?error=dados_invalidos')
+		const orderId = String(formData.get('orderId') || '').trim()
+		if (!orderId) redirect('/portal/ordens?error=dados_invalidos')
 
-    const { user, role } = await getPortalAuth()
-    if (!user) redirect('/portal/login')
+		const { user, role } = await getPortalAuth()
+		if (!user) redirect('/portal/login')
 
-    const normalizedRole = role === 'customer' ? 'user' : role
-    if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
-    if (normalizedRole !== 'admin') redirect(`/portal/ordens/${orderId}?error=sem_permissao`)
+		const normalizedRole = role === 'customer' ? 'user' : role
+		if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
+		if (normalizedRole !== 'admin') redirect(`/portal/ordens/${orderId}?error=sem_permissao`)
 
-    const supabase = await createSupabaseServerClient()
-    const { error } = await supabase
-      .from('service_orders')
-      .delete()
-      .eq('id', orderId)
+		const supabase = await createSupabaseServerClient()
+		const { error } = await supabase
+			.from('service_orders')
+			.delete()
+			.eq('id', orderId)
 
-    if (error) redirect(`/portal/ordens/${id}?error=nao_foi_possivel_excluir`)
+		if (error) redirect(`/portal/ordens/${id}?error=nao_foi_possivel_excluir`)
 
-    redirect('/portal/ordens?ok=1')
-  }
+		redirect('/portal/ordens?ok=1')
+	}
 
-  return (
-    <div className="max-w-4xl space-y-6">
-      <OrdemDetalheToastClient />
+	const isFinalized = FINALIZED_STATUSES.has(order.status)
 
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold">Ordem de serviço {order.display_number ?? order.id}</h1>
-          <p className="text-sm text-muted-foreground">
-            {customer?.is_company
-              ? customer?.company_name
-              : customer?.full_name} • {customer?.cnpj ? `CNPJ ${formatCpfCnpj(customer.cnpj)}` : `CPF ${customer?.cpf ? formatCpfCnpj(customer.cpf) : '-'}`}
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <OrdemPrintButton data={{
-              displayNumber: order.display_number ?? order.id,
-              status: order.status,
-              title: order.title,
-              createdAt: order.created_at,
-              updatedAt: order.updated_at,
-              customer: {
-                fullName: customer?.full_name ?? '',
-                companyName: customer?.company_name ?? null,
-                isCompany: Boolean(customer?.is_company),
-                cpf: customer?.cpf ?? null,
-                cnpj: customer?.cnpj ?? null,
-                email: customer?.email ?? null,
-                mobilePhone: customer?.mobile_phone ?? null,
-                contactPhone: customer?.contact_phone ?? null,
-                contactNotes: customer?.contact_notes ?? null,
-                addressFull: customer?.address_full ?? null,
-              },
-              device: deviceModel ? `${deviceModel.brand} • ${deviceModel.device_type} • ${deviceModel.model}` : (order.brand || order.model ? `${order.brand || ''} ${order.model || ''}`.trim() : '-'),
-              imei: order.imei ?? null,
-              isWarranty: Boolean(order.is_warranty),
-              estimatedReadyAt: order.estimated_ready_at,
-              customerDescription: order.customer_description ?? null,
-              internalDescription: order.internal_description ?? null,
-              receivingNotes: order.receiving_notes ?? null,
-              assistanceInfo: order.assistance_info ?? null,
-              services: (order.services as Array<{ description?: string; valueCents?: number; costCents?: number }>) ?? [],
-            }}
-            company={companySettings ? {
-              name: companySettings.name ?? null,
-              cnpj: companySettings.cnpj ?? null,
-              address: companySettings.address ?? null,
-              complement: companySettings.complement ?? null,
-              zipCode: companySettings.zip_code ?? null,
-              city: companySettings.city ?? null,
-              state: companySettings.state ?? null,
-              phone: companySettings.phone ?? null,
-              email: companySettings.email ?? null,
-              logoUrl: companySettings.logo_url ?? null,
-            } : null}
-          />
-          <OrdemLabelPrintButton orderId={order.id} />
-          <OrdemShareButtons
-            orderId={order.id}
-            publicOrderPath={order.share_token ? `/os/${order.share_token}` : null}
-            displayNumber={order.display_number ?? order.id}
-            title={order.title}
-            customerName={customer?.is_company ? (customer?.company_name ?? '') : (customer?.full_name ?? '')}
-            device={deviceModel ? `${deviceModel.brand} • ${deviceModel.device_type} • ${deviceModel.model}` : (order.brand || order.model ? `${order.brand || ''} ${order.model || ''}`.trim() : '-')}
-            status={formatStatus(order.status)}
-            estimatedReadyAt={order.estimated_ready_at}
-            mobilePhone={customer?.mobile_phone}
-            email={customer?.email}
-          />
-        </div>
-      </div>
+	return (
+		<div className="max-w-4xl space-y-6">
+			<OrdemDetalheToastClient />
 
-      <OrderCustomerCard customer={customer} />
+			<div className="flex items-start justify-between gap-4 flex-wrap">
+				<h1 className="text-2xl font-bold">Ordem de serviço {order.display_number ?? order.id}</h1>
 
-      {error ? (
-        <p className="text-sm text-destructive">
-          {getOrdemErrorMessage(error)}
-        </p>
-      ) : null}
+				<div className="flex items-center gap-2 flex-wrap">
+					<OrdemPrintButton data={{
+						displayNumber: order.display_number ?? order.id,
+						status: order.status,
+						title: order.title,
+						createdAt: order.created_at,
+						updatedAt: order.updated_at,
+						closedAt: order.closed_at ?? null,
+						customer: {
+							fullName: customer?.full_name ?? '',
+							companyName: customer?.company_name ?? null,
+							isCompany: Boolean(customer?.is_company),
+							cpf: customer?.cpf ?? null,
+							cnpj: customer?.cnpj ?? null,
+							email: customer?.email ?? null,
+							mobilePhone: customer?.mobile_phone ?? null,
+							contactPhone: customer?.contact_phone ?? null,
+							contactNotes: customer?.contact_notes ?? null,
+							addressFull: customer?.address_full ?? null,
+						},
+						device: deviceModel ? `${deviceModel.brand} • ${deviceModel.device_type} • ${deviceModel.model}` : (order.brand || order.model ? `${order.brand || ''} ${order.model || ''}`.trim() : '-'),
+						imei: order.imei ?? null,
+						isWarranty: Boolean(order.is_warranty),
+						estimatedReadyAt: order.estimated_ready_at,
+						customerDescription: order.customer_description ?? null,
+						internalDescription: order.internal_description ?? null,
+						receivingNotes: order.receiving_notes ?? null,
+						assistanceInfo: order.assistance_info ?? null,
+						services: (order.services as Array<{ description?: string; valueCents?: number; costCents?: number }>) ?? [],
+					}}
+						company={companySettings ? {
+							name: companySettings.name ?? null,
+							cnpj: companySettings.cnpj ?? null,
+							address: companySettings.address ?? null,
+							complement: companySettings.complement ?? null,
+							zipCode: companySettings.zip_code ?? null,
+							city: companySettings.city ?? null,
+							state: companySettings.state ?? null,
+							phone: companySettings.phone ?? null,
+							email: companySettings.email ?? null,
+							logoUrl: companySettings.logo_url ?? null,
+						} : null}
+					/>
+					<OrdemLabelPrintButton orderId={order.id} />
+					<OrdemShareButtons
+						orderId={order.id}
+						publicOrderPath={order.share_token ? `/os/${order.share_token}` : null}
+						displayNumber={order.display_number ?? order.id}
+						title={order.title}
+						customerName={customer?.is_company ? (customer?.company_name ?? '') : (customer?.full_name ?? '')}
+						device={deviceModel ? `${deviceModel.brand} • ${deviceModel.device_type} • ${deviceModel.model}` : (order.brand || order.model ? `${order.brand || ''} ${order.model || ''}`.trim() : '-')}
+						status={formatStatus(order.status)}
+						estimatedReadyAt={order.estimated_ready_at}
+						mobilePhone={customer?.mobile_phone}
+						email={customer?.email}
+					/>
+				</div>
+			</div>
 
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <CardTitle>Editar</CardTitle>
-            <div className="flex items-center gap-2">
-              <Badge variant="secondary">#{order.display_number ?? order.id}</Badge>
-              <OrderStatusBadge status={order.status} />
-            </div>
-          </div>
-          <CardDescription>
-            Criada em {formatDateTimeBr(order.created_at)} • Atualizada em {formatDateTimeBr(order.updated_at)}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form id="order-edit-form" action={updateOrderAction} className="space-y-6">
-            <input type="hidden" name="orderId" value={order.id} />
+			<OrderCustomerCard customer={customer} />
 
-            <div className="grid md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="status">Status</Label>
-                <select
-                  id="status"
-                  name="status"
-                  className="w-full h-10 rounded-md border border-input px-3 text-sm"
-                  defaultValue={order.status}
-                >
-                  <option value="orcamento">Orçamento</option>
-                  <option value="aprovado">Aprovado</option>
-                  <option value="aguardando_pecas">Aguardando peças</option>
-                  <option value="em_manutencao">Em manutenção</option>
-                  <option value="aguardando_retirada">Aguardando retirada</option>
-                  <option value="finalizada">Finalizada</option>
-                  <option value="finalizada_sem_conserto">Finalizada sem conserto</option>
-                  <option value="finalizada_sem_aprovacao">Finalizada sem aprovação</option>
-                  <option value="cancelada">Cancelada</option>
-                </select>
-              </div>
+			{error ? (
+				<p className="text-sm text-destructive">
+					{getOrdemErrorMessage(error)}
+				</p>
+			) : null}
 
-              <div className="space-y-2">
-                <Label htmlFor="imei">Número de série / IMEI</Label>
-                <Input id="imei" name="imei" defaultValue={order.imei || ''} placeholder="Digite o número" />
-              </div>
-            </div>
+			<Card>
+				<CardHeader>
+					<div className="flex items-center justify-between gap-3 flex-wrap">
+						<CardTitle>Editar</CardTitle>
+						<div className="flex items-center gap-2">
+							<Badge variant="secondary">#{order.display_number ?? order.id}</Badge>
+							<OrderStatusBadge status={order.status} />
+						</div>
+					</div>
+					<CardDescription>
+						Criada em {formatDateTimeBr(order.created_at)} • {order.closed_at ? `Finalizada em ${formatDateTimeBr(order.closed_at)}` : `Atualizada em ${formatDateTimeBr(order.updated_at)}`}
+					</CardDescription>
+				</CardHeader>
+				<CardContent>
+					<form id="order-edit-form" action={updateOrderAction} className="space-y-6">
+						<input type="hidden" name="orderId" value={order.id} />
 
-            <div className="grid md:grid-cols-2 gap-4">
-              <div className="flex items-center gap-2 rounded-md border p-3">
-                <input
-                  id="isWarranty"
-                  name="isWarranty"
-                  type="checkbox"
-                  defaultChecked={Boolean(order.is_warranty)}
-                />
-                <Label htmlFor="isWarranty" className="cursor-pointer">Serviço em garantia</Label>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="estimatedReadyAt">Previsão (data e hora)</Label>
-                <Input
-                  id="estimatedReadyAt"
-                  name="estimatedReadyAt"
-                  type="datetime-local"
-                  defaultValue={formatDateTimeLocal(order.estimated_ready_at)}
-                />
-              </div>
-            </div>
+						<div className="grid md:grid-cols-2 gap-4">
+							<div className="space-y-2">
+								<Label htmlFor="status">Status</Label>
+								<select
+									id="status"
+									name="status"
+									className="w-full h-10 rounded-md border border-input px-3 text-sm"
+									defaultValue={order.status}
+									disabled={isFinalized}
+								>
+									<option value="orcamento">Orçamento</option>
+									<option value="aprovado">Aprovado</option>
+									<option value="aguardando_pecas">Aguardando peças</option>
+									<option value="em_manutencao">Em manutenção</option>
+									<option value="aguardando_retirada">Aguardando retirada</option>
+									<option value="finalizada">Finalizada</option>
+									<option value="finalizada_sem_conserto">Finalizada sem conserto</option>
+									<option value="finalizada_sem_aprovacao">Finalizada sem aprovação</option>
+									<option value="cancelada">Cancelada</option>
+								</select>
+							</div>
 
-            <OrderPasscodeFields
-              defaultPasscodeType={order.passcode_type === 'text' || order.passcode_type === 'pattern' ? order.passcode_type : 'none'}
-              defaultPasscodeText={order.passcode_text || ''}
-              defaultPasscodePattern={order.passcode_pattern || ''}
-            />
+							<div className="space-y-2">
+								<Label htmlFor="imei">Número de série / IMEI</Label>
+								<Input id="imei" name="imei" defaultValue={order.imei || ''} placeholder="Digite o número" disabled={isFinalized} />
+							</div>
+						</div>
 
-            <div className="space-y-2">
-              <Label htmlFor="title">Título</Label>
-              <Input id="title" name="title" defaultValue={order.title} placeholder="Título" />
-            </div>
+						<div className="grid md:grid-cols-2 gap-4">
+							<div className="flex items-center gap-2 rounded-md border p-3">
+								<input
+									id="isWarranty"
+									name="isWarranty"
+									type="checkbox"
+									defaultChecked={Boolean(order.is_warranty)}
+									disabled={isFinalized}
+								/>
+								<Label htmlFor="isWarranty" className="cursor-pointer">Serviço em garantia</Label>
+							</div>
+							<div className="space-y-2">
+								<Label htmlFor="estimatedReadyAt">Previsão (data e hora)</Label>
+								<Input
+									id="estimatedReadyAt"
+									name="estimatedReadyAt"
+									type="datetime-local"
+									defaultValue={formatDateTimeLocal(order.estimated_ready_at)}
+									disabled={isFinalized}
+								/>
+							</div>
+						</div>
 
-            <div className="space-y-4">
-              <Label>Dispositivo</Label>
-              <OrderDeviceSelector
-                initialValue={{
-                  deviceModelId: (deviceModel as { id?: string })?.id ?? order.device_model_id ?? null,
-                  brand: deviceModel?.brand ?? order.brand ?? null,
-                  deviceType: deviceModel?.device_type ?? null,
-                  model: deviceModel?.model ?? order.model ?? null,
-                }}
-                formId="order-edit-form"
-              />
-            </div>
+						<OrderPasscodeFields
+							defaultPasscodeType={order.passcode_type === 'text' || order.passcode_type === 'pattern' ? order.passcode_type : 'none'}
+							defaultPasscodeText={order.passcode_text || ''}
+							defaultPasscodePattern={order.passcode_pattern || ''}
+							disabled={isFinalized}
+						/>
 
-            <OrderServicesCard
-              initialServices={(order.services as Array<{ description?: string; valueCents?: number; costCents?: number }>) ?? []}
-              inputName="servicesJson"
-              formId="order-edit-form"
-            />
+						<div className="space-y-2">
+							<Label htmlFor="title">Título</Label>
+							<Input id="title" name="title" defaultValue={order.title} placeholder="Título" disabled={isFinalized} />
+						</div>
 
-            <div className="space-y-2">
-              <Label htmlFor="customerDescription">Descrição para o cliente</Label>
-              <Textarea id="customerDescription" name="customerDescription" defaultValue={order.customer_description || ''} placeholder="Texto que o cliente vê" />
-            </div>
+						<div className="space-y-4">
+							<Label>Dispositivo</Label>
+							<OrderDeviceSelector
+								initialValue={{
+									deviceModelId: (deviceModel as { id?: string })?.id ?? order.device_model_id ?? null,
+									brand: deviceModel?.brand ?? order.brand ?? null,
+									deviceType: deviceModel?.device_type ?? null,
+									model: deviceModel?.model ?? order.model ?? null,
+								}}
+								formId="order-edit-form"
+								disabled={isFinalized}
+							/>
+						</div>
 
-            <div className="space-y-2">
-              <Label htmlFor="internalDescription">Descrição interna</Label>
-              <Textarea id="internalDescription" name="internalDescription" defaultValue={order.internal_description || ''} placeholder="Anotações internas" />
-            </div>
+						<OrderServicesCard
+							initialServices={(order.services as Array<{ description?: string; valueCents?: number; costCents?: number }>) ?? []}
+							inputName="servicesJson"
+							formId="order-edit-form"
+							disabled={isFinalized}
+						/>
 
-            <div className="space-y-2">
-              <Label htmlFor="receivingNotes">Observações do recebimento</Label>
-              <Textarea id="receivingNotes" name="receivingNotes" defaultValue={order.receiving_notes || ''} placeholder="Checklist, avarias, acessórios, etc." />
-            </div>
+						<div className="space-y-2">
+							<Label htmlFor="customerDescription">Descrição para o cliente</Label>
+							<Textarea id="customerDescription" name="customerDescription" defaultValue={order.customer_description || ''} placeholder="Texto que o cliente vê" disabled={isFinalized} />
+						</div>
 
-            <div className="space-y-2">
-              <Label htmlFor="assistanceInfo">Informações sobre a assistência</Label>
-              <Textarea id="assistanceInfo" name="assistanceInfo" defaultValue={order.assistance_info || ''} placeholder="Informações técnicas, serviços realizados, peças trocadas, etc." />
-            </div>
+						<div className="space-y-2">
+							<Label htmlFor="internalDescription">Descrição interna</Label>
+							<Textarea id="internalDescription" name="internalDescription" defaultValue={order.internal_description || ''} placeholder="Anotações internas" disabled={isFinalized} />
+						</div>
 
-            <div className="flex items-center gap-3 flex-wrap">
-              <UpdateOrderSubmitButton />
-              <Button variant="outline" asChild>
-                <Link href="/portal/ordens">Voltar</Link>
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+						<div className="space-y-2">
+							<Label htmlFor="receivingNotes">Observações do recebimento</Label>
+							<Textarea id="receivingNotes" name="receivingNotes" defaultValue={order.receiving_notes || ''} placeholder="Checklist, avarias, acessórios, etc." disabled={isFinalized} />
+						</div>
 
-      {role === 'admin' && (
-        <Card className="border-destructive/30">
-          <CardHeader>
-            <CardTitle>Excluir</CardTitle>
-            <CardDescription>Essa ação não pode ser desfeita.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form action={deleteOrderAction} className="flex items-center justify-between gap-3 flex-wrap">
-              <input type="hidden" name="orderId" value={order.id} />
-              <p className="text-sm text-muted-foreground">
-                Excluir ordem <b>#{order.display_number ?? order.id}</b> — {order.title}
-              </p>
-              <Button type="submit" variant="destructive">Excluir</Button>
-            </form>
-          </CardContent>
-        </Card>
-      )}
-    </div>
-  )
+						<div className="space-y-2">
+							<Label htmlFor="assistanceInfo">Informações sobre a assistência</Label>
+							<Textarea id="assistanceInfo" name="assistanceInfo" defaultValue={order.assistance_info || ''} placeholder="Informações técnicas, serviços realizados, peças trocadas, etc." disabled={isFinalized} />
+						</div>
+
+						{!isFinalized ? (
+							<div className="flex items-center gap-3 flex-wrap">
+								<UpdateOrderSubmitButton />
+								<Button variant="outline" asChild>
+									<Link href="/portal/ordens">Voltar</Link>
+								</Button>
+							</div>
+						) : (
+							<div className="flex items-center gap-3 flex-wrap">
+								<Button variant="outline" asChild>
+									<Link href="/portal/ordens">Voltar à lista</Link>
+								</Button>
+							</div>
+						)}
+					</form>
+				</CardContent>
+			</Card>
+
+			{role === 'admin' && !isFinalized && (
+				<Card className="border-destructive/30">
+					<CardHeader>
+						<CardTitle>Excluir</CardTitle>
+						<CardDescription>Essa ação não pode ser desfeita.</CardDescription>
+					</CardHeader>
+					<CardContent>
+						<form action={deleteOrderAction} className="flex items-center justify-between gap-3 flex-wrap">
+							<input type="hidden" name="orderId" value={order.id} />
+							<p className="text-sm text-muted-foreground">
+								Excluir ordem <b>#{order.display_number ?? order.id}</b> — {order.title}
+							</p>
+							<Button type="submit" variant="destructive">Excluir</Button>
+						</form>
+					</CardContent>
+				</Card>
+			)}
+		</div>
+	)
 }
 

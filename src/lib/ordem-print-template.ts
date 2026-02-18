@@ -22,6 +22,7 @@ export type OrdemPrintData = {
   title: string
   createdAt: string
   updatedAt: string
+  closedAt?: string | null
   customer: {
     fullName: string
     companyName: string | null
@@ -114,6 +115,73 @@ function buildCompanyAddress(c: CompanyPrintData | null | undefined): string {
   return parts.join(', ')
 }
 
+function formatPhoneBr(value: string | null | undefined): string | null {
+  if (!value) return null
+  const digits = String(value).replace(/\D/g, '').slice(0, 11)
+  const ddd = digits.slice(0, 2)
+  const rest = digits.slice(2)
+  if (!ddd) return value
+  if (rest.length <= 8) {
+    const p1 = rest.slice(0, 4)
+    const p2 = rest.slice(4, 8)
+    return `(${ddd}) ${[p1, p2].filter(Boolean).join('-')}`.trim()
+  }
+  const p1 = rest.slice(0, 1)
+  const p2 = rest.slice(1, 5)
+  const p3 = rest.slice(5, 9)
+  return `(${ddd}) ${p1} ${[p2, p3].filter(Boolean).join('-')}`.trim()
+}
+
+function buildCustomerSection(
+  customer: OrdemPrintData['customer'],
+  customerName: string
+): string {
+  const items: string[] = []
+  if (customerName && customerName !== '-') {
+    items.push(`<span><strong>${escapeHtml(customerName)}</strong></span>`)
+  }
+  const doc = formatDoc(customer.isCompany ? customer.cnpj : customer.cpf, customer.isCompany)
+  if (doc && doc !== '-') {
+    items.push(`<span>${escapeHtml(doc)}</span>`)
+  }
+  if (customer.email?.trim()) {
+    items.push(`<span>${escapeHtml(customer.email.trim())}</span>`)
+  }
+  const cel = customer.mobilePhone ? formatPhoneBr(customer.mobilePhone) : null
+  if (cel) {
+    items.push(`<span>${escapeHtml(cel)}</span>`)
+  }
+  const contactParts: string[] = []
+  if (customer.contactPhone) {
+    contactParts.push(formatPhoneBr(customer.contactPhone) || customer.contactPhone)
+  }
+  if (customer.contactNotes?.trim()) {
+    contactParts.push(customer.contactNotes.trim())
+  }
+  if (contactParts.length > 0) {
+    items.push(`<span>${escapeHtml(contactParts.join(' — '))}</span>`)
+  }
+  if (customer.addressFull?.trim()) {
+    items.push(`<span>${escapeHtml(customer.addressFull.trim())}</span>`)
+  }
+  if (items.length === 0) return ''
+  return `<div class="section" style="margin-bottom: 12px;">
+    <h2 style="margin-bottom: 6px;">Cliente</h2>
+    <div style="font-size: 11px; line-height: 1.5; color: #333;">${items.join(' • ')}</div>
+  </div>`
+}
+
+function escapeHtml(text: string): string {
+  const map: Record<string, string> = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;',
+  }
+  return text.replace(/[&<>"']/g, (m) => map[m])
+}
+
 function buildServicesSection(services: OrdemPrintData['services']): string {
   if (!services || services.length === 0) return ''
   const rows = services
@@ -183,7 +251,7 @@ export function buildOrdemPrintHtml(
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: system-ui, -apple-system, sans-serif; font-size: 12px; line-height: 1.4; color: #111; padding: 20px; max-width: 800px; margin: 0 auto; }
-    h1 { font-size: 18px; margin-bottom: 8px; border-bottom: 2px solid #0ea5e9; padding-bottom: 8px; }
+    h1 { font-size: 18px; margin-bottom: 8px; padding-bottom: 8px; }
     h2 { font-size: 13px; margin: 16px 0 6px; color: #555; }
     .section { margin-bottom: 16px; }
     .row { display: flex; margin-bottom: 4px; }
@@ -191,42 +259,31 @@ export function buildOrdemPrintHtml(
     .value { flex: 1; }
     .block { margin-top: 8px; white-space: pre-wrap; }
     .footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 11px; color: #888; text-align: center; }
+    .print-header{ display: flex; align-items: flex-start; gap: 16px; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 2px solid #ccc;}
     .print-header img { max-height: 56px; object-fit: contain; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     @media print { .print-header img { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
   </style>
 </head>
 <body>
   ${company && (company.name || company.logoUrl || company.address || company.cnpj) ? `
-  <div class="print-header" style="display: flex; align-items: flex-start; gap: 16px; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 2px solid #0ea5e9;">
+  <div class="print-header">
     ${logoFullUrl ? `<img src="${logoFullUrl}" alt="Logo" style="height: 48px; width: auto;" onerror="this.style.display='none'" />` : ''}
     <div style="flex: 1;">
-      ${company.name ? `<div style="font-size: 16px; font-weight: 700; margin-bottom: 4px;">${company.name}</div>` : ''}
+      ${company.name ? `<div style="font-size: 16px; font-weight: 700;">${company.name}</div>` : ''}
       ${company.cnpj ? `<div style="font-size: 11px; color: #555;">CNPJ ${formatCompanyCnpj(company.cnpj)}</div>` : ''}
-      ${buildCompanyAddress(company) ? `<div style="font-size: 11px; color: #555; margin-top: 4px;">${buildCompanyAddress(company)}</div>` : ''}
-      ${company.phone || company.email ? `<div style="font-size: 11px; color: #555; margin-top: 2px;">${[company.phone, company.email].filter(Boolean).join(' • ')}</div>` : ''}
+      ${buildCompanyAddress(company) ? `<div style="font-size: 11px; color: #555;">${buildCompanyAddress(company)}</div>` : ''}
+      ${company.phone || company.email ? `<div style="font-size: 11px; color: #555;">${[company.phone, company.email].filter(Boolean).join(' • ')}</div>` : ''}
     </div>
   </div>
   ` : ''}
-  <h1>Ordem de Serviço #${data.displayNumber ?? '-'} — ${companyName}</h1>
-  <p style="margin-bottom: 12px;">${data.title}</p>
-  <p><strong>Status:</strong> ${formatStatus(data.status)} | <strong>Data:</strong> ${formatDate(data.createdAt)}</p>
+  <h1>Ordem de Serviço ${data.displayNumber} - ${data.title}</h1>
+  <p><strong>Data de início:</strong> ${formatDate(data.createdAt)}${data.closedAt ? ` | <strong>Data de conclusão:</strong> ${formatDate(data.closedAt)}` : ''}</p>
 
-  <div class="section">
-    <h2>Cliente</h2>
-    <div class="row"><span class="label">Nome:</span><span class="value">${customerName}</span></div>
-    <div class="row"><span class="label">Documento:</span><span class="value">${formatDoc(data.customer.isCompany ? data.customer.cnpj : data.customer.cpf, data.customer.isCompany)}</span></div>
-    <div class="row"><span class="label">E-mail:</span><span class="value">${data.customer.email || '-'}</span></div>
-    <div class="row"><span class="label">Celular:</span><span class="value">${data.customer.mobilePhone || '-'}</span></div>
-    <div class="row"><span class="label">Contato:</span><span class="value">${data.customer.contactPhone || '-'}${data.customer.contactNotes ? ` — ${data.customer.contactNotes}` : ''}</span></div>
-    <div class="row"><span class="label">Endereço:</span><span class="value">${data.customer.addressFull || '-'}</span></div>
-  </div>
+  ${buildCustomerSection(data.customer, customerName)}
 
   <div class="section">
     <h2>Equipamento</h2>
-    <div class="row"><span class="label">Dispositivo:</span><span class="value">${data.device || '-'}</span></div>
-    <div class="row"><span class="label">IMEI/Série:</span><span class="value">${data.imei || '-'}</span></div>
-    <div class="row"><span class="label">Garantia:</span><span class="value">${data.isWarranty ? 'Sim' : 'Não'}</span></div>
-    <div class="row"><span class="label">Previsão:</span><span class="value">${formatDate(data.estimatedReadyAt)}</span></div>
+    <div class="row"><span>${data.device}${data.imei ? ` • IMEI: ${data.imei}` : ''}</span></div>
   </div>
 
   ${data.customerDescription ? `<div class="section"><h2>Descrição</h2><div class="block">${data.customerDescription}</div></div>` : ''}
@@ -234,16 +291,14 @@ export function buildOrdemPrintHtml(
   ${data.assistanceInfo ? `<div class="section"><h2>Informações sobre a assistência</h2><div class="block">${data.assistanceInfo}</div></div>` : ''}
   ${buildServicesSection(data.services)}
 
-  <div class="section" style="margin-top: 24px;">
-    <div style="border-top: 1px solid #333; padding-top: 16px; margin-top: 32px;">
-      <div style="height: 56px; border-bottom: 1px solid #333; margin-bottom: 6px;"></div>
-      <p style="font-size: 11px; color: #555;">Assinatura do cliente</p>
-      <p style="font-size: 11px; font-weight: 600; margin-top: 2px;">${customerName}</p>
-    </div>
+  <div class="section">
+    <div style="height: 56px; border-bottom: 1px solid #ccc; margin-bottom: 6px; width: 50%;"></div>
+    <p style="font-size: 11px; color: #555;">Assinatura do cliente</p>
+    <p style="font-size: 11px; font-weight: 600; margin-top: 2px;">${customerName}</p>
   </div>
 
   <div class="footer">
-    Impresso em ${new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })} — ${companyName}${companyName === 'Conectize' ? ' Assistência Técnica' : ''}
+    Impresso em ${new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })} - ${companyName}
   </div>
 
   <script>

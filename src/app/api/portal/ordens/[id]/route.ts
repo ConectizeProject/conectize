@@ -7,6 +7,10 @@ const VALID_STATUSES = new Set([
   'finalizada_sem_aprovacao', 'cancelada',
 ])
 
+const FINALIZED_STATUSES = new Set([
+  'finalizada', 'finalizada_sem_conserto', 'finalizada_sem_aprovacao', 'cancelada',
+])
+
 async function requireStaffOrAdmin() {
   const supabase = await createSupabaseServerClient()
   const { user } = await getAuthUser()
@@ -45,9 +49,13 @@ export async function PATCH(
     return NextResponse.json({ ok: false, error: 'invalid_status' }, { status: 400 })
   }
 
+  const updatePayload: Record<string, unknown> = { status }
+  if (FINALIZED_STATUSES.has(status)) {
+    updatePayload.closed_at = new Date().toISOString()
+  }
   const { error } = await auth.supabase
     .from('service_orders')
-    .update({ status })
+    .update(updatePayload)
     .eq('id', id)
 
   if (error) {

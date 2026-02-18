@@ -59,6 +59,8 @@ type OrderServicesCardProps = {
 	formId?: string
 	/** Modo Formik: usa services e callbacks em vez de estado interno. */
 	formik?: FormikServicesProps
+	/** Desabilita edição (ex.: ordem finalizada). */
+	disabled?: boolean
 }
 
 export function OrderServicesCard({
@@ -66,6 +68,7 @@ export function OrderServicesCard({
 	inputName = 'servicesJson',
 	formId,
 	formik,
+	disabled = false,
 }: OrderServicesCardProps) {
 	const [internalServices, setInternalServices] = useState<ServiceLine[]>(() => {
 		const items = Array.isArray(initialServices) ? initialServices : []
@@ -121,7 +124,7 @@ export function OrderServicesCard({
 				</div>
 			</div>
 
-			<Button type="button" variant="outline" size="sm" onClick={handleAdd}>
+			<Button type="button" variant="outline" size="sm" onClick={handleAdd} disabled={disabled}>
 				<Plus className="h-4 w-4 mr-2" />
 				Adicionar serviço
 			</Button>
@@ -136,6 +139,7 @@ export function OrderServicesCard({
 									value={s.description}
 									onChange={(e) => handleUpdate(idx, 'description', e.target.value)}
 									placeholder="Ex: Troca de tela, diagnóstico, limpeza..."
+									disabled={disabled}
 								/>
 							</div>
 							<div className="md:col-span-2 space-y-1">
@@ -145,6 +149,7 @@ export function OrderServicesCard({
 									onChange={(e) => handleUpdate(idx, 'value', formatMoneyInputBr(e.target.value))}
 									inputMode="numeric"
 									placeholder="0,00"
+									disabled={disabled}
 								/>
 							</div>
 							<div className="md:col-span-2 space-y-1">
@@ -154,10 +159,11 @@ export function OrderServicesCard({
 									onChange={(e) => handleUpdate(idx, 'cost', formatMoneyInputBr(e.target.value))}
 									inputMode="numeric"
 									placeholder="0,00"
+									disabled={disabled}
 								/>
 							</div>
 							<div className="md:col-span-2 flex justify-end">
-								<Button type="button" variant="outline" size="sm" onClick={() => handleRemove(idx)}>
+								<Button type="button" variant="outline" size="sm" onClick={() => handleRemove(idx)} disabled={disabled}>
 									Remover
 								</Button>
 							</div>

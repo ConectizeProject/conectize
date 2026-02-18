@@ -36,6 +36,7 @@ export const ORDEM_ERROR_MESSAGES: Record<string, string> = {
   nao_foi_possivel_salvar: 'Não foi possível salvar agora.',
   nao_foi_possivel_excluir: 'Não foi possível excluir agora.',
   sem_permissao: 'Você não tem permissão para excluir ordens.',
+  ordem_finalizada: 'Ordem finalizada não pode ser alterada.',
 }
 
 /** Códigos de erro da busca de OS -> mensagem em português */

@@ -12,12 +12,14 @@ type Props = {
   defaultPasscodeType: PasscodeType
   defaultPasscodeText: string
   defaultPasscodePattern: string
+  disabled?: boolean
 }
 
 export function OrderPasscodeFields(props: Props) {
   const [passcodeType, setPasscodeType] = useState<PasscodeType>(props.defaultPasscodeType)
   const [passcodeText, setPasscodeText] = useState(props.defaultPasscodeText)
   const [passcodePattern, setPasscodePattern] = useState(props.defaultPasscodePattern)
+  const disabled = props.disabled ?? false
 
   return (
     <div className="rounded-md border p-4 space-y-3">
@@ -34,6 +36,7 @@ export function OrderPasscodeFields(props: Props) {
       <RadioGroup
         value={passcodeType}
         onValueChange={(v) => {
+          if (disabled) return
           const next = v === 'pattern' ? 'pattern' : (v === 'text' ? 'text' : 'none')
           setPasscodeType(next)
           if (next === 'none') {
@@ -42,17 +45,18 @@ export function OrderPasscodeFields(props: Props) {
           }
         }}
         className="flex flex-wrap items-center gap-4"
+        disabled={disabled}
       >
         <div className="flex items-center gap-2">
-          <RadioGroupItem value="text" id="passcode-text" />
+          <RadioGroupItem value="text" id="passcode-text" disabled={disabled} />
           <Label htmlFor="passcode-text" className="cursor-pointer">Texto</Label>
         </div>
         <div className="flex items-center gap-2">
-          <RadioGroupItem value="pattern" id="passcode-pattern" />
+          <RadioGroupItem value="pattern" id="passcode-pattern" disabled={disabled} />
           <Label htmlFor="passcode-pattern" className="cursor-pointer">Padrão</Label>
         </div>
         <div className="flex items-center gap-2">
-          <RadioGroupItem value="none" id="passcode-none" />
+          <RadioGroupItem value="none" id="passcode-none" disabled={disabled} />
           <Label htmlFor="passcode-none" className="cursor-pointer">Não informar</Label>
         </div>
       </RadioGroup>
@@ -64,14 +68,15 @@ export function OrderPasscodeFields(props: Props) {
             id="passcodeText"
             name="passcodeText"
             value={passcodeText}
-            onChange={(e) => setPasscodeText(e.target.value)}
+            onChange={(e) => !disabled && setPasscodeText(e.target.value)}
             placeholder="Ex: 1234, senha do iCloud, etc."
+            disabled={disabled}
           />
         </div>
       ) : passcodeType === 'pattern' ? (
         <div className="space-y-2">
           <Label>Senha (padrão)</Label>
-          <PatternLockInput value={passcodePattern} onChange={setPasscodePattern} />
+          <PatternLockInput value={passcodePattern} onChange={disabled ? () => {} : setPasscodePattern} disabled={disabled} />
         </div>
       ) : (
         <div className="text-sm text-muted-foreground">
