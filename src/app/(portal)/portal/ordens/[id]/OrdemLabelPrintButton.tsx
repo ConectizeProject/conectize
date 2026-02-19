@@ -17,8 +17,7 @@ export function OrdemLabelPrintButton({ orderId }: Props) {
 
   return (
     <Button type="button" variant="outline" size="sm" onClick={handlePrint}>
-      <Tag className="h-4 w-4 mr-2" />
-      Imprimir etiqueta
+      <Tag className="h-4 w-4" />
     </Button>
   )
 }

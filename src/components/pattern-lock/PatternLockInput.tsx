@@ -8,6 +8,7 @@ type Props = {
   value?: string
   onChange?: (value: string) => void
   disabled?: boolean
+  id?: string
 }
 
 function parseValue(value: string) {
@@ -44,7 +45,7 @@ export function PatternLockInput(props: Props) {
   }
 
   return (
-    <div className="space-y-2">
+    <div id={props.id} className="space-y-2">
       <div
         className={cn(
           'grid grid-cols-3 gap-2 w-[156px] select-none touch-none',

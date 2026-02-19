@@ -15,9 +15,12 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { PatternLockInput } from '@/components/pattern-lock/PatternLockInput'
 import { CreateCustomerDialog, EditCustomerDialog, type CustomerHit } from '@/components/customers'
 import { OrderDeviceSelector, OrderServicesCard, type ServiceLine } from '@/components/orders'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { NovaOrdemCustomerCard } from './NovaOrdemCustomerCard'
 import { parseMoneyToCents } from '@/lib/utils/format-money'
 import { portalFetch } from '@/lib/portal/portal-fetch'
+import { getDefaultPrevisao, getMinPrevisaoNow } from '@/lib/utils/previsao-ordem'
+import { PrevisaoInput } from '@/components/previsao-input'
 
 const statusOptions = [
 	{ value: 'orcamento', label: 'Orçamento' },
@@ -74,10 +77,15 @@ function getCustomerDocumentDigits(customer: CustomerHit) {
 	return onlyDigits(String(customer.cnpj || customer.cpf || '')).slice(0, 14)
 }
 
+type SellerOption = { id: string; full_name: string | null; email: string | null }
+
 type Props = {
 	action: (formData: FormData) => void
 	initialError?: string
 	sellerName: string
+	isAdmin: boolean
+	sellerOptions: SellerOption[]
+	currentUserId: string
 	duplicateOrderId?: string
 }
 
@@ -86,11 +94,13 @@ type FormValues = {
 	document: string
 	title: string
 	status: string
+	sellerUserId: string
 	deviceModelId: string
 	brand: string
 	model: string
 	deviceType: string
 	imei: string
+	color: string
 	isWarranty: boolean
 	estimatedReadyAt: string
 	passcodeType: string
@@ -107,11 +117,13 @@ const initialFormValues: FormValues = {
 	document: '',
 	title: '',
 	status: 'orcamento',
+	sellerUserId: '',
 	deviceModelId: '',
 	brand: '',
 	model: '',
 	deviceType: '',
 	imei: '',
+	color: '',
 	isWarranty: false,
 	estimatedReadyAt: '',
 	passcodeType: 'none',
@@ -127,6 +139,11 @@ const orderFormSchema = Yup.object().shape({
 	customerId: Yup.string().required('Selecione um cliente (CPF/CNPJ)'),
 	title: Yup.string().trim().required('Título é obrigatório').min(2, 'Título deve ter pelo menos 2 caracteres'),
 	status: Yup.string().oneOf(['orcamento', 'aprovado'], 'Status inválido').required('Status é obrigatório'),
+	estimatedReadyAt: Yup.string().test(
+		'min-date',
+		'A previsão deve ser igual ou posterior à data de abertura.',
+		(value) => !value || new Date(value).getTime() >= Date.now() - 60_000
+	),
 })
 
 export function NovaOrdemClient(props: Props) {
@@ -153,6 +170,17 @@ export function NovaOrdemClient(props: Props) {
 
 	const [isCpfPopoverOpen, setIsCpfPopoverOpen] = useState(false)
 
+	const defaultPrevisao = useMemo(() => getDefaultPrevisao(), [])
+	const minPrevisao = useMemo(() => getMinPrevisaoNow(), [])
+	const initialFormValuesWithPrevisao = useMemo(
+		() => ({
+			...initialFormValues,
+			estimatedReadyAt: defaultPrevisao,
+			sellerUserId: props.isAdmin ? props.currentUserId : '',
+		}),
+		[defaultPrevisao, props.isAdmin, props.currentUserId]
+	)
+
 	useEffect(() => {
 		if (!props.duplicateOrderId) {
 			setDuplicateLoaded(true)
@@ -169,11 +197,13 @@ export function NovaOrdemClient(props: Props) {
 					document: o.documentDigits ?? '',
 					title: o.title ?? '',
 					status: o.status ?? 'orcamento',
+					sellerUserId: props.isAdmin ? props.currentUserId : '',
 					deviceModelId: o.deviceModelId ?? '',
 					brand: o.brand ?? '',
 					model: o.model ?? '',
 					deviceType: o.deviceType ?? '',
 					imei: o.imei ?? '',
+					color: o.color ?? '',
 					isWarranty: Boolean(o.isWarranty),
 					estimatedReadyAt: o.estimatedReadyAt ?? '',
 					passcodeType: o.passcodeType ?? 'none',
@@ -330,11 +360,13 @@ export function NovaOrdemClient(props: Props) {
 		fd.append('title', values.title)
 		fd.append('status', values.status)
 		fd.append('imei', values.imei)
+		fd.append('color', values.color)
 		fd.append('estimatedReadyAt', values.estimatedReadyAt)
 		fd.append('customerDescription', values.customerDescription)
 		fd.append('internalDescription', values.internalDescription)
 		fd.append('receivingNotes', values.receivingNotes)
 		fd.append('servicesJson', servicesJson)
+		fd.append('seller_user_id', props.isAdmin ? (values.sellerUserId || props.currentUserId) : props.currentUserId)
 		return fd
 	}
 
@@ -362,7 +394,7 @@ export function NovaOrdemClient(props: Props) {
 			</div>
 
 			<Formik
-				initialValues={duplicateFormValues ?? initialFormValues}
+				initialValues={duplicateFormValues ?? initialFormValuesWithPrevisao}
 				validationSchema={orderFormSchema}
 				enableReinitialize={!!duplicateFormValues}
 				onSubmit={async (values) => {
@@ -371,7 +403,7 @@ export function NovaOrdemClient(props: Props) {
 				}}
 			>
 				{(formik) => (
-						<>
+					<>
 						<Form className="relative space-y-6">
 							<NovaOrdemCustomerCard
 								selectedCustomer={selectedCustomer}
@@ -410,61 +442,9 @@ export function NovaOrdemClient(props: Props) {
 
 							<Card>
 								<CardHeader>
-									<CardTitle>Dados da ordem</CardTitle>
-									<CardDescription>Dispositivo, status, serviços e demais informações.</CardDescription>
+									<CardTitle>Informações do Aparelho</CardTitle>
 								</CardHeader>
-								<CardContent className="relative space-y-6">
-									<div className="grid gap-4 md:grid-cols-2">
-										<div className="space-y-2">
-											<Label>Vendedor</Label>
-											<Input value={props.sellerName} readOnly />
-										</div>
-										<div className="space-y-2">
-											<Label htmlFor="status">Status</Label>
-											<Field
-												as="select"
-												id="status"
-												name="status"
-												className="w-full h-10 rounded-md border border-input px-3 text-sm"
-											>
-												{statusOptions.map(s => (
-													<option key={s.value} value={s.value}>{s.label}</option>
-												))}
-											</Field>
-										</div>
-									</div>
-
-									<div className="grid gap-4 md:grid-cols-2">
-										<div className="space-y-2">
-											<Label htmlFor="title">Título<span className="text-destructive"> *</span></Label>
-											<Field
-												as={Input}
-												id="title"
-												name="title"
-												placeholder="Ex: Troca de tela iPhone 13"
-												className={formik.touched.title && formik.errors.title ? 'border-destructive' : ''}
-											/>
-											{formik.touched.title && formik.errors.title ? (
-												<p className="text-sm text-destructive">{formik.errors.title}</p>
-											) : null}
-										</div>
-										<div className="space-y-2">
-											<Label htmlFor="estimatedReadyAt">Previsão (data e hora)</Label>
-											<Field as={Input} id="estimatedReadyAt" name="estimatedReadyAt" type="datetime-local" />
-										</div>
-									</div>
-
-									<div className="grid gap-4 md:grid-cols-2">
-										<div className="flex items-center gap-2 rounded-md border p-3">
-											<Checkbox
-												id="isWarranty"
-												checked={formik.values.isWarranty}
-												onCheckedChange={(v) => formik.setFieldValue('isWarranty', !!v)}
-											/>
-											<Label htmlFor="isWarranty" className="cursor-pointer">Serviço em garantia</Label>
-										</div>
-									</div>
-
+								<CardContent className="space-y-6">
 									<OrderDeviceSelector
 										formik={{
 											values: {
@@ -516,8 +496,9 @@ export function NovaOrdemClient(props: Props) {
 											</div>
 										) : formik.values.passcodeType === 'pattern' ? (
 											<div className="space-y-2">
-												<Label>Senha (padrão)</Label>
+												<Label htmlFor="passcodePattern">Senha (padrão)</Label>
 												<PatternLockInput
+													id="passcodePattern"
 													value={formik.values.passcodePattern}
 													onChange={(v: string) => formik.setFieldValue('passcodePattern', v)}
 												/>
@@ -529,9 +510,95 @@ export function NovaOrdemClient(props: Props) {
 										)}
 									</div>
 
-									<div className="space-y-2">
-										<Label htmlFor="imei">Número de série / IMEI</Label>
-										<Field as={Input} id="imei" name="imei" placeholder="Digite o número" />
+									<div className="grid md:grid-cols-2 gap-4">
+										<div className="space-y-2">
+											<Label htmlFor="imei">Número de série / IMEI</Label>
+											<Field as={Input} id="imei" name="imei" placeholder="Digite o número" />
+										</div>
+										<div className="space-y-2">
+											<Label htmlFor="color">Cor</Label>
+											<Field as={Input} id="color" name="color" placeholder="Ex: Preto, Prateado" />
+										</div>
+									</div>
+								</CardContent>
+							</Card>
+
+							<Card>
+								<CardHeader>
+									<CardTitle>Dados da ordem</CardTitle>
+									<CardDescription>Dispositivo, status, serviços e demais informações.</CardDescription>
+								</CardHeader>
+								<CardContent className="relative space-y-6">
+									<div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+										<div className="space-y-2 md:col-span-2">
+											<Label htmlFor="title">Título<span className="text-destructive"> *</span></Label>
+											<Field
+												as={Input}
+												id="title"
+												name="title"
+												placeholder="Ex: Troca de tela iPhone 13"
+												className={formik.touched.title && formik.errors.title ? 'border-destructive' : ''}
+											/>
+											{formik.touched.title && formik.errors.title ? (
+												<p className="text-sm text-destructive">{formik.errors.title}</p>
+											) : null}
+										</div>
+										<div className="space-y-2">
+											<Label htmlFor={props.isAdmin ? 'sellerUserId' : 'sellerName'}>Vendedor</Label>
+											{props.isAdmin ? (
+												<Select
+													value={formik.values.sellerUserId || props.currentUserId}
+													onValueChange={(v) => formik.setFieldValue('sellerUserId', v)}
+												>
+													<SelectTrigger id="sellerUserId">
+														<SelectValue placeholder="Selecione o vendedor" />
+													</SelectTrigger>
+													<SelectContent>
+														{props.sellerOptions.map((u) => (
+															<SelectItem key={u.id} value={u.id}>
+																{String(u.full_name || u.email || u.id).trim() || '(Sem nome)'}
+															</SelectItem>
+														))}
+													</SelectContent>
+												</Select>
+											) : (
+												<Input id="sellerName" value={props.sellerName} readOnly />
+											)}
+										</div>
+										<div className="space-y-2">
+											<Label htmlFor="estimatedReadyAt">Previsão (data e hora)</Label>
+											<PrevisaoInput
+												id="estimatedReadyAt"
+												name="estimatedReadyAt"
+												min={minPrevisao}
+												value={formik.values.estimatedReadyAt}
+												onChange={formik.handleChange}
+											/>
+										</div>
+									</div>
+
+									<div className="grid gap-4 md:grid-cols-2">
+										<div className="space-y-2">
+											<Label htmlFor="status">Status</Label>
+											<Field
+												as="select"
+												id="status"
+												name="status"
+												className="w-full h-10 rounded-md border border-input px-3 text-sm"
+											>
+												{statusOptions.map(s => (
+													<option key={s.value} value={s.value}>{s.label}</option>
+												))}
+											</Field>
+										</div>
+										<div className="flex items-center gap-2 rounded-md border p-3">
+											<Checkbox
+												id="isWarranty"
+												checked={formik.values.isWarranty}
+												onCheckedChange={(v) => formik.setFieldValue('isWarranty', !!v)}
+											/>
+											<Label htmlFor="isWarranty" className="cursor-pointer">Serviço em garantia</Label>
+										</div>
 									</div>
 
 									<div className="space-y-2">

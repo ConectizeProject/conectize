@@ -17,7 +17,9 @@ import { OrderPasscodeFields } from './OrderPasscodeFields'
 import { OrdemDetalheToastClient } from './OrdemDetalheToastClient'
 import { OrdemLabelPrintButton } from './OrdemLabelPrintButton'
 import { OrdemPrintButton } from './OrdemPrintButton'
-import { OrdemShareButtons } from './OrdemShareButtons'
+import { OrdemActionsMenu } from './OrdemActionsMenu'
+import { PrevisaoInput } from '@/components/previsao-input'
+import { getMinPrevisaoForEdit } from '@/lib/utils/previsao-ordem'
 import { UpdateOrderSubmitButton } from './UpdateOrderSubmitButton'
 
 export const dynamic = 'force-dynamic'
@@ -122,7 +124,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 	const [{ data: order }, { data: companySettings }] = await Promise.all([
 		supabase
 			.from('service_orders')
-			.select('id, display_number, status, title, imei, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, customer_description, internal_description, receiving_notes, assistance_info, device_model_id, brand, model, services, services_total_cents, services_cost_total_cents, created_at, updated_at, closed_at, share_token, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date, zip_code, state, city, neighborhood, street, street_number, street_complement, referral_source, referral_source_other ), device_models ( id, brand, device_type, model )')
+			.select('id, display_number, status, title, imei, color, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, customer_description, internal_description, receiving_notes, assistance_info, device_model_id, brand, model, services, services_total_cents, services_cost_total_cents, created_at, updated_at, closed_at, share_token, seller_user_id, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date, zip_code, state, city, neighborhood, street, street_number, street_complement, referral_source, referral_source_other ), device_models ( id, brand, device_type, model )')
 			.eq('id', id)
 			.maybeSingle(),
 		supabase.from('company_settings').select('name, cnpj, address, complement, zip_code, city, state, phone, email, logo_url').eq('id', 1).maybeSingle(),
@@ -144,6 +146,22 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 		)
 	}
 
+	const sellerUserId = (order as { seller_user_id?: string | null }).seller_user_id ?? null
+	const isAdmin = role === 'admin'
+
+	const [sellerUser, staffAdminUsers] = await Promise.all([
+		sellerUserId
+			? supabase.from('users').select('id, full_name, email').eq('id', sellerUserId).maybeSingle()
+			: Promise.resolve({ data: null }),
+		isAdmin
+			? supabase.from('users').select('id, full_name, email').in('role', ['admin', 'staff']).order('email')
+			: Promise.resolve({ data: [] }),
+	])
+
+	const seller = sellerUser.data
+	const sellerDisplayName = seller ? (String(seller.full_name || '').trim() || String(seller.email || '').trim() || '(Sem nome)') : ''
+	const sellerOptions = (staffAdminUsers.data ?? []) as Array<{ id: string; full_name: string | null; email: string | null }>
+
 	function formatBirthDate(value: string | null | undefined) {
 		if (!value) return null
 		const date = new Date(String(value))
@@ -161,6 +179,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 		const title = String(formData.get('title') || '').trim()
 		const status = String(formData.get('status') || '').trim()
 		const imei = String(formData.get('imei') || '').trim()
+		const color = String(formData.get('color') || '').trim()
 		const isWarranty = Boolean(formData.get('isWarranty'))
 		const estimatedReadyAtRaw = String(formData.get('estimatedReadyAt') || '').trim()
 		const passcodeType = String(formData.get('passcodeType') || '').trim()
@@ -171,6 +190,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 		const receivingNotes = String(formData.get('receivingNotes') || '').trim()
 		const assistanceInfo = String(formData.get('assistanceInfo') || '').trim()
 		const deviceModelId = String(formData.get('deviceModelId') || '').trim()
+		const formSellerUserId = String(formData.get('seller_user_id') || '').trim()
 		const servicesJson = formData.get('servicesJson')
 		const services = parseServicesJson(servicesJson)
 
@@ -180,6 +200,11 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 			if (Number.isNaN(dt.getTime())) return null
 			return dt.toISOString()
 		})()
+
+		const minPrevisaoMs = order.created_at ? new Date(order.created_at).getTime() : Date.now()
+		if (estimatedReadyAt && new Date(estimatedReadyAt).getTime() < minPrevisaoMs - 60_000) {
+			redirect(`/portal/ordens/${id}?error=previsao_invalida`)
+		}
 
 		if (!orderId) redirect(`/portal/ordens/${id}?error=dados_invalidos`)
 		if (!title) redirect(`/portal/ordens/${id}?error=titulo_obrigatorio`)
@@ -204,6 +229,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 			title,
 			status,
 			imei: imei || null,
+			color: color || null,
 			is_warranty: isWarranty,
 			estimated_ready_at: estimatedReadyAt,
 			passcode_type: (passcodeType === 'text' || passcodeType === 'pattern') ? passcodeType : null,
@@ -217,6 +243,15 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 			services: services.items,
 			services_total_cents: services.totalValueCents,
 			services_cost_total_cents: services.totalCostCents,
+		}
+		if (role === 'admin' && formSellerUserId) {
+			const { data: sellerUser } = await supabase
+				.from('users')
+				.select('id')
+				.eq('id', formSellerUserId)
+				.in('role', ['admin', 'staff'])
+				.maybeSingle()
+			if (sellerUser?.id) updatePayload.seller_user_id = sellerUser.id
 		}
 		if (FINALIZED_STATUSES.has(status)) {
 			updatePayload.closed_at = new Date().toISOString()
@@ -258,11 +293,22 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 	const isFinalized = FINALIZED_STATUSES.has(order.status)
 
 	return (
-		<div className="max-w-4xl space-y-6">
+		<div className="max-w-4xl space-y-6 pb-24">
 			<OrdemDetalheToastClient />
 
 			<div className="flex items-start justify-between gap-4 flex-wrap">
-				<h1 className="text-2xl font-bold">Ordem de serviço {order.display_number ?? order.id}</h1>
+				<div className="flex flex-col gap-1.5">
+					<h1 className="text-2xl font-bold">Editar Ordem #{order.display_number ?? order.id}</h1>
+					<div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+						<OrderStatusBadge status={order.status} />
+						<span>
+							Criada em {formatDateTimeBr(order.created_at)} •{' '}
+							{order.closed_at
+								? `Finalizada em ${formatDateTimeBr(order.closed_at)}`
+								: `Atualizada em ${formatDateTimeBr(order.updated_at)}`}
+						</span>
+					</div>
+				</div>
 
 				<div className="flex items-center gap-2 flex-wrap">
 					<OrdemPrintButton data={{
@@ -308,17 +354,20 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 						} : null}
 					/>
 					<OrdemLabelPrintButton orderId={order.id} />
-					<OrdemShareButtons
+					<OrdemActionsMenu
 						orderId={order.id}
 						publicOrderPath={order.share_token ? `/os/${order.share_token}` : null}
 						displayNumber={order.display_number ?? order.id}
 						title={order.title}
 						customerName={customer?.is_company ? (customer?.company_name ?? '') : (customer?.full_name ?? '')}
 						device={deviceModel ? `${deviceModel.brand} • ${deviceModel.device_type} • ${deviceModel.model}` : (order.brand || order.model ? `${order.brand || ''} ${order.model || ''}`.trim() : '-')}
-						status={formatStatus(order.status)}
+						status={order.status}
 						estimatedReadyAt={order.estimated_ready_at}
 						mobilePhone={customer?.mobile_phone}
 						email={customer?.email}
+						isFinalized={isFinalized}
+						canDelete={role === 'admin'}
+						deleteOrderAction={deleteOrderAction}
 					/>
 				</div>
 			</div>
@@ -333,50 +382,79 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 
 			<Card>
 				<CardHeader>
-					<div className="flex items-center justify-between gap-3 flex-wrap">
-						<CardTitle>Editar</CardTitle>
-						<div className="flex items-center gap-2">
-							<Badge variant="secondary">#{order.display_number ?? order.id}</Badge>
-							<OrderStatusBadge status={order.status} />
+					<CardTitle >Informações do Aparelho</CardTitle>
+				</CardHeader>
+				<CardContent className="space-y-6">
+					<OrderDeviceSelector
+						initialValue={{
+							deviceModelId: (deviceModel as { id?: string })?.id ?? order.device_model_id ?? null,
+							brand: deviceModel?.brand ?? order.brand ?? null,
+							deviceType: deviceModel?.device_type ?? null,
+							model: deviceModel?.model ?? order.model ?? null,
+						}}
+						formId="order-edit-form"
+						disabled={isFinalized}
+					/>
+					<div className="grid md:grid-cols-2 gap-4">
+						<div className="space-y-2">
+							<Label htmlFor="color">Cor</Label>
+							<Input id="color" name="color" form="order-edit-form" defaultValue={order.color || ''} placeholder="Ex: Preto, Prateado" disabled={isFinalized} />
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor="imei">Número de série / IMEI</Label>
+							<Input id="imei" name="imei" form="order-edit-form" defaultValue={order.imei || ''} placeholder="Digite o número" disabled={isFinalized} />
 						</div>
 					</div>
-					<CardDescription>
-						Criada em {formatDateTimeBr(order.created_at)} • {order.closed_at ? `Finalizada em ${formatDateTimeBr(order.closed_at)}` : `Atualizada em ${formatDateTimeBr(order.updated_at)}`}
-					</CardDescription>
-				</CardHeader>
+					<OrderPasscodeFields
+						defaultPasscodeType={order.passcode_type === 'text' || order.passcode_type === 'pattern' ? order.passcode_type : 'none'}
+						defaultPasscodeText={order.passcode_text || ''}
+						defaultPasscodePattern={order.passcode_pattern || ''}
+						disabled={isFinalized}
+					/>
+				</CardContent>
+			</Card>
+
+			<Card>
 				<CardContent>
-					<form id="order-edit-form" action={updateOrderAction} className="space-y-6">
+					<form id="order-edit-form" action={updateOrderAction} className="space-y-6" key={`${order.id}-${order.updated_at ?? order.status}`}>
 						<input type="hidden" name="orderId" value={order.id} />
+						<input type="hidden" name="status" value={order.status} />
 
-						<div className="grid md:grid-cols-2 gap-4">
+						<div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+							<div className="space-y-2 md:col-span-2">
+								<Label htmlFor="title">Título</Label>
+								<Input id="title" name="title" defaultValue={order.title} placeholder="Título" disabled={isFinalized} />
+							</div>
 							<div className="space-y-2">
-								<Label htmlFor="status">Status</Label>
-								<select
-									id="status"
-									name="status"
-									className="w-full h-10 rounded-md border border-input px-3 text-sm"
-									defaultValue={order.status}
+								<Label htmlFor={isAdmin ? 'seller_user_id' : 'sellerDisplayName'}>Vendedor</Label>
+								{isAdmin ? (
+									<select
+										id="seller_user_id"
+										name="seller_user_id"
+										defaultValue={sellerUserId || sellerOptions[0]?.id || ''}
+										className="w-full h-10 rounded-md border border-input px-3 py-2 text-sm"
+										disabled={isFinalized}
+									>
+										{sellerOptions.map((u) => (
+											<option key={u.id} value={u.id}>
+												{String(u.full_name || u.email || u.id).trim() || '(Sem nome)'}
+											</option>
+										))}
+									</select>
+								) : (
+									<Input id="sellerDisplayName" value={sellerDisplayName} readOnly disabled={isFinalized} />
+								)}
+							</div>
+							<div className="space-y-2">
+								<Label htmlFor="estimatedReadyAt">Previsão (data e hora)</Label>
+								<PrevisaoInput
+									id="estimatedReadyAt"
+									name="estimatedReadyAt"
+									min={getMinPrevisaoForEdit(order.created_at)}
+									defaultValue={formatDateTimeLocal(order.estimated_ready_at)}
 									disabled={isFinalized}
-								>
-									<option value="orcamento">Orçamento</option>
-									<option value="aprovado">Aprovado</option>
-									<option value="aguardando_pecas">Aguardando peças</option>
-									<option value="em_manutencao">Em manutenção</option>
-									<option value="aguardando_retirada">Aguardando retirada</option>
-									<option value="finalizada">Finalizada</option>
-									<option value="finalizada_sem_conserto">Finalizada sem conserto</option>
-									<option value="finalizada_sem_aprovacao">Finalizada sem aprovação</option>
-									<option value="cancelada">Cancelada</option>
-								</select>
+								/>
 							</div>
-
-							<div className="space-y-2">
-								<Label htmlFor="imei">Número de série / IMEI</Label>
-								<Input id="imei" name="imei" defaultValue={order.imei || ''} placeholder="Digite o número" disabled={isFinalized} />
-							</div>
-						</div>
-
-						<div className="grid md:grid-cols-2 gap-4">
 							<div className="flex items-center gap-2 rounded-md border p-3">
 								<input
 									id="isWarranty"
@@ -387,44 +465,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 								/>
 								<Label htmlFor="isWarranty" className="cursor-pointer">Serviço em garantia</Label>
 							</div>
-							<div className="space-y-2">
-								<Label htmlFor="estimatedReadyAt">Previsão (data e hora)</Label>
-								<Input
-									id="estimatedReadyAt"
-									name="estimatedReadyAt"
-									type="datetime-local"
-									defaultValue={formatDateTimeLocal(order.estimated_ready_at)}
-									disabled={isFinalized}
-								/>
-							</div>
 						</div>
-
-						<OrderPasscodeFields
-							defaultPasscodeType={order.passcode_type === 'text' || order.passcode_type === 'pattern' ? order.passcode_type : 'none'}
-							defaultPasscodeText={order.passcode_text || ''}
-							defaultPasscodePattern={order.passcode_pattern || ''}
-							disabled={isFinalized}
-						/>
-
-						<div className="space-y-2">
-							<Label htmlFor="title">Título</Label>
-							<Input id="title" name="title" defaultValue={order.title} placeholder="Título" disabled={isFinalized} />
-						</div>
-
-						<div className="space-y-4">
-							<Label>Dispositivo</Label>
-							<OrderDeviceSelector
-								initialValue={{
-									deviceModelId: (deviceModel as { id?: string })?.id ?? order.device_model_id ?? null,
-									brand: deviceModel?.brand ?? order.brand ?? null,
-									deviceType: deviceModel?.device_type ?? null,
-									model: deviceModel?.model ?? order.model ?? null,
-								}}
-								formId="order-edit-form"
-								disabled={isFinalized}
-							/>
-						</div>
-
 						<OrderServicesCard
 							initialServices={(order.services as Array<{ description?: string; valueCents?: number; costCents?: number }>) ?? []}
 							inputName="servicesJson"
@@ -452,41 +493,17 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 							<Textarea id="assistanceInfo" name="assistanceInfo" defaultValue={order.assistance_info || ''} placeholder="Informações técnicas, serviços realizados, peças trocadas, etc." disabled={isFinalized} />
 						</div>
 
-						{!isFinalized ? (
-							<div className="flex items-center gap-3 flex-wrap">
-								<UpdateOrderSubmitButton />
+						<div className="fixed bottom-0 left-0 right-0 z-50 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-4 py-3">
+							<div className="max-w-4xl mx-auto flex justify-between items-center gap-3">
 								<Button variant="outline" asChild>
-									<Link href="/portal/ordens">Voltar</Link>
+									<Link href="/portal/ordens">{isFinalized ? 'Voltar à lista' : 'Voltar'}</Link>
 								</Button>
+								{!isFinalized && <UpdateOrderSubmitButton />}
 							</div>
-						) : (
-							<div className="flex items-center gap-3 flex-wrap">
-								<Button variant="outline" asChild>
-									<Link href="/portal/ordens">Voltar à lista</Link>
-								</Button>
-							</div>
-						)}
+						</div>
 					</form>
 				</CardContent>
 			</Card>
-
-			{role === 'admin' && !isFinalized && (
-				<Card className="border-destructive/30">
-					<CardHeader>
-						<CardTitle>Excluir</CardTitle>
-						<CardDescription>Essa ação não pode ser desfeita.</CardDescription>
-					</CardHeader>
-					<CardContent>
-						<form action={deleteOrderAction} className="flex items-center justify-between gap-3 flex-wrap">
-							<input type="hidden" name="orderId" value={order.id} />
-							<p className="text-sm text-muted-foreground">
-								Excluir ordem <b>#{order.display_number ?? order.id}</b> — {order.title}
-							</p>
-							<Button type="submit" variant="destructive">Excluir</Button>
-						</form>
-					</CardContent>
-				</Card>
-			)}
 		</div>
 	)
 }

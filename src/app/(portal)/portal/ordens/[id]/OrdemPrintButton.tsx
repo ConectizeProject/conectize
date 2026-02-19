@@ -27,8 +27,7 @@ export function OrdemPrintButton({
 
   return (
     <Button type="button" variant="outline" size="sm" onClick={handlePrint}>
-      <Printer className="h-4 w-4 mr-2" />
-      Imprimir
+      <Printer className="h-4 w-4" />
     </Button>
   )
 }

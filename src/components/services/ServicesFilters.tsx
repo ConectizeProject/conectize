@@ -198,9 +198,9 @@ export function ServicesFilters() {
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="space-y-2">
-          <Label>Marca</Label>
+          <Label htmlFor="filterMarca">Marca</Label>
           <Select value={formik.values.marca} onValueChange={applyBrand} disabled={isApplying}>
-            <SelectTrigger>
+            <SelectTrigger id="filterMarca">
               <SelectValue placeholder="Selecione uma marca" />
             </SelectTrigger>
             <SelectContent>
@@ -217,9 +217,9 @@ export function ServicesFilters() {
         </div>
 
         <div className="space-y-2">
-          <Label>Serviço</Label>
+          <Label htmlFor="filterServico">Serviço</Label>
           <Select value={formik.values.servico} onValueChange={(value) => value === '__all__' ? applyService('') : applyService(value)} disabled={isApplying}>
-            <SelectTrigger>
+            <SelectTrigger id="filterServico">
               <SelectValue placeholder="Selecione um serviço" />
             </SelectTrigger>
             <SelectContent>
@@ -236,13 +236,13 @@ export function ServicesFilters() {
         </div>
 
         <div className="space-y-2">
-          <Label>Dispositivo</Label>
+          <Label htmlFor="filterDispositivo">Dispositivo</Label>
           <Select
             value={formik.values.dispositivo}
             disabled={isApplying}
             onValueChange={(value) => value === '__all__' ? applyDeviceType('') : applyDeviceType(value)}
           >
-            <SelectTrigger>
+            <SelectTrigger id="filterDispositivo">
               <SelectValue placeholder="Selecione um dispositivo" />
             </SelectTrigger>
             <SelectContent>
@@ -267,7 +267,7 @@ export function ServicesFilters() {
         </div>
 
         <div className="space-y-2">
-          <Label>Modelo</Label>
+          <Label htmlFor="filterModelo">Modelo</Label>
           <Select
             value={formik.values.modelo}
             disabled={isApplying}
@@ -276,7 +276,7 @@ export function ServicesFilters() {
               return applyModel(value)
             }}
           >
-            <SelectTrigger>
+            <SelectTrigger id="filterModelo">
               <SelectValue placeholder="Selecione o modelo do dispositivo" />
             </SelectTrigger>
             <SelectContent>

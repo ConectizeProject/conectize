@@ -44,6 +44,7 @@ async function createOrderAction(formData: FormData) {
   const status = String(formData.get('status') || 'orcamento').trim()
   const deviceModelId = String(formData.get('deviceModelId') || '').trim()
   const imei = String(formData.get('imei') || '').trim()
+  const color = String(formData.get('color') || '').trim()
   const customerDescription = String(formData.get('customerDescription') || '').trim()
   const internalDescription = String(formData.get('internalDescription') || '').trim()
   const receivingNotes = String(formData.get('receivingNotes') || '').trim()
@@ -73,6 +74,9 @@ async function createOrderAction(formData: FormData) {
   if (!customerId) redirect('/portal/ordens/nova?error=customer_obrigatorio')
   if (!title) redirect('/portal/ordens/nova?error=title_obrigatorio')
   if (status !== 'orcamento' && status !== 'aprovado') redirect('/portal/ordens/nova?error=status_invalido')
+  if (estimatedReadyAt && new Date(estimatedReadyAt).getTime() < Date.now() - 60_000) {
+    redirect('/portal/ordens/nova?error=previsao_invalida')
+  }
 
   const { user, role } = await getPortalAuth()
   if (!user) redirect('/portal/login')
@@ -81,6 +85,18 @@ async function createOrderAction(formData: FormData) {
   if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
 
   const supabase = await createSupabaseServerClient()
+
+  let sellerUserId = user.id
+  const formSellerId = String(formData.get('seller_user_id') || '').trim()
+  if (formSellerId && role === 'admin') {
+    const { data: sellerUser } = await supabase
+      .from('users')
+      .select('id, role')
+      .eq('id', formSellerId)
+      .in('role', ['admin', 'staff'])
+      .maybeSingle()
+    if (sellerUser?.id) sellerUserId = sellerUser.id
+  }
 
   const { data: insertedOrder, error } = await supabase
     .from('service_orders')
@@ -92,9 +108,10 @@ async function createOrderAction(formData: FormData) {
       model: model || null,
       service: service || null,
       created_by: user.id,
-      seller_user_id: user.id,
+      seller_user_id: sellerUserId,
       device_model_id: deviceModelId || null,
       imei: imei || null,
+      color: color || null,
       is_warranty: isWarranty,
       estimated_ready_at: estimatedReadyAt,
       passcode_type: (passcodeType === 'text' || passcodeType === 'pattern') ? passcodeType : null,
@@ -129,11 +146,29 @@ export default async function NovaOrdemPage({
   if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
 
   const sellerName = fullName || user.email || ''
+  const isAdmin = role === 'admin'
+  let sellerOptions: Array<{ id: string; full_name: string | null; email: string | null }> = []
+  if (isAdmin) {
+    const supabase = await createSupabaseServerClient()
+    const { data: users } = await supabase
+      .from('users')
+      .select('id, email, full_name')
+      .in('role', ['admin', 'staff'])
+      .order('email')
+    sellerOptions = (users ?? []).map((u) => ({
+      id: u.id,
+      full_name: u.full_name ?? null,
+      email: u.email ?? null,
+    }))
+  }
 
   return (
     <NovaOrdemClient
       action={createOrderAction}
       sellerName={sellerName}
+      isAdmin={isAdmin}
+      sellerOptions={sellerOptions}
+      currentUserId={user.id}
       initialError={error ? getOrdemErrorMessage(error) : undefined}
       duplicateOrderId={duplicate || undefined}
     />

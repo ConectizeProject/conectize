@@ -75,8 +75,8 @@ export function OrderPasscodeFields(props: Props) {
         </div>
       ) : passcodeType === 'pattern' ? (
         <div className="space-y-2">
-          <Label>Senha (padrão)</Label>
-          <PatternLockInput value={passcodePattern} onChange={disabled ? () => {} : setPasscodePattern} disabled={disabled} />
+          <Label htmlFor="passcodePattern">Senha (padrão)</Label>
+          <PatternLockInput id="passcodePattern" value={passcodePattern} onChange={disabled ? () => {} : setPasscodePattern} disabled={disabled} />
         </div>
       ) : (
         <div className="text-sm text-muted-foreground">

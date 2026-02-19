@@ -134,8 +134,9 @@ export function OrderServicesCard({
 					{services.map((s, idx) => (
 						<div key={s.id} className="grid gap-3 md:grid-cols-12 items-end">
 							<div className="md:col-span-6 space-y-1">
-								<Label>Descrição</Label>
+								<Label htmlFor={`service-description-${s.id}`}>Descrição</Label>
 								<Input
+									id={`service-description-${s.id}`}
 									value={s.description}
 									onChange={(e) => handleUpdate(idx, 'description', e.target.value)}
 									placeholder="Ex: Troca de tela, diagnóstico, limpeza..."
@@ -143,8 +144,9 @@ export function OrderServicesCard({
 								/>
 							</div>
 							<div className="md:col-span-2 space-y-1">
-								<Label>Valor</Label>
+								<Label htmlFor={`service-value-${s.id}`}>Valor</Label>
 								<Input
+									id={`service-value-${s.id}`}
 									value={s.value}
 									onChange={(e) => handleUpdate(idx, 'value', formatMoneyInputBr(e.target.value))}
 									inputMode="numeric"
@@ -153,8 +155,9 @@ export function OrderServicesCard({
 								/>
 							</div>
 							<div className="md:col-span-2 space-y-1">
-								<Label>Valor de custo</Label>
+								<Label htmlFor={`service-cost-${s.id}`}>Valor de custo</Label>
 								<Input
+									id={`service-cost-${s.id}`}
 									value={s.cost}
 									onChange={(e) => handleUpdate(idx, 'cost', formatMoneyInputBr(e.target.value))}
 									inputMode="numeric"

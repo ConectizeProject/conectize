@@ -84,10 +84,11 @@ export function NovaOrdemCustomerCard({
           <CustomerDataGrid customer={selectedCustomer} />
         ) : (
           <div className="space-y-2">
-            <Label>Buscar por CPF/CNPJ</Label>
+            <Label htmlFor="customerSearchTrigger">Buscar por CPF/CNPJ</Label>
             <Popover open={isCpfPopoverOpen} onOpenChange={onCpfPopoverOpenChange}>
               <PopoverTrigger asChild>
                 <button
+                  id="customerSearchTrigger"
                   type="button"
                   className={cn(
                     'w-full flex items-center justify-between rounded-md border border-input bg-background px-3 py-2.5 text-sm',
