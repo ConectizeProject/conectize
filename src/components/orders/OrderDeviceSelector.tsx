@@ -103,8 +103,8 @@ export function OrderDeviceSelector({
       !brand
         ? []
         : uniqueSorted(
-            deviceModels.filter((d) => d.brand === brand).map((d) => d.device_type)
-          ),
+          deviceModels.filter((d) => d.brand === brand).map((d) => d.device_type)
+        ),
     [deviceModels, brand]
   )
   const models = useMemo(
@@ -112,8 +112,8 @@ export function OrderDeviceSelector({
       !brand || !deviceType
         ? []
         : deviceModels.filter(
-            (d) => d.brand === brand && d.device_type === deviceType
-          ),
+          (d) => d.brand === brand && d.device_type === deviceType
+        ),
     [deviceModels, brand, deviceType]
   )
 
@@ -230,11 +230,25 @@ export function OrderDeviceSelector({
   const isLoadingModels = isLoading || disabled
 
   return (
-    <>
+    <div className="rounded-md border p-4 space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm font-medium">Selecione o aparelho</span>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={openCreateDialog}
+          disabled={isLoadingModels}
+          aria-label="Cadastrar novo dispositivo"
+        >
+          <Plus className="h-4 w-4" />
+        </Button>
+      </div>
       <div className="grid gap-4 md:grid-cols-3">
         <div className="space-y-2">
-          <Label>Marca</Label>
+          <Label htmlFor="deviceBrand">Marca</Label>
           <select
+            id="deviceBrand"
             className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
             value={brand}
             onChange={(e) => handleBrandChange(e.target.value)}
@@ -249,8 +263,9 @@ export function OrderDeviceSelector({
           </select>
         </div>
         <div className="space-y-2">
-          <Label>Dispositivo</Label>
+          <Label htmlFor="deviceType">Dispositivo</Label>
           <select
+            id="deviceType"
             className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
             value={deviceType}
             onChange={(e) => handleDeviceTypeChange(e.target.value)}
@@ -265,8 +280,9 @@ export function OrderDeviceSelector({
           </select>
         </div>
         <div className="space-y-2">
-          <Label>Modelo</Label>
+          <Label htmlFor="deviceModel">Modelo</Label>
           <select
+            id="deviceModel"
             className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
             value={deviceModelId}
             onChange={(e) => handleModelChange(e.target.value)}
@@ -285,18 +301,6 @@ export function OrderDeviceSelector({
       {error ? (
         <p className="text-sm text-destructive">{error}</p>
       ) : null}
-
-      <div className="flex items-center justify-end">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={openCreateDialog}
-          disabled={isLoadingModels}
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Cadastrar novo dispositivo
-        </Button>
-      </div>
 
       {!isFormikMode && inputNames ? (
         <>
@@ -346,16 +350,18 @@ export function OrderDeviceSelector({
           <div className="grid gap-4">
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>Marca</Label>
+                <Label htmlFor="newDeviceBrand">Marca</Label>
                 <Input
+                  id="newDeviceBrand"
                   value={newBrand}
                   onChange={(e) => setNewBrand(e.target.value)}
                   placeholder="Ex: Apple"
                 />
               </div>
               <div className="space-y-2">
-                <Label>Dispositivo</Label>
+                <Label htmlFor="newDeviceType">Dispositivo</Label>
                 <Input
+                  id="newDeviceType"
                   value={newDeviceType}
                   onChange={(e) => setNewDeviceType(e.target.value)}
                   placeholder="Ex: smartphone"
@@ -363,8 +369,9 @@ export function OrderDeviceSelector({
               </div>
             </div>
             <div className="space-y-2">
-              <Label>Modelo</Label>
+              <Label htmlFor="newDeviceModel">Modelo</Label>
               <Input
+                id="newDeviceModel"
                 value={newModel}
                 onChange={(e) => setNewModel(e.target.value)}
                 placeholder="Ex: iPhone 13"
@@ -392,6 +399,6 @@ export function OrderDeviceSelector({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </>
+    </div>
   )
 }

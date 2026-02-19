@@ -38,7 +38,7 @@ export async function GET(
   const { data: order, error } = await auth.supabase
     .from('service_orders')
     .select(
-      'id, customer_id, title, status, device_model_id, imei, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, customer_description, internal_description, receiving_notes, services, brand, model, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full ), device_models ( id, brand, device_type, model )'
+      'id, customer_id, title, status, device_model_id, imei, color, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, customer_description, internal_description, receiving_notes, services, brand, model, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full ), device_models ( id, brand, device_type, model )'
     )
     .eq('id', id)
     .maybeSingle()
@@ -93,6 +93,7 @@ export async function GET(
     deviceType: dm?.device_type ?? '',
     model: dm?.model ?? order.model ?? '',
     imei: order.imei ?? '',
+    color: order.color ?? '',
     isWarranty: Boolean(order.is_warranty),
     estimatedReadyAt,
     passcodeType: order.passcode_type === 'text' || order.passcode_type === 'pattern' ? order.passcode_type : 'none',

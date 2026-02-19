@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { EditCustomerDialog, type CustomerHit } from '@/components/customers'
@@ -95,8 +96,9 @@ export function OrderCustomerCard({ customer }: Props) {
               variant="outline"
               size="sm"
               onClick={() => setIsEditOpen(true)}
+              aria-label="Editar cliente"
             >
-              Editar cliente
+              <Pencil className="h-4 w-4" />
             </Button>
           </div>
         </CardHeader>

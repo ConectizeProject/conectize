@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
 
   const { data: users, error } = await auth.supabase
     .from('users')
-    .select('id, email, role, created_at')
+    .select('id, email, full_name, role, created_at')
     .in('role', targetRoles)
     .order('created_at', { ascending: false })
 

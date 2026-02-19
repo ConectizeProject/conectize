@@ -376,8 +376,9 @@ export function CreateCustomerDialog(props: Props) {
         <div className="grid gap-6 md:grid-cols-2">
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>CPF/CNPJ<span className="text-destructive"> *</span></Label>
+              <Label htmlFor="customerDocument">CPF/CNPJ<span className="text-destructive"> *</span></Label>
               <Input
+                id="customerDocument"
                 value={document}
                 onChange={(e) => {
                   if (isEdit) return
@@ -396,58 +397,59 @@ export function CreateCustomerDialog(props: Props) {
 
             {isCompany ? (
               <div className="space-y-2">
-                <Label>Razão social<span className="text-destructive"> *</span></Label>
-                <Input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="Ex: Conectize LTDA" />
+                <Label htmlFor="companyName">Razão social<span className="text-destructive"> *</span></Label>
+                <Input id="companyName" value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="Ex: Conectize LTDA" />
               </div>
             ) : null}
 
             {isCompany ? (
               <div className="space-y-2">
-                <Label>Nome fantasia (opcional)</Label>
-                <Input value={tradeName} onChange={(e) => setTradeName(e.target.value)} placeholder="Ex: Conectize" />
+                <Label htmlFor="tradeName">Nome fantasia (opcional)</Label>
+                <Input id="tradeName" value={tradeName} onChange={(e) => setTradeName(e.target.value)} placeholder="Ex: Conectize" />
               </div>
             ) : null}
 
             <div className="space-y-2">
-              <Label>
+              <Label htmlFor="fullName">
                 {isCompany ? 'Nome do contato (opcional)' : 'Nome completo'}
                 {!isCompany ? <span className="text-destructive"> *</span> : null}
               </Label>
-              <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder={isCompany ? 'Ex: Maria Souza' : 'Nome completo'} />
+              <Input id="fullName" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder={isCompany ? 'Ex: Maria Souza' : 'Nome completo'} />
             </div>
 
             <div className="space-y-2">
-              <Label>E-mail</Label>
-              <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="cliente@exemplo.com" />
+              <Label htmlFor="customerEmail">E-mail</Label>
+              <Input id="customerEmail" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="cliente@exemplo.com" />
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>Celular</Label>
-                <Input value={mobilePhone} onChange={(e) => setMobilePhone(formatPhoneBr(e.target.value))} placeholder="(31) 9 0000-0000" inputMode="numeric" />
+                <Label htmlFor="mobilePhone">Celular</Label>
+                <Input id="mobilePhone" value={mobilePhone} onChange={(e) => setMobilePhone(formatPhoneBr(e.target.value))} placeholder="(31) 9 0000-0000" inputMode="numeric" />
               </div>
               <div className="space-y-2">
-                <Label>Data de nascimento</Label>
-                <Input type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} />
+                <Label htmlFor="birthDate">Data de nascimento</Label>
+                <Input id="birthDate" type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} />
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label>Contato alternativo</Label>
-              <Input value={contactPhone} onChange={(e) => setContactPhone(formatPhoneBr(e.target.value))} placeholder="(31) 0000-0000" inputMode="numeric" />
+              <Label htmlFor="contactPhone">Contato alternativo</Label>
+              <Input id="contactPhone" value={contactPhone} onChange={(e) => setContactPhone(formatPhoneBr(e.target.value))} placeholder="(31) 0000-0000" inputMode="numeric" />
             </div>
 
             <div className="space-y-2">
-              <Label>Informações de contato</Label>
-              <Textarea value={contactNotes} onChange={(e) => setContactNotes(e.target.value)} placeholder="Preferência de horário, responsável, referências, etc." />
+              <Label htmlFor="contactNotes">Informações de contato</Label>
+              <Textarea id="contactNotes" value={contactNotes} onChange={(e) => setContactNotes(e.target.value)} placeholder="Preferência de horário, responsável, referências, etc." />
             </div>
           </div>
 
           <div className="space-y-4">
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-2">
-                <Label>CEP</Label>
+                <Label htmlFor="zipCode">CEP</Label>
                 <Input
+                  id="zipCode"
                   value={formatZipCode(zipCode)}
                   onChange={(e) => setZipCode(formatZipCode(e.target.value))}
                   placeholder="00000-000"
@@ -462,34 +464,34 @@ export function CreateCustomerDialog(props: Props) {
               </div>
 
               <div className="space-y-2 md:col-span-2">
-                <Label>Estado (UF)</Label>
-                <Input value={state} onChange={(e) => setState(e.target.value.toUpperCase().slice(0, 2))} placeholder="UF" />
+                <Label htmlFor="state">Estado (UF)</Label>
+                <Input id="state" value={state} onChange={(e) => setState(e.target.value.toUpperCase().slice(0, 2))} placeholder="UF" />
               </div>
             </div>
             <div className="space-y-2">
-              <Label>Cidade</Label>
-              <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Cidade" />
+              <Label htmlFor="city">Cidade</Label>
+              <Input id="city" value={city} onChange={(e) => setCity(e.target.value)} placeholder="Cidade" />
             </div>
 
             <div className="grid gap-2 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>Bairro</Label>
-                <Input value={neighborhood} onChange={(e) => setNeighborhood(e.target.value)} placeholder="Bairro" />
+                <Label htmlFor="neighborhood">Bairro</Label>
+                <Input id="neighborhood" value={neighborhood} onChange={(e) => setNeighborhood(e.target.value)} placeholder="Bairro" />
               </div>
               <div className="space-y-2">
-                <Label>Rua</Label>
-                <Input value={street} onChange={(e) => setStreet(e.target.value)} placeholder="Logradouro" />
+                <Label htmlFor="street">Rua</Label>
+                <Input id="street" value={street} onChange={(e) => setStreet(e.target.value)} placeholder="Logradouro" />
               </div>
             </div>
 
             <div className="grid gap-2 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>Número</Label>
-                <Input value={streetNumber} onChange={(e) => setStreetNumber(e.target.value)} placeholder="Número" />
+                <Label htmlFor="streetNumber">Número</Label>
+                <Input id="streetNumber" value={streetNumber} onChange={(e) => setStreetNumber(e.target.value)} placeholder="Número" />
               </div>
               <div className="space-y-2">
-                <Label>Complemento</Label>
-                <Input value={streetComplement} onChange={(e) => setStreetComplement(e.target.value)} placeholder="Apto, bloco, sala..." />
+                <Label htmlFor="streetComplement">Complemento</Label>
+                <Input id="streetComplement" value={streetComplement} onChange={(e) => setStreetComplement(e.target.value)} placeholder="Apto, bloco, sala..." />
               </div>
             </div>
 
@@ -513,8 +515,8 @@ export function CreateCustomerDialog(props: Props) {
 
             {referralSource === 'outros' ? (
               <div className="space-y-2">
-                <Label>Qual?</Label>
-                <Input value={referralSourceOther} onChange={(e) => setReferralSourceOther(e.target.value)} placeholder="Digite aqui" />
+                <Label htmlFor="referralSourceOther">Qual?</Label>
+                <Input id="referralSourceOther" value={referralSourceOther} onChange={(e) => setReferralSourceOther(e.target.value)} placeholder="Digite aqui" />
               </div>
             ) : null}
 

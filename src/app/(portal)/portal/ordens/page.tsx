@@ -65,7 +65,7 @@ export default async function OrdensPage({
 
   const baseQuery = supabase
     .from('service_orders')
-    .select('id, display_number, status, title, created_at, updated_at, estimated_ready_at, share_token, customers ( cpf, cnpj, is_company, full_name, company_name, email, mobile_phone ), device_models ( brand, device_type, model )', { count: 'planned' })
+    .select('id, display_number, status, title, created_at, updated_at, closed_at, estimated_ready_at, share_token, customers ( cpf, cnpj, is_company, full_name, company_name, email, mobile_phone ), device_models ( brand, device_type, model )', { count: 'planned' })
     .order('created_at', { ascending: false })
 
   if (query) {
@@ -81,7 +81,35 @@ export default async function OrdensPage({
     baseQuery.eq('status', statusValue)
   }
 
-  const { data: orders, count } = await baseQuery.range(from, to)
+  const { data: rawOrders, count } = await baseQuery.range(from, to)
+
+  const OPEN_ORDER: Record<string, number> = {
+    em_manutencao: 1,
+    aprovado: 2,
+    orcamento: 3,
+    aguardando_pecas: 4,
+    aguardando_retirada: 5,
+  }
+  const FINALIZED_SET = new Set([
+    'finalizada',
+    'finalizada_sem_conserto',
+    'finalizada_sem_aprovacao',
+    'cancelada',
+  ])
+  const orders = (rawOrders || []).slice().sort((a: any, b: any) => {
+    const aFinal = FINALIZED_SET.has(a.status)
+    const bFinal = FINALIZED_SET.has(b.status)
+    if (!aFinal && !bFinal) {
+      const oa = OPEN_ORDER[a.status] ?? 99
+      const ob = OPEN_ORDER[b.status] ?? 99
+      return oa - ob
+    }
+    if (aFinal && !bFinal) return 1
+    if (!aFinal && bFinal) return -1
+    const aClosed = a.closed_at ? new Date(a.closed_at).getTime() : 0
+    const bClosed = b.closed_at ? new Date(b.closed_at).getTime() : 0
+    return bClosed - aClosed
+  })
 
   const total = count || 0
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
@@ -204,8 +232,9 @@ export default async function OrdensPage({
                   <TableHead>Cliente</TableHead>
                   <TableHead>Dispositivo</TableHead>
                   <TableHead>CPF/CNPJ</TableHead>
-                  <TableHead>Estimativa</TableHead>
                   <TableHead>Criada</TableHead>
+                  <TableHead>Estimativa</TableHead>
+                  <TableHead>Data de finalização</TableHead>
                   <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>

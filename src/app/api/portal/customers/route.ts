@@ -127,7 +127,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: 'already_exists' }, { status: 409 })
   }
 
-  const parsedBirthDate = birthDate ? birthDate : null
+  // Parse birth_date: deve ser null se vazio ou inválido
+  let parsedBirthDate: string | null = null
+  if (birthDate) {
+    const date = new Date(birthDate)
+    if (!Number.isNaN(date.getTime())) {
+      // Formato ISO para PostgreSQL: YYYY-MM-DD
+      const year = date.getFullYear()
+      const month = String(date.getMonth() + 1).padStart(2, '0')
+      const day = String(date.getDate()).padStart(2, '0')
+      parsedBirthDate = `${year}-${month}-${day}`
+    }
+  }
 
   const { data: inserted, error } = await auth.supabase
     .from('customers')
@@ -269,7 +280,18 @@ export async function PATCH(request: Request) {
   const cpf = isCompany ? null : documentDigits
   const cnpj = isCompany ? documentDigits : null
 
-  const parsedBirthDate = birthDate ? birthDate : null
+  // Parse birth_date: deve ser null se vazio ou inválido
+  let parsedBirthDate: string | null = null
+  if (birthDate) {
+    const date = new Date(birthDate)
+    if (!Number.isNaN(date.getTime())) {
+      // Formato ISO para PostgreSQL: YYYY-MM-DD
+      const year = date.getFullYear()
+      const month = String(date.getMonth() + 1).padStart(2, '0')
+      const day = String(date.getDate()).padStart(2, '0')
+      parsedBirthDate = `${year}-${month}-${day}`
+    }
+  }
 
   const { error } = await auth.supabase
     .from('customers')
