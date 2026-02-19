@@ -12,8 +12,12 @@ export type OrdemLabelData = {
   passcodeType: 'text' | 'pattern' | null
   passcodeText: string | null
   passcodePattern: string | null
+  customerFirstName: string | null
+  customerMobile: string | null
+  deviceModel: string | null
 }
 
+/** Formata data no padrão brasileiro: dd/mm/aaaa, hh:mm */
 function formatDateShort(value: string | null): string {
   if (!value) return '-'
   const d = new Date(value)
@@ -27,14 +31,33 @@ function formatDateShort(value: string | null): string {
   })
 }
 
+function formatPhoneBr(value: string | null | undefined): string | null {
+  if (!value) return null
+  const digits = String(value).replace(/\D/g, '').slice(0, 11)
+  const ddd = digits.slice(0, 2)
+  const rest = digits.slice(2)
+  if (!ddd) return value
+  if (rest.length <= 8) {
+    const p1 = rest.slice(0, 4)
+    const p2 = rest.slice(4, 8)
+    return `(${ddd}) ${[p1, p2].filter(Boolean).join('-')}`.trim()
+  }
+  const p1 = rest.slice(0, 1)
+  const p2 = rest.slice(1, 5)
+  const p3 = rest.slice(5, 9)
+  return `(${ddd}) ${p1} ${[p2, p3].filter(Boolean).join('-')}`.trim()
+}
+
 function getPasscodeDisplay(data: OrdemLabelData): string {
   if (data.passcodeType === 'text' && data.passcodeText) {
     return `Senha: ${data.passcodeText}`
   }
-  if (data.passcodeType === 'pattern' && data.passcodePattern) {
-    return 'Senha: padrão'
+  if (data.passcodeType === 'pattern') {
+    return data.passcodePattern
+      ? `Senha (padrão): ${data.passcodePattern}`
+      : 'Senha: padrão'
   }
-  return 'Sem senha'
+  return ''
 }
 
 /**
@@ -45,6 +68,13 @@ export function buildOrdemLabelHtml(data: OrdemLabelData): string {
   const entrada = formatDateShort(data.createdAt)
   const previsao = formatDateShort(data.estimatedReadyAt)
   const senha = getPasscodeDisplay(data)
+  const clienteLinha =
+    data.customerFirstName || data.customerMobile
+      ? [data.customerFirstName, data.customerMobile ? formatPhoneBr(data.customerMobile) : null]
+        .filter(Boolean)
+        .join(' ')
+      : null;
+  const modeloLinha = data.deviceModel || null;
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -76,8 +106,9 @@ export function buildOrdemLabelHtml(data: OrdemLabelData): string {
 </head>
 <body>
   <div class="label-row label-title">${escapeHtml(titleDisplay)}</div>
-  <div class="label-row">Entrada: ${escapeHtml(entrada)}</div>
-  <div class="label-row">Previsão: ${escapeHtml(previsao)}</div>
+  ${clienteLinha ? `<div class="label-row">${escapeHtml(clienteLinha)}</div>` : ''}
+  ${modeloLinha ? `<div class="label-row">${escapeHtml(modeloLinha)}</div>` : ''}
+  <div class="label-row">${escapeHtml(entrada)} | ${escapeHtml(previsao)}</div>
   <div class="label-row">${escapeHtml(senha)}</div>
   <script>
     window.onload = function() { window.print(); }

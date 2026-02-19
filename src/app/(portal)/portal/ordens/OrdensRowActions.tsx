@@ -47,15 +47,14 @@ function buildOrderMessage(opts: {
   const lines = [
     `Olá${opts.customerName ? ` ${opts.customerName}` : ''}!`,
     '',
-    `*Ordem de Serviço #${opts.displayNumber}* - Conectize`,
+    `*Ordem de Serviço #${opts.displayNumber}*`,
     `Título: ${opts.title}`,
-    `Status: ${opts.status}`,
     `Dispositivo: ${opts.device || '-'}`,
   ]
   if (opts.estimatedReadyAt) {
     lines.push(`Previsão: ${new Date(opts.estimatedReadyAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`)
   }
-  lines.push('', `Acesse sua OS (link público): ${opts.orderHref}`)
+  lines.push('', `Acesse sua OS: ${opts.orderHref}`)
   return lines.join('\n')
 }
 
@@ -109,7 +108,7 @@ export function OrdensRowActions({ order }: Props) {
       .then((data) => {
         if (!cancelled && data?.url) setFetchedPublicUrl(data.url)
       })
-      .catch(() => {})
+      .catch(() => { })
     return () => { cancelled = true }
   }, [order.id, publicPath, fetchedPublicUrl])
   const message = orderHref ? buildOrderMessage({

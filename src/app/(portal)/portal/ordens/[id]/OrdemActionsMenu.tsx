@@ -64,7 +64,7 @@ function buildOrderMessage(opts: {
   if (opts.estimatedReadyAt) {
     lines.push(`Previsão: ${new Date(opts.estimatedReadyAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`)
   }
-  lines.push('', `Acesse sua OS (link público): ${opts.orderHref}`)
+  lines.push('', `Acesse sua OS: ${opts.orderHref}`)
   return lines.join('\n')
 }
 
@@ -119,7 +119,7 @@ export function OrdemActionsMenu({
         .then((data) => {
           if (!cancelled && data?.url) setPublicUrl(data.url)
         })
-        .catch(() => {})
+        .catch(() => { })
       return () => { cancelled = true }
     }
   }, [orderId, publicOrderPath])
@@ -128,14 +128,14 @@ export function OrdemActionsMenu({
   const statusLabel = STATUS_LABELS[status] ?? status
   const message = orderHref
     ? buildOrderMessage({
-        displayNumber,
-        title,
-        customerName,
-        device,
-        status: statusLabel,
-        estimatedReadyAt,
-        orderHref,
-      })
+      displayNumber,
+      title,
+      customerName,
+      device,
+      status: statusLabel,
+      estimatedReadyAt,
+      orderHref,
+    })
     : ''
   const whatsappNumber = mobilePhone ? formatPhoneForWhatsApp(mobilePhone) : ''
   const whatsappHref = whatsappNumber && message ? `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}` : null
