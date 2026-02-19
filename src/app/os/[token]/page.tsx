@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { OrderStatusBadge } from '@/components/orders'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { formatDateTimeBr } from '@/lib/utils/format-date'
+import { formatPhoneBr as formatPhoneBrUtil } from '@/lib/utils/format-phone'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
 
@@ -30,27 +31,7 @@ function getDeviceModelFromOrder(order: any) {
 }
 
 function formatPhoneBr(value: string | null | undefined) {
-	if (!value) return '-'
-	const digits = String(value).replace(/\D/g, '').slice(0, 11)
-	const ddd = digits.slice(0, 2)
-	const rest = digits.slice(2)
-	if (!ddd) return value
-	if (rest.length <= 8) {
-		const p1 = rest.slice(0, 4)
-		const p2 = rest.slice(4, 8)
-		return `(${ddd}) ${[p1, p2].filter(Boolean).join('-')}`.trim()
-	}
-	const p1 = rest.slice(0, 1)
-	const p2 = rest.slice(1, 5)
-	const p3 = rest.slice(5, 9)
-	return `(${ddd}) ${p1} ${[p2, p3].filter(Boolean).join('-')}`.trim()
-}
-
-function formatBirthDate(value: string | null | undefined) {
-	if (!value) return '-'
-	const date = new Date(String(value))
-	if (Number.isNaN(date.getTime())) return String(value)
-	return date.toLocaleDateString('pt-BR')
+	return formatPhoneBrUtil(value) ?? '-'
 }
 
 export default async function OrdemPublicaPage({

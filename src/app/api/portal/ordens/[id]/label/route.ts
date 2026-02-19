@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
-import { buildOrdemLabelHtml } from '@/lib/ordem-label-template'
+import { buildOrdemLabelHtml } from '@/lib/ordem-print'
 
 async function requireStaffOrAdmin() {
   const supabase = await createSupabaseServerClient()
@@ -38,13 +38,27 @@ export async function GET(
 
   const { data: order, error } = await auth.supabase
     .from('service_orders')
-    .select('display_number, title, created_at, estimated_ready_at, passcode_type, passcode_text, passcode_pattern')
+    .select(
+      'display_number, title, created_at, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, customers ( full_name, is_company, company_name, mobile_phone ), device_models ( brand, device_type, model )'
+    )
     .eq('id', id)
     .maybeSingle()
 
   if (error || !order) {
     return new NextResponse('Ordem não encontrada', { status: 404 })
   }
+
+  const cust = Array.isArray(order.customers) ? order.customers[0] : order.customers
+  const dm = Array.isArray(order.device_models) ? order.device_models[0] : order.device_models
+  const nameForFirst = cust?.is_company
+    ? (cust.company_name ?? '').trim()
+    : (cust?.full_name ?? '').trim()
+  const customerFirstName = nameForFirst ? nameForFirst.split(/\s+/)[0] ?? null : null
+  const deviceModel = dm
+    ? (dm.brand?.toLowerCase() === 'apple'
+        ? `${dm.device_type || ''} ${dm.model || ''}`.trim()
+        : `${dm.brand || ''} ${dm.model || ''}`.trim()) || null
+    : null
 
   const labelData = {
     displayNumber: order.display_number ?? id,
@@ -58,6 +72,9 @@ export async function GET(
     passcodeText: order.passcode_type === 'text' ? (order.passcode_text ?? null) : null,
     passcodePattern:
       order.passcode_type === 'pattern' ? (order.passcode_pattern ?? null) : null,
+    customerFirstName: customerFirstName || null,
+    customerMobile: cust?.mobile_phone ?? null,
+    deviceModel,
   }
 
   const html = buildOrdemLabelHtml(labelData)

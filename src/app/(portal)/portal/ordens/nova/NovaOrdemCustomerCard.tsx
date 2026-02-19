@@ -8,15 +8,12 @@ import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { CustomerDataGrid } from '@/components/orders'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
+import { onlyDigits } from '@/lib/utils/strings'
 import { cn } from '@/lib/utils'
 import type { CustomerHit } from '@/components/customers'
 
-function onlyDigits(value: string) {
-  return String(value || '').replace(/\D/g, '').slice(0, 14)
-}
-
 function getCustomerDocumentDigits(c: CustomerHit) {
-  return onlyDigits(String(c.cnpj || c.cpf || ''))
+  return onlyDigits(String(c.cnpj || c.cpf || '')).slice(0, 14)
 }
 
 function getCustomerDisplayName(c: CustomerHit) {

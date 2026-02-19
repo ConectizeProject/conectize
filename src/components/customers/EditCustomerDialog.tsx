@@ -2,10 +2,7 @@
 
 import { useMemo } from 'react'
 import { CreateCustomerDialog, type CustomerHit } from './CreateCustomerDialog'
-
-function onlyDigits(value: string) {
-  return String(value || '').replace(/\D/g, '').slice(0, 14)
-}
+import { onlyDigits } from '@/lib/utils/strings'
 
 type Props = {
   open: boolean
@@ -21,7 +18,7 @@ type Props = {
  */
 export function EditCustomerDialog({ open, onOpenChange, customer, onSaved }: Props) {
   const initialDocumentDigits = useMemo(
-    () => onlyDigits(String(customer.cnpj || customer.cpf || '')),
+    () => onlyDigits(String(customer.cnpj || customer.cpf || '')).slice(0, 14),
     [customer.cnpj, customer.cpf]
   )
 

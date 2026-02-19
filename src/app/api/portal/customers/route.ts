@@ -1,13 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
-
-function onlyDigits(value: string) {
-  return value.replace(/\D/g, '')
-}
-
-function normalizeZipCode(value: string) {
-  return onlyDigits(value).slice(0, 8)
-}
+import { onlyDigits } from '@/lib/utils/strings'
 
 function buildAddressFull(addr: {
   zipCode?: string
@@ -77,7 +70,7 @@ export async function POST(request: Request) {
   const contactPhone = String(body?.contactPhone || '').trim()
   const contactNotes = String(body?.contactNotes || '').trim()
   const addressFullRaw = String(body?.addressFull || '').trim()
-  const zipCode = normalizeZipCode(String(body?.zipCode || body?.cep || ''))
+  const zipCode = onlyDigits(String(body?.zipCode || body?.cep || '')).slice(0, 8)
   const state = String(body?.state || body?.uf || '').trim()
   const city = String(body?.city || '').trim()
   const neighborhood = String(body?.neighborhood || '').trim()
@@ -239,7 +232,7 @@ export async function PATCH(request: Request) {
   const contactNotes = String(body?.contactNotes || '').trim()
 
   const addressFullRaw = String(body?.addressFull || '').trim()
-  const zipCode = normalizeZipCode(String(body?.zipCode || body?.cep || ''))
+  const zipCode = onlyDigits(String(body?.zipCode || body?.cep || '')).slice(0, 8)
   const state = String(body?.state || body?.uf || '').trim()
   const city = String(body?.city || '').trim()
   const neighborhood = String(body?.neighborhood || '').trim()

@@ -4,7 +4,7 @@ import {
   buildOrdemPrintHtml,
   type CompanyPrintData,
   type OrdemPrintData,
-} from '@/lib/ordem-print-template'
+} from '@/lib/ordem-print'
 
 async function requireStaffOrAdmin() {
   const supabase = await createSupabaseServerClient()
@@ -28,7 +28,9 @@ function orderToPrintData(order: any): OrdemPrintData {
   const cust = Array.isArray(order.customers) ? order.customers[0] : order.customers
   const dm = Array.isArray(order.device_models) ? order.device_models[0] : order.device_models
   const device = dm
-    ? `${dm.brand || ''} ${dm.device_type || ''} ${dm.model || ''}`.trim()
+    ? (dm.brand?.toLowerCase() === 'apple'
+        ? `${dm.device_type || ''} ${dm.model || ''}`.trim()
+        : `${dm.brand || ''} ${dm.model || ''}`.trim()) || '-'
     : order.brand || order.model
       ? `${order.brand || ''} ${order.model || ''}`.trim()
       : '-'

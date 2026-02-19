@@ -3,37 +3,8 @@
 import { useEffect, useState } from 'react'
 import { MessageCircle, Mail } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-
-function formatPhoneForWhatsApp(phone: string): string {
-  const digits = phone.replace(/\D/g, '').trim()
-  if (!digits) return ''
-  const withCountry = digits.length <= 11 && !digits.startsWith('55') ? `55${digits}` : digits
-  return withCountry
-}
-
-function buildOrderMessage(opts: {
-  displayNumber: string | number
-  title: string
-  customerName: string
-  device: string
-  status: string
-  estimatedReadyAt: string | null
-  orderHref: string
-}) {
-  const lines = [
-    `Olá${opts.customerName ? ` ${opts.customerName}` : ''}!`,
-    '',
-    `*Ordem de Serviço #${opts.displayNumber}* - Conectize`,
-    `Título: ${opts.title}`,
-    `Status: ${opts.status}`,
-    `Dispositivo: ${opts.device || '-'}`,
-  ]
-  if (opts.estimatedReadyAt) {
-    lines.push(`Previsão de conclusão: ${new Date(opts.estimatedReadyAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`)
-  }
-  lines.push('', `Acesse sua OS (link público): ${opts.orderHref}`)
-  return lines.join('\n')
-}
+import { buildOrderMessage } from '@/lib/ordem-share-message'
+import { formatPhoneForWhatsApp } from '@/lib/utils/format-phone'
 
 type Props = {
   orderId: string
@@ -75,7 +46,7 @@ export function OrdemShareButtons({
         .then((data) => {
           if (!cancelled && data?.url) setPublicUrl(data.url)
         })
-        .catch(() => {})
+        .catch(() => { })
       return () => { cancelled = true }
     }
   }, [orderId, publicOrderPath])
@@ -83,14 +54,14 @@ export function OrdemShareButtons({
   const orderHref = publicUrl ?? ''
   const message = orderHref
     ? buildOrderMessage({
-        displayNumber,
-        title,
-        customerName,
-        device,
-        status,
-        estimatedReadyAt,
-        orderHref,
-      })
+      displayNumber,
+      title,
+      customerName,
+      device,
+      status,
+      estimatedReadyAt,
+      orderHref,
+    })
     : ''
 
   const whatsappNumber = mobilePhone ? formatPhoneForWhatsApp(mobilePhone) : ''

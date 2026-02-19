@@ -2,27 +2,22 @@
 
 import { Printer } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { buildOrdemPrintHtml, type CompanyPrintData, type OrdemPrintData } from '@/lib/ordem-print-template'
+import { getPrintWindowFeatures } from '@/lib/ordem-print'
 
-export type { CompanyPrintData, OrdemPrintData }
+type Props = {
+  orderId: string
+}
 
-export function OrdemPrintButton({
-  data,
-  company,
-}: {
-  data: OrdemPrintData
-  company?: CompanyPrintData | null
-}) {
+export function OrdemPrintButton({ orderId }: Props) {
   function handlePrint() {
-    const origin = typeof window !== 'undefined' ? window.location.origin : ''
-    const html = buildOrdemPrintHtml(data, company, origin)
-    const w = window.open('', '_blank', 'width=900,height=800')
+    const w = window.open(
+      `/api/portal/ordens/${orderId}/print`,
+      '_blank',
+      getPrintWindowFeatures()
+    )
     if (!w) {
       alert('Permita pop-ups para imprimir a ordem.')
-      return
     }
-    w.document.write(html)
-    w.document.close()
   }
 
   return (

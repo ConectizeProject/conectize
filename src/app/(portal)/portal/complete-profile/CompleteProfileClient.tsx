@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -8,10 +8,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { portalFetch } from '@/lib/portal/portal-fetch'
-
-function onlyDigits(value: string) {
-  return value.replace(/\D/g, '')
-}
+import { formatCpf } from '@/lib/utils/format-cpf-cnpj'
+import { onlyDigits } from '@/lib/utils/strings'
 
 function isValidCpf(value: string) {
   const cpf = onlyDigits(value)
@@ -32,18 +30,6 @@ function isValidCpf(value: string) {
   const d2 = calcCheckDigit(digits.slice(0, 9).concat(d1))
 
   return digits[9] === d1 && digits[10] === d2
-}
-
-function formatCpf(value: string) {
-  const digits = onlyDigits(value).slice(0, 11)
-  const parts = []
-  if (digits.length > 0) parts.push(digits.slice(0, 3))
-  if (digits.length > 3) parts.push(digits.slice(3, 6))
-  if (digits.length > 6) parts.push(digits.slice(6, 9))
-
-  const last = digits.length > 9 ? digits.slice(9, 11) : ''
-  const head = parts.join('.')
-  return last ? `${head}-${last}` : head
 }
 
 function getApiErrorMessage(code: string) {

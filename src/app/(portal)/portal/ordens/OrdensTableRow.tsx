@@ -46,28 +46,16 @@ export function OrdensTableRow({ order }: Props) {
       <TableCell>
         <OrderStatusBadge status={order.status} />
       </TableCell>
-      <TableCell className="font-medium">
-        <Link
-          href={`/portal/ordens/${order.id}`}
-          className="hover:underline"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {order.title}
-        </Link>
-      </TableCell>
+      <TableCell className="font-medium">{order.title}</TableCell>
       <TableCell>
-        {order.customers?.is_company
-          ? (order.customers?.company_name || '-')
-          : (order.customers?.full_name || '-')}
+        {order.customers?.full_name || order.customers?.company_name || '-'}
       </TableCell>
       <TableCell>
         {order.device_models
           ? [order.device_models.brand, order.device_models.device_type, order.device_models.model].filter(Boolean).join(' • ') || '-'
           : '-'}
       </TableCell>
-      <TableCell>
-        {formatCpfCnpj(String(order.customers?.cnpj || order.customers?.cpf))}
-      </TableCell>
+      <TableCell>{formatCpfCnpj(String(order.customers?.cnpj || order.customers?.cpf))}</TableCell>
       <TableCell>{formatDateTimeBr(order.created_at)}</TableCell>
       <TableCell>{formatDateTimeBr(order.estimated_ready_at)}</TableCell>
       <TableCell>{order.closed_at ? formatDateTimeBr(order.closed_at) : '-'}</TableCell>

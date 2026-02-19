@@ -16,6 +16,9 @@ import {
 import { Button } from '@/components/ui/button'
 import { Printer, MessageCircle, Mail, MoreHorizontal, Copy, Tag } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
+import { getLabelWindowFeatures, getPrintWindowFeatures } from '@/lib/ordem-print'
+import { buildOrderMessage } from '@/lib/ordem-share-message'
+import { formatPhoneForWhatsApp } from '@/lib/utils/format-phone'
 
 const STATUS_LABELS: Record<string, string> = {
   orcamento: 'Orçamento',
@@ -27,36 +30,6 @@ const STATUS_LABELS: Record<string, string> = {
   finalizada_sem_conserto: 'Finalizada sem conserto',
   finalizada_sem_aprovacao: 'Finalizada sem aprovação',
   cancelada: 'Cancelada',
-}
-
-function formatPhoneForWhatsApp(phone: string): string {
-  const digits = phone.replace(/\D/g, '').trim()
-  if (!digits) return ''
-  return digits.length <= 11 && !digits.startsWith('55') ? `55${digits}` : digits
-}
-
-function buildOrderMessage(opts: {
-  displayNumber: string | number
-  title: string
-  customerName: string
-  device: string
-  status: string
-  estimatedReadyAt: string | null
-  orderHref: string
-}) {
-  const lines = [
-    `Olá${opts.customerName ? ` ${opts.customerName}` : ''}!`,
-    '',
-    `*Ordem de Serviço #${opts.displayNumber}* - Conectize`,
-    `Título: ${opts.title}`,
-    `Status: ${opts.status}`,
-    `Dispositivo: ${opts.device || '-'}`,
-  ]
-  if (opts.estimatedReadyAt) {
-    lines.push(`Previsão: ${new Date(opts.estimatedReadyAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`)
-  }
-  lines.push('', `Acesse sua OS (link público): ${opts.orderHref}`)
-  return lines.join('\n')
 }
 
 type OrderRow = {
@@ -109,7 +82,7 @@ export function OrdensRowActions({ order }: Props) {
       .then((data) => {
         if (!cancelled && data?.url) setFetchedPublicUrl(data.url)
       })
-      .catch(() => {})
+      .catch(() => { })
     return () => { cancelled = true }
   }, [order.id, publicPath, fetchedPublicUrl])
   const message = orderHref ? buildOrderMessage({
@@ -120,6 +93,8 @@ export function OrdensRowActions({ order }: Props) {
     status: statusLabel,
     estimatedReadyAt: order.estimated_ready_at,
     orderHref,
+    titleSuffix: false,
+    includeStatus: false,
   }) : ''
 
   const whatsappNumber = customer?.mobile_phone ? formatPhoneForWhatsApp(customer.mobile_phone) : ''
@@ -157,13 +132,13 @@ export function OrdensRowActions({ order }: Props) {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-48">
         <DropdownMenuItem
-          onClick={() => window.open(`/api/portal/ordens/${order.id}/print`, '_blank', 'width=800,height=600')}
+          onClick={() => window.open(`/api/portal/ordens/${order.id}/print`, '_blank', getPrintWindowFeatures())}
         >
           <Printer className="h-4 w-4 mr-2" />
           Imprimir OS
         </DropdownMenuItem>
         <DropdownMenuItem
-          onClick={() => window.open(`/api/portal/ordens/${order.id}/label`, '_blank', 'width=200,height=120')}
+          onClick={() => window.open(`/api/portal/ordens/${order.id}/label`, '_blank', getLabelWindowFeatures())}
         >
           <Tag className="h-4 w-4 mr-2" />
           Imprimir etiqueta

@@ -1,43 +1,9 @@
 'use client'
 
 import { LabeledValue } from '@/components/ui/labeled-value'
-
-function onlyDigits(value: string) {
-  return String(value || '').replace(/\D/g, '').slice(0, 14)
-}
-
-function formatPhoneBr(value: string | null | undefined): string | null {
-  if (!value) return null
-  const digits = String(value).replace(/\D/g, '').slice(0, 11)
-  const ddd = digits.slice(0, 2)
-  const rest = digits.slice(2)
-  if (!ddd) return value
-  if (rest.length <= 8) {
-    const p1 = rest.slice(0, 4)
-    const p2 = rest.slice(4, 8)
-    return `(${ddd}) ${[p1, p2].filter(Boolean).join('-')}`.trim()
-  }
-  const p1 = rest.slice(0, 1)
-  const p2 = rest.slice(1, 5)
-  const p3 = rest.slice(5, 9)
-  return `(${ddd}) ${p1} ${[p2, p3].filter(Boolean).join('-')}`.trim()
-}
-
-function formatBirthDate(value: string | null | undefined): string | null {
-  if (!value) return null
-  const date = new Date(String(value))
-  if (Number.isNaN(date.getTime())) return String(value)
-  return date.toLocaleDateString('pt-BR')
-}
-
-function formatZipCode(value: string | null | undefined) {
-  if (!value) return ''
-  const digits = onlyDigits(value).slice(0, 8)
-  const p1 = digits.slice(0, 5)
-  const p2 = digits.slice(5, 8)
-  if (!p1) return ''
-  return p2 ? `${p1}-${p2}` : p1
-}
+import { formatPhoneBr } from '@/lib/utils/format-phone'
+import { formatDateBr } from '@/lib/utils/format-date'
+import { formatCepBr } from '@/lib/utils/format-cep'
 
 export type CustomerData = {
   cpf?: string | null
@@ -69,7 +35,7 @@ function getDisplayName(c: CustomerData) {
 function getAddressDisplay(c: CustomerData): string | null {
   if (c.street || c.city || c.zip_code) {
     return [
-      c.zip_code ? `CEP ${formatZipCode(c.zip_code)}` : '',
+      c.zip_code ? `CEP ${formatCepBr(c.zip_code)}` : '',
       [c.neighborhood, c.city, c.state].filter(Boolean).join(' / '),
       [c.street, c.street_number, c.street_complement].filter(Boolean).join(', '),
     ]
@@ -95,7 +61,7 @@ export function CustomerDataGrid({ customer, grid = true }: Props) {
       <LabeledValue label="E-mail" value={customer.email?.trim() || null} />
       <LabeledValue label="Celular" value={customer.mobile_phone ? formatPhoneBr(customer.mobile_phone) : null} />
       <LabeledValue label="Contato alternativo / Informações" value={contactLine} />
-      <LabeledValue label="Nascimento" value={formatBirthDate(customer.birth_date)} />
+      <LabeledValue label="Nascimento" value={customer.birth_date ? formatDateBr(customer.birth_date) : null} />
       {address ? (
         <div className={grid ? 'md:col-span-3' : ''}>
           <LabeledValue label="Endereço" value={<span className="whitespace-pre-wrap">{address}</span>} />
