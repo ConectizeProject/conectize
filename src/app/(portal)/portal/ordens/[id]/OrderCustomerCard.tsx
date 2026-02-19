@@ -8,10 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { EditCustomerDialog, type CustomerHit } from '@/components/customers'
 import { CustomerDataGrid } from '@/components/orders'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
-
-function onlyDigits(value: string) {
-  return String(value || '').replace(/\D/g, '').slice(0, 14)
-}
+import { onlyDigits } from '@/lib/utils/strings'
 
 function getCustomerDisplayName(c: { is_company?: boolean; company_name?: string; full_name?: string }) {
   if (c.is_company) return String(c.company_name || c.full_name || 'Empresa')
@@ -19,7 +16,7 @@ function getCustomerDisplayName(c: { is_company?: boolean; company_name?: string
 }
 
 function getCustomerDocumentMasked(c: { cpf?: string | null; cnpj?: string | null }) {
-  return formatCpfCnpj(onlyDigits(String(c.cnpj || c.cpf || '')))
+  return formatCpfCnpj(onlyDigits(String(c.cnpj || c.cpf || '')).slice(0, 14))
 }
 
 type OrderCustomer = {

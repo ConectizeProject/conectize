@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { OrderStatusBadge } from '@/components/orders'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { getOrdemErrorMessage } from '@/lib/utils/error-messages'
-import { formatDateTimeBr } from '@/lib/utils/format-date'
+import { formatDateBr, formatDateTimeBr } from '@/lib/utils/format-date'
 import { OrderDeviceSelector, OrderServicesCard } from '@/components/orders'
 import { OrderCustomerCard } from './OrderCustomerCard'
 import { OrderPasscodeFields } from './OrderPasscodeFields'
@@ -162,13 +162,6 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 	const sellerDisplayName = seller ? (String(seller.full_name || '').trim() || String(seller.email || '').trim() || '(Sem nome)') : ''
 	const sellerOptions = (staffAdminUsers.data ?? []) as Array<{ id: string; full_name: string | null; email: string | null }>
 
-	function formatBirthDate(value: string | null | undefined) {
-		if (!value) return null
-		const date = new Date(String(value))
-		if (Number.isNaN(date.getTime())) return String(value)
-		return date.toLocaleDateString('pt-BR')
-	}
-
 	const customer = getCustomerFromOrder(order)
 	const deviceModel = getDeviceModelFromOrder(order)
 
@@ -311,48 +304,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 				</div>
 
 				<div className="flex items-center gap-2 flex-wrap">
-					<OrdemPrintButton data={{
-						displayNumber: order.display_number ?? order.id,
-						status: order.status,
-						title: order.title,
-						createdAt: order.created_at,
-						updatedAt: order.updated_at,
-						closedAt: order.closed_at ?? null,
-						customer: {
-							fullName: customer?.full_name ?? '',
-							companyName: customer?.company_name ?? null,
-							isCompany: Boolean(customer?.is_company),
-							cpf: customer?.cpf ?? null,
-							cnpj: customer?.cnpj ?? null,
-							email: customer?.email ?? null,
-							mobilePhone: customer?.mobile_phone ?? null,
-							contactPhone: customer?.contact_phone ?? null,
-							contactNotes: customer?.contact_notes ?? null,
-							addressFull: customer?.address_full ?? null,
-						},
-						device: deviceModel ? `${deviceModel.brand} • ${deviceModel.device_type} • ${deviceModel.model}` : (order.brand || order.model ? `${order.brand || ''} ${order.model || ''}`.trim() : '-'),
-						imei: order.imei ?? null,
-						isWarranty: Boolean(order.is_warranty),
-						estimatedReadyAt: order.estimated_ready_at,
-						customerDescription: order.customer_description ?? null,
-						internalDescription: order.internal_description ?? null,
-						receivingNotes: order.receiving_notes ?? null,
-						assistanceInfo: order.assistance_info ?? null,
-						services: (order.services as Array<{ description?: string; valueCents?: number; costCents?: number }>) ?? [],
-					}}
-						company={companySettings ? {
-							name: companySettings.name ?? null,
-							cnpj: companySettings.cnpj ?? null,
-							address: companySettings.address ?? null,
-							complement: companySettings.complement ?? null,
-							zipCode: companySettings.zip_code ?? null,
-							city: companySettings.city ?? null,
-							state: companySettings.state ?? null,
-							phone: companySettings.phone ?? null,
-							email: companySettings.email ?? null,
-							logoUrl: companySettings.logo_url ?? null,
-						} : null}
-					/>
+					<OrdemPrintButton orderId={order.id} />
 					<OrdemLabelPrintButton orderId={order.id} />
 					<OrdemActionsMenu
 						orderId={order.id}

@@ -1,49 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
-
-function onlyDigits(value: string) {
-  return value.replace(/\D/g, '')
-}
-
-function formatCpfPrefix(digits: string) {
-  const d = onlyDigits(digits).slice(0, 11)
-  const p1 = d.slice(0, 3)
-  const p2 = d.slice(3, 6)
-  const p3 = d.slice(6, 9)
-  const p4 = d.slice(9, 11)
-
-  const parts = []
-  if (p1) parts.push(p1)
-  if (p2) parts.push(p2)
-  if (p3) parts.push(p3)
-
-  const head = parts.join('.')
-  if (!head) return ''
-  if (p4) return `${head}-${p4}`
-  return head
-}
-
-function formatCnpjPrefix(digits: string) {
-  const d = onlyDigits(digits).slice(0, 14)
-  const p1 = d.slice(0, 2)
-  const p2 = d.slice(2, 5)
-  const p3 = d.slice(5, 8)
-  const p4 = d.slice(8, 12)
-  const p5 = d.slice(12, 14)
-
-  const headParts = []
-  if (p1) headParts.push(p1)
-  if (p2) headParts.push(p2)
-  if (p3) headParts.push(p3)
-  const head = headParts.join('.')
-
-  if (!head) return ''
-  if (p4) {
-    if (p5) return `${head}/${p4}-${p5}`
-    return `${head}/${p4}`
-  }
-  return head
-}
+import { formatCpf, formatCnpj } from '@/lib/utils/format-cpf-cnpj'
+import { onlyDigits } from '@/lib/utils/strings'
 
 async function requireStaffOrAdmin() {
   const supabase = await createSupabaseServerClient()
@@ -86,8 +44,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: 'document_prefix_too_short' }, { status: 400 })
   }
 
-  const cpfPrefixMasked = formatCpfPrefix(prefix)
-  const cnpjPrefixMasked = formatCnpjPrefix(prefix)
+  const cpfPrefixMasked = formatCpf(prefix)
+  const cnpjPrefixMasked = formatCnpj(prefix)
 
   const { data: customers, error } = await auth.supabase
     .from('customers')

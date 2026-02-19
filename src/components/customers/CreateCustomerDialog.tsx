@@ -9,6 +9,10 @@ import { Textarea } from '@/components/ui/textarea'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { AlertTriangle } from 'lucide-react'
 import { portalFetch } from '@/lib/portal/portal-fetch'
+import { formatPhoneBr } from '@/lib/utils/format-phone'
+import { formatCpf, formatCnpj, formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
+import { formatCepBr } from '@/lib/utils/format-cep'
+import { onlyDigits } from '@/lib/utils/strings'
 
 export type CustomerHit = {
   id: string
@@ -43,76 +47,6 @@ type Props = {
   mode?: 'create' | 'edit'
   customer?: CustomerHit | null
   onCreated: (customer: CustomerHit) => void
-}
-
-function onlyDigits(value: string) {
-  return String(value || '').replace(/\D/g, '')
-}
-
-function formatCpf(value: string) {
-  const digits = onlyDigits(value).slice(0, 11)
-  const p1 = digits.slice(0, 3)
-  const p2 = digits.slice(3, 6)
-  const p3 = digits.slice(6, 9)
-  const p4 = digits.slice(9, 11)
-  const head = [p1, p2, p3].filter(Boolean).join('.')
-  if (p4) return `${head}-${p4}`
-  return head
-}
-
-function formatCnpj(value: string) {
-  const digits = onlyDigits(value).slice(0, 14)
-  const p1 = digits.slice(0, 2)
-  const p2 = digits.slice(2, 5)
-  const p3 = digits.slice(5, 8)
-  const p4 = digits.slice(8, 12)
-  const p5 = digits.slice(12, 14)
-
-  const head = [p1, p2, p3].filter(Boolean).join('.')
-  if (!head) return ''
-
-  if (p4) {
-    if (p5) return `${head}/${p4}-${p5}`
-    return `${head}/${p4}`
-  }
-  return head
-}
-
-function formatCpfCnpj(value: string) {
-  const digits = onlyDigits(value).slice(0, 14)
-  if (digits.length <= 11) return formatCpf(digits)
-  return formatCnpj(digits)
-}
-
-function formatPhoneBr(value: string) {
-  const digits = onlyDigits(value).slice(0, 11)
-  const ddd = digits.slice(0, 2)
-  const rest = digits.slice(2)
-
-  if (!ddd) return rest
-
-  if (rest.length <= 8) {
-    const p1 = rest.slice(0, 4)
-    const p2 = rest.slice(4, 8)
-    return `(${ddd}) ${[p1, p2].filter(Boolean).join('-')}`.trim()
-  }
-
-  const p1 = rest.slice(0, 1)
-  const p2 = rest.slice(1, 5)
-  const p3 = rest.slice(5, 9)
-  return `(${ddd}) ${p1} ${[p2, p3].filter(Boolean).join('-')}`.trim()
-}
-
-function normalizeZipCode(value: string) {
-  return onlyDigits(value).slice(0, 8)
-}
-
-function formatZipCode(value: string) {
-  const digits = normalizeZipCode(value)
-  const p1 = digits.slice(0, 5)
-  const p2 = digits.slice(5, 8)
-  if (!p1) return ''
-  return p2 ? `${p1}-${p2}` : p1
 }
 
 function buildAddressFull(addr: {
@@ -214,7 +148,7 @@ export function CreateCustomerDialog(props: Props) {
 
   useEffect(() => {
     let cancelled = false
-    const zip = normalizeZipCode(zipCode)
+    const zip = onlyDigits(zipCode).slice(0, 8)
 
     async function run() {
       setZipCodeLookupError(null)
@@ -278,7 +212,7 @@ export function CreateCustomerDialog(props: Props) {
         mobilePhone: mobilePhone.trim(),
         contactPhone: contactPhone.trim(),
         contactNotes: contactNotes.trim(),
-        zipCode: normalizeZipCode(zipCode),
+        zipCode: onlyDigits(zipCode).slice(0, 8),
         state: state.trim(),
         city: city.trim(),
         neighborhood: neighborhood.trim(),
@@ -311,7 +245,7 @@ export function CreateCustomerDialog(props: Props) {
       }
 
       const addressFull = buildAddressFull({
-        zipCode: normalizeZipCode(zipCode),
+        zipCode: onlyDigits(zipCode).slice(0, 8),
         state,
         city,
         neighborhood,
@@ -333,7 +267,7 @@ export function CreateCustomerDialog(props: Props) {
         contact_phone: contactPhone.trim() || null,
         contact_notes: contactNotes.trim() || null,
         address_full: addressFull || null,
-        zip_code: normalizeZipCode(zipCode) || null,
+        zip_code: onlyDigits(zipCode).slice(0, 8) || null,
         state: state.trim() || null,
         city: city.trim() || null,
         neighborhood: neighborhood.trim() || null,
@@ -425,7 +359,7 @@ export function CreateCustomerDialog(props: Props) {
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="mobilePhone">Celular</Label>
-                <Input id="mobilePhone" value={mobilePhone} onChange={(e) => setMobilePhone(formatPhoneBr(e.target.value))} placeholder="(31) 9 0000-0000" inputMode="numeric" />
+                <Input id="mobilePhone" value={mobilePhone} onChange={(e) => setMobilePhone(formatPhoneBr(e.target.value) ?? '')} placeholder="(31) 9 0000-0000" inputMode="numeric" />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="birthDate">Data de nascimento</Label>
@@ -435,7 +369,7 @@ export function CreateCustomerDialog(props: Props) {
 
             <div className="space-y-2">
               <Label htmlFor="contactPhone">Contato alternativo</Label>
-              <Input id="contactPhone" value={contactPhone} onChange={(e) => setContactPhone(formatPhoneBr(e.target.value))} placeholder="(31) 0000-0000" inputMode="numeric" />
+              <Input id="contactPhone" value={contactPhone} onChange={(e) => setContactPhone(formatPhoneBr(e.target.value) ?? '')} placeholder="(31) 0000-0000" inputMode="numeric" />
             </div>
 
             <div className="space-y-2">
@@ -450,8 +384,8 @@ export function CreateCustomerDialog(props: Props) {
                 <Label htmlFor="zipCode">CEP</Label>
                 <Input
                   id="zipCode"
-                  value={formatZipCode(zipCode)}
-                  onChange={(e) => setZipCode(formatZipCode(e.target.value))}
+                  value={formatCepBr(zipCode)}
+                  onChange={(e) => setZipCode(formatCepBr(e.target.value))}
                   placeholder="00000-000"
                   inputMode="numeric"
                 />

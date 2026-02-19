@@ -7,6 +7,9 @@ import { Label } from '@/components/ui/label'
 import { DocumentMaskedInput } from '@/app/(portal)/portal/clientes/DocumentMaskedInput'
 import { DadosEmpresaSubmitButton } from './DadosEmpresaSubmitButton'
 import { DadosEmpresaToastClient } from './DadosEmpresaToastClient'
+import { formatCnpj } from '@/lib/utils/format-cpf-cnpj'
+import { formatCepBr } from '@/lib/utils/format-cep'
+import { onlyDigits } from '@/lib/utils/strings'
 
 async function updateCompanyAction(formData: FormData) {
   'use server'
@@ -24,10 +27,10 @@ async function updateCompanyAction(formData: FormData) {
   if (me?.role !== 'admin') redirect('/portal/ordens')
 
   const name = String(formData.get('name') || '').trim()
-  const cnpj = String(formData.get('cnpj') || '').replace(/\D/g, '').slice(0, 14) || null
+  const cnpj = onlyDigits(String(formData.get('cnpj') || '')).slice(0, 14) || null
   const address = String(formData.get('address') || '').trim() || null
   const complement = String(formData.get('complement') || '').trim() || null
-  const zipCode = String(formData.get('zipCode') || '').replace(/\D/g, '').slice(0, 8) || null
+  const zipCode = onlyDigits(String(formData.get('zipCode') || '')).slice(0, 8) || null
   const city = String(formData.get('city') || '').trim() || null
   const state = String(formData.get('state') || '').trim().slice(0, 2) || null
   const phone = String(formData.get('phone') || '').trim() || null
@@ -52,22 +55,6 @@ async function updateCompanyAction(formData: FormData) {
     .eq('id', 1)
 
   redirect('/portal/admin/dados-empresa?ok=1')
-}
-
-function formatCnpj(value: string | null) {
-  if (!value) return ''
-  const d = value.replace(/\D/g, '')
-  if (d.length >= 14) {
-    return d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
-  }
-  return value
-}
-
-function formatCep(value: string | null) {
-  if (!value) return ''
-  const d = value.replace(/\D/g, '').slice(0, 8)
-  if (d.length >= 5) return d.replace(/^(\d{5})(\d{0,3})$/, '$1-$2')
-  return d
 }
 
 export default async function DadosEmpresaPage({
@@ -128,7 +115,7 @@ export default async function DadosEmpresaPage({
               <Label htmlFor="cnpj">CNPJ</Label>
               <DocumentMaskedInput
                 name="cnpj"
-                defaultValue={formatCnpj(c.cnpj)}
+                defaultValue={formatCnpj(String(c.cnpj ?? ''))}
                 placeholder="00.000.000/0001-00"
               />
             </div>
@@ -169,7 +156,7 @@ export default async function DadosEmpresaPage({
                 <Input
                   id="zipCode"
                   name="zipCode"
-                  defaultValue={formatCep(c.zip_code)}
+                  defaultValue={formatCepBr(c.zip_code)}
                   placeholder="00000-000"
                 />
               </div>

@@ -1,7 +1,144 @@
 /**
- * Modelo único de impressão para Ordem de Serviço.
- * Usado pelo OrdemPrintButton (cliente) e pela API /api/portal/ordens/[id]/print (servidor).
+ * Modelos e configurações de impressão para Ordem de Serviço.
+ * Único ponto de verdade para etiqueta e impressão da OS, usado na listagem e na edição.
  */
+
+import { formatPhoneBr } from '@/lib/utils/format-phone'
+
+// --- Configurações (usadas na listagem e na edição) ---
+
+export const ORDEM_PRINT_CONFIG = {
+  /** Dimensões da janela ao abrir a etiqueta para impressão */
+  labelWindow: { width: 900, height: 800 },
+  /** Dimensões da janela ao abrir a OS para impressão */
+  printWindow: { width: 900, height: 800 },
+} as const
+
+/** Gera string de opções para window.open (ex: 'width=900,height=800') */
+export function getLabelWindowFeatures(): string {
+  const { width, height } = ORDEM_PRINT_CONFIG.labelWindow
+  return `width=${width},height=${height}`
+}
+
+/** Gera string de opções para window.open para impressão da OS */
+export function getPrintWindowFeatures(): string {
+  const { width, height } = ORDEM_PRINT_CONFIG.printWindow
+  return `width=${width},height=${height}`
+}
+
+// --- Helpers compartilhados ---
+
+function escapeHtml(text: string): string {
+  const map: Record<string, string> = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;',
+  }
+  return text.replace(/[&<>"']/g, (m) => map[m])
+}
+
+// ========== ETIQUETA ==========
+// Tamanho físico: 45mm x 25mm
+
+export type OrdemLabelData = {
+  displayNumber: string | number
+  title: string
+  createdAt: string
+  estimatedReadyAt: string | null
+  passcodeType: 'text' | 'pattern' | null
+  passcodeText: string | null
+  passcodePattern: string | null
+  customerFirstName: string | null
+  customerMobile: string | null
+  deviceModel: string | null
+}
+
+function formatDateShort(value: string | null): string {
+  if (!value) return '-'
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return '-'
+  return d.toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function getPasscodeDisplay(data: OrdemLabelData): string {
+  if (data.passcodeType === 'text' && data.passcodeText) {
+    return `Senha: ${data.passcodeText}`
+  }
+  if (data.passcodeType === 'pattern') {
+    return data.passcodePattern
+      ? `Senha (padrão): ${data.passcodePattern}`
+      : 'Senha: padrão'
+  }
+  return ''
+}
+
+/**
+ * Gera o HTML da etiqueta para impressão.
+ */
+export function buildOrdemLabelHtml(data: OrdemLabelData): string {
+  const titleDisplay = `#${data.displayNumber} - ${(data.title || '-').slice(0, 35)}`
+  const entrada = formatDateShort(data.createdAt)
+  const previsao = formatDateShort(data.estimatedReadyAt)
+  const senha = getPasscodeDisplay(data)
+  const clienteLinha =
+    data.customerFirstName || data.customerMobile
+      ? [data.customerFirstName, data.customerMobile ? formatPhoneBr(data.customerMobile) : null]
+        .filter(Boolean)
+        .join(' ')
+      : null
+  const modeloLinha = data.deviceModel || null
+
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Etiqueta OS</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      font-family: Arial, sans-serif;
+      font-size: 9px;
+      line-height: 1.25;
+      color: #000;
+      width: 45mm;
+      min-height: 25mm;
+      padding: 2mm 3mm;
+      overflow: hidden;
+      word-wrap: break-word;
+    }
+    .label-row { margin-bottom: 1mm; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .label-row.label-title { font-weight: 700; font-size: 9px; white-space: normal; word-break: break-word; }
+    .label-row:last-child { margin-bottom: 0; }
+    @media print {
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      @page { size: 45mm 25mm; margin: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="label-row label-title">${escapeHtml(titleDisplay)}</div>
+  ${clienteLinha ? `<div class="label-row">${escapeHtml(clienteLinha)}</div>` : ''}
+  ${modeloLinha ? `<div class="label-row">${escapeHtml(modeloLinha)}</div>` : ''}
+  <div class="label-row">${escapeHtml(entrada)} - ${escapeHtml(previsao)}</div>
+  <div class="label-row">${escapeHtml(senha)}</div>
+  <script>
+    window.onload = function() { window.print(); }
+  </script>
+</body>
+</html>
+`
+}
+
+// ========== IMPRESSÃO DA OS ==========
 
 export type CompanyPrintData = {
   name: string | null
@@ -50,19 +187,17 @@ export type OrdemPrintData = {
   }> | null
 }
 
-function formatStatus(status: string): string {
-  const map: Record<string, string> = {
-    orcamento: 'Orçamento',
-    aprovado: 'Aprovado',
-    aguardando_pecas: 'Aguardando peças',
-    em_manutencao: 'Em manutenção',
-    aguardando_retirada: 'Aguardando retirada',
-    finalizada: 'Finalizada',
-    finalizada_sem_conserto: 'Finalizada sem conserto',
-    finalizada_sem_aprovacao: 'Finalizada sem aprovação',
-    cancelada: 'Cancelada',
-  }
-  return map[status] || status
+function formatDate(value: string | null): string {
+  if (!value) return '-'
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return value
+  return d.toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 function formatDoc(value: string | null, isCompany: boolean): string {
@@ -77,19 +212,6 @@ function formatDoc(value: string | null, isCompany: boolean): string {
     return m ? `CPF ${m[1]}.${m[2]}.${m[3]}-${m[4]}` : `CPF ${value}`
   }
   return isCompany ? `CNPJ ${value}` : `CPF ${value}`
-}
-
-function formatDate(value: string | null): string {
-  if (!value) return '-'
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return value
-  return d.toLocaleString('pt-BR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
 }
 
 function formatCentsBr(cents: number): string {
@@ -113,23 +235,6 @@ function buildCompanyAddress(c: CompanyPrintData | null | undefined): string {
   if (c.city || c.state) parts.push([c.city, c.state].filter(Boolean).join(' - '))
   if (c.zipCode) parts.push(`CEP ${c.zipCode}`)
   return parts.join(', ')
-}
-
-function formatPhoneBr(value: string | null | undefined): string | null {
-  if (!value) return null
-  const digits = String(value).replace(/\D/g, '').slice(0, 11)
-  const ddd = digits.slice(0, 2)
-  const rest = digits.slice(2)
-  if (!ddd) return value
-  if (rest.length <= 8) {
-    const p1 = rest.slice(0, 4)
-    const p2 = rest.slice(4, 8)
-    return `(${ddd}) ${[p1, p2].filter(Boolean).join('-')}`.trim()
-  }
-  const p1 = rest.slice(0, 1)
-  const p2 = rest.slice(1, 5)
-  const p3 = rest.slice(5, 9)
-  return `(${ddd}) ${p1} ${[p2, p3].filter(Boolean).join('-')}`.trim()
 }
 
 function buildCustomerSection(
@@ -169,17 +274,6 @@ function buildCustomerSection(
     <h2 style="margin-bottom: 6px;">Cliente</h2>
     <div style="font-size: 11px; line-height: 1.5; color: #333;">${items.join(' • ')}</div>
   </div>`
-}
-
-function escapeHtml(text: string): string {
-  const map: Record<string, string> = {
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#039;',
-  }
-  return text.replace(/[&<>"']/g, (m) => map[m])
 }
 
 function buildServicesSection(services: OrdemPrintData['services']): string {
@@ -224,9 +318,6 @@ function buildServicesSection(services: OrdemPrintData['services']): string {
 
 /**
  * Gera o HTML completo para impressão da ordem de serviço.
- * @param data - Dados da ordem
- * @param company - Dados da empresa (opcional)
- * @param baseUrl - URL base para resolver logos relativos (ex: window.location.origin ou site URL)
  */
 export function buildOrdemPrintHtml(
   data: OrdemPrintData,

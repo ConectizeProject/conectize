@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
-import { buildOrdemLabelHtml } from '@/lib/ordem-label-template'
+import { buildOrdemLabelHtml } from '@/lib/ordem-print'
 
 async function requireStaffOrAdmin() {
   const supabase = await createSupabaseServerClient()

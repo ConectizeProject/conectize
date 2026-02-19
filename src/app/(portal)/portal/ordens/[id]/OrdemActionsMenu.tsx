@@ -25,6 +25,8 @@ import {
 import { Button } from '@/components/ui/button'
 import { MessageCircle, Mail, MoreVertical, Trash2 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
+import { buildOrderMessage } from '@/lib/ordem-share-message'
+import { formatPhoneForWhatsApp } from '@/lib/utils/format-phone'
 
 const STATUS_LABELS: Record<string, string> = {
   orcamento: 'Orçamento',
@@ -36,36 +38,6 @@ const STATUS_LABELS: Record<string, string> = {
   finalizada_sem_conserto: 'Finalizada sem conserto',
   finalizada_sem_aprovacao: 'Finalizada sem aprovação',
   cancelada: 'Cancelada',
-}
-
-function formatPhoneForWhatsApp(phone: string): string {
-  const digits = phone.replace(/\D/g, '').trim()
-  if (!digits) return ''
-  return digits.length <= 11 && !digits.startsWith('55') ? `55${digits}` : digits
-}
-
-function buildOrderMessage(opts: {
-  displayNumber: string | number
-  title: string
-  customerName: string
-  device: string
-  status: string
-  estimatedReadyAt: string | null
-  orderHref: string
-}) {
-  const lines = [
-    `Olá${opts.customerName ? ` ${opts.customerName}` : ''}!`,
-    '',
-    `*Ordem de Serviço #${opts.displayNumber}* - Conectize`,
-    `Título: ${opts.title}`,
-    `Status: ${opts.status}`,
-    `Dispositivo: ${opts.device || '-'}`,
-  ]
-  if (opts.estimatedReadyAt) {
-    lines.push(`Previsão: ${new Date(opts.estimatedReadyAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`)
-  }
-  lines.push('', `Acesse sua OS: ${opts.orderHref}`)
-  return lines.join('\n')
 }
 
 type Props = {
