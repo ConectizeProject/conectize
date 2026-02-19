@@ -466,6 +466,17 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 								<Label htmlFor="isWarranty" className="cursor-pointer">Serviço em garantia</Label>
 							</div>
 						</div>
+
+						<div className="space-y-2">
+							<Label htmlFor="customerDescription">Descrição</Label>
+							<Textarea id="customerDescription" name="customerDescription" defaultValue={order.customer_description || ''} placeholder="Texto que o cliente vê" disabled={isFinalized} />
+						</div>
+
+						<div className="space-y-2">
+							<Label htmlFor="receivingNotes">Observações do recebimento</Label>
+							<Textarea id="receivingNotes" name="receivingNotes" defaultValue={order.receiving_notes || ''} placeholder="Checklist, avarias, acessórios, etc." disabled={isFinalized} />
+						</div>
+
 						<OrderServicesCard
 							initialServices={(order.services as Array<{ description?: string; valueCents?: number; costCents?: number }>) ?? []}
 							inputName="servicesJson"
@@ -474,18 +485,8 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 						/>
 
 						<div className="space-y-2">
-							<Label htmlFor="customerDescription">Descrição para o cliente</Label>
-							<Textarea id="customerDescription" name="customerDescription" defaultValue={order.customer_description || ''} placeholder="Texto que o cliente vê" disabled={isFinalized} />
-						</div>
-
-						<div className="space-y-2">
 							<Label htmlFor="internalDescription">Descrição interna</Label>
 							<Textarea id="internalDescription" name="internalDescription" defaultValue={order.internal_description || ''} placeholder="Anotações internas" disabled={isFinalized} />
-						</div>
-
-						<div className="space-y-2">
-							<Label htmlFor="receivingNotes">Observações do recebimento</Label>
-							<Textarea id="receivingNotes" name="receivingNotes" defaultValue={order.receiving_notes || ''} placeholder="Checklist, avarias, acessórios, etc." disabled={isFinalized} />
 						</div>
 
 						<div className="space-y-2">

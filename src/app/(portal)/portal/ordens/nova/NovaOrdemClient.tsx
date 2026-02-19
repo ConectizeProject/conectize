@@ -606,6 +606,11 @@ export function NovaOrdemClient(props: Props) {
 										<Field as={Textarea} id="customerDescription" name="customerDescription" placeholder="Texto que o cliente vê" />
 									</div>
 
+									<div className="space-y-2">
+										<Label htmlFor="receivingNotes">Observações do recebimento</Label>
+										<Field as={Textarea} id="receivingNotes" name="receivingNotes" placeholder="Checklist, avarias, acessórios, etc." />
+									</div>
+
 									<FieldArray name="services">
 										{({ push, remove }) => (
 											<OrderServicesCard
@@ -618,11 +623,6 @@ export function NovaOrdemClient(props: Props) {
 											/>
 										)}
 									</FieldArray>
-
-									<div className="space-y-2">
-										<Label htmlFor="receivingNotes">Observações do recebimento</Label>
-										<Field as={Textarea} id="receivingNotes" name="receivingNotes" placeholder="Checklist, avarias, acessórios, etc." />
-									</div>
 
 									<div className="space-y-2">
 										<Label htmlFor="internalDescription">Descrição interna</Label>

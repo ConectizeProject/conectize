@@ -1,6 +1,6 @@
 'use client'
 
-import { Check, ChevronsUpDown, Plus } from 'lucide-react'
+import { Check, ChevronsUpDown, Plus, Pencil, ArrowLeftRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
@@ -61,23 +61,37 @@ export function NovaOrdemCustomerCard({
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <CardTitle className="text-base">Dados do cliente</CardTitle>
+          <div>
+            <CardTitle className="text-base">Dados do cliente</CardTitle>
+            {selectedCustomer && (
+              <CardDescription>
+                {getCustomerDisplayName(selectedCustomer)} • {formatCpfCnpj(getCustomerDocumentDigits(selectedCustomer))}
+              </CardDescription>
+            )}
+          </div>
           {selectedCustomer && (
             <div className="flex items-center gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={onEditCustomer}>
-                Editar cliente
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onEditCustomer}
+                aria-label="Editar cliente"
+              >
+                <Pencil className="h-4 w-4" />
               </Button>
-              <Button type="button" variant="ghost" size="sm" onClick={onClearCustomer}>
-                Trocar
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={onClearCustomer}
+                aria-label="Trocar cliente"
+              >
+                <ArrowLeftRight className="h-4 w-4" />
               </Button>
             </div>
           )}
         </div>
-        {selectedCustomer && (
-          <CardDescription>
-            {getCustomerDisplayName(selectedCustomer)} • {formatCpfCnpj(getCustomerDocumentDigits(selectedCustomer))}
-          </CardDescription>
-        )}
       </CardHeader>
       <CardContent>
         {selectedCustomer ? (
