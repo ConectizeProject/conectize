@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
-import { toDateTimeLocalInBrazil } from '@/lib/utils/previsao-ordem'
 
 async function requireStaffOrAdmin() {
   const supabase = await createSupabaseServerClient()
@@ -59,32 +58,26 @@ export async function GET(
     cost: (s?.costCents ?? 0) ? ((Number(s.costCents) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) : '',
   }))
 
-  let estimatedReadyAt = ''
-  if (order.estimated_ready_at) {
-    const d = new Date(order.estimated_ready_at)
-    if (!Number.isNaN(d.getTime())) estimatedReadyAt = toDateTimeLocalInBrazil(d)
-  }
-
   const duplicateData = {
     customerId: order.customer_id ?? '',
     customer: cust
       ? {
-          id: cust.id,
-          cpf: cust.cpf ?? null,
-          cnpj: cust.cnpj ?? null,
-          is_company: cust.is_company ?? false,
-          full_name: cust.full_name ?? null,
-          company_name: cust.company_name ?? null,
-          trade_name: cust.trade_name ?? null,
-          email: cust.email ?? null,
-          mobile_phone: cust.mobile_phone ?? null,
-          contact_phone: cust.contact_phone ?? null,
-          contact_notes: cust.contact_notes ?? null,
-          address_full: cust.address_full ?? null,
-        }
+        id: cust.id,
+        cpf: cust.cpf ?? null,
+        cnpj: cust.cnpj ?? null,
+        is_company: cust.is_company ?? false,
+        full_name: cust.full_name ?? null,
+        company_name: cust.company_name ?? null,
+        trade_name: cust.trade_name ?? null,
+        email: cust.email ?? null,
+        mobile_phone: cust.mobile_phone ?? null,
+        contact_phone: cust.contact_phone ?? null,
+        contact_notes: cust.contact_notes ?? null,
+        address_full: cust.address_full ?? null,
+      }
       : null,
     documentDigits: cust?.cnpj ? String(cust.cnpj).replace(/\D/g, '').slice(0, 14) : (cust?.cpf ? String(cust.cpf).replace(/\D/g, '').slice(0, 11) : ''),
-    title: order.title ? `${order.title} (cópia)` : '',
+    title: order.title || '',
     status: 'orcamento' as const,
     deviceModelId: order.device_model_id ?? (dm?.id ?? ''),
     brand: dm?.brand ?? order.brand ?? '',
@@ -93,7 +86,6 @@ export async function GET(
     imei: order.imei ?? '',
     color: order.color ?? '',
     isWarranty: Boolean(order.is_warranty),
-    estimatedReadyAt,
     passcodeType: order.passcode_type === 'text' || order.passcode_type === 'pattern' ? order.passcode_type : 'none',
     passcodeText: order.passcode_type === 'text' ? (order.passcode_text ?? '') : '',
     passcodePattern: order.passcode_type === 'pattern' ? (order.passcode_pattern ?? '') : '',

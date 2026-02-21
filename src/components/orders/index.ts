@@ -4,3 +4,4 @@ export { OrderServicesCard, type ServiceLine, type ServiceItemDb } from './Order
 export { OrderDeviceSelector, type DeviceModel } from './OrderDeviceSelector'
 export { OsAssistAi } from './OsAssistAi'
 export { OsAssistAiIconButton } from './OsAssistAiIconButton'
+export { CustomerOrderHistoryModal } from './CustomerOrderHistoryModal'
