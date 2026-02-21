@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import { getOrdemErrorMessage } from '@/lib/utils/error-messages'
+import { previsaoToISO } from '@/lib/utils/previsao-ordem'
 import { NovaOrdemClient } from './NovaOrdemClient'
 
 function normalizeCpf(value: string) {
@@ -56,12 +57,7 @@ async function createOrderAction(formData: FormData) {
   const servicesJson = formData.get('servicesJson')
   const services = parseServicesJson(servicesJson)
 
-  const estimatedReadyAt = (() => {
-    if (!estimatedReadyAtRaw) return null
-    const dt = new Date(estimatedReadyAtRaw)
-    if (Number.isNaN(dt.getTime())) return null
-    return dt.toISOString()
-  })()
+  const estimatedReadyAt = previsaoToISO(estimatedReadyAtRaw)
 
   const brand = String(formData.get('brand') || '').trim()
   const model = String(formData.get('model') || '').trim()

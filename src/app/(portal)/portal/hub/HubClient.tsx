@@ -15,11 +15,13 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   Bot,
   Check,
   ExternalLink,
   Package,
+  Settings,
   ShoppingCart,
   Store,
   Zap,
@@ -45,7 +47,7 @@ const integrations: Integration[] = [
   {
     id: 'chatgpt',
     name: 'ChatGPT / OpenAI',
-    description: 'Automações com IA, atendimento inteligente e processamento de linguagem.',
+    description: 'Ajuda a criar e editar ordens de serviço: sugerir título, melhorar descrição e sugerir serviços a partir do que o cliente relatou.',
     icon: Bot,
     color: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
     status: 'available',
@@ -100,9 +102,18 @@ const integrations: Integration[] = [
   },
 ]
 
+const OPENAI_MODELS = [
+  { value: 'gpt-5-mini', label: 'GPT-5 Mini (recomendado - mais econômico)' },
+  { value: 'gpt-5.2', label: 'GPT-5.2 (mais preciso)' },
+  { value: 'gpt-5.2-pro', label: 'GPT-5.2 Pro (máxima precisão)' },
+  { value: 'gpt-4o-mini', label: 'GPT-4o Mini (alternativa econômica)' },
+  { value: 'gpt-4o', label: 'GPT-4o (versão anterior)' },
+] as const
+
 type Props = {
   initialConnections: string[]
   isAdmin?: boolean
+  chatgptModel?: string
 }
 
 function IntegrationCard({
@@ -111,12 +122,14 @@ function IntegrationCard({
   isAdmin,
   onConnect,
   onDisconnect,
+  onConfigure,
 }: {
   integration: Integration
   isConnected: boolean
   isAdmin: boolean
   onConnect: () => void
   onDisconnect: () => void
+  onConfigure?: () => void
 }) {
   const Icon = integration.icon
   const isComingSoon = integration.status === 'coming_soon'
@@ -155,9 +168,17 @@ function IntegrationCard({
           {canConnect && (
             <>
               {isConnected ? (
-                <Button size="sm" variant="outline" onClick={onDisconnect}>
-                  Desconectar
-                </Button>
+                <>
+                  {integration.id === 'chatgpt' && onConfigure ? (
+                    <Button size="sm" variant="outline" onClick={onConfigure}>
+                      <Settings className="h-4 w-4 mr-1" />
+                      Configurar
+                    </Button>
+                  ) : null}
+                  <Button size="sm" variant="outline" onClick={onDisconnect}>
+                    Desconectar
+                  </Button>
+                </>
               ) : integration.oauthUrl ? (
                 <Button size="sm" asChild>
                   <a href={integration.oauthUrl}>Conectar</a>
@@ -182,11 +203,12 @@ function IntegrationCard({
   )
 }
 
-export function HubClient({ initialConnections, isAdmin = false }: Props) {
+export function HubClient({ initialConnections, isAdmin = false, chatgptModel = 'gpt-5-mini' }: Props) {
   const router = useRouter()
   const [connections, setConnections] = useState<Set<string>>(new Set(initialConnections))
   const [connectDialog, setConnectDialog] = useState<Integration | null>(null)
   const [apiKey, setApiKey] = useState('')
+  const [selectedModel, setSelectedModel] = useState<string>(chatgptModel)
   const [loading, setLoading] = useState(false)
 
   async function handleConnect() {
@@ -202,7 +224,11 @@ export function HubClient({ initialConnections, isAdmin = false }: Props) {
       const res = await fetch('/api/portal/hub/connections', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ platform_id: connectDialog.id, api_key: key }),
+        body: JSON.stringify({
+          platform_id: connectDialog.id,
+          api_key: key,
+          model: connectDialog.id === 'chatgpt' ? selectedModel : undefined,
+        }),
       })
       const data = await res.json().catch(() => null)
 
@@ -219,6 +245,38 @@ export function HubClient({ initialConnections, isAdmin = false }: Props) {
       setConnectDialog(null)
       setApiKey('')
       toast({ variant: 'success', title: 'Conectado', description: `${connectDialog.name} conectado com sucesso.` })
+      router.refresh()
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleUpdateModel() {
+    if (!selectedModel) return
+
+    setLoading(true)
+    try {
+      const res = await fetch('/api/portal/hub/connections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          platform_id: 'chatgpt',
+          model: selectedModel,
+        }),
+      })
+      const data = await res.json().catch(() => null)
+
+      if (!res.ok || !data?.ok) {
+        toast({
+          title: 'Erro ao atualizar',
+          description: 'Não foi possível atualizar o modelo.',
+          variant: 'destructive',
+        })
+        return
+      }
+
+      setConnectDialog(null)
+      toast({ variant: 'success', title: 'Modelo atualizado', description: `Modelo alterado para ${OPENAI_MODELS.find((m) => m.value === selectedModel)?.label || selectedModel}.` })
       router.refresh()
     } finally {
       setLoading(false)
@@ -269,23 +327,69 @@ export function HubClient({ initialConnections, isAdmin = false }: Props) {
               integration={integration}
               isConnected={connections.has(integration.id)}
               isAdmin={isAdmin}
-              onConnect={() => setConnectDialog(integration)}
+              onConnect={() => {
+                setSelectedModel(integration.id === 'chatgpt' ? chatgptModel : 'gpt-5-mini')
+                setConnectDialog(integration)
+              }}
               onDisconnect={() => handleDisconnect(integration)}
+              onConfigure={
+                integration.id === 'chatgpt' && connections.has('chatgpt')
+                  ? () => {
+                      setSelectedModel(chatgptModel)
+                      setConnectDialog(integration)
+                    }
+                  : undefined
+              }
             />
           ))}
         </div>
       </div>
 
-      <Dialog open={!!connectDialog} onOpenChange={(open) => !open && setConnectDialog(null)}>
+      <Dialog
+        open={!!connectDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            setConnectDialog(null)
+            setApiKey('')
+            setSelectedModel(chatgptModel)
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Conectar {connectDialog?.name}</DialogTitle>
+            <DialogTitle>
+              {connectDialog?.id === 'chatgpt' && connections.has('chatgpt')
+                ? 'Configurar ChatGPT'
+                : `Conectar ${connectDialog?.name}`}
+            </DialogTitle>
             <DialogDescription>
-              Siga os passos abaixo para obter sua API Key e cole no campo indicado.
+              {connectDialog?.id === 'chatgpt' && connections.has('chatgpt')
+                ? 'Altere o modelo do GPT que será usado para ajudar na criação de ordens de serviço.'
+                : 'Siga os passos abaixo para obter sua API Key e cole no campo indicado.'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            {connectDialog?.setupSteps && connectDialog.setupSteps.length > 0 && (
+            {connectDialog?.id === 'chatgpt' && (
+              <div className="space-y-2">
+                <Label htmlFor="model">Modelo do GPT</Label>
+                <Select value={selectedModel} onValueChange={setSelectedModel} disabled={loading}>
+                  <SelectTrigger id="model">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {OPENAI_MODELS.map((model) => (
+                      <SelectItem key={model.value} value={model.value}>
+                        {model.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Modelos mais rápidos são mais econômicos. Modelos mais precisos podem ter melhor qualidade.
+                </p>
+              </div>
+            )}
+            {connectDialog?.setupSteps && connectDialog.setupSteps.length > 0 && !connections.has(connectDialog.id) && (
               <div className="rounded-md border bg-muted/50 p-4 space-y-2">
                 <p className="text-sm font-medium">Como obter a API Key</p>
                 <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
@@ -320,24 +424,37 @@ export function HubClient({ initialConnections, isAdmin = false }: Props) {
                 )}
               </div>
             )}
-            <div className="space-y-2">
-              <Label htmlFor="apiKey">API Key</Label>
-              <Input
-                id="apiKey"
-                type="password"
-                placeholder="sk-..."
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                disabled={loading}
-              />
-            </div>
+            {!connections.has(connectDialog?.id || '') && (
+              <div className="space-y-2">
+                <Label htmlFor="apiKey">API Key</Label>
+                <Input
+                  id="apiKey"
+                  type="password"
+                  placeholder="sk-..."
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  disabled={loading}
+                />
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConnectDialog(null)} disabled={loading}>
               Cancelar
             </Button>
-            <Button onClick={handleConnect} disabled={loading}>
-              {loading ? 'Conectando…' : 'Conectar'}
+            <Button
+              onClick={
+                connectDialog?.id === 'chatgpt' && connections.has('chatgpt')
+                  ? handleUpdateModel
+                  : handleConnect
+              }
+              disabled={loading}
+            >
+              {loading
+                ? 'Salvando…'
+                : connectDialog?.id === 'chatgpt' && connections.has('chatgpt')
+                  ? 'Salvar'
+                  : 'Conectar'}
             </Button>
           </DialogFooter>
         </DialogContent>

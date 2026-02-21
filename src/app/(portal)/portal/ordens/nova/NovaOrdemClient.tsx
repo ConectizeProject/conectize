@@ -14,7 +14,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { PatternLockInput } from '@/components/pattern-lock/PatternLockInput'
 import { CreateCustomerDialog, EditCustomerDialog, type CustomerHit } from '@/components/customers'
-import { OrderDeviceSelector, OrderServicesCard, type ServiceLine } from '@/components/orders'
+import { OrderDeviceSelector, OrderServicesCard, OsAssistAiIconButton, type ServiceLine } from '@/components/orders'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { NovaOrdemCustomerCard } from './NovaOrdemCustomerCard'
 import { parseMoneyToCents } from '@/lib/utils/format-money'
@@ -565,12 +565,26 @@ export function NovaOrdemClient(props: Props) {
 									</div>
 
 									<div className="space-y-2">
-										<Label htmlFor="customerDescription">Descrição</Label>
+										<div className="flex items-center justify-between gap-2">
+											<Label htmlFor="customerDescription">Descrição</Label>
+											<OsAssistAiIconButton
+												value={formik.values.customerDescription}
+												onImproved={(text) => formik.setFieldValue('customerDescription', text)}
+												device={[formik.values.brand, formik.values.deviceType, formik.values.model].filter(Boolean).join(' ')}
+											/>
+										</div>
 										<Field as={Textarea} id="customerDescription" name="customerDescription" placeholder="Texto que o cliente vê" />
 									</div>
 
 									<div className="space-y-2">
-										<Label htmlFor="receivingNotes">Observações do recebimento</Label>
+										<div className="flex items-center justify-between gap-2">
+											<Label htmlFor="receivingNotes">Observações do recebimento</Label>
+											<OsAssistAiIconButton
+												value={formik.values.receivingNotes}
+												onImproved={(text) => formik.setFieldValue('receivingNotes', text)}
+												device={[formik.values.brand, formik.values.deviceType, formik.values.model].filter(Boolean).join(' ')}
+											/>
+										</div>
 										<Field as={Textarea} id="receivingNotes" name="receivingNotes" placeholder="Checklist, avarias, acessórios, etc." />
 									</div>
 
@@ -588,7 +602,14 @@ export function NovaOrdemClient(props: Props) {
 									</FieldArray>
 
 									<div className="space-y-2">
-										<Label htmlFor="internalDescription">Descrição interna</Label>
+										<div className="flex items-center justify-between gap-2">
+											<Label htmlFor="internalDescription">Descrição interna</Label>
+											<OsAssistAiIconButton
+												value={formik.values.internalDescription}
+												onImproved={(text) => formik.setFieldValue('internalDescription', text)}
+												device={[formik.values.brand, formik.values.deviceType, formik.values.model].filter(Boolean).join(' ')}
+											/>
+										</div>
 										<Field as={Textarea} id="internalDescription" name="internalDescription" placeholder="Anotações internas" />
 									</div>
 
