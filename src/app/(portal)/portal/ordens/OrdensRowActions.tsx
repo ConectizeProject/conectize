@@ -42,6 +42,7 @@ type OrderRow = {
   estimated_ready_at: string | null
   share_token?: string | null
   customers: {
+    id?: string
     cpf?: string | null
     cnpj?: string | null
     is_company?: boolean

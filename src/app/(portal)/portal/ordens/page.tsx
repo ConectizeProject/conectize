@@ -65,7 +65,7 @@ export default async function OrdensPage({
 
   const baseQuery = supabase
     .from('service_orders')
-    .select('id, display_number, status, title, created_at, updated_at, closed_at, estimated_ready_at, share_token, customers ( cpf, cnpj, is_company, full_name, company_name, email, mobile_phone ), device_models ( brand, device_type, model )', { count: 'planned' })
+    .select('id, display_number, status, title, created_at, updated_at, closed_at, estimated_ready_at, share_token, customers ( id, cpf, cnpj, is_company, full_name, company_name, email, mobile_phone ), device_models ( brand, device_type, model )', { count: 'planned' })
     .order('created_at', { ascending: false })
 
   if (query) {
@@ -159,7 +159,7 @@ export default async function OrdensPage({
         <CardHeader>
           <CardTitle>Buscar</CardTitle>
           <CardDescription>
-            Filtre por título/descrição, CPF/CNPJ ou status.
+            Filtre por título/descrição, CPF ou CNPJ do cliente, ou status.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -174,12 +174,12 @@ export default async function OrdensPage({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="cpf">CPF/CNPJ</Label>
+              <Label htmlFor="cpf">CPF ou CNPJ do cliente</Label>
               <Input
                 id="cpf"
                 name="cpf"
                 inputMode="numeric"
-                placeholder="Ex: 000.000.000-00"
+                placeholder="CPF (11 dígitos) ou CNPJ (14 dígitos)"
                 defaultValue={cpfDigits ? formatCpfCnpj(cpfDigits) : ''}
               />
             </div>

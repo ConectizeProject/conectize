@@ -1,9 +1,11 @@
 'use client'
 
 import { useState } from 'react'
+import { History } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { EditCustomerDialog, type CustomerHit } from '@/components/customers'
+import { CustomerOrderHistoryModal } from '@/components/orders'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 
 type CustomerRow = {
@@ -90,6 +92,8 @@ export function ClientesTableClient(props: { customers: CustomerRow[] }) {
 	const [rows, setRows] = useState<CustomerRow[]>(props.customers || [])
 	const [isEditOpen, setIsEditOpen] = useState(false)
 	const [customerToEdit, setCustomerToEdit] = useState<CustomerHit | null>(null)
+	const [historyCustomerId, setHistoryCustomerId] = useState<string | null>(null)
+	const [isHistoryOpen, setIsHistoryOpen] = useState(false)
 
 	return (
 		<>
@@ -111,17 +115,31 @@ export function ClientesTableClient(props: { customers: CustomerRow[] }) {
 							<TableCell>{c.email || '-'}</TableCell>
 							<TableCell>{c.auth_user_id ? 'Sim' : 'Não'}</TableCell>
 							<TableCell className="text-right">
-								<Button
-									type="button"
-									size="sm"
-									variant="outline"
-									onClick={() => {
-										setCustomerToEdit(toCustomerHit(c))
-										setIsEditOpen(true)
-									}}
-								>
-									Editar
-								</Button>
+								<div className="flex items-center justify-end gap-2">
+									<Button
+										type="button"
+										size="sm"
+										variant="outline"
+										onClick={() => {
+											setHistoryCustomerId(c.id)
+											setIsHistoryOpen(true)
+										}}
+										aria-label="Ver histórico de ordens do cliente"
+									>
+										<History className="h-4 w-4" />
+									</Button>
+									<Button
+										type="button"
+										size="sm"
+										variant="outline"
+										onClick={() => {
+											setCustomerToEdit(toCustomerHit(c))
+											setIsEditOpen(true)
+										}}
+									>
+										Editar
+									</Button>
+								</div>
 							</TableCell>
 						</TableRow>
 					))}
@@ -136,6 +154,18 @@ export function ClientesTableClient(props: { customers: CustomerRow[] }) {
 					onSaved={(edited) => {
 						setRows((prev) => prev.map((r) => (r.id === edited.id ? mergeEditedRow(r, edited) : r)))
 					}}
+				/>
+			) : null}
+
+			{historyCustomerId ? (
+				<CustomerOrderHistoryModal
+					open={isHistoryOpen}
+					onOpenChange={(open) => {
+						setIsHistoryOpen(open)
+						if (!open) setHistoryCustomerId(null)
+					}}
+					customerId={historyCustomerId}
+					isCreationPage={false}
 				/>
 			) : null}
 		</>

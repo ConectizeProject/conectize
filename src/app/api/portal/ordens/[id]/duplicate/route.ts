@@ -78,7 +78,6 @@ export async function GET(
       : null,
     documentDigits: cust?.cnpj ? String(cust.cnpj).replace(/\D/g, '').slice(0, 14) : (cust?.cpf ? String(cust.cpf).replace(/\D/g, '').slice(0, 11) : ''),
     title: order.title || '',
-    status: 'orcamento' as const,
     deviceModelId: order.device_model_id ?? (dm?.id ?? ''),
     brand: dm?.brand ?? order.brand ?? '',
     deviceType: dm?.device_type ?? '',
