@@ -12,6 +12,8 @@ type Props = {
   defaultPasscodeType: PasscodeType
   defaultPasscodeText: string
   defaultPasscodePattern: string
+  /** Id do formulário ao qual os campos devem ser associados (quando ficam fora do form). */
+  formId?: string
   disabled?: boolean
 }
 
@@ -20,6 +22,7 @@ export function OrderPasscodeFields(props: Props) {
   const [passcodeText, setPasscodeText] = useState(props.defaultPasscodeText)
   const [passcodePattern, setPasscodePattern] = useState(props.defaultPasscodePattern)
   const disabled = props.disabled ?? false
+  const formAttr = props.formId ? { form: props.formId } : {}
 
   return (
     <div className="rounded-md border p-4 space-y-3">
@@ -30,8 +33,8 @@ export function OrderPasscodeFields(props: Props) {
         </div>
       </div>
 
-      <input type="hidden" name="passcodeType" value={passcodeType} />
-      <input type="hidden" name="passcodePattern" value={passcodePattern} />
+      <input type="hidden" name="passcodeType" value={passcodeType} {...formAttr} />
+      <input type="hidden" name="passcodePattern" value={passcodePattern} {...formAttr} />
 
       <RadioGroup
         value={passcodeType}
@@ -71,6 +74,7 @@ export function OrderPasscodeFields(props: Props) {
             onChange={(e) => !disabled && setPasscodeText(e.target.value)}
             placeholder="Ex: 1234, senha do iCloud, etc."
             disabled={disabled}
+            {...formAttr}
           />
         </div>
       ) : passcodeType === 'pattern' ? (

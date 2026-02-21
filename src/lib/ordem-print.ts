@@ -73,9 +73,7 @@ function getPasscodeDisplay(data: OrdemLabelData): string {
     return `Senha: ${data.passcodeText}`
   }
   if (data.passcodeType === 'pattern') {
-    return data.passcodePattern
-      ? `Senha (padrão): ${data.passcodePattern}`
-      : 'Senha: padrão'
+    return `Senha: ${data.passcodePattern}`
   }
   return ''
 }
@@ -106,7 +104,7 @@ export function buildOrdemLabelHtml(data: OrdemLabelData): string {
     html, body { height: 100%; }
     body {
       font-family: Arial, sans-serif;
-      font-size: 9px;
+      font-size: 10px;
       line-height: 1.25;
       color: #000;
       width: 45mm;
@@ -116,6 +114,7 @@ export function buildOrdemLabelHtml(data: OrdemLabelData): string {
       word-wrap: break-word;
     }
     .label-row { margin-bottom: 1mm; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .label-row.date { text-overflow: initial }
     .label-row.label-title { font-weight: 700; font-size: 9px; white-space: normal; word-break: break-word; }
     .label-row:last-child { margin-bottom: 0; }
     @media print {
@@ -128,7 +127,7 @@ export function buildOrdemLabelHtml(data: OrdemLabelData): string {
   <div class="label-row label-title">${escapeHtml(titleDisplay)}</div>
   ${clienteLinha ? `<div class="label-row">${escapeHtml(clienteLinha)}</div>` : ''}
   ${modeloLinha ? `<div class="label-row">${escapeHtml(modeloLinha)}</div>` : ''}
-  <div class="label-row">${escapeHtml(entrada)} - ${escapeHtml(previsao)}</div>
+  <div class="label-row date">${escapeHtml(entrada)} - ${escapeHtml(previsao)}</div>
   <div class="label-row">${escapeHtml(senha)}</div>
   <script>
     window.onload = function() { window.print(); }
