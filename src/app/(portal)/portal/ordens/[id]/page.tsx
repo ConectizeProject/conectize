@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
-import { OrderStatusBadge } from '@/components/orders'
+import { OrderStatusBadge, OsAssistAiIconButton } from '@/components/orders'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { getOrdemErrorMessage } from '@/lib/utils/error-messages'
 import { formatDateBr, formatDateTimeBr } from '@/lib/utils/format-date'
@@ -19,7 +19,7 @@ import { OrdemLabelPrintButton } from './OrdemLabelPrintButton'
 import { OrdemPrintButton } from './OrdemPrintButton'
 import { OrdemActionsMenu } from './OrdemActionsMenu'
 import { PrevisaoInput } from '@/components/previsao-input'
-import { getMinPrevisaoForEdit } from '@/lib/utils/previsao-ordem'
+import { getMinPrevisaoForEdit, previsaoToISO, toDateTimeLocalInBrazil } from '@/lib/utils/previsao-ordem'
 import { UpdateOrderSubmitButton } from './UpdateOrderSubmitButton'
 
 export const dynamic = 'force-dynamic'
@@ -92,17 +92,11 @@ function parseServicesJson(raw: unknown): { items: Array<{ description: string; 
 	}
 }
 
-function formatDateTimeLocal(value: any) {
+function formatDateTimeLocal(value: string | null | undefined) {
 	if (!value) return ''
 	const dt = new Date(String(value))
 	if (Number.isNaN(dt.getTime())) return ''
-	const pad = (n: number) => String(n).padStart(2, '0')
-	const y = dt.getFullYear()
-	const m = pad(dt.getMonth() + 1)
-	const d = pad(dt.getDate())
-	const h = pad(dt.getHours())
-	const min = pad(dt.getMinutes())
-	return `${y}-${m}-${d}T${h}:${min}`
+	return toDateTimeLocalInBrazil(dt)
 }
 
 type PageProps = {
@@ -164,6 +158,9 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 
 	const customer = getCustomerFromOrder(order)
 	const deviceModel = getDeviceModelFromOrder(order)
+	const deviceString = deviceModel
+		? [deviceModel.brand, deviceModel.device_type, deviceModel.model].filter(Boolean).join(' ')
+		: (order.brand || order.model ? [order.brand, order.model].filter(Boolean).join(' ') : '')
 
 	async function updateOrderAction(formData: FormData) {
 		'use server'
@@ -187,12 +184,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 		const servicesJson = formData.get('servicesJson')
 		const services = parseServicesJson(servicesJson)
 
-		const estimatedReadyAt = (() => {
-			if (!estimatedReadyAtRaw) return null
-			const dt = new Date(estimatedReadyAtRaw)
-			if (Number.isNaN(dt.getTime())) return null
-			return dt.toISOString()
-		})()
+		const estimatedReadyAt = previsaoToISO(estimatedReadyAtRaw)
 
 		const minPrevisaoMs = order.created_at ? new Date(order.created_at).getTime() : Date.now()
 		if (estimatedReadyAt && new Date(estimatedReadyAt).getTime() < minPrevisaoMs - 60_000) {
@@ -420,12 +412,18 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 						</div>
 
 						<div className="space-y-2">
-							<Label htmlFor="customerDescription">Descrição</Label>
+							<div className="flex items-center justify-between gap-2">
+								<Label htmlFor="customerDescription">Descrição</Label>
+								<OsAssistAiIconButton fieldId="customerDescription" device={deviceString} disabled={isFinalized} />
+							</div>
 							<Textarea id="customerDescription" name="customerDescription" defaultValue={order.customer_description || ''} placeholder="Texto que o cliente vê" disabled={isFinalized} />
 						</div>
 
 						<div className="space-y-2">
-							<Label htmlFor="receivingNotes">Observações do recebimento</Label>
+							<div className="flex items-center justify-between gap-2">
+								<Label htmlFor="receivingNotes">Observações do recebimento</Label>
+								<OsAssistAiIconButton fieldId="receivingNotes" device={deviceString} disabled={isFinalized} />
+							</div>
 							<Textarea id="receivingNotes" name="receivingNotes" defaultValue={order.receiving_notes || ''} placeholder="Checklist, avarias, acessórios, etc." disabled={isFinalized} />
 						</div>
 
@@ -437,12 +435,18 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 						/>
 
 						<div className="space-y-2">
-							<Label htmlFor="internalDescription">Descrição interna</Label>
+							<div className="flex items-center justify-between gap-2">
+								<Label htmlFor="internalDescription">Descrição interna</Label>
+								<OsAssistAiIconButton fieldId="internalDescription" device={deviceString} disabled={isFinalized} />
+							</div>
 							<Textarea id="internalDescription" name="internalDescription" defaultValue={order.internal_description || ''} placeholder="Anotações internas" disabled={isFinalized} />
 						</div>
 
 						<div className="space-y-2">
-							<Label htmlFor="assistanceInfo">Informações sobre a assistência</Label>
+							<div className="flex items-center justify-between gap-2">
+								<Label htmlFor="assistanceInfo">Informações sobre a assistência</Label>
+								<OsAssistAiIconButton fieldId="assistanceInfo" device={deviceString} disabled={isFinalized} />
+							</div>
 							<Textarea id="assistanceInfo" name="assistanceInfo" defaultValue={order.assistance_info || ''} placeholder="Informações técnicas, serviços realizados, peças trocadas, etc." disabled={isFinalized} />
 						</div>
 

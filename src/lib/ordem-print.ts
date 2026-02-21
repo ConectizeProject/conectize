@@ -282,11 +282,9 @@ function buildServicesSection(services: OrdemPrintData['services']): string {
     .map((s) => {
       const desc = (s.description ?? '').toString().trim() || '-'
       const valueCents = Math.max(0, Number(s.valueCents) || 0)
-      const costCents = Math.max(0, Number(s.costCents) || 0)
       return `<tr style="border-bottom: 1px solid #eee;">
             <td style="padding: 6px 8px;">${desc}</td>
             <td style="text-align: right; padding: 6px 8px;">${formatCentsBr(valueCents)}</td>
-            <td style="text-align: right; padding: 6px 8px;">${formatCentsBr(costCents)}</td>
           </tr>`
     })
     .join('')
@@ -302,7 +300,6 @@ function buildServicesSection(services: OrdemPrintData['services']): string {
         <tr style="border-bottom: 1px solid #ddd;">
           <th style="text-align: left; padding: 6px 8px; color: #666;">Descrição</th>
           <th style="text-align: right; padding: 6px 8px; color: #666;">Valor</th>
-          <th style="text-align: right; padding: 6px 8px; color: #666;">Custo</th>
         </tr>
       </thead>
       <tbody>

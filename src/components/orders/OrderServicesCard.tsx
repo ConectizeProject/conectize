@@ -31,12 +31,20 @@ export function makeServiceId(): string {
 	return String(Date.now()) + String(Math.random()).slice(2)
 }
 
-function dbToLine(item: ServiceItemDb): ServiceLine {
+/** Gera id estável para item vindo do servidor (evita hydration mismatch). */
+function stableServiceId(index: number, item: ServiceItemDb): string {
+	const valueCents = Math.max(0, Number(item?.valueCents) || 0)
+	const costCents = Math.max(0, Number(item?.costCents) || 0)
+	const desc = String(item?.description || '').trim().slice(0, 40).replace(/\s+/g, '-')
+	return `service-${index}-${desc || 'item'}-${valueCents}-${costCents}`
+}
+
+function dbToLine(item: ServiceItemDb, index: number): ServiceLine {
 	const valueCents = Math.max(0, Number(item?.valueCents) || 0)
 	const costCents = Math.max(0, Number(item?.costCents) || 0)
 	const desc = String(item?.description || '').trim()
 	return {
-		id: makeServiceId(),
+		id: stableServiceId(index, item),
 		description: desc,
 		value: valueCents ? formatMoneyInputBr(String(valueCents)) : '',
 		cost: costCents ? formatMoneyInputBr(String(costCents)) : '',
@@ -72,7 +80,7 @@ export function OrderServicesCard({
 }: OrderServicesCardProps) {
 	const [internalServices, setInternalServices] = useState<ServiceLine[]>(() => {
 		const items = Array.isArray(initialServices) ? initialServices : []
-		return items.map((it) => dbToLine(it))
+		return items.map((it, idx) => dbToLine(it, idx))
 	})
 
 	const services = formik ? formik.services : internalServices

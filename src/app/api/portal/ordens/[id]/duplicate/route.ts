@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
+import { toDateTimeLocalInBrazil } from '@/lib/utils/previsao-ordem'
 
 async function requireStaffOrAdmin() {
   const supabase = await createSupabaseServerClient()
@@ -61,10 +62,7 @@ export async function GET(
   let estimatedReadyAt = ''
   if (order.estimated_ready_at) {
     const d = new Date(order.estimated_ready_at)
-    if (!Number.isNaN(d.getTime())) {
-      const pad = (n: number) => String(n).padStart(2, '0')
-      estimatedReadyAt = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-    }
+    if (!Number.isNaN(d.getTime())) estimatedReadyAt = toDateTimeLocalInBrazil(d)
   }
 
   const duplicateData = {
