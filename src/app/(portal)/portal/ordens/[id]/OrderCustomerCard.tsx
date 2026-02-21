@@ -1,14 +1,16 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Pencil } from 'lucide-react'
+import { Pencil, ChevronDown, ChevronUp, History } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { EditCustomerDialog, type CustomerHit } from '@/components/customers'
-import { CustomerDataGrid } from '@/components/orders'
+import { CustomerDataGrid, CustomerOrderHistoryModal } from '@/components/orders'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { onlyDigits } from '@/lib/utils/strings'
+import { portalFetch } from '@/lib/portal/portal-fetch'
 
 function getCustomerDisplayName(c: { is_company?: boolean; company_name?: string; full_name?: string }) {
   if (c.is_company) return String(c.company_name || c.full_name || 'Empresa')
@@ -51,6 +53,36 @@ type Props = {
 export function OrderCustomerCard({ customer }: Props) {
   const router = useRouter()
   const [isEditOpen, setIsEditOpen] = useState(false)
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false)
+  const [isDataOpen, setIsDataOpen] = useState(false)
+  const [orderCount, setOrderCount] = useState<number | null>(null)
+  const customerId = customer.id ?? ''
+
+  useEffect(() => {
+    if (!customerId) {
+      setOrderCount(null)
+      return
+    }
+    let cancelled = false
+    portalFetch(`/api/portal/ordens?customerId=${encodeURIComponent(customerId)}&countOnly=1`)
+      .then((res) => res?.json())
+      .then((data) => {
+        if (cancelled) return
+        if (data?.ok && typeof data.count === 'number') {
+          setOrderCount(data.count)
+        } else {
+          setOrderCount(0)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setOrderCount(0)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [customerId])
+
+  const showHistoryButton = customerId && orderCount !== null && orderCount > 1
 
   const asCustomerHit: CustomerHit = {
     id: customer.id || '',
@@ -79,30 +111,58 @@ export function OrderCustomerCard({ customer }: Props) {
 
   return (
     <>
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div>
-              <CardTitle className="text-base">Dados do cliente</CardTitle>
-              <CardDescription>
-                {getCustomerDisplayName(customer)} • {getCustomerDocumentMasked(customer)}
-              </CardDescription>
+      <Collapsible open={isDataOpen} onOpenChange={setIsDataOpen}>
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <CardTitle className="text-base">Dados do cliente</CardTitle>
+                <CardDescription>
+                  {getCustomerDisplayName(customer)} • {getCustomerDocumentMasked(customer)}
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                {showHistoryButton ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsHistoryOpen(true)}
+                    aria-label="Ver histórico de ordens do cliente"
+                  >
+                    <History className="h-4 w-4" />
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsEditOpen(true)}
+                  aria-label="Editar cliente"
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <CollapsibleTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    aria-label={isDataOpen ? 'Recolher dados do cliente' : 'Exibir dados do cliente'}
+                  >
+                    {isDataOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  </Button>
+                </CollapsibleTrigger>
+              </div>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setIsEditOpen(true)}
-              aria-label="Editar cliente"
-            >
-              <Pencil className="h-4 w-4" />
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <CustomerDataGrid customer={customer} />
-        </CardContent>
-      </Card>
+          </CardHeader>
+          <CollapsibleContent>
+            <CardContent>
+              <CustomerDataGrid customer={customer} />
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
 
       <EditCustomerDialog
         open={isEditOpen}
@@ -110,6 +170,15 @@ export function OrderCustomerCard({ customer }: Props) {
         customer={asCustomerHit}
         onSaved={() => router.refresh()}
       />
+
+      {showHistoryButton ? (
+        <CustomerOrderHistoryModal
+          open={isHistoryOpen}
+          onOpenChange={setIsHistoryOpen}
+          customerId={customerId}
+          isCreationPage={false}
+        />
+      ) : null}
     </>
   )
 }

@@ -353,6 +353,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 						defaultPasscodeType={order.passcode_type === 'text' || order.passcode_type === 'pattern' ? order.passcode_type : 'none'}
 						defaultPasscodeText={order.passcode_text || ''}
 						defaultPasscodePattern={order.passcode_pattern || ''}
+						formId="order-edit-form"
 						disabled={isFinalized}
 					/>
 				</CardContent>

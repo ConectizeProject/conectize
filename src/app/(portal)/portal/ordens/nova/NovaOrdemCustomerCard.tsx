@@ -1,12 +1,14 @@
 'use client'
 
-import { Check, ChevronsUpDown, Plus, Pencil, ArrowLeftRight } from 'lucide-react'
+import { useState } from 'react'
+import { Check, ChevronsUpDown, Plus, Pencil, ArrowLeftRight, ChevronDown, ChevronUp, History } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { CustomerDataGrid } from '@/components/orders'
+import { CustomerDataGrid, CustomerOrderHistoryModal } from '@/components/orders'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { onlyDigits } from '@/lib/utils/strings'
 import { cn } from '@/lib/utils'
@@ -54,46 +56,80 @@ export function NovaOrdemCustomerCard({
   onEditCustomer,
   onCreateCustomer,
 }: Props) {
+  const [isDataOpen, setIsDataOpen] = useState(false)
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false)
+
   return (
+    <>
     <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <CardTitle className="text-base">Dados do cliente</CardTitle>
-            {selectedCustomer && (
-              <CardDescription>
-                {getCustomerDisplayName(selectedCustomer)} • {formatCpfCnpj(getCustomerDocumentDigits(selectedCustomer))}
-              </CardDescription>
-            )}
-          </div>
-          {selectedCustomer && (
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={onEditCustomer}
-                aria-label="Editar cliente"
-              >
-                <Pencil className="h-4 w-4" />
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={onClearCustomer}
-                aria-label="Trocar cliente"
-              >
-                <ArrowLeftRight className="h-4 w-4" />
-              </Button>
+      {selectedCustomer ? (
+        <Collapsible open={isDataOpen} onOpenChange={setIsDataOpen}>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <CardTitle className="text-base">Dados do cliente</CardTitle>
+                <CardDescription>
+                  {getCustomerDisplayName(selectedCustomer)} • {formatCpfCnpj(getCustomerDocumentDigits(selectedCustomer))}
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsHistoryOpen(true)}
+                  aria-label="Ver histórico de ordens do cliente"
+                >
+                  <History className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={onEditCustomer}
+                  aria-label="Editar cliente"
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={onClearCustomer}
+                  aria-label="Trocar cliente"
+                >
+                  <ArrowLeftRight className="h-4 w-4" />
+                </Button>
+                <CollapsibleTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    aria-label={isDataOpen ? 'Recolher dados do cliente' : 'Exibir dados do cliente'}
+                  >
+                    {isDataOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  </Button>
+                </CollapsibleTrigger>
+              </div>
             </div>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent>
-        {selectedCustomer ? (
-          <CustomerDataGrid customer={selectedCustomer} />
-        ) : (
+          </CardHeader>
+          <CollapsibleContent>
+            <CardContent>
+              <CustomerDataGrid customer={selectedCustomer} />
+            </CardContent>
+          </CollapsibleContent>
+        </Collapsible>
+      ) : (
+        <>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <CardTitle className="text-base">Dados do cliente</CardTitle>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
           <div className="space-y-2">
             <Label htmlFor="customerSearchTrigger">Buscar por CPF/CNPJ</Label>
             <Popover open={isCpfPopoverOpen} onOpenChange={onCpfPopoverOpenChange}>
@@ -172,8 +208,19 @@ export function NovaOrdemCustomerCard({
               </PopoverContent>
             </Popover>
           </div>
-        )}
-      </CardContent>
+          </CardContent>
+        </>
+      )}
     </Card>
+
+    {selectedCustomer?.id ? (
+      <CustomerOrderHistoryModal
+        open={isHistoryOpen}
+        onOpenChange={setIsHistoryOpen}
+        customerId={selectedCustomer.id}
+        isCreationPage
+      />
+    ) : null}
+    </>
   )
 }
