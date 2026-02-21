@@ -1,5 +1,10 @@
 'use client'
 
+/**
+ * Modal reutilizável para exibir o histórico de ordens de serviço de um cliente.
+ * Usado na listagem de OS (portal/ordens), no card do cliente na edição de OS
+ * e no card do cliente na criação de nova OS.
+ */
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Copy, Eye, History, Loader2 } from 'lucide-react'
