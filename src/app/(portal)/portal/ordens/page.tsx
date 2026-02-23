@@ -63,9 +63,21 @@ export default async function OrdensPage({
   const from = (currentPage - 1) * pageSize
   const to = from + pageSize - 1
 
+  let customerIdsFilter: string[] | null = null
+  if (cpfDigits) {
+    const { data: custList } = await supabase
+      .from('customers')
+      .select('id')
+      .or(`cpf.eq.${cpfDigits},cnpj.eq.${cpfDigits}`)
+    customerIdsFilter = (custList || []).map((c: { id: string }) => c.id)
+    if (customerIdsFilter.length === 0) {
+      customerIdsFilter = []
+    }
+  }
+
   const baseQuery = supabase
     .from('service_orders')
-    .select('id, display_number, status, title, created_at, updated_at, closed_at, estimated_ready_at, share_token, customers ( id, cpf, cnpj, is_company, full_name, company_name, email, mobile_phone ), device_models ( brand, device_type, model )', { count: 'planned' })
+    .select('id, display_number, status, title, created_at, updated_at, closed_at, estimated_ready_at, share_token, customer_id, device_model_id', { count: 'exact' })
     .order('created_at', { ascending: false })
 
   if (query) {
@@ -73,8 +85,12 @@ export default async function OrdensPage({
     baseQuery.or(`title.ilike.%${escaped}%,description.ilike.%${escaped}%`)
   }
 
-  if (cpfDigits) {
-    baseQuery.or(`customers.cpf.eq.${cpfDigits},customers.cnpj.eq.${cpfDigits}`)
+  if (customerIdsFilter !== null) {
+    if (customerIdsFilter.length === 0) {
+      baseQuery.eq('customer_id', '00000000-0000-0000-0000-000000000000')
+    } else {
+      baseQuery.in('customer_id', customerIdsFilter)
+    }
   }
 
   if (statusValue && isValidStatus(statusValue)) {
@@ -82,6 +98,41 @@ export default async function OrdensPage({
   }
 
   const { data: rawOrders, count } = await baseQuery.range(from, to)
+
+  const ordersList = rawOrders || []
+  const customerIds = [...new Set(ordersList.map((o: any) => o.customer_id).filter(Boolean))]
+  const deviceModelIds = [...new Set(ordersList.map((o: any) => o.device_model_id).filter(Boolean))]
+
+  let customersMap: Record<string, any> = {}
+  let deviceModelsMap: Record<string, any> = {}
+
+  if (customerIds.length > 0) {
+    const { data: customers } = await supabase
+      .from('customers')
+      .select('id, cpf, cnpj, is_company, full_name, company_name, email, mobile_phone')
+      .in('id', customerIds)
+    customersMap = (customers || []).reduce((acc: Record<string, any>, c: any) => {
+      acc[c.id] = c
+      return acc
+    }, {})
+  }
+
+  if (deviceModelIds.length > 0) {
+    const { data: deviceModels } = await supabase
+      .from('device_models')
+      .select('id, brand, device_type, model')
+      .in('id', deviceModelIds)
+    deviceModelsMap = (deviceModels || []).reduce((acc: Record<string, any>, d: any) => {
+      acc[d.id] = d
+      return acc
+    }, {})
+  }
+
+  const ordersWithRelations = ordersList.map((o: any) => ({
+    ...o,
+    customers: o.customer_id ? customersMap[o.customer_id] ?? null : null,
+    device_models: o.device_model_id ? deviceModelsMap[o.device_model_id] ?? null : null,
+  }))
 
   const OPEN_ORDER: Record<string, number> = {
     em_manutencao: 1,
@@ -96,7 +147,7 @@ export default async function OrdensPage({
     'finalizada_sem_aprovacao',
     'cancelada',
   ])
-  const orders = (rawOrders || []).slice().sort((a: any, b: any) => {
+  const orders = ordersWithRelations.slice().sort((a: any, b: any) => {
     const aFinal = FINALIZED_SET.has(a.status)
     const bFinal = FINALIZED_SET.has(b.status)
     if (!aFinal && !bFinal) {

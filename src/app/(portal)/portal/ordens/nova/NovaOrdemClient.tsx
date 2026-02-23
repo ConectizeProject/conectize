@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Formik, Form, Field, FieldArray } from 'formik'
 import * as Yup from 'yup'
 import { Loader2 } from 'lucide-react'
@@ -43,7 +44,7 @@ function getCustomerDocumentDigits(customer: CustomerHit) {
 type SellerOption = { id: string; full_name: string | null; email: string | null }
 
 type Props = {
-	action: (formData: FormData) => void
+	action: (formData: FormData) => Promise<{ redirectTo: string } | void>
 	initialError?: string
 	sellerName: string
 	isAdmin: boolean
@@ -110,6 +111,7 @@ const orderFormSchema = Yup.object().shape({
 })
 
 export function NovaOrdemClient(props: Props) {
+	const router = useRouter()
 	const [documentInput, setDocumentInput] = useState('')
 	const documentDigits = useMemo(() => onlyDigits(documentInput).slice(0, 14), [documentInput])
 	const documentPrefix = useMemo(() => documentDigits.slice(0, 5), [documentDigits])
@@ -362,7 +364,8 @@ export function NovaOrdemClient(props: Props) {
 				enableReinitialize={!!duplicateFormValues}
 				onSubmit={async (values) => {
 					const fd = buildFormDataFromValues(values, documentDigits)
-					await props.action(fd)
+					const result = await props.action(fd)
+					if (result && 'redirectTo' in result && result.redirectTo) router.push(result.redirectTo)
 				}}
 			>
 				{(formik) => (
