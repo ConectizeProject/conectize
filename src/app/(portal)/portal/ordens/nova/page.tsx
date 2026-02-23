@@ -127,12 +127,20 @@ async function createOrderAction(formData: FormData) {
 
   const hasDeviceInfo = deviceModelId || brand || model || deviceType
   if (hasDeviceInfo) {
+    const hasPasscodeText = passcodeType === 'text' && !!passcodeText
+    const hasPasscodePattern = passcodeType === 'pattern' && !!passcodePattern
+    const deviceNotes = hasPasscodeText
+      ? `Senha (texto): ${passcodeText}`
+      : hasPasscodePattern
+        ? `Senha (padrão): ${passcodePattern}`
+        : null
+
     try {
-      let existingDevice: { id: string } | null = null
+      let existingDevice: { id: string; notes: string | null } | null = null
       if (deviceModelId) {
         const { data: found } = await supabase
           .from('customer_devices')
-          .select('id')
+          .select('id, notes')
           .eq('customer_id', customerId)
           .eq('device_model_id', deviceModelId)
           .maybeSingle()
@@ -140,7 +148,7 @@ async function createOrderAction(formData: FormData) {
       } else if (brand || model) {
         const { data: found } = await supabase
           .from('customer_devices')
-          .select('id')
+          .select('id, notes')
           .eq('customer_id', customerId)
           .is('device_model_id', null)
           .eq('brand', brand || '')
@@ -150,9 +158,18 @@ async function createOrderAction(formData: FormData) {
         existingDevice = found
       }
       if (existingDevice) {
+        const updatePayload: Record<string, unknown> = {
+          imei: imei || null,
+          color: color || null,
+        }
+        if (deviceNotes) {
+          updatePayload.notes = existingDevice.notes
+            ? `${deviceNotes}\n${existingDevice.notes}`
+            : deviceNotes
+        }
         await supabase
           .from('customer_devices')
-          .update({ imei: imei || null, color: color || null })
+          .update(updatePayload)
           .eq('id', existingDevice.id)
       } else {
         await supabase.from('customer_devices').insert({
@@ -163,6 +180,7 @@ async function createOrderAction(formData: FormData) {
           device_type: deviceType || null,
           imei: imei || null,
           color: color || null,
+          notes: deviceNotes || null,
         })
       }
     } catch (_) {

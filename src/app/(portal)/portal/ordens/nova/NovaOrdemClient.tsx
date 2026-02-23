@@ -13,6 +13,14 @@ import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import { Checkbox } from '@/components/ui/checkbox'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from '@/components/ui/dialog'
 import { PatternLockInput } from '@/components/pattern-lock/PatternLockInput'
 import { CreateCustomerDialog, EditCustomerDialog, type CustomerHit } from '@/components/customers'
 import { OrderDeviceSelector, OrderServicesCard, OsAssistAiIconButton, type ServiceLine } from '@/components/orders'
@@ -129,6 +137,20 @@ export function NovaOrdemClient(props: Props) {
 
 	const [selectedCustomer, setSelectedCustomer] = useState<CustomerHit | null>(null)
 
+	type CustomerDevice = {
+		id: string
+		device_model_id: string | null
+		brand: string | null
+		model: string | null
+		device_type: string | null
+		imei: string | null
+		color: string | null
+	}
+
+	const [customerDevices, setCustomerDevices] = useState<CustomerDevice[]>([])
+	const [isLoadingCustomerDevices, setIsLoadingCustomerDevices] = useState(false)
+	const [isDevicesDialogOpen, setIsDevicesDialogOpen] = useState(false)
+
 	const [isCreateCustomerOpen, setIsCreateCustomerOpen] = useState(false)
 	const [createCustomerInitialDocumentDigits, setCreateCustomerInitialDocumentDigits] = useState('')
 	const [customerToEdit, setCustomerToEdit] = useState<CustomerHit | null>(null)
@@ -206,6 +228,34 @@ export function NovaOrdemClient(props: Props) {
 			setDocumentInput(formatCpfCnpj(doc))
 		}
 	}, [documentDigits, selectedCustomer])
+
+	useEffect(() => {
+		if (!selectedCustomer?.id) {
+			setCustomerDevices([])
+			setIsDevicesDialogOpen(false)
+			return
+		}
+		let cancelled = false
+		async function loadCustomerDevices() {
+			setIsLoadingCustomerDevices(true)
+			try {
+				const res = await portalFetch(`/api/portal/customers/${selectedCustomer.id}/devices`)
+				const data = await res.json().catch(() => null)
+				if (!cancelled && data?.ok && Array.isArray(data.devices)) {
+					setCustomerDevices(data.devices as CustomerDevice[])
+				}
+				if (!cancelled && (!data?.ok || !Array.isArray(data.devices))) {
+					setCustomerDevices([])
+				}
+			} catch {
+				if (!cancelled) setCustomerDevices([])
+			} finally {
+				if (!cancelled) setIsLoadingCustomerDevices(false)
+			}
+		}
+		loadCustomerDevices()
+		return () => { cancelled = true }
+	}, [selectedCustomer])
 
 	useEffect(() => {
 		if (documentDigits.length < 5) {
@@ -421,7 +471,64 @@ export function NovaOrdemClient(props: Props) {
 											},
 											setFieldValue: formik.setFieldValue,
 										}}
+										hasExistingDevices={customerDevices.length > 0}
+										onOpenExistingDevices={() => setIsDevicesDialogOpen(true)}
 									/>
+
+									<Dialog open={isDevicesDialogOpen} onOpenChange={setIsDevicesDialogOpen}>
+										<DialogContent className="max-w-md">
+											<DialogHeader>
+												<DialogTitle>Selecionar aparelho do cliente</DialogTitle>
+												<DialogDescription>
+													Escolha um aparelho já cadastrado para preencher os dados da OS.
+												</DialogDescription>
+											</DialogHeader>
+											<div className="mt-2 space-y-2 max-h-80 overflow-y-auto">
+												{isLoadingCustomerDevices ? (
+													<p className="text-sm text-muted-foreground">Carregando aparelhos…</p>
+												) : customerDevices.length === 0 ? (
+													<p className="text-sm text-muted-foreground">
+														Este cliente ainda não possui aparelhos cadastrados.
+													</p>
+												) : (
+													customerDevices.map((d) => {
+														const labelParts = [d.device_type, d.brand, d.model].filter(Boolean)
+														const label = labelParts.length ? labelParts.join(' • ') : 'Aparelho'
+														const secondaryParts = [d.imei, d.color].filter(Boolean)
+														const secondary = secondaryParts.length ? secondaryParts.join(' • ') : null
+														return (
+															<button
+																key={d.id}
+																type="button"
+																className="w-full rounded-md border px-3 py-2 text-left text-sm hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring"
+																onClick={() => {
+																	formik.setFieldValue('brand', d.brand ?? '')
+																	formik.setFieldValue('deviceType', d.device_type ?? '')
+																	formik.setFieldValue('deviceModelId', d.device_model_id ?? '')
+																	formik.setFieldValue('model', d.model ?? '')
+																	formik.setFieldValue('imei', d.imei ?? '')
+																	formik.setFieldValue('color', d.color ?? '')
+																	setIsDevicesDialogOpen(false)
+																}}
+															>
+																<div className="font-medium truncate">{label}</div>
+																{secondary ? (
+																	<div className="text-xs text-muted-foreground truncate">
+																		{secondary}
+																	</div>
+																) : null}
+															</button>
+														)
+													})
+												)}
+											</div>
+											<DialogFooter>
+												<Button type="button" variant="outline" onClick={() => setIsDevicesDialogOpen(false)}>
+													Fechar
+												</Button>
+											</DialogFooter>
+										</DialogContent>
+									</Dialog>
 
 									<div className="rounded-md border p-4 space-y-3">
 										<div className="flex items-center justify-between gap-3 flex-wrap">

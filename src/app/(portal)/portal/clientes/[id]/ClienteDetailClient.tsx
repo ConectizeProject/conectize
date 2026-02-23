@@ -51,6 +51,19 @@ function deviceLabel(d: Device) {
   return parts.length ? parts.join(' • ') : 'Aparelho'
 }
 
+function splitDeviceNotes(notes: string | null) {
+  if (!notes) return { passcode: '', rest: '' }
+  const lines = notes.split('\n')
+  const [first, ...rest] = lines
+  if (first && first.startsWith('Senha (')) {
+    return {
+      passcode: first,
+      rest: rest.join('\n').trim(),
+    }
+  }
+  return { passcode: '', rest: notes }
+}
+
 export function ClienteDetailClient({ customerId, customerName }: Props) {
   const [devices, setDevices] = useState<Device[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -164,6 +177,7 @@ export function ClienteDetailClient({ customerId, customerName }: Props) {
                   <TableHead>Aparelho</TableHead>
                   <TableHead>IMEI</TableHead>
                   <TableHead>Cor</TableHead>
+                  <TableHead>Senha</TableHead>
                   <TableHead>Observações</TableHead>
                   <TableHead className="w-[100px] text-right">Ações</TableHead>
                 </TableRow>
@@ -171,10 +185,22 @@ export function ClienteDetailClient({ customerId, customerName }: Props) {
               <TableBody>
                 {devices.map((d) => (
                   <TableRow key={d.id}>
-                    <TableCell className="font-medium">{deviceLabel(d)}</TableCell>
-                    <TableCell className="text-muted-foreground">{d.imei || '-'}</TableCell>
-                    <TableCell>{d.color || '-'}</TableCell>
-                    <TableCell className="max-w-[200px] truncate" title={d.notes ?? undefined}>{d.notes || '-'}</TableCell>
+                    {(() => {
+                      const { passcode, rest } = splitDeviceNotes(d.notes)
+                      return (
+                        <>
+                          <TableCell className="font-medium">{deviceLabel(d)}</TableCell>
+                          <TableCell className="text-muted-foreground">{d.imei || '-'}</TableCell>
+                          <TableCell>{d.color || '-'}</TableCell>
+                          <TableCell className="max-w-[200px] truncate" title={passcode || undefined}>
+                            {passcode || '-'}
+                          </TableCell>
+                          <TableCell className="max-w-[220px] truncate" title={rest || undefined}>
+                            {rest || '-'}
+                          </TableCell>
+                        </>
+                      )
+                    })()}
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(d)} aria-label="Editar aparelho">
