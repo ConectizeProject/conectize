@@ -13,8 +13,18 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { Printer, MessageCircle, Mail, MoreHorizontal, Copy, Tag } from 'lucide-react'
+import { Printer, MessageCircle, Mail, Copy, Tag, MoreVertical, Trash2 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 import { getLabelWindowFeatures, getPrintWindowFeatures } from '@/lib/ordem-print'
 import { buildOrderMessage } from '@/lib/ordem-share-message'
@@ -56,12 +66,15 @@ type OrderRow = {
 
 type Props = {
   order: OrderRow
+  canDelete?: boolean
 }
 
-export function OrdensRowActions({ order }: Props) {
+export function OrdensRowActions({ order, canDelete = false }: Props) {
   const router = useRouter()
   const [updating, setUpdating] = useState(false)
   const [fetchedPublicUrl, setFetchedPublicUrl] = useState<string | null>(null)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false)
 
   const customer = order.customers
   const deviceModel = order.device_models
@@ -124,66 +137,133 @@ export function OrdensRowActions({ order }: Props) {
     }
   }
 
+  async function handleConfirmDelete() {
+    setDeleteSubmitting(true)
+    try {
+      const res = await fetch(`/api/portal/ordens/${order.id}`, {
+        method: 'DELETE',
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        toast({ title: 'Erro ao excluir OS', variant: 'destructive' })
+        return
+      }
+      toast({ title: 'OS excluída', description: `Ordem #${displayNumber} excluída com sucesso.` })
+      router.refresh()
+    } finally {
+      setDeleteSubmitting(false)
+    }
+  }
+
+  const itemClass = 'py-1 px-2 text-xs'
+  const iconClass = 'h-3.5 w-3.5 mr-1.5 shrink-0'
+
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm">
-          <MoreHorizontal className="h-4 w-4" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-48">
-        <DropdownMenuItem
-          onClick={() => window.open(`/api/portal/ordens/${order.id}/print`, '_blank', getPrintWindowFeatures())}
-        >
-          <Printer className="h-4 w-4 mr-2" />
-          Imprimir OS
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={() => window.open(`/api/portal/ordens/${order.id}/label`, '_blank', getLabelWindowFeatures())}
-        >
-          <Tag className="h-4 w-4 mr-2" />
-          Imprimir etiqueta
-        </DropdownMenuItem>
-        {whatsappHref ? (
-          <DropdownMenuItem asChild>
-            <a href={whatsappHref} target="_blank" rel="noopener noreferrer">
-              <MessageCircle className="h-4 w-4 mr-2" />
-              Enviar WhatsApp
-            </a>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" aria-label="Mais opções">
+            <MoreVertical className="h-3.5 w-3.5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-36 p-1">
+          <DropdownMenuItem
+            className={itemClass}
+            onClick={() => window.open(`/api/portal/ordens/${order.id}/print`, '_blank', getPrintWindowFeatures())}
+          >
+            <Printer className={iconClass} />
+            Imprimir OS
           </DropdownMenuItem>
-        ) : null}
-        {mailtoHref ? (
-          <DropdownMenuItem asChild>
-            <a href={mailtoHref}>
-              <Mail className="h-4 w-4 mr-2" />
-              Enviar por email
-            </a>
+          <DropdownMenuItem
+            className={itemClass}
+            onClick={() => window.open(`/api/portal/ordens/${order.id}/label`, '_blank', getLabelWindowFeatures())}
+          >
+            <Tag className={iconClass} />
+            Imprimir etiqueta
           </DropdownMenuItem>
-        ) : null}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem asChild>
-          <Link href={`/portal/ordens/nova?duplicate=${order.id}`}>
-            <Copy className="h-4 w-4 mr-2" />
-            Duplicar OS
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger disabled={updating}>
-            Alterar status
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent>
-            {Object.entries(STATUS_LABELS).map(([value, label]) => (
+          {whatsappHref ? (
+            <DropdownMenuItem asChild>
+              <a href={whatsappHref} target="_blank" rel="noopener noreferrer" className={itemClass}>
+                <MessageCircle className={iconClass} />
+                Enviar WhatsApp
+              </a>
+            </DropdownMenuItem>
+          ) : null}
+          {mailtoHref ? (
+            <DropdownMenuItem asChild>
+              <a href={mailtoHref} className={itemClass}>
+                <Mail className={iconClass} />
+                Enviar por email
+              </a>
+            </DropdownMenuItem>
+          ) : null}
+          <DropdownMenuSeparator className="my-1" />
+          <DropdownMenuItem asChild className={itemClass}>
+            <Link href={`/portal/ordens/nova?duplicate=${order.id}`} className="flex items-center">
+              <Copy className={iconClass} />
+              Duplicar OS
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger disabled={updating} className={itemClass}>
+              Alterar status
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="min-w-36 p-1">
+              {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                <DropdownMenuItem
+                  key={value}
+                  className={itemClass}
+                  onClick={() => handleStatusChange(value)}
+                  disabled={updating || order.status === value}
+                >
+                  {label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          {canDelete ? (
+            <>
+              <DropdownMenuSeparator className="my-1" />
               <DropdownMenuItem
-                key={value}
-                onClick={() => handleStatusChange(value)}
-                disabled={updating || order.status === value}
+                className={`${itemClass} text-destructive focus:text-destructive`}
+                onSelect={(e) => {
+                  e.preventDefault()
+                  setDeleteOpen(true)
+                }}
               >
-                {label}
+                <Trash2 className={iconClass} />
+                Excluir OS
               </DropdownMenuItem>
-            ))}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-      </DropdownMenuContent>
-    </DropdownMenu>
+            </>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {canDelete ? (
+        <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Excluir ordem de serviço?</AlertDialogTitle>
+              <AlertDialogDescription>
+                A ordem <strong>#{displayNumber}</strong> — {order.title} — será excluída permanentemente. Esta ação não pode ser desfeita.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleteSubmitting}>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault()
+                  handleConfirmDelete()
+                }}
+                disabled={deleteSubmitting}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {deleteSubmitting ? 'Excluindo…' : 'Excluir'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      ) : null}
+    </>
   )
 }

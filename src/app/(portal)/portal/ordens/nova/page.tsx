@@ -125,7 +125,70 @@ async function createOrderAction(formData: FormData) {
 
   if (error) redirect('/portal/ordens?toast=order_error&error=nao_foi_possivel_criar_os')
 
-  redirect(`/portal/ordens/${insertedOrder.id}?toast=order_created`)
+  const hasDeviceInfo = deviceModelId || brand || model || deviceType
+  if (hasDeviceInfo) {
+    const hasPasscodeText = passcodeType === 'text' && !!passcodeText
+    const hasPasscodePattern = passcodeType === 'pattern' && !!passcodePattern
+    const deviceNotes = hasPasscodeText
+      ? `Senha (texto): ${passcodeText}`
+      : hasPasscodePattern
+        ? `Senha (padrão): ${passcodePattern}`
+        : null
+
+    try {
+      let existingDevice: { id: string; notes: string | null } | null = null
+      if (deviceModelId) {
+        const { data: found } = await supabase
+          .from('customer_devices')
+          .select('id, notes')
+          .eq('customer_id', customerId)
+          .eq('device_model_id', deviceModelId)
+          .maybeSingle()
+        existingDevice = found
+      } else if (brand || model) {
+        const { data: found } = await supabase
+          .from('customer_devices')
+          .select('id, notes')
+          .eq('customer_id', customerId)
+          .is('device_model_id', null)
+          .eq('brand', brand || '')
+          .eq('model', model || '')
+          .eq('device_type', deviceType || '')
+          .maybeSingle()
+        existingDevice = found
+      }
+      if (existingDevice) {
+        const updatePayload: Record<string, unknown> = {
+          imei: imei || null,
+          color: color || null,
+        }
+        if (deviceNotes) {
+          updatePayload.notes = existingDevice.notes
+            ? `${deviceNotes}\n${existingDevice.notes}`
+            : deviceNotes
+        }
+        await supabase
+          .from('customer_devices')
+          .update(updatePayload)
+          .eq('id', existingDevice.id)
+      } else {
+        await supabase.from('customer_devices').insert({
+          customer_id: customerId,
+          device_model_id: deviceModelId || null,
+          brand: brand || null,
+          model: model || null,
+          device_type: deviceType || null,
+          imei: imei || null,
+          color: color || null,
+          notes: deviceNotes || null,
+        })
+      }
+    } catch (_) {
+      // Tabela customer_devices pode não existir ainda (migration não aplicada); ordem já foi criada
+    }
+  }
+
+  return { redirectTo: `/portal/ordens/${insertedOrder.id}?toast=order_created` }
 }
 
 export default async function NovaOrdemPage({

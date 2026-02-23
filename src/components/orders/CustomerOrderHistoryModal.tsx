@@ -112,9 +112,7 @@ export function CustomerOrderHistoryModal({
             Histórico de ordens do cliente
           </DialogTitle>
           <DialogDescription>
-            {isCreationPage
-              ? 'Use o ícone de olho para abrir a OS ou o ícone de copiar para clonar e criar uma nova OS.'
-              : 'Use o ícone de olho para abrir a ordem de serviço.'}
+            Use o ícone de olho para abrir a OS ou o ícone de copiar para clonar e criar uma nova OS.
           </DialogDescription>
         </DialogHeader>
         <div className="flex-1 overflow-auto border rounded-md">
@@ -166,18 +164,16 @@ export function CustomerOrderHistoryModal({
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
-                        {isCreationPage && (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            onClick={() => handleClone(order.id)}
-                            aria-label={`Clonar OS ${order.display_number ?? order.id}`}
-                          >
-                            <Copy className="h-4 w-4" />
-                          </Button>
-                        )}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => handleClone(order.id)}
+                          aria-label={`Clonar OS ${order.display_number ?? order.id}`}
+                        >
+                          <Copy className="h-4 w-4" />
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>

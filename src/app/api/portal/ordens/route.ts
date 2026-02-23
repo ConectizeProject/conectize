@@ -30,6 +30,91 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const customerId = searchParams.get('customerId')?.trim()
   const countOnly = searchParams.get('countOnly') === '1' || searchParams.get('countOnly') === 'true'
+  const statusGroup = searchParams.get('statusGroup')?.trim()
+  const q = searchParams.get('q')?.trim() ?? ''
+  const cpf = (searchParams.get('cpf') ?? '').replace(/\D/g, '').trim()
+  const osNumber = searchParams.get('osNumber')?.trim() ?? ''
+  const statusFilter = searchParams.get('status')?.trim() ?? ''
+
+  const FINAL_STATUSES = ['finalizada', 'finalizada_sem_conserto', 'finalizada_sem_aprovacao', 'cancelada']
+
+  if (statusGroup === 'final') {
+    let customerIdsFilter: string[] | null = null
+    if (cpf) {
+      const { data: custList } = await auth.supabase
+        .from('customers')
+        .select('id')
+        .or(`cpf.eq.${cpf},cnpj.eq.${cpf}`)
+      customerIdsFilter = (custList || []).map((c: { id: string }) => c.id)
+      if (customerIdsFilter.length === 0) {
+        return NextResponse.json({ ok: true, orders: [] })
+      }
+    }
+
+    const baseQuery = auth.supabase
+      .from('service_orders')
+      .select('id, display_number, status, title, created_at, updated_at, closed_at, estimated_ready_at, share_token, customer_id, device_model_id')
+      .in('status', FINAL_STATUSES)
+      .order('created_at', { ascending: false })
+      .limit(500)
+
+    if (q) {
+      const escaped = q.replaceAll(',', ' ').trim()
+      baseQuery.or(`title.ilike.%${escaped}%,description.ilike.%${escaped}%`)
+    }
+    if (osNumber) {
+      const displayNum = Number.parseInt(osNumber, 10)
+      if (!Number.isNaN(displayNum)) {
+        baseQuery.eq('display_number', displayNum)
+      }
+    }
+    if (statusFilter && FINAL_STATUSES.includes(statusFilter)) {
+      baseQuery.eq('status', statusFilter)
+    }
+    if (customerIdsFilter) baseQuery.in('customer_id', customerIdsFilter)
+
+    const { data: ordersList, error } = await baseQuery
+    if (error) {
+      console.error('[portal/ordens] list final error:', error)
+      return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+    }
+
+    const list = ordersList ?? []
+    const customerIds = [...new Set(list.map((o: any) => o.customer_id).filter(Boolean))]
+    const deviceModelIds = [...new Set(list.map((o: any) => o.device_model_id).filter(Boolean))]
+
+    let customersMap: Record<string, any> = {}
+    let deviceModelsMap: Record<string, any> = {}
+
+    if (customerIds.length > 0) {
+      const { data: customers } = await auth.supabase
+        .from('customers')
+        .select('id, cpf, cnpj, is_company, full_name, company_name, email, mobile_phone')
+        .in('id', customerIds)
+      customersMap = (customers || []).reduce((acc: Record<string, any>, c: any) => {
+        acc[c.id] = c
+        return acc
+      }, {})
+    }
+    if (deviceModelIds.length > 0) {
+      const { data: deviceModels } = await auth.supabase
+        .from('device_models')
+        .select('id, brand, device_type, model')
+        .in('id', deviceModelIds)
+      deviceModelsMap = (deviceModels || []).reduce((acc: Record<string, any>, d: any) => {
+        acc[d.id] = d
+        return acc
+      }, {})
+    }
+
+    const orders = list.map((o: any) => ({
+      ...o,
+      customers: o.customer_id ? customersMap[o.customer_id] ?? null : null,
+      device_models: o.device_model_id ? deviceModelsMap[o.device_model_id] ?? null : null,
+    }))
+
+    return NextResponse.json({ ok: true, orders })
+  }
 
   if (!customerId) {
     return NextResponse.json({ ok: false, error: 'customerId_required' }, { status: 400 })

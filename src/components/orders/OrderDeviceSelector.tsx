@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Plus } from 'lucide-react'
+import { History, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -59,6 +59,10 @@ type OrderDeviceSelectorProps = {
   formId?: string
   /** Desabilita o componente (ex: durante loading). */
   disabled?: boolean
+  /** Se há aparelhos já cadastrados (ex.: do cliente atual). */
+  hasExistingDevices?: boolean
+  /** Abre seleção de aparelhos já cadastrados. */
+  onOpenExistingDevices?: () => void
 }
 
 export function OrderDeviceSelector({
@@ -72,6 +76,8 @@ export function OrderDeviceSelector({
   },
   formId,
   disabled = false,
+  hasExistingDevices = false,
+  onOpenExistingDevices,
 }: OrderDeviceSelectorProps) {
   const [deviceModels, setDeviceModels] = useState<DeviceModel[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -233,16 +239,31 @@ export function OrderDeviceSelector({
     <div className="rounded-md border p-4 space-y-3">
       <div className="flex items-center justify-between gap-3">
         <span className="text-sm font-medium">Selecione o aparelho</span>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={openCreateDialog}
-          disabled={isLoadingModels}
-          aria-label="Cadastrar novo dispositivo"
-        >
-          <Plus className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-2">
+          {hasExistingDevices && onOpenExistingDevices ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={onOpenExistingDevices}
+              disabled={isLoadingModels}
+              aria-label="Selecionar aparelho já cadastrado"
+              className="h-8 w-8"
+            >
+              <History className="h-4 w-4" />
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={openCreateDialog}
+            disabled={isLoadingModels}
+            aria-label="Cadastrar novo dispositivo"
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
       <div className="grid gap-4 md:grid-cols-3">
         <div className="space-y-2">

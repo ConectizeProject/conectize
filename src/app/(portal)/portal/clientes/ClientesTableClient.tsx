@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { History } from 'lucide-react'
+import Link from 'next/link'
+import { History, Smartphone } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { EditCustomerDialog, type CustomerHit } from '@/components/customers'
@@ -127,6 +128,11 @@ export function ClientesTableClient(props: { customers: CustomerRow[] }) {
 										aria-label="Ver histórico de ordens do cliente"
 									>
 										<History className="h-4 w-4" />
+									</Button>
+									<Button variant="outline" size="sm" asChild>
+										<Link href={`/portal/clientes/${c.id}`} aria-label="Ver e editar aparelhos do cliente">
+											<Smartphone className="h-4 w-4" />
+										</Link>
 									</Button>
 									<Button
 										type="button"

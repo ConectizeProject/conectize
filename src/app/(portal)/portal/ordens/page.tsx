@@ -2,52 +2,36 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import { Button } from '@/components/ui/button'
-import { OrderStatusBadge } from '@/components/orders'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { OrdensTableRow } from './OrdensTableRow'
+import { OrdensListClient } from './OrdensListClient'
 import { OrdensToastClient } from './OrdensToastClient'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
-import { formatDateTimeBr } from '@/lib/utils/format-date'
 
-const pageSize = 20
-
-function parsePage(value?: string) {
-  const parsed = Number.parseInt(value || '1', 10)
-  if (Number.isNaN(parsed) || parsed < 1) return 1
-  return parsed
-}
+const OPEN_STATUSES = ['orcamento', 'aprovado', 'aguardando_pecas', 'em_manutencao', 'aguardando_retirada'] as const
+const LIMIT_OPEN = 500
 
 function normalizeCpf(value: string) {
   return value.replace(/\D/g, '').trim()
 }
 
-function isValidStatus(value: string) {
-  return value === 'orcamento' ||
-    value === 'aprovado' ||
-    value === 'aguardando_pecas' ||
-    value === 'em_manutencao' ||
-    value === 'aguardando_retirada' ||
-    value === 'finalizada' ||
-    value === 'finalizada_sem_conserto' ||
-    value === 'finalizada_sem_aprovacao' ||
-    value === 'cancelada'
+function isValidOpenStatus(value: string): value is typeof OPEN_STATUSES[number] {
+  return OPEN_STATUSES.includes(value as any)
 }
 
-type SearchParams = Promise<{ page?: string; q?: string; cpf?: string; status?: string; toast?: string; id?: string; error?: string }>
+type SearchParams = Promise<{ q?: string; cpf?: string; osNumber?: string; status?: string; toast?: string; id?: string; error?: string }>
 
 export default async function OrdensPage({
   searchParams,
 }: {
   searchParams: SearchParams
 }) {
-  const { page, q, cpf, status, toast, id, error } = await searchParams
-  const currentPage = parsePage(page)
+  const { q, cpf, osNumber, status, toast, id, error } = await searchParams
   const query = String(q || '').trim()
   const cpfDigits = normalizeCpf(String(cpf || ''))
   const statusValue = String(status || '').trim()
+  const osNumberValue = String(osNumber || '').trim()
   const toastType = String(toast || '').trim()
   const toastId = String(id || '').trim()
   const toastError = String(error || '').trim()
@@ -60,84 +44,89 @@ export default async function OrdensPage({
 
   const supabase = await createSupabaseServerClient()
 
-  const from = (currentPage - 1) * pageSize
-  const to = from + pageSize - 1
+  let customerIdsFilter: string[] | null = null
+  if (cpfDigits) {
+    const { data: custList } = await supabase
+      .from('customers')
+      .select('id')
+      .or(`cpf.eq.${cpfDigits},cnpj.eq.${cpfDigits}`)
+    customerIdsFilter = (custList || []).map((c: { id: string }) => c.id)
+    if (customerIdsFilter.length === 0) {
+      customerIdsFilter = []
+    }
+  }
 
   const baseQuery = supabase
     .from('service_orders')
-    .select('id, display_number, status, title, created_at, updated_at, closed_at, estimated_ready_at, share_token, customers ( id, cpf, cnpj, is_company, full_name, company_name, email, mobile_phone ), device_models ( brand, device_type, model )', { count: 'planned' })
+    .select('id, display_number, status, title, created_at, updated_at, closed_at, estimated_ready_at, share_token, customer_id, device_model_id')
+    .in('status', [...OPEN_STATUSES])
     .order('created_at', { ascending: false })
+    .limit(LIMIT_OPEN)
 
   if (query) {
-    const escaped = query.replaceAll(',', ' ')
+    const escaped = query.replaceAll(',', ' ').trim()
     baseQuery.or(`title.ilike.%${escaped}%,description.ilike.%${escaped}%`)
   }
 
-  if (cpfDigits) {
-    baseQuery.or(`customers.cpf.eq.${cpfDigits},customers.cnpj.eq.${cpfDigits}`)
+  if (customerIdsFilter !== null) {
+    if (customerIdsFilter.length === 0) {
+      baseQuery.eq('customer_id', '00000000-0000-0000-0000-000000000000')
+    } else {
+      baseQuery.in('customer_id', customerIdsFilter)
+    }
   }
 
-  if (statusValue && isValidStatus(statusValue)) {
+  if (statusValue && isValidOpenStatus(statusValue)) {
     baseQuery.eq('status', statusValue)
   }
 
-  const { data: rawOrders, count } = await baseQuery.range(from, to)
-
-  const OPEN_ORDER: Record<string, number> = {
-    em_manutencao: 1,
-    aprovado: 2,
-    orcamento: 3,
-    aguardando_pecas: 4,
-    aguardando_retirada: 5,
-  }
-  const FINALIZED_SET = new Set([
-    'finalizada',
-    'finalizada_sem_conserto',
-    'finalizada_sem_aprovacao',
-    'cancelada',
-  ])
-  const orders = (rawOrders || []).slice().sort((a: any, b: any) => {
-    const aFinal = FINALIZED_SET.has(a.status)
-    const bFinal = FINALIZED_SET.has(b.status)
-    if (!aFinal && !bFinal) {
-      const oa = OPEN_ORDER[a.status] ?? 99
-      const ob = OPEN_ORDER[b.status] ?? 99
-      return oa - ob
+  if (osNumberValue) {
+    const displayNum = Number.parseInt(osNumberValue, 10)
+    if (!Number.isNaN(displayNum)) {
+      baseQuery.eq('display_number', displayNum)
     }
-    if (aFinal && !bFinal) return 1
-    if (!aFinal && bFinal) return -1
-    const aClosed = a.closed_at ? new Date(a.closed_at).getTime() : 0
-    const bClosed = b.closed_at ? new Date(b.closed_at).getTime() : 0
-    return bClosed - aClosed
-  })
-
-  const total = count || 0
-  const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  const safePage = Math.min(currentPage, totalPages)
-
-  if (safePage !== currentPage) {
-    const params = new URLSearchParams()
-    if (query) params.set('q', query)
-    if (cpfDigits) params.set('cpf', cpfDigits)
-    if (statusValue) params.set('status', statusValue)
-    if (toastType) params.set('toast', toastType)
-    if (toastId) params.set('id', toastId)
-    if (toastError) params.set('error', toastError)
-    params.set('page', String(safePage))
-    redirect(`/portal/ordens?${params.toString()}`)
   }
 
-  const buildPageHref = (page: number) => {
-    const params = new URLSearchParams()
-    if (query) params.set('q', query)
-    if (cpfDigits) params.set('cpf', cpfDigits)
-    if (statusValue) params.set('status', statusValue)
-    if (toastType) params.set('toast', toastType)
-    if (toastId) params.set('id', toastId)
-    if (toastError) params.set('error', toastError)
-    if (page > 1) params.set('page', String(page))
-    const qs = params.toString()
-    return qs ? `/portal/ordens?${qs}` : '/portal/ordens'
+  const { data: rawOrders } = await baseQuery
+
+  const ordersList = rawOrders || []
+  const customerIds = [...new Set(ordersList.map((o: any) => o.customer_id).filter(Boolean))]
+  const deviceModelIds = [...new Set(ordersList.map((o: any) => o.device_model_id).filter(Boolean))]
+
+  let customersMap: Record<string, any> = {}
+  let deviceModelsMap: Record<string, any> = {}
+
+  if (customerIds.length > 0) {
+    const { data: customers } = await supabase
+      .from('customers')
+      .select('id, cpf, cnpj, is_company, full_name, company_name, email, mobile_phone')
+      .in('id', customerIds)
+    customersMap = (customers || []).reduce((acc: Record<string, any>, c: any) => {
+      acc[c.id] = c
+      return acc
+    }, {})
+  }
+
+  if (deviceModelIds.length > 0) {
+    const { data: deviceModels } = await supabase
+      .from('device_models')
+      .select('id, brand, device_type, model')
+      .in('id', deviceModelIds)
+    deviceModelsMap = (deviceModels || []).reduce((acc: Record<string, any>, d: any) => {
+      acc[d.id] = d
+      return acc
+    }, {})
+  }
+
+  const ordersWithRelations = ordersList.map((o: any) => ({
+    ...o,
+    customers: o.customer_id ? customersMap[o.customer_id] ?? null : null,
+    device_models: o.device_model_id ? deviceModelsMap[o.device_model_id] ?? null : null,
+  }))
+
+  const openOrdersByStatus: Record<string, typeof ordersWithRelations> = {}
+  for (const s of OPEN_STATUSES) {
+    openOrdersByStatus[s] = ordersWithRelations.filter((o: any) => o.status === s)
   }
 
   return (
@@ -159,11 +148,21 @@ export default async function OrdensPage({
         <CardHeader>
           <CardTitle>Buscar</CardTitle>
           <CardDescription>
-            Filtre por título/descrição, CPF ou CNPJ do cliente, ou status.
+            Filtre por título/descrição, número da OS, CPF ou CNPJ do cliente, ou status.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form action="/portal/ordens" method="get" className="grid gap-4 md:grid-cols-4">
+          <form action="/portal/ordens" method="get" className="grid gap-4 md:grid-cols-5">
+            <div className="space-y-2">
+              <Label htmlFor="osNumber">Número da OS</Label>
+              <Input
+                id="osNumber"
+                name="osNumber"
+                inputMode="numeric"
+                placeholder="Ex: 123"
+                defaultValue={osNumberValue}
+              />
+            </div>
             <div className="space-y-2 md:col-span-2">
               <Label htmlFor="q">Busca</Label>
               <Input
@@ -214,78 +213,14 @@ export default async function OrdensPage({
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Lista</CardTitle>
-          <CardDescription>
-            {total > 0 ? `${total} ordens • Página ${safePage} de ${totalPages}` : 'Últimas ordens cadastradas.'}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {orders && orders.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>OS</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Título</TableHead>
-                  <TableHead>Cliente</TableHead>
-                  <TableHead>Dispositivo</TableHead>
-                  <TableHead>CPF/CNPJ</TableHead>
-                  <TableHead>Criada</TableHead>
-                  <TableHead>Estimativa</TableHead>
-                  <TableHead>Data de finalização</TableHead>
-                  <TableHead className="text-right">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {orders.map((order: any) => (
-                  <OrdensTableRow key={order.id} order={order} />
-                ))}
-              </TableBody>
-            </Table>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-12 px-4">
-              <img src="/empty-ordens.svg" alt="" className="w-36 h-36 mx-auto mb-5 object-contain" aria-hidden />
-              <p className="text-base font-medium text-muted-foreground">Nenhuma ordem encontrada</p>
-              <p className="text-sm text-muted-foreground/80 mt-1.5 max-w-xs text-center">Cadastre uma nova ordem ou ajuste os filtros da busca.</p>
-              <Button asChild className="mt-4">
-                <Link href="/portal/ordens/nova">Nova ordem</Link>
-              </Button>
-            </div>
-          )}
-
-          {totalPages > 1 ? (
-            <div className="flex items-center justify-between gap-3 mt-6">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={safePage <= 1}
-                asChild={safePage > 1}
-              >
-                {safePage > 1
-                  ? <Link href={buildPageHref(safePage - 1)}>Anterior</Link>
-                  : <span>Anterior</span>}
-              </Button>
-
-              <div className="text-sm text-muted-foreground">
-                Página {safePage} de {totalPages}
-              </div>
-
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={safePage >= totalPages}
-                asChild={safePage < totalPages}
-              >
-                {safePage < totalPages
-                  ? <Link href={buildPageHref(safePage + 1)}>Próxima</Link>
-                  : <span>Próxima</span>}
-              </Button>
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
+      <OrdensListClient
+        openOrdersByStatus={openOrdersByStatus}
+        filterQ={query}
+        filterCpf={cpfDigits}
+        filterOsNumber={osNumberValue}
+        filterStatus={statusValue}
+        canDelete={role === 'admin'}
+      />
     </div>
   )
 }
