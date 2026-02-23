@@ -90,8 +90,12 @@ export default async function MinhasOrdensPage() {
               </TableHeader>
               <TableBody>
                 {orders.map((order) => (
-                  <TableRow key={order.id}>
-                    <TableCell className="font-medium">#{order.display_number ?? order.id}</TableCell>
+                  <TableRow key={order.id} className="hover:bg-muted/50">
+                    <TableCell className="font-medium">
+                      <Link href={`/portal/ordens/${order.id}`} className="block hover:underline focus:underline outline-none">
+                        #{order.display_number ?? order.id}
+                      </Link>
+                    </TableCell>
                     <TableCell>
                       <OrderStatusBadge status={order.status} />
                     </TableCell>

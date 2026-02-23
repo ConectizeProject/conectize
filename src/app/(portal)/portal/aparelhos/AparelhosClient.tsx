@@ -1,6 +1,7 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -46,12 +47,33 @@ function cleanText(value: string) {
   return String(value || '').trim()
 }
 
-export function AparelhosClient(props: { initialDeviceModels: DeviceModelRow[] }) {
+function buildAparelhosSearchParams(params: { brand: string; deviceType: string; modelQuery: string }) {
+  const sp = new URLSearchParams()
+  if (params.brand) sp.set('brand', params.brand)
+  if (params.deviceType) sp.set('deviceType', params.deviceType)
+  if (params.modelQuery) sp.set('q', params.modelQuery)
+  return sp.toString()
+}
+
+export function AparelhosClient(props: {
+  initialDeviceModels: DeviceModelRow[]
+  initialBrand?: string
+  initialDeviceType?: string
+  initialModelQuery?: string
+}) {
+  const router = useRouter()
+  const pathname = usePathname() || '/portal/aparelhos'
   const [rows, setRows] = useState<DeviceModelRow[]>(props.initialDeviceModels || [])
 
-  const [brand, setBrand] = useState('')
-  const [deviceType, setDeviceType] = useState('')
-  const [modelQuery, setModelQuery] = useState('')
+  const [brand, setBrand] = useState(props.initialBrand ?? '')
+  const [deviceType, setDeviceType] = useState(props.initialDeviceType ?? '')
+  const [modelQuery, setModelQuery] = useState(props.initialModelQuery ?? '')
+
+  useEffect(() => {
+    setBrand(props.initialBrand ?? '')
+    setDeviceType(props.initialDeviceType ?? '')
+    setModelQuery(props.initialModelQuery ?? '')
+  }, [props.initialBrand, props.initialDeviceType, props.initialModelQuery])
 
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [editingRow, setEditingRow] = useState<DeviceModelRow | null>(null)
@@ -295,11 +317,20 @@ export function AparelhosClient(props: { initialDeviceModels: DeviceModelRow[] }
             </div>
           </div>
 
-          <div className="mt-4 flex items-center gap-2">
+          <div className="mt-4 flex items-center gap-2 flex-wrap">
             <div className="text-sm text-muted-foreground">
               {filtered.length} de {rows.length} itens
             </div>
             <div className="flex-1" />
+            <Button
+              type="button"
+              onClick={() => {
+                const query = buildAparelhosSearchParams({ brand, deviceType, modelQuery })
+                router.push(query ? `${pathname}?${query}` : pathname)
+              }}
+            >
+              Buscar
+            </Button>
             <Button
               type="button"
               variant="outline"
@@ -307,6 +338,7 @@ export function AparelhosClient(props: { initialDeviceModels: DeviceModelRow[] }
                 setBrand('')
                 setDeviceType('')
                 setModelQuery('')
+                router.push(pathname)
               }}
             >
               Limpar

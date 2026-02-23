@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
+import { useRouter, usePathname } from 'next/navigation'
 import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -59,11 +60,14 @@ function UserTableRow({
   )
 }
 
+const DEBOUNCE_MS = 400
+
 type Props = {
   initialAdmins: UserRow[]
   initialStaff: UserRow[]
   currentUserId: string
   updateRoleAction: (formData: FormData) => void
+  initialEmailFilter?: string
 }
 
 export function UsuariosClient({
@@ -71,8 +75,40 @@ export function UsuariosClient({
   initialStaff,
   currentUserId,
   updateRoleAction,
+  initialEmailFilter = '',
 }: Props) {
-  const [emailFilter, setEmailFilter] = useState('')
+  const router = useRouter()
+  const pathname = usePathname() || '/portal/admin/usuarios'
+  const [emailFilter, setEmailFilter] = useState(initialEmailFilter)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isFirstMount = useRef(true)
+
+  useEffect(() => {
+    setEmailFilter(initialEmailFilter)
+  }, [initialEmailFilter])
+
+  useEffect(() => {
+    if (isFirstMount.current) {
+      isFirstMount.current = false
+      return
+    }
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null
+      const current = typeof window !== 'undefined' ? window.location.search : ''
+      const params = new URLSearchParams(current)
+      if (emailFilter.trim()) {
+        params.set('email', emailFilter.trim())
+      } else {
+        params.delete('email')
+      }
+      const query = params.toString()
+      router.push(query ? `${pathname}?${query}` : pathname)
+    }, DEBOUNCE_MS)
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [emailFilter, pathname, router])
   const [users, setUsers] = useState<UserRow[]>([])
   const [usersLoading, setUsersLoading] = useState(false)
   const [usersLoaded, setUsersLoaded] = useState(false)
