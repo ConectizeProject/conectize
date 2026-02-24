@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { portalFetch } from '@/lib/portal/portal-fetch'
 import { parse3utoolsText } from '@/lib/resale/parse-3utools'
 import { ArrowLeft, FileInput, Plus, Trash2 } from 'lucide-react'
@@ -49,6 +50,37 @@ function centsToReais(cents: number | null | undefined): string {
   return (cents / 100).toFixed(2).replace('.', ',')
 }
 
+function formatMoneyInput(raw: string): string {
+  const digits = raw.replace(/\D/g, '')
+  if (!digits) return ''
+  let int = digits
+  if (int.length === 1) int = `0${int}`
+  const cents = int.slice(-2)
+  let whole = int.slice(0, -2) || '0'
+  whole = whole.replace(/^0+/, '') || '0'
+  whole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+  return `${whole},${cents}`
+}
+
+function moneyToCentsFromMasked(value: string): number | null {
+  const digits = value.replace(/\D/g, '')
+  if (!digits) return null
+  return Number.parseInt(digits, 10)
+}
+
+function maskedFromCents(cents: number | null | undefined): string {
+  if (cents === null || cents === undefined) return ''
+  const sign = cents < 0 ? '-' : ''
+  const abs = Math.abs(cents)
+  const digits = String(abs)
+  let int = digits
+  if (int.length === 1) int = `0${int}`
+  const frac = int.slice(-2)
+  let whole = int.slice(0, -2) || '0'
+  whole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+  return `${sign}${whole},${frac}`
+}
+
 const emptyCost = (): CostRow => ({ description: '', value_cents: 0 })
 
 type Props = {
@@ -80,7 +112,7 @@ export function SeminovosFormClient({ deviceId, isCreate }: Props) {
   const [formExpectedProfitSale, setFormExpectedProfitSale] = useState('')
   const [formAdvertised, setFormAdvertised] = useState(false)
   const [formTested, setFormTested] = useState(false)
-  const [formLabel, setFormLabel] = useState('')
+  const [formLabel, setFormLabel] = useState(false)
   const [formSold, setFormSold] = useState(false)
   const [formActualProfit, setFormActualProfit] = useState('')
   const [formPurchaseDate, setFormPurchaseDate] = useState('')
@@ -112,7 +144,7 @@ export function SeminovosFormClient({ deviceId, isCreate }: Props) {
         setFormExpectedProfitSale(centsToReais(d.expected_profit_sale_cents))
         setFormAdvertised(Boolean(d.advertised))
         setFormTested(Boolean(d.tested))
-        setFormLabel(d.label ?? '')
+        setFormLabel(Boolean(d.label))
         setFormSold(Boolean(d.sold))
         setFormActualProfit(centsToReais(d.actual_profit_cents))
         setFormPurchaseDate(d.purchase_date ?? '')
@@ -153,13 +185,14 @@ export function SeminovosFormClient({ deviceId, isCreate }: Props) {
   function updateCost(index: number, field: 'description' | 'value_cents', value: string | number) {
     setFormCosts((prev) => {
       const next = [...prev]
-      if (field === 'description') next[index] = { ...next[index], description: String(value) }
-      else {
-        const v = typeof value === 'number' ? value : (() => {
-          const n = Number.parseFloat(String(value).replace(',', '.'))
-          return Number.isNaN(n) ? 0 : Math.round(n * 100)
-        })()
-        next[index] = { ...next[index], value_cents: v }
+      if (field === 'description') {
+        next[index] = { ...next[index], description: String(value) }
+      } else {
+        const cents =
+          typeof value === 'number'
+            ? value
+            : moneyToCentsFromMasked(String(value)) ?? 0
+        next[index] = { ...next[index], value_cents: cents }
       }
       return next
     })
@@ -178,8 +211,9 @@ export function SeminovosFormClient({ deviceId, isCreate }: Props) {
       }))
 
     function toReaisNum(s: string): number | null {
-      const n = Number.parseFloat(s.replace(',', '.'))
-      return Number.isNaN(n) ? null : n
+      const cents = moneyToCentsFromMasked(s)
+      if (cents === null) return null
+      return cents / 100
     }
 
     const payload = {
@@ -200,7 +234,7 @@ export function SeminovosFormClient({ deviceId, isCreate }: Props) {
       expected_profit_sale: toReaisNum(formExpectedProfitSale) ?? null,
       advertised: formAdvertised,
       tested: formTested,
-      label: formLabel.trim() || null,
+      label: formLabel ? '1' : null,
       sold: formSold,
       actual_profit: toReaisNum(formActualProfit) ?? null,
       purchase_date: formPurchaseDate.trim() || null,
@@ -243,6 +277,26 @@ export function SeminovosFormClient({ deviceId, isCreate }: Props) {
   }
 
   const totalCostsCents = formCosts.reduce((acc, c) => acc + (c.value_cents ?? 0), 0)
+
+  useEffect(() => {
+    const purchaseCents = moneyToCentsFromMasked(formPurchaseValue) ?? 0
+    const wholesaleCents = moneyToCentsFromMasked(formWholesaleValue)
+    const saleCents = moneyToCentsFromMasked(formSaleValue)
+
+    if (wholesaleCents != null) {
+      const diff = wholesaleCents - purchaseCents
+      setFormExpectedProfitWholesale(maskedFromCents(diff))
+    } else {
+      setFormExpectedProfitWholesale('')
+    }
+
+    if (saleCents != null) {
+      const diff = saleCents - purchaseCents
+      setFormExpectedProfitSale(maskedFromCents(diff))
+    } else {
+      setFormExpectedProfitSale('')
+    }
+  }, [formPurchaseValue, formWholesaleValue, formSaleValue])
 
   if (isLoadingDevice) {
     return (
@@ -322,11 +376,67 @@ export function SeminovosFormClient({ deviceId, isCreate }: Props) {
             </div>
             <div className="space-y-2">
               <Label htmlFor="formBattery">Bateria</Label>
-              <Input id="formBattery" value={formBattery} onChange={(e) => setFormBattery(e.target.value)} placeholder="Ex: 85%" />
+              <Input
+                id="formBattery"
+                inputMode="numeric"
+                value={formBattery}
+                onChange={(e) => {
+                  const digits = e.target.value.replace(/\D/g, '')
+                  if (!digits) {
+                    setFormBattery('')
+                    return
+                  }
+                  let n = Number.parseInt(digits, 10)
+                  if (Number.isNaN(n)) {
+                    setFormBattery('')
+                    return
+                  }
+                  if (n > 100) n = 100
+                  setFormBattery(`${n}%`)
+                }}
+                placeholder="Ex: 85%"
+              />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="formCondition">Estado</Label>
-              <Input id="formCondition" value={formCondition} onChange={(e) => setFormCondition(e.target.value)} placeholder="Ex: Bom" />
+              <div className="flex items-center gap-2">
+                <Label htmlFor="formCondition">Estado</Label>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        className="h-4 w-4 rounded-full border border-input text-[10px] flex items-center justify-center text-muted-foreground"
+                        aria-label="Ajuda sobre estados"
+                      >
+                        ?
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" align="start">
+                      <p className="text-xs font-semibold mb-1">Classificação do estado:</p>
+                      <p className="text-xs">A+: excelente, praticamente sem marcas.</p>
+                      <p className="text-xs">A: ótimo estado, leves sinais de uso.</p>
+                      <p className="text-xs">A-: bom estado, marcas de uso mais visíveis.</p>
+                      <p className="text-xs">B+: uso intenso, mas bem conservado.</p>
+                      <p className="text-xs">B: sinais claros de uso/desgaste.</p>
+                      <p className="text-xs">B-: bem marcado, muitos riscos ou amassados.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+              <select
+                id="formCondition"
+                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                value={formCondition}
+                onChange={(e) => setFormCondition(e.target.value)}
+              >
+                <option value="">Selecione</option>
+                <option value="A+">A+</option>
+                <option value="A">A</option>
+                <option value="A-">A-</option>
+                <option value="B+">B+</option>
+                <option value="B">B</option>
+                <option value="B-">B-</option>
+              </select>
             </div>
             <div className="space-y-2 sm:col-span-2">
               <Label htmlFor="formInfo">Informação</Label>
@@ -344,10 +454,6 @@ export function SeminovosFormClient({ deviceId, isCreate }: Props) {
               <Label htmlFor="formSerial">Serial</Label>
               <Input id="formSerial" value={formSerial} onChange={(e) => setFormSerial(e.target.value)} placeholder="Serial" />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="formLabel">Etiqueta</Label>
-              <Input id="formLabel" value={formLabel} onChange={(e) => setFormLabel(e.target.value)} placeholder="Etiqueta" />
-            </div>
           </CardContent>
         </Card>
 
@@ -359,27 +465,63 @@ export function SeminovosFormClient({ deviceId, isCreate }: Props) {
           <CardContent className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="formPurchaseValue">Valor Compra</Label>
-              <Input id="formPurchaseValue" value={formPurchaseValue} onChange={(e) => setFormPurchaseValue(e.target.value)} placeholder="0,00" />
+              <Input
+                id="formPurchaseValue"
+                inputMode="decimal"
+                value={formPurchaseValue}
+                onChange={(e) => setFormPurchaseValue(formatMoneyInput(e.target.value))}
+                placeholder="0,00"
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="formWholesaleValue">Valor Atacado</Label>
-              <Input id="formWholesaleValue" value={formWholesaleValue} onChange={(e) => setFormWholesaleValue(e.target.value)} placeholder="0,00" />
+              <Input
+                id="formWholesaleValue"
+                inputMode="decimal"
+                value={formWholesaleValue}
+                onChange={(e) => setFormWholesaleValue(formatMoneyInput(e.target.value))}
+                placeholder="0,00"
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="formExpectedProfitWholesale">Lucro Previsto (Atacado)</Label>
-              <Input id="formExpectedProfitWholesale" value={formExpectedProfitWholesale} onChange={(e) => setFormExpectedProfitWholesale(e.target.value)} placeholder="0,00" />
+              <Input
+                id="formExpectedProfitWholesale"
+                inputMode="decimal"
+                value={formExpectedProfitWholesale}
+                readOnly
+                placeholder="0,00"
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="formSaleValue">Valor Venda</Label>
-              <Input id="formSaleValue" value={formSaleValue} onChange={(e) => setFormSaleValue(e.target.value)} placeholder="0,00" />
+              <Input
+                id="formSaleValue"
+                inputMode="decimal"
+                value={formSaleValue}
+                onChange={(e) => setFormSaleValue(formatMoneyInput(e.target.value))}
+                placeholder="0,00"
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="formExpectedProfitSale">Lucro Previsto (Venda)</Label>
-              <Input id="formExpectedProfitSale" value={formExpectedProfitSale} onChange={(e) => setFormExpectedProfitSale(e.target.value)} placeholder="0,00" />
+              <Input
+                id="formExpectedProfitSale"
+                inputMode="decimal"
+                value={formExpectedProfitSale}
+                readOnly
+                placeholder="0,00"
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="formActualProfit">Lucro Real</Label>
-              <Input id="formActualProfit" value={formActualProfit} onChange={(e) => setFormActualProfit(e.target.value)} placeholder="0,00" />
+              <Input
+                id="formActualProfit"
+                inputMode="decimal"
+                value={formActualProfit}
+                onChange={(e) => setFormActualProfit(formatMoneyInput(e.target.value))}
+                placeholder="0,00"
+              />
             </div>
           </CardContent>
         </Card>
@@ -437,6 +579,10 @@ export function SeminovosFormClient({ deviceId, isCreate }: Props) {
               <div className="flex items-center space-x-2">
                 <Checkbox id="formTested" checked={formTested} onCheckedChange={(v) => setFormTested(Boolean(v))} />
                 <Label htmlFor="formTested">Testado</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Checkbox id="formLabel" checked={formLabel} onCheckedChange={(v) => setFormLabel(Boolean(v))} />
+                <Label htmlFor="formLabel">Etiqueta</Label>
               </div>
               <div className="flex items-center space-x-2">
                 <Checkbox id="formSold" checked={formSold} onCheckedChange={(v) => setFormSold(Boolean(v))} />
