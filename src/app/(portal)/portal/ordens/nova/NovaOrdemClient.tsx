@@ -35,6 +35,7 @@ import { onlyDigits } from '@/lib/utils/strings'
 
 const statusOptions = [
 	{ value: 'orcamento', label: 'Orçamento' },
+	{ value: 'aguardando_aprovacao', label: 'Aguardando aprovação' },
 	{ value: 'aprovado', label: 'Aprovado' },
 ] as const
 
@@ -110,7 +111,7 @@ const initialFormValues: FormValues = {
 const orderFormSchema = Yup.object().shape({
 	customerId: Yup.string().required('Selecione um cliente (CPF/CNPJ)'),
 	title: Yup.string().trim().required('Título é obrigatório').min(2, 'Título deve ter pelo menos 2 caracteres'),
-	status: Yup.string().oneOf(['orcamento', 'aprovado'], 'Status inválido').required('Status é obrigatório'),
+	status: Yup.string().oneOf(['orcamento', 'aguardando_aprovacao', 'aprovado'], 'Status inválido').required('Status é obrigatório'),
 	estimatedReadyAt: Yup.string().test(
 		'min-date',
 		'A previsão deve ser igual ou posterior à data de abertura.',

@@ -12,12 +12,14 @@ const OPEN_STATUS_ORDER = [
   'em_manutencao',
   'aprovado',
   'orcamento',
+  'aguardando_aprovacao',
   'aguardando_pecas',
   'aguardando_retirada',
 ] as const
 
 const STATUS_LABELS: Record<string, string> = {
   orcamento: 'Orçamento',
+  aguardando_aprovacao: 'Aguardando aprovação',
   aprovado: 'Aprovado',
   aguardando_pecas: 'Aguardando peças',
   em_manutencao: 'Em manutenção',
@@ -26,6 +28,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 const STATUS_DOT_CLASSES: Record<string, string> = {
   orcamento: 'bg-amber-400 shadow-[0_0_0.6rem_rgba(251,191,36,0.9)]',
+  aguardando_aprovacao: 'bg-violet-400 shadow-[0_0_0.6rem_rgba(167,139,250,0.9)]',
   aprovado: 'bg-blue-400 shadow-[0_0_0.6rem_rgba(96,165,250,0.9)]',
   aguardando_pecas: 'bg-orange-400 shadow-[0_0_0.6rem_rgba(251,146,60,0.9)]',
   em_manutencao: 'bg-indigo-400 shadow-[0_0_0.6rem_rgba(129,140,248,0.9)]',

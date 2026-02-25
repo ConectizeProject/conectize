@@ -19,6 +19,7 @@ export default async function DashboardPage() {
 
   const openStatuses = [
     'orcamento',
+    'aguardando_aprovacao',
     'aprovado',
     'aguardando_pecas',
     'em_manutencao',

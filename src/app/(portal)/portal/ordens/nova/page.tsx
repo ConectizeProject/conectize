@@ -69,7 +69,8 @@ async function createOrderAction(formData: FormData) {
   }
   if (!customerId) redirect('/portal/ordens/nova?error=customer_obrigatorio')
   if (!title) redirect('/portal/ordens/nova?error=title_obrigatorio')
-  if (status !== 'orcamento' && status !== 'aprovado') redirect('/portal/ordens/nova?error=status_invalido')
+  const validStatuses = ['orcamento', 'aguardando_aprovacao', 'aprovado']
+  if (!validStatuses.includes(status)) redirect('/portal/ordens/nova?error=status_invalido')
   if (estimatedReadyAt && new Date(estimatedReadyAt).getTime() < Date.now() - 60_000) {
     redirect('/portal/ordens/nova?error=previsao_invalida')
   }

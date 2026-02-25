@@ -26,6 +26,7 @@ export const dynamic = 'force-dynamic'
 
 function formatStatus(status: string) {
 	if (status === 'orcamento') return 'Orçamento'
+	if (status === 'aguardando_aprovacao') return 'Aguardando aprovação'
 	if (status === 'aprovado') return 'Aprovado'
 	if (status === 'aguardando_pecas') return 'Aguardando peças'
 	if (status === 'em_manutencao') return 'Em manutenção'
@@ -39,6 +40,7 @@ function formatStatus(status: string) {
 
 function isValidStatus(value: string) {
 	return value === 'orcamento' ||
+		value === 'aguardando_aprovacao' ||
 		value === 'aprovado' ||
 		value === 'aguardando_pecas' ||
 		value === 'em_manutencao' ||
