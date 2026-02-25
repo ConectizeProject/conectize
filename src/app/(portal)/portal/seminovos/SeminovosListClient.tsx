@@ -38,7 +38,7 @@ import { formatMoneyInput, maskedFromCents, moneyToCentsFromMasked } from '@/lib
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Copy, DollarSign, Eye, EyeOff, MessageCircle, MoreHorizontal, Pencil, Plus, Printer, Receipt, Trash2 } from 'lucide-react'
+import { Copy, DollarSign, Eye, EyeOff, MessageCircle, MoreHorizontal, Plus, Printer, Receipt, Trash2 } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 
 type CostRow = { id?: string; description: string; value_cents: number }
@@ -117,7 +117,7 @@ export function SeminovosListClient() {
   const [isSavingCost, setIsSavingCost] = useState(false)
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false)
   const [whatsAppText, setWhatsAppText] = useState('')
-  const [showFinancialData, setShowFinancialData] = useState(false)
+  const [showFinancialData, setShowFinancialData] = useState(true)
 
   const loadDevices = useCallback(async () => {
     setIsLoading(true)
@@ -276,38 +276,51 @@ export function SeminovosListClient() {
     const today = new Date()
     const dateStr = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}`
     const available = devices.filter((d) => !d.sold)
-    const byModelStorage = new Map<string, number>()
+    const byModelStorage = new Map<string, { name: string; storage: string; cents: number }>()
     for (const d of available) {
       const name = (d.device_name || '').trim() || 'Aparelho'
       const storage = d.storage_gb ? `${d.storage_gb}GB` : ''
-      const key = storage ? `${name} – ${storage}` : name
-      const price = Math.min(
-        d.sale_value_cents ?? Infinity,
-        d.wholesale_value_cents ?? Infinity
-      )
-      if (price !== Infinity) {
+      const key = `${name}|${storage}`
+      const price = d.wholesale_value_cents ?? 0
+      if (price > 0) {
         const current = byModelStorage.get(key)
-        if (current === undefined || price < current) byModelStorage.set(key, price)
+        if (current === undefined || price > current.cents) {
+          byModelStorage.set(key, { name, storage, cents: price })
+        }
       }
     }
-    const lines = Array.from(byModelStorage.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([label, cents]) => `${label} - A partir de R$ ${maskedFromCents(cents)}`)
-    const devicesBlock = lines.length > 0 ? lines.join('\n') : '(Nenhum aparelho disponível)'
+    const entries = Array.from(byModelStorage.values())
+      .sort((a, b) => {
+        const keyA = getModelSortKey(a.name)
+        const keyB = getModelSortKey(b.name)
+        if (keyA !== keyB) return keyA - keyB
+        const storageA = parseInt(a.storage, 10) || 0
+        const storageB = parseInt(b.storage, 10) || 0
+        if (storageA !== storageB) return storageA - storageB
+        return a.name.localeCompare(b.name)
+      })
+    const devicesBlock = entries.length > 0
+      ? entries.map((e) => `${e.name}\n${e.storage} – R$ ${maskedFromCents(e.cents)}`).join('\n\n')
+      : '(Nenhum aparelho disponível)'
     const text = `🟢 CONECTIZE ATACADO 🟢
 📅 Estoque atualizado – ${dateStr}
 
 🚨 LIBERADO HOJE
 
-📦 DISPONÍVEL:
+📦 MODELOS DISPONÍVEIS:
 
 ${devicesBlock}
 
 🔒 Seminovos revisados
 ✅ Garantia 90 dias
-
+🔋 Saúde de bateria mínima 80%
 ⚠️ Reservas por ordem de confirmação
-📲 Negociação no privado`
+
+🚨 PROMOÇÃO ESPECIAL
+Comprando 3 iPhones
+💰 R$100 OFF no total
+
+📲 Garanta o seu no privado`
     setWhatsAppText(text)
     setShowWhatsAppModal(true)
   }
@@ -639,7 +652,9 @@ ${devicesBlock}
                                     ) : (
                                       <>
                                         <span className="block text-xs leading-tight">{d.sale_value_cents != null ? `R$ ${centsToReais(d.sale_value_cents)}` : '-'}</span>
-                                        <span className="block text-xs leading-tight text-muted-foreground">{d.wholesale_value_cents != null ? `R$ ${centsToReais(d.wholesale_value_cents)}` : '-'}</span>
+                                        {showFinancialData && (
+                                          <span className="block text-xs leading-tight text-muted-foreground">{d.wholesale_value_cents != null ? `R$ ${centsToReais(d.wholesale_value_cents)}` : '-'}</span>
+                                        )}
                                       </>
                                     )}
                                   </span>
@@ -785,12 +800,14 @@ ${devicesBlock}
                                         placeholder="Varejo"
                                         className="h-8 text-xs"
                                       />
-                                      <Input
-                                        value={d.wholesale_value_cents != null ? centsToReais(d.wholesale_value_cents) : ''}
-                                        onChange={(e) => updateMoney(d.id, 'wholesale_value_cents', e.target.value)}
-                                        placeholder="Atacado"
-                                        className="h-8 text-xs"
-                                      />
+                                      {showFinancialData && (
+                                        <Input
+                                          value={d.wholesale_value_cents != null ? centsToReais(d.wholesale_value_cents) : ''}
+                                          onChange={(e) => updateMoney(d.id, 'wholesale_value_cents', e.target.value)}
+                                          placeholder="Atacado"
+                                          className="h-8 text-xs"
+                                        />
+                                      )}
                                     </>
                                   )}
                                 </div>
@@ -801,7 +818,9 @@ ${devicesBlock}
                                   ) : (
                                     <>
                                       <span>{d.sale_value_cents != null ? `R$ ${centsToReais(d.sale_value_cents)}` : '-'}</span>
-                                      <span className="text-muted-foreground">{d.wholesale_value_cents != null ? `R$ ${centsToReais(d.wholesale_value_cents)}` : '-'}</span>
+                                      {showFinancialData && (
+                                        <span className="text-muted-foreground">{d.wholesale_value_cents != null ? `R$ ${centsToReais(d.wholesale_value_cents)}` : '-'}</span>
+                                      )}
                                     </>
                                   )}
                                 </div>
@@ -866,12 +885,6 @@ ${devicesBlock}
                                   <DropdownMenuItem onClick={() => handleCopyDevice(d)}>
                                     <Copy className="h-3.5 w-3.5 mr-1.5" />
                                     Copiar dados
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem asChild>
-                                    <Link href={`/portal/seminovos/${d.id}`}>
-                                      <Pencil className="h-3.5 w-3.5 mr-1.5" />
-                                      Editar
-                                    </Link>
                                   </DropdownMenuItem>
                                   <DropdownMenuItem
                                     className="text-destructive focus:text-destructive"
