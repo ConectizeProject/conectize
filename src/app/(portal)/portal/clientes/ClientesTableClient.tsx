@@ -110,8 +110,12 @@ export function ClientesTableClient(props: { customers: CustomerRow[] }) {
 				</TableHeader>
 				<TableBody>
 					{rows.map((c) => (
-						<TableRow key={c.id}>
-							<TableCell className="font-medium">{c.is_company ? (c.company_name || '-') : (c.full_name || '-')}</TableCell>
+						<TableRow key={c.id} className="hover:bg-muted/50">
+							<TableCell className="font-medium">
+								<Link href={`/portal/clientes/${c.id}`} className="block hover:underline focus:underline outline-none">
+									{c.is_company ? (c.company_name || '-') : (c.full_name || '-')}
+								</Link>
+							</TableCell>
 							<TableCell>{formatCpfCnpj(String(c.cnpj || c.cpf))}</TableCell>
 							<TableCell>{c.email || '-'}</TableCell>
 							<TableCell>{c.auth_user_id ? 'Sim' : 'Não'}</TableCell>

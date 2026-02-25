@@ -43,9 +43,10 @@ async function updateRoleAction (formData: FormData) {
 export default async function AdminUsuariosPage ({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; ok?: string }>
+  searchParams: Promise<{ error?: string; ok?: string; email?: string }>
 }) {
-  const { error, ok } = await searchParams
+  const { error, ok, email } = await searchParams
+  const initialEmail = String(email ?? '').trim()
 
   const supabase = await createSupabaseServerClient()
   const { user } = await getAuthUser()
@@ -96,6 +97,7 @@ export default async function AdminUsuariosPage ({
         initialStaff={staff}
         currentUserId={user.id}
         updateRoleAction={updateRoleAction}
+        initialEmailFilter={initialEmail}
       />
     </div>
   )

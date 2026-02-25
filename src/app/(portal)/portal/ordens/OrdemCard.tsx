@@ -1,6 +1,6 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { OrderStatusBadge } from '@/components/orders'
 import { OrdensRowActions } from './OrdensRowActions'
@@ -36,8 +36,6 @@ type Props = {
 }
 
 export function OrdemCard({ order, canDelete }: Props) {
-  const router = useRouter()
-
   const customerName = order.customers?.full_name || order.customers?.company_name || '-'
   const deviceText = order.device_models
     ? [order.device_models.brand, order.device_models.device_type, order.device_models.model].filter(Boolean).join(' • ') || '-'
@@ -45,10 +43,8 @@ export function OrdemCard({ order, canDelete }: Props) {
   const cpfCnpj = formatCpfCnpj(String(order.customers?.cnpj || order.customers?.cpf))
 
   return (
-    <Card
-      className="cursor-pointer transition-colors hover:bg-muted/50"
-      onClick={() => router.push(`/portal/ordens/${order.id}`)}
-    >
+    <Link href={`/portal/ordens/${order.id}`} className="block transition-colors hover:opacity-95">
+    <Card className="cursor-pointer transition-colors hover:bg-muted/50 h-full">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <span className="font-semibold">#{order.display_number ?? order.id}</span>
         <div className="flex flex-row items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
@@ -90,5 +86,6 @@ export function OrdemCard({ order, canDelete }: Props) {
         </dl>
       </CardContent>
     </Card>
+    </Link>
   )
 }

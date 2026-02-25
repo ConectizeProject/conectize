@@ -4,12 +4,19 @@ import { AparelhosClient } from './AparelhosClient'
 
 export const dynamic = 'force-dynamic'
 
-export default async function AparelhosPage() {
+type SearchParams = Promise<{ brand?: string; deviceType?: string; q?: string }>
+
+export default async function AparelhosPage({ searchParams }: { searchParams: SearchParams }) {
   const { user, role } = await getPortalAuth()
   if (!user) redirect('/portal/login')
 
   const normalizedRole = role === 'customer' ? 'user' : role
   if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
+
+  const { brand, deviceType, q } = await searchParams
+  const initialBrand = String(brand ?? '').trim()
+  const initialDeviceType = String(deviceType ?? '').trim()
+  const initialModelQuery = String(q ?? '').trim()
 
   const supabase = await createSupabaseServerClient()
   const { data: deviceModels } = await supabase
@@ -20,6 +27,13 @@ export default async function AparelhosPage() {
     .order('model', { ascending: true })
     .limit(2000)
 
-  return <AparelhosClient initialDeviceModels={(deviceModels || []) as any} />
+  return (
+    <AparelhosClient
+      initialDeviceModels={(deviceModels || []) as any}
+      initialBrand={initialBrand}
+      initialDeviceType={initialDeviceType}
+      initialModelQuery={initialModelQuery}
+    />
+  )
 }
 
