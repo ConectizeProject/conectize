@@ -5,9 +5,13 @@ function cleanText(value: unknown): string {
   return String(value ?? '').trim()
 }
 
-function toCents(value: unknown): number | null {
+function toCents(value: unknown, alreadyCents = false): number | null {
   if (value === null || value === undefined || value === '') return null
-  const n = typeof value === 'number' ? value : Number.parseFloat(String(value))
+  if (typeof value === 'number') {
+    return alreadyCents ? Math.round(value) : Math.round(value * 100)
+  }
+  const s = String(value).trim().replace(/\./g, '').replace(',', '.')
+  const n = Number.parseFloat(s)
   if (Number.isNaN(n)) return null
   return Math.round(n * 100)
 }
@@ -100,16 +104,28 @@ export async function PATCH(
   if (body.imei !== undefined) row.imei = cleanText(body.imei) || null
   if (body.imei2 !== undefined) row.imei2 = cleanText(body.imei2) || null
   if (body.serial !== undefined) row.serial = cleanText(body.serial) || null
-  if (body.purchase_value_cents !== undefined || body.purchase_value !== undefined) row.purchase_value_cents = toCents(body.purchase_value_cents ?? body.purchase_value)
-  if (body.wholesale_value_cents !== undefined || body.wholesale_value !== undefined) row.wholesale_value_cents = toCents(body.wholesale_value_cents ?? body.wholesale_value)
-  if (body.expected_profit_wholesale_cents !== undefined || body.expected_profit_wholesale !== undefined) row.expected_profit_wholesale_cents = toCents(body.expected_profit_wholesale_cents ?? body.expected_profit_wholesale)
-  if (body.sale_value_cents !== undefined || body.sale_value !== undefined) row.sale_value_cents = toCents(body.sale_value_cents ?? body.sale_value)
-  if (body.expected_profit_sale_cents !== undefined || body.expected_profit_sale !== undefined) row.expected_profit_sale_cents = toCents(body.expected_profit_sale_cents ?? body.expected_profit_sale)
+  const isCents = (k: string) => body[k] !== undefined && typeof body[k] === 'number'
+  if (body.purchase_value_cents !== undefined || body.purchase_value !== undefined) row.purchase_value_cents = toCents(body.purchase_value_cents ?? body.purchase_value, isCents('purchase_value_cents'))
+  if (body.wholesale_value_cents !== undefined || body.wholesale_value !== undefined) row.wholesale_value_cents = toCents(body.wholesale_value_cents ?? body.wholesale_value, isCents('wholesale_value_cents'))
+  if (body.expected_profit_wholesale_cents !== undefined || body.expected_profit_wholesale !== undefined) row.expected_profit_wholesale_cents = toCents(body.expected_profit_wholesale_cents ?? body.expected_profit_wholesale, isCents('expected_profit_wholesale_cents'))
+  if (body.sale_value_cents !== undefined || body.sale_value !== undefined) row.sale_value_cents = toCents(body.sale_value_cents ?? body.sale_value, isCents('sale_value_cents'))
+  if (body.expected_profit_sale_cents !== undefined || body.expected_profit_sale !== undefined) row.expected_profit_sale_cents = toCents(body.expected_profit_sale_cents ?? body.expected_profit_sale, isCents('expected_profit_sale_cents'))
+  const soldForCents = body.sold_for_cents !== undefined || body.sold_for !== undefined
+    ? toCents(body.sold_for_cents ?? body.sold_for, isCents('sold_for_cents'))
+    : null
+  if (soldForCents !== null) row.sold_for_cents = soldForCents
+  if (soldForCents !== null) {
+    const { data: dev } = await auth.supabase.from('resale_devices').select('purchase_value_cents').eq('id', id).single()
+    const { data: costs } = await auth.supabase.from('resale_device_costs').select('value_cents').eq('resale_device_id', id)
+    const purchaseCents = (dev?.purchase_value_cents as number) ?? 0
+    const costsTotal = (costs || []).reduce((acc: number, c: { value_cents?: number }) => acc + (c.value_cents ?? 0), 0)
+    row.actual_profit_cents = soldForCents - purchaseCents - costsTotal
+  }
   if (body.advertised !== undefined) row.advertised = Boolean(body.advertised)
   if (body.tested !== undefined) row.tested = Boolean(body.tested)
   if (body.label !== undefined) row.label = cleanText(body.label) || null
   if (body.sold !== undefined) row.sold = Boolean(body.sold)
-  if (body.actual_profit_cents !== undefined || body.actual_profit !== undefined) row.actual_profit_cents = toCents(body.actual_profit_cents ?? body.actual_profit)
+  if (body.actual_profit_cents !== undefined || body.actual_profit !== undefined) row.actual_profit_cents = toCents(body.actual_profit_cents ?? body.actual_profit, isCents('actual_profit_cents'))
   if (body.purchase_date !== undefined) row.purchase_date = toDate(body.purchase_date)
   if (body.sale_date !== undefined) row.sale_date = toDate(body.sale_date)
 
@@ -121,7 +137,7 @@ export async function PATCH(
     .single()
 
   if (error) {
-    return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+    return NextResponse.json({ ok: false, error: 'db_error', details: error.message }, { status: 500 })
   }
   if (!updated) {
     return NextResponse.json({ ok: false, error: 'not_found' }, { status: 404 })

@@ -5,9 +5,13 @@ function cleanText(value: unknown): string {
   return String(value ?? '').trim()
 }
 
-function toCents(value: unknown): number | null {
+function toCents(value: unknown, alreadyCents = false): number | null {
   if (value === null || value === undefined || value === '') return null
-  const n = typeof value === 'number' ? value : Number.parseFloat(String(value))
+  if (typeof value === 'number') {
+    return alreadyCents ? Math.round(value) : Math.round(value * 100)
+  }
+  const s = String(value).trim().replace(/\./g, '').replace(',', '.')
+  const n = Number.parseFloat(s)
   if (Number.isNaN(n)) return null
   return Math.round(n * 100)
 }
@@ -63,6 +67,7 @@ export async function GET() {
       expected_profit_wholesale_cents,
       sale_value_cents,
       expected_profit_sale_cents,
+      sold_for_cents,
       advertised,
       tested,
       label,
@@ -129,16 +134,17 @@ export async function POST(request: Request) {
     imei: cleanText(body.imei) || null,
     imei2: cleanText(body.imei2) || null,
     serial: cleanText(body.serial) || null,
-    purchase_value_cents: toCents(body.purchase_value_cents ?? body.purchase_value),
-    wholesale_value_cents: toCents(body.wholesale_value_cents ?? body.wholesale_value),
-    expected_profit_wholesale_cents: toCents(body.expected_profit_wholesale_cents ?? body.expected_profit_wholesale),
-    sale_value_cents: toCents(body.sale_value_cents ?? body.sale_value),
-    expected_profit_sale_cents: toCents(body.expected_profit_sale_cents ?? body.expected_profit_sale),
+    purchase_value_cents: toCents(body.purchase_value_cents ?? body.purchase_value, !!body.purchase_value_cents),
+    wholesale_value_cents: toCents(body.wholesale_value_cents ?? body.wholesale_value, !!body.wholesale_value_cents),
+    expected_profit_wholesale_cents: toCents(body.expected_profit_wholesale_cents ?? body.expected_profit_wholesale, !!body.expected_profit_wholesale_cents),
+    sale_value_cents: toCents(body.sale_value_cents ?? body.sale_value, !!body.sale_value_cents),
+    expected_profit_sale_cents: toCents(body.expected_profit_sale_cents ?? body.expected_profit_sale, !!body.expected_profit_sale_cents),
+    sold_for_cents: toCents(body.sold_for_cents ?? body.sold_for, !!body.sold_for_cents),
     advertised: Boolean(body.advertised),
     tested: Boolean(body.tested),
     label: cleanText(body.label) || null,
     sold: Boolean(body.sold),
-    actual_profit_cents: toCents(body.actual_profit_cents ?? body.actual_profit),
+    actual_profit_cents: toCents(body.actual_profit_cents ?? body.actual_profit, !!body.actual_profit_cents),
     purchase_date: toDate(body.purchase_date),
     sale_date: toDate(body.sale_date),
   }

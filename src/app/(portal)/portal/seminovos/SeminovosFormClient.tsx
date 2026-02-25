@@ -9,10 +9,20 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { formatMoneyInput, maskedFromCents, moneyToCentsFromMasked } from '@/lib/utils/money'
+import { toast } from '@/hooks/use-toast'
 import { portalFetch } from '@/lib/portal/portal-fetch'
 import { parse3utoolsText } from '@/lib/resale/parse-3utools'
-import { ArrowLeft, FileInput, Plus, Trash2 } from 'lucide-react'
+import { ArrowLeft, DollarSign, FileInput, Plus, Trash2 } from 'lucide-react'
 
 type CostRow = { id?: string; description: string; value_cents: number }
 
@@ -34,6 +44,7 @@ type ResaleDevice = {
   expected_profit_wholesale_cents: number | null
   sale_value_cents: number | null
   expected_profit_sale_cents: number | null
+  sold_for_cents: number | null
   advertised: boolean
   tested: boolean
   label: string | null
@@ -48,37 +59,6 @@ type ResaleDevice = {
 function centsToReais(cents: number | null | undefined): string {
   if (cents === null || cents === undefined) return ''
   return (cents / 100).toFixed(2).replace('.', ',')
-}
-
-function formatMoneyInput(raw: string): string {
-  const digits = raw.replace(/\D/g, '')
-  if (!digits) return ''
-  let int = digits
-  if (int.length === 1) int = `0${int}`
-  const cents = int.slice(-2)
-  let whole = int.slice(0, -2) || '0'
-  whole = whole.replace(/^0+/, '') || '0'
-  whole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
-  return `${whole},${cents}`
-}
-
-function moneyToCentsFromMasked(value: string): number | null {
-  const digits = value.replace(/\D/g, '')
-  if (!digits) return null
-  return Number.parseInt(digits, 10)
-}
-
-function maskedFromCents(cents: number | null | undefined): string {
-  if (cents === null || cents === undefined) return ''
-  const sign = cents < 0 ? '-' : ''
-  const abs = Math.abs(cents)
-  const digits = String(abs)
-  let int = digits
-  if (int.length === 1) int = `0${int}`
-  const frac = int.slice(-2)
-  let whole = int.slice(0, -2) || '0'
-  whole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
-  return `${sign}${whole},${frac}`
 }
 
 const emptyCost = (): CostRow => ({ description: '', value_cents: 0 })
@@ -110,14 +90,18 @@ export function SeminovosFormClient({ deviceId, isCreate }: Props) {
   const [formExpectedProfitWholesale, setFormExpectedProfitWholesale] = useState('')
   const [formSaleValue, setFormSaleValue] = useState('')
   const [formExpectedProfitSale, setFormExpectedProfitSale] = useState('')
+  const [formSoldFor, setFormSoldFor] = useState('')
   const [formAdvertised, setFormAdvertised] = useState(false)
   const [formTested, setFormTested] = useState(false)
   const [formLabel, setFormLabel] = useState(false)
   const [formSold, setFormSold] = useState(false)
-  const [formActualProfit, setFormActualProfit] = useState('')
   const [formPurchaseDate, setFormPurchaseDate] = useState('')
   const [formSaleDate, setFormSaleDate] = useState('')
   const [formCosts, setFormCosts] = useState<CostRow[]>([emptyCost()])
+  const [showSellModal, setShowSellModal] = useState(false)
+  const [sellModalValue, setSellModalValue] = useState('')
+  const [sellModalDate, setSellModalDate] = useState('')
+  const [isSavingSell, setIsSavingSell] = useState(false)
 
   const loadDevice = useCallback(async () => {
     if (!deviceId) return
@@ -142,11 +126,11 @@ export function SeminovosFormClient({ deviceId, isCreate }: Props) {
         setFormExpectedProfitWholesale(centsToReais(d.expected_profit_wholesale_cents))
         setFormSaleValue(centsToReais(d.sale_value_cents))
         setFormExpectedProfitSale(centsToReais(d.expected_profit_sale_cents))
+        setFormSoldFor(centsToReais((d as { sold_for_cents?: number | null }).sold_for_cents))
         setFormAdvertised(Boolean(d.advertised))
         setFormTested(Boolean(d.tested))
         setFormLabel(Boolean(d.label))
         setFormSold(Boolean(d.sold))
-        setFormActualProfit(centsToReais(d.actual_profit_cents))
         setFormPurchaseDate(d.purchase_date ?? '')
         setFormSaleDate(d.sale_date ?? '')
         setFormCosts(
@@ -232,11 +216,18 @@ export function SeminovosFormClient({ deviceId, isCreate }: Props) {
       expected_profit_wholesale: toReaisNum(formExpectedProfitWholesale) ?? null,
       sale_value: toReaisNum(formSaleValue) ?? null,
       expected_profit_sale: toReaisNum(formExpectedProfitSale) ?? null,
+      sold_for: toReaisNum(formSoldFor) ?? null,
+      actual_profit: (() => {
+        const soldCents = moneyToCentsFromMasked(formSoldFor)
+        const purchaseCents = moneyToCentsFromMasked(formPurchaseValue) ?? 0
+        const costsCents = formCosts.reduce((acc, c) => acc + (c.value_cents ?? 0), 0)
+        if (soldCents === null) return null
+        return soldCents - purchaseCents - costsCents
+      })(),
       advertised: formAdvertised,
       tested: formTested,
       label: formLabel ? '1' : null,
       sold: formSold,
-      actual_profit: toReaisNum(formActualProfit) ?? null,
       purchase_date: formPurchaseDate.trim() || null,
       sale_date: formSaleDate.trim() || null,
       costs: costsPayload,
@@ -298,6 +289,62 @@ export function SeminovosFormClient({ deviceId, isCreate }: Props) {
     }
   }, [formPurchaseValue, formWholesaleValue, formSaleValue])
 
+  function openSellModal() {
+    const suggested = formSaleValue || formWholesaleValue || formSoldFor || ''
+    setSellModalValue(suggested)
+    setSellModalDate(new Date().toISOString().slice(0, 10))
+    setShowSellModal(true)
+  }
+
+  async function handleConfirmSell() {
+    if (!deviceId || isSavingSell) return
+    const valueCents = moneyToCentsFromMasked(sellModalValue)
+    if (valueCents === null) return
+    setIsSavingSell(true)
+    try {
+      const res = await portalFetch(`/api/portal/resale-devices/${deviceId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sold: true, sold_for_cents: valueCents, sale_date: sellModalDate || null }),
+      })
+      const data = await res?.json().catch(() => null)
+      if (data?.ok) {
+        setFormSold(true)
+        setFormSoldFor(sellModalValue)
+        setFormSaleDate(sellModalDate)
+        setShowSellModal(false)
+        toast({ description: 'Aparelho marcado como vendido', duration: 2000 })
+      } else {
+        setErrorMessage(data?.message || 'Não foi possível salvar.')
+      }
+    } catch {
+      setErrorMessage('Erro ao salvar.')
+    } finally {
+      setIsSavingSell(false)
+    }
+  }
+
+  async function handleCopyDeviceData() {
+    const lines = [
+      [formDeviceName, formStorageGb ? `${formStorageGb}GB` : '', formColor].filter(Boolean).join(' • '),
+      formBattery ? `Bateria: ${formBattery}` : '',
+      formCondition ? `Estado: ${formCondition}` : '',
+      formInfo ? `Info: ${formInfo}` : '',
+      formImei ? `IMEI: ${formImei}` : '',
+    ].filter(Boolean)
+
+    const text = lines.join('\n')
+    if (!text) return
+
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text)
+      }
+    } catch {
+      // ignore clipboard errors
+    }
+  }
+
   if (isLoadingDevice) {
     return (
       <div className="space-y-6">
@@ -353,9 +400,32 @@ export function SeminovosFormClient({ deviceId, isCreate }: Props) {
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <Card>
-          <CardHeader>
-            <CardTitle>Dados do aparelho</CardTitle>
-            <CardDescription>Modelo, identificação e estado.</CardDescription>
+          <CardHeader className="flex flex-row items-center justify-between gap-2">
+            <div>
+              <CardTitle>Dados do aparelho</CardTitle>
+              <CardDescription>Modelo, identificação e estado.</CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              {!isCreate && !formSold && (
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  onClick={openSellModal}
+                >
+                  <DollarSign className="h-4 w-4 mr-2" />
+                  Vendido
+                </Button>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleCopyDeviceData}
+              >
+                Copiar dados
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
@@ -460,7 +530,7 @@ export function SeminovosFormClient({ deviceId, isCreate }: Props) {
         <Card>
           <CardHeader>
             <CardTitle>Valores (R$)</CardTitle>
-            <CardDescription>Compra, atacado, venda e lucros.</CardDescription>
+            <CardDescription>Compra, atacado, varejo, valor da venda e lucros.</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
@@ -494,7 +564,7 @@ export function SeminovosFormClient({ deviceId, isCreate }: Props) {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="formSaleValue">Valor Venda</Label>
+              <Label htmlFor="formSaleValue">Valor Varejo</Label>
               <Input
                 id="formSaleValue"
                 inputMode="decimal"
@@ -504,22 +574,12 @@ export function SeminovosFormClient({ deviceId, isCreate }: Props) {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="formExpectedProfitSale">Lucro Previsto (Venda)</Label>
+              <Label htmlFor="formExpectedProfitSale">Lucro Previsto (Varejo)</Label>
               <Input
                 id="formExpectedProfitSale"
                 inputMode="decimal"
                 value={formExpectedProfitSale}
                 readOnly
-                placeholder="0,00"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="formActualProfit">Lucro Real</Label>
-              <Input
-                id="formActualProfit"
-                inputMode="decimal"
-                value={formActualProfit}
-                onChange={(e) => setFormActualProfit(formatMoneyInput(e.target.value))}
                 placeholder="0,00"
               />
             </div>
@@ -568,7 +628,7 @@ export function SeminovosFormClient({ deviceId, isCreate }: Props) {
         <Card>
           <CardHeader>
             <CardTitle>Status e datas</CardTitle>
-            <CardDescription>Anunciado, testado, vendido e datas de compra/venda.</CardDescription>
+            <CardDescription>Anunciado, testado, etiqueta e datas de compra/venda.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex flex-wrap gap-6">
@@ -584,10 +644,6 @@ export function SeminovosFormClient({ deviceId, isCreate }: Props) {
                 <Checkbox id="formLabel" checked={formLabel} onCheckedChange={(v) => setFormLabel(Boolean(v))} />
                 <Label htmlFor="formLabel">Etiqueta</Label>
               </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox id="formSold" checked={formSold} onCheckedChange={(v) => setFormSold(Boolean(v))} />
-                <Label htmlFor="formSold">Venda</Label>
-              </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
@@ -602,6 +658,44 @@ export function SeminovosFormClient({ deviceId, isCreate }: Props) {
           </CardContent>
         </Card>
 
+        {formSold && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Valor da venda</CardTitle>
+              <CardDescription>Valor pelo qual o aparelho foi vendido e lucro real.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="formSoldFor">Valor da venda</Label>
+                <Input
+                  id="formSoldFor"
+                  inputMode="decimal"
+                  value={formSoldFor}
+                  onChange={(e) => setFormSoldFor(formatMoneyInput(e.target.value))}
+                  placeholder="0,00"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="formActualProfit">Lucro real</Label>
+                <Input
+                  id="formActualProfit"
+                  inputMode="decimal"
+                  value={(() => {
+                    const soldCents = moneyToCentsFromMasked(formSoldFor)
+                    const purchaseCents = moneyToCentsFromMasked(formPurchaseValue) ?? 0
+                    const costsCents = formCosts.reduce((acc, c) => acc + (c.value_cents ?? 0), 0)
+                    if (soldCents === null) return ''
+                    const profit = soldCents - purchaseCents - costsCents
+                    return maskedFromCents(profit)
+                  })()}
+                  readOnly
+                  placeholder="0,00"
+                />
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         <div className="flex gap-3">
           <Button type="submit" disabled={isSaving}>
             {isSaving ? 'Salvando…' : isCreate ? 'Cadastrar' : 'Salvar'}
@@ -611,6 +705,51 @@ export function SeminovosFormClient({ deviceId, isCreate }: Props) {
           </Button>
         </div>
       </form>
+
+      <Dialog open={showSellModal} onOpenChange={(open) => !open && setShowSellModal(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Marcar como vendido</DialogTitle>
+            <DialogDescription>
+              Informe o valor e a data da venda. Sugestão preenchida com os valores previstos.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2">
+              <Label>Valor da venda</Label>
+              <Input
+                value={sellModalValue}
+                onChange={(e) => setSellModalValue(formatMoneyInput(e.target.value))}
+                placeholder="0,00"
+              />
+              {(formSaleValue || formWholesaleValue) && (
+                <p className="text-xs text-muted-foreground">
+                  Sugestão: valor varejo {formSaleValue ? `R$ ${formSaleValue}` : '-'}
+                  {formWholesaleValue && formSaleValue !== formWholesaleValue && (
+                    <> • valor atacado R$ {formWholesaleValue}</>
+                  )}
+                </p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label>Data da venda</Label>
+              <Input
+                type="date"
+                value={sellModalDate}
+                onChange={(e) => setSellModalDate(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setShowSellModal(false)} disabled={isSavingSell}>
+              Cancelar
+            </Button>
+            <Button type="button" onClick={handleConfirmSell} disabled={isSavingSell || !sellModalValue.trim()}>
+              {isSavingSell ? 'Salvando…' : 'Confirmar venda'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
