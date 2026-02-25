@@ -1,8 +1,8 @@
 import type { Metadata } from 'next'
-import Script from 'next/script'
 import { Outfit } from 'next/font/google'
 import { Providers } from '@/providers/providers'
 import { NuqsAdapter } from 'nuqs/adapters/next/app'
+import { GoogleAnalytics } from '@/components/GoogleAnalytics'
 import './globals.css'
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://conectize.com.br'
@@ -125,18 +125,7 @@ export default function RootLayout ({
   return (
     <html lang="pt-BR" className={outfit.variable} suppressHydrationWarning>
       <body>
-        <Script
-          src="https://www.googletagmanager.com/gtag/js?id=G-1E45FFLYQY"
-          strategy="afterInteractive"
-        />
-        <Script id="google-analytics" strategy="afterInteractive">
-          {`
-            window.dataLayer = window.dataLayer || [];
-            function gtag(){dataLayer.push(arguments);}
-            gtag('js', new Date());
-            gtag('config', 'G-1E45FFLYQY');
-          `}
-        </Script>
+        <GoogleAnalytics />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
