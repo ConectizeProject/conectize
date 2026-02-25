@@ -20,6 +20,23 @@ function getSupabaseEnv() {
 }
 
 /**
+ * Copia os cookies da resposta do Supabase para a resposta de redirect.
+ * Necessário para manter a sessão ao redirecionar - sem isso o refresh token
+ * pode ser perdido e o usuário é deslogado aleatoriamente.
+ */
+function copyCookiesToResponse(
+  source: NextResponse,
+  target: NextResponse
+) {
+  const setCookies = source.headers.getSetCookie?.()
+  if (setCookies) {
+    for (const cookie of setCookies) {
+      target.headers.append('Set-Cookie', cookie)
+    }
+  }
+}
+
+/**
  * Valida sessão via getClaims (JWT nos cookies, sem chamada ao Auth server).
  * Proxy roda em Node.js (Next.js 16+); getClaims() valida localmente.
  */
@@ -104,6 +121,7 @@ export async function proxy(request: NextRequest) {
       url.searchParams.set('redirectTo', pathname)
       const redirect = NextResponse.redirect(url)
       redirect.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')
+      copyCookiesToResponse(response, redirect)
       return redirect
     }
 
@@ -115,6 +133,7 @@ export async function proxy(request: NextRequest) {
       url.search = ''
       const redirect = NextResponse.redirect(url)
       redirect.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')
+      copyCookiesToResponse(response, redirect)
       return redirect
     }
 
@@ -131,6 +150,7 @@ export async function proxy(request: NextRequest) {
         url.search = ''
         const redirect = NextResponse.redirect(url)
         redirect.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')
+        copyCookiesToResponse(response, redirect)
         return redirect
       }
 
@@ -144,6 +164,7 @@ export async function proxy(request: NextRequest) {
         url.search = ''
         const redirect = NextResponse.redirect(url)
         redirect.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')
+        copyCookiesToResponse(response, redirect)
         return redirect
       }
       return response
