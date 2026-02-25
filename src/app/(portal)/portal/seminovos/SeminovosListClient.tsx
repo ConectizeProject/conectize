@@ -35,8 +35,11 @@ import { portalFetch } from '@/lib/portal/portal-fetch'
 import { getLabelWindowFeatures } from '@/lib/ordem-print'
 import { toast } from '@/hooks/use-toast'
 import { formatMoneyInput, maskedFromCents, moneyToCentsFromMasked } from '@/lib/utils/money'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Copy, DollarSign, MessageCircle, MoreHorizontal, Pencil, Plus, Printer, Receipt, Trash2 } from 'lucide-react'
+import { Copy, DollarSign, Eye, EyeOff, MessageCircle, MoreHorizontal, Pencil, Plus, Printer, Receipt, Trash2 } from 'lucide-react'
+import { Skeleton } from '@/components/ui/skeleton'
 
 type CostRow = { id?: string; description: string; value_cents: number }
 
@@ -56,6 +59,7 @@ type ResaleDevice = {
   wholesale_value_cents: number | null
   sale_value_cents: number | null
   sold_for_cents: number | null
+  actual_profit_cents?: number | null
   expected_profit_wholesale_cents: number | null
   sold: boolean
   purchase_date: string | null
@@ -103,6 +107,7 @@ export function SeminovosListClient() {
   const [isSavingBulk, setIsSavingBulk] = useState(false)
   const [editedDevices, setEditedDevices] = useState<ResaleDevice[]>([])
   const [sellModalTarget, setSellModalTarget] = useState<ResaleDevice | null>(null)
+  const [sellValueSource, setSellValueSource] = useState<'varejo' | 'atacado' | 'custom'>('varejo')
   const [sellValue, setSellValue] = useState('')
   const [sellDate, setSellDate] = useState('')
   const [isSavingSell, setIsSavingSell] = useState(false)
@@ -112,6 +117,7 @@ export function SeminovosListClient() {
   const [isSavingCost, setIsSavingCost] = useState(false)
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false)
   const [whatsAppText, setWhatsAppText] = useState('')
+  const [showFinancialData, setShowFinancialData] = useState(false)
 
   const loadDevices = useCallback(async () => {
     setIsLoading(true)
@@ -239,10 +245,25 @@ export function SeminovosListClient() {
   }
 
   function openSellModal(d: ResaleDevice) {
-    const suggested = d.sale_value_cents ?? d.wholesale_value_cents ?? null
-    setSellValue(suggested != null ? centsToReais(suggested) : '')
+    const varejo = d.sale_value_cents ?? null
+    const atacado = d.wholesale_value_cents ?? null
+    const source = varejo != null ? 'varejo' : atacado != null ? 'atacado' : 'custom'
+    setSellValueSource(source)
+    setSellValue(varejo != null ? centsToReais(varejo) : atacado != null ? centsToReais(atacado) : '')
     setSellDate(new Date().toISOString().slice(0, 10))
     setSellModalTarget(d)
+  }
+
+  function getSellValueCents(): number | null {
+    return moneyToCentsFromMasked(sellValue)
+  }
+
+  function getEffectiveSellValueCents(): number | null {
+    const d = sellModalTarget
+    if (!d) return getSellValueCents()
+    if (sellValueSource === 'varejo' && d.sale_value_cents != null) return d.sale_value_cents
+    if (sellValueSource === 'atacado' && d.wholesale_value_cents != null) return d.wholesale_value_cents
+    return getSellValueCents()
   }
 
   function openCostModal(d: ResaleDevice) {
@@ -325,7 +346,7 @@ ${devicesBlock}
   async function handleConfirmSell() {
     const d = sellModalTarget
     if (!d || isSavingSell) return
-    const valueCents = moneyToCentsFromMasked(sellValue)
+    const valueCents = getEffectiveSellValueCents()
     if (valueCents === null) return
     setIsSavingSell(true)
     try {
@@ -498,10 +519,24 @@ ${devicesBlock}
 
         <Card>
           <CardHeader>
-            <CardTitle>Lista de aparelhos</CardTitle>
-            <CardDescription>
-              {devices.length} aparelho(s) cadastrado(s).
-            </CardDescription>
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <CardTitle>Lista de aparelhos</CardTitle>
+                <CardDescription>
+                  {devices.length} aparelho(s) cadastrado(s).
+                </CardDescription>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowFinancialData((v) => !v)}
+                title={showFinancialData ? 'Ocultar valores financeiros' : 'Exibir valores financeiros'}
+                aria-label={showFinancialData ? 'Ocultar valores financeiros' : 'Exibir valores financeiros'}
+              >
+                {showFinancialData ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -515,7 +550,7 @@ ${devicesBlock}
               </p>
             ) : (
               <>
-                <ResumoFinanceiro devices={devices} />
+                <ResumoFinanceiro devices={devices} showValues={showFinancialData} />
                 <div className="overflow-x-auto">
                   <Table>
                     <colgroup>
@@ -594,7 +629,9 @@ ${devicesBlock}
                                     ) : '-'}
                                   </span>
                                   <span className="max-w-[220px] truncate min-w-0" title={d.info || ''}>{d.info || '-'}</span>
-                                  <span className="min-w-0">{d.purchase_value_cents != null ? `R$ ${centsToReais(d.purchase_value_cents)}` : '-'}</span>
+                                  <span className="min-w-0">
+                                    {showFinancialData ? (d.purchase_value_cents != null ? `R$ ${centsToReais(d.purchase_value_cents)}` : '-') : <Skeleton className="h-4 w-16" />}
+                                  </span>
                                   <span className="min-w-0">{totalCostsCents > 0 ? `R$ ${centsToReais(totalCostsCents)}` : '-'}</span>
                                   <span className="whitespace-nowrap min-w-0">
                                     {d.sold ? (
@@ -713,14 +750,18 @@ ${devicesBlock}
                               )}
                             </TableCell>
                             <TableCell>
-                              {isBulkEdit ? (
-                                <Input
-                                  value={d.purchase_value_cents != null ? centsToReais(d.purchase_value_cents) : ''}
-                                  onChange={(e) => updateMoney(d.id, 'purchase_value_cents', e.target.value)}
-                                  placeholder="0,00"
-                                />
+                              {showFinancialData ? (
+                                isBulkEdit ? (
+                                  <Input
+                                    value={d.purchase_value_cents != null ? centsToReais(d.purchase_value_cents) : ''}
+                                    onChange={(e) => updateMoney(d.id, 'purchase_value_cents', e.target.value)}
+                                    placeholder="0,00"
+                                  />
+                                ) : (
+                                  d.purchase_value_cents != null ? `R$ ${centsToReais(d.purchase_value_cents)}` : '-'
+                                )
                               ) : (
-                                d.purchase_value_cents != null ? `R$ ${centsToReais(d.purchase_value_cents)}` : '-'
+                                <Skeleton className="h-8 w-20" />
                               )}
                             </TableCell>
                             <TableCell>
@@ -931,40 +972,89 @@ ${devicesBlock}
           <DialogHeader>
             <DialogTitle>Marcar como vendido</DialogTitle>
             <DialogDescription>
-              Informe o valor e a data da venda. Sugestão preenchida com valor previsto.
+              Escolha o valor da venda ou informe manualmente. A data da venda será registrada.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Valor da venda</label>
-              <Input
-                value={sellValue}
-                onChange={(e) => setSellValue(formatMoneyInput(e.target.value))}
-                placeholder="0,00"
-              />
-              {sellModalTarget && (sellModalTarget.sale_value_cents != null || sellModalTarget.wholesale_value_cents != null) && (
-                <p className="text-xs text-muted-foreground">
-                  Sugestão: valor varejo {sellModalTarget.sale_value_cents != null ? `R$ ${centsToReais(sellModalTarget.sale_value_cents)}` : '-'}
-                  {sellModalTarget.wholesale_value_cents != null && sellModalTarget.sale_value_cents !== sellModalTarget.wholesale_value_cents && (
-                    <> • valor atacado R$ {centsToReais(sellModalTarget.wholesale_value_cents)}</>
-                  )}
-                </p>
+            <div className="space-y-3">
+              <Label>Valor da venda</Label>
+              <RadioGroup
+                value={sellValueSource}
+                onValueChange={(v: 'varejo' | 'atacado' | 'custom') => {
+                  setSellValueSource(v)
+                  const d = sellModalTarget
+                  if (!d) return
+                  if (v === 'varejo' && d.sale_value_cents != null) setSellValue(centsToReais(d.sale_value_cents))
+                  else if (v === 'atacado' && d.wholesale_value_cents != null) setSellValue(centsToReais(d.wholesale_value_cents))
+                  else if (v === 'custom') setSellValue('')
+                }}
+                className="flex flex-col gap-2"
+              >
+                {sellModalTarget?.sale_value_cents != null && (
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="varejo" id="sell-varejo" />
+                    <Label htmlFor="sell-varejo" className="font-normal cursor-pointer">
+                      Varejo – R$ {centsToReais(sellModalTarget.sale_value_cents)}
+                    </Label>
+                  </div>
+                )}
+                {sellModalTarget?.wholesale_value_cents != null && (
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="atacado" id="sell-atacado" />
+                    <Label htmlFor="sell-atacado" className="font-normal cursor-pointer">
+                      Atacado – R$ {centsToReais(sellModalTarget.wholesale_value_cents)}
+                    </Label>
+                  </div>
+                )}
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="custom" id="sell-custom" />
+                  <Label htmlFor="sell-custom" className="font-normal cursor-pointer">
+                    Outro valor
+                  </Label>
+                </div>
+              </RadioGroup>
+              {(sellValueSource === 'custom' || (sellValueSource === 'varejo' && sellModalTarget?.sale_value_cents == null) || (sellValueSource === 'atacado' && sellModalTarget?.wholesale_value_cents == null)) && (
+                <Input
+                  value={sellValue}
+                  onChange={(e) => setSellValue(formatMoneyInput(e.target.value))}
+                  placeholder="0,00"
+                  className="mt-1"
+                />
               )}
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Data da venda</label>
+              <Label htmlFor="sell-date">Data da venda</Label>
               <Input
+                id="sell-date"
                 type="date"
                 value={sellDate}
                 onChange={(e) => setSellDate(e.target.value)}
               />
             </div>
+            {sellModalTarget && (() => {
+              const soldCents = getEffectiveSellValueCents()
+              const purchaseCents = sellModalTarget.purchase_value_cents ?? 0
+              const costsCents = (sellModalTarget.costs || []).reduce((acc, c) => acc + (c.value_cents ?? 0), 0)
+              const lucroCents = soldCents != null ? soldCents - purchaseCents - costsCents : null
+              return (
+                <div className="rounded-lg border bg-muted/50 px-4 py-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Lucro real</p>
+                  <p className={`text-lg font-bold ${lucroCents != null ? (lucroCents >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400') : ''}`}>
+                    {lucroCents != null ? `R$ ${maskedFromCents(lucroCents)}` : '-'}
+                  </p>
+                </div>
+              )
+            })()}
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setSellModalTarget(null)} disabled={isSavingSell}>
               Cancelar
             </Button>
-            <Button type="button" onClick={handleConfirmSell} disabled={isSavingSell || !sellValue.trim()}>
+            <Button
+              type="button"
+              onClick={handleConfirmSell}
+              disabled={isSavingSell || getEffectiveSellValueCents() === null}
+            >
               {isSavingSell ? 'Salvando…' : 'Confirmar venda'}
             </Button>
           </DialogFooter>
@@ -993,9 +1083,10 @@ ${devicesBlock}
 
 type ResumoProps = {
   devices: ResaleDevice[]
+  showValues: boolean
 }
 
-function ResumoFinanceiro({ devices }: ResumoProps) {
+function ResumoFinanceiro({ devices, showValues }: ResumoProps) {
   const disponiveis = devices.filter((d) => !d.sold)
   const qtd = disponiveis.length
   const estoqueCents = disponiveis.reduce(
@@ -1007,20 +1098,47 @@ function ResumoFinanceiro({ devices }: ResumoProps) {
     0
   )
 
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = now.getMonth() + 1
+  const soldThisMonth = devices.filter((d) => {
+    if (!d.sold || !d.sale_date) return false
+    const [y, m] = d.sale_date.split('-').map(Number)
+    return y === year && m === month
+  })
+  const vendasMesCents = soldThisMonth.reduce((acc, d) => acc + (d.sold_for_cents ?? 0), 0)
+  const vendasMesQty = soldThisMonth.length
+  const lucroRealMesCents = soldThisMonth.reduce(
+    (acc, d) => acc + (d.actual_profit_cents ?? 0),
+    0
+  )
+
+  const blocks = [
+    { title: 'Disponíveis', value: String(qtd), sub: undefined as string | undefined, color: 'bg-emerald-500/15 border-emerald-500/30 text-emerald-700 dark:text-emerald-400', hideValue: false },
+    { title: 'Valor em estoque', value: `R$ ${centsToReais(estoqueCents)}`, sub: undefined, color: 'bg-blue-500/15 border-blue-500/30 text-blue-700 dark:text-blue-400', hideValue: true },
+    { title: 'Margem prevista (atacado)', value: `R$ ${centsToReais(margemPrevistaCents)}`, sub: undefined, color: 'bg-violet-500/15 border-violet-500/30 text-violet-700 dark:text-violet-400', hideValue: true },
+    { title: 'Vendas no mês', value: `R$ ${centsToReais(vendasMesCents)}`, sub: `${vendasMesQty} venda(s)`, color: 'bg-amber-500/15 border-amber-500/30 text-amber-700 dark:text-amber-400', hideValue: true },
+    { title: 'Lucro real (vendas do mês)', value: `R$ ${centsToReais(lucroRealMesCents)}`, sub: undefined, color: 'bg-green-600/20 border-green-600/40 text-green-800 dark:text-green-300', hideValue: true },
+  ]
+
   return (
-    <div className="flex flex-wrap gap-4 items-center mb-3 text-sm">
-      <div>
-        <span className="font-medium">Disponíveis:</span>{' '}
-        <span>{qtd}</span>
-      </div>
-      <div>
-        <span className="font-medium">Valor em estoque:</span>{' '}
-        <span>R$ {centsToReais(estoqueCents)}</span>
-      </div>
-      <div>
-        <span className="font-medium">Margem prevista (atacado):</span>{' '}
-        <span>R$ {centsToReais(margemPrevistaCents)}</span>
-      </div>
+    <div className="flex flex-wrap gap-3 mb-4">
+      {blocks.map((b) => (
+        <div
+          key={b.title}
+          className={`rounded-lg border px-4 py-3 min-w-[140px] ${b.color}`}
+        >
+          <p className="text-xs font-medium uppercase tracking-wide opacity-80">{b.title}</p>
+          {showValues || !b.hideValue ? (
+            <>
+              <p className="text-xl font-bold mt-0.5">{b.value}</p>
+              {b.sub != null && <p className="text-xs mt-0.5 opacity-90">{b.sub}</p>}
+            </>
+          ) : (
+            <Skeleton className="h-7 w-20 mt-1" />
+          )}
+        </div>
+      ))}
     </div>
   )
 }
