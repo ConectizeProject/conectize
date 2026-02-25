@@ -80,7 +80,10 @@ export function parse3utoolsText(text: string): Parsed3utools {
   for (const line of lines) {
     const trimmed = line.trim()
     if (!trimmed) continue
-    const match = trimmed.match(/^(.+?)\s{2,}(.+)$/) || trimmed.match(/^([^\t]+)\t+(.+)$/)
+    const match =
+      trimmed.match(/^(.+?)\s{2,}(.+)$/) ||
+      trimmed.match(/^([^\t]+)\t+(.+)$/) ||
+      trimmed.match(/^(.+?):\s*(.+)$/)
     if (match) {
       const key = match[1].trim()
       const value = match[2].trim()
@@ -96,6 +99,13 @@ export function parse3utoolsText(text: string): Parsed3utools {
   const colorCode = map['DeviceColor'] || map['DeviceEnclosureColor'] || ''
   const colorFromMap = DEVICE_COLOR_MAP[colorCode] || (colorCode ? colorCode : undefined)
 
+  const modelNumber =
+    map['ModelNumber'] ||
+    map['Model Number'] ||
+    map['ModelNumber:'] ||
+    map['Model number'] ||
+    undefined
+
   return {
     model: firstLineParsed ? firstLineParsed.model : modelFromProductType,
     color: firstLineParsed ? firstLineParsed.color : colorFromMap,
@@ -103,7 +113,7 @@ export function parse3utoolsText(text: string): Parsed3utools {
     imei: map['InternationalMobileEquipmentIdentity'] || undefined,
     imei2: map['InternationalMobileEquipmentIdentity2'] || undefined,
     serial: map['SerialNumber'] || undefined,
-    modelNumber: map['ModelNumber'] || undefined,
+    modelNumber: modelNumber || undefined,
     deviceClass: deviceClass || undefined,
     productType: productTypeRaw ? productType : undefined,
   }

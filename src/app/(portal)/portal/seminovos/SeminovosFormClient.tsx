@@ -151,6 +151,7 @@ export function SeminovosFormClient({ deviceId, isCreate }: Props) {
   function handleParse3utools() {
     const parsed = parse3utoolsText(threeUtoolsRaw)
     if (parsed.model) setFormDeviceName(parsed.model)
+    if (parsed.modelNumber) setFormModel(parsed.modelNumber)
     if (parsed.color) setFormColor(parsed.color)
     if (parsed.storage_gb) setFormStorageGb(parsed.storage_gb)
     if (parsed.imei) setFormImei(parsed.imei)
