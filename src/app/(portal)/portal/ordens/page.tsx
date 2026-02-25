@@ -9,7 +9,7 @@ import { OrdensListClient } from './OrdensListClient'
 import { OrdensToastClient } from './OrdensToastClient'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 
-const OPEN_STATUSES = ['orcamento', 'aprovado', 'aguardando_pecas', 'em_manutencao', 'aguardando_retirada'] as const
+const OPEN_STATUSES = ['orcamento', 'aguardando_aprovacao', 'aprovado', 'aguardando_pecas', 'em_manutencao', 'aguardando_retirada'] as const
 const LIMIT_OPEN = 500
 
 function normalizeCpf(value: string) {
@@ -192,6 +192,7 @@ export default async function OrdensPage({
               >
                 <option value="">Todos</option>
                 <option value="orcamento">Orçamento</option>
+                <option value="aguardando_aprovacao">Aguardando aprovação</option>
                 <option value="aprovado">Aprovado</option>
                 <option value="aguardando_pecas">Aguardando peças</option>
                 <option value="em_manutencao">Em manutenção</option>

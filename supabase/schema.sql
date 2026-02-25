@@ -398,6 +398,7 @@ create table if not exists public.service_orders (
   customer_id uuid not null references public.customers(id) on delete restrict,
   status text not null default 'orcamento' check (status in (
     'orcamento',
+    'aguardando_aprovacao',
     'aprovado',
     'aguardando_pecas',
     'em_manutencao',
@@ -566,6 +567,7 @@ alter table public.service_orders alter column status set default 'orcamento';
 alter table public.service_orders drop constraint if exists service_orders_status_check;
 alter table public.service_orders add constraint service_orders_status_check check (status in (
   'orcamento',
+  'aguardando_aprovacao',
   'aprovado',
   'aguardando_pecas',
   'em_manutencao',

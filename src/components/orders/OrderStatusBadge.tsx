@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils'
 
 const STATUS_LABELS: Record<string, string> = {
   orcamento: 'Orçamento',
+  aguardando_aprovacao: 'Aguardando aprovação',
   aprovado: 'Aprovado',
   aguardando_pecas: 'Aguardando peças',
   em_manutencao: 'Em manutenção',
@@ -15,6 +16,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 const STATUS_CLASSES: Record<string, string> = {
   orcamento: 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300',
+  aguardando_aprovacao: 'border-violet-200 bg-violet-50 text-violet-800 dark:border-violet-800 dark:bg-violet-950/50 dark:text-violet-300',
   aprovado: 'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300',
   aguardando_pecas: 'border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-800 dark:bg-orange-950/50 dark:text-orange-300',
   em_manutencao: 'border-indigo-200 bg-indigo-50 text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-300',

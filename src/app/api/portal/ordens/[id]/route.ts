@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 
 const VALID_STATUSES = new Set([
-  'orcamento', 'aprovado', 'aguardando_pecas', 'em_manutencao',
+  'orcamento', 'aguardando_aprovacao', 'aprovado', 'aguardando_pecas', 'em_manutencao',
   'aguardando_retirada', 'finalizada', 'finalizada_sem_conserto',
   'finalizada_sem_aprovacao', 'cancelada',
 ])

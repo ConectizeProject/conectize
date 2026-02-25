@@ -30,6 +30,7 @@ import { formatPhoneForWhatsApp } from '@/lib/utils/format-phone'
 
 const STATUS_LABELS: Record<string, string> = {
   orcamento: 'Orçamento',
+  aguardando_aprovacao: 'Aguardando aprovação',
   aprovado: 'Aprovado',
   aguardando_pecas: 'Aguardando peças',
   em_manutencao: 'Em manutenção',
