@@ -49,6 +49,7 @@ export default async function SeminovosPage({
       initialDevices={devices}
       initialStats={stats}
       filterInitialValues={filters}
+      role={normalizedRole}
     />
   )
 }
