@@ -12,6 +12,24 @@ function normalizeDocument(value: string) {
   return value.replace(/\D/g, '').trim()
 }
 
+function parsePaymentMethodsJson(raw: unknown): Array<{ payment_method_id: string; installments?: number; value_cents?: number | null }> {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(String(raw))
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .filter((item: unknown) => item && typeof item === 'object' && (item as any).payment_method_id)
+      .map((item: any) => ({
+        payment_method_id: String(item.payment_method_id).trim(),
+        installments: item.installments != null ? Math.max(1, Math.min(24, Number(item.installments) || 1)) : undefined,
+        value_cents: item.value_cents != null ? Math.max(0, Number(item.value_cents) || 0) : null,
+      }))
+      .filter((item) => item.payment_method_id)
+  } catch {
+    return []
+  }
+}
+
 function parseServicesJson(raw: unknown) {
   if (!raw) return { items: [], totalValueCents: 0, totalCostCents: 0 }
 
@@ -54,6 +72,7 @@ async function createOrderAction(formData: FormData) {
   const passcodeType = String(formData.get('passcodeType') || '').trim()
   const passcodeText = String(formData.get('passcodeText') || '').trim()
   const passcodePattern = String(formData.get('passcodePattern') || '').trim()
+  const paymentMethodsJson = formData.get('paymentMethodsJson')
   const servicesJson = formData.get('servicesJson')
   const services = parseServicesJson(servicesJson)
 
@@ -114,6 +133,7 @@ async function createOrderAction(formData: FormData) {
       passcode_type: (passcodeType === 'text' || passcodeType === 'pattern') ? passcodeType : null,
       passcode_text: passcodeType === 'text' ? (passcodeText || null) : null,
       passcode_pattern: passcodeType === 'pattern' ? (passcodePattern || null) : null,
+      payment_methods: parsePaymentMethodsJson(paymentMethodsJson),
       customer_description: customerDescription || null,
       internal_description: internalDescription || null,
       receiving_notes: receivingNotes || null,

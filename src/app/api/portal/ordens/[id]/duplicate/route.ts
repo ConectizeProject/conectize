@@ -38,7 +38,7 @@ export async function GET(
   const { data: order, error } = await auth.supabase
     .from('service_orders')
     .select(
-      'id, customer_id, title, status, device_model_id, imei, color, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, customer_description, internal_description, receiving_notes, services, brand, model, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full ), device_models ( id, brand, device_type, model )'
+      'id, customer_id, title, status, device_model_id, imei, color, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, payment_methods, customer_description, internal_description, receiving_notes, services, brand, model, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full ), device_models ( id, brand, device_type, model )'
     )
     .eq('id', id)
     .maybeSingle()
@@ -88,6 +88,17 @@ export async function GET(
     passcodeType: order.passcode_type === 'text' || order.passcode_type === 'pattern' ? order.passcode_type : 'none',
     passcodeText: order.passcode_type === 'text' ? (order.passcode_text ?? '') : '',
     passcodePattern: order.passcode_type === 'pattern' ? (order.passcode_pattern ?? '') : '',
+    paymentMethods: (() => {
+      const pm = order.payment_methods
+      if (Array.isArray(pm) && pm.length > 0) {
+        return pm.filter((e: any) => e?.payment_method_id).map((e: any) => ({
+          payment_method_id: e.payment_method_id,
+          installments: e.installments ?? 1,
+          value_cents: e.value_cents != null ? Math.max(0, Number(e.value_cents) || 0) : null,
+        }))
+      }
+      return []
+    })(),
     customerDescription: order.customer_description ?? '',
     internalDescription: order.internal_description ?? '',
     receivingNotes: order.receiving_notes ?? '',
