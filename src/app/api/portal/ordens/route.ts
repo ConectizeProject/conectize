@@ -35,12 +35,30 @@ export async function GET(request: NextRequest) {
   const cpf = (searchParams.get('cpf') ?? '').replace(/\D/g, '').trim()
   const osNumber = searchParams.get('osNumber')?.trim() ?? ''
   const statusFilter = searchParams.get('status')?.trim() ?? ''
+  const filterCustomerId = searchParams.get('customerId')?.trim() ?? ''
+  const filterCustomerName = searchParams.get('customerName')?.trim() ?? ''
+  const filterDeviceModelId = searchParams.get('deviceModelId')?.trim() ?? ''
+  const filterCreatedFrom = searchParams.get('createdFrom')?.trim() ?? ''
+  const filterCreatedTo = searchParams.get('createdTo')?.trim() ?? ''
+  const filterReadyFrom = searchParams.get('readyFrom')?.trim() ?? ''
+  const filterReadyTo = searchParams.get('readyTo')?.trim() ?? ''
 
   const FINAL_STATUSES = ['finalizada', 'finalizada_sem_conserto', 'finalizada_sem_aprovacao', 'cancelada']
+  const isValidDate = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v)
 
   if (statusGroup === 'final') {
     let customerIdsFilter: string[] | null = null
-    if (cpf) {
+    if (filterCustomerId) {
+      customerIdsFilter = [filterCustomerId]
+    } else if (filterCustomerName && filterCustomerName.length >= 2) {
+      const escaped = filterCustomerName.replace(/%/g, '\\%').replace(/_/g, '\\_')
+      const { data: custList } = await auth.supabase
+        .from('customers')
+        .select('id')
+        .or(`full_name.ilike.%${escaped}%,company_name.ilike.%${escaped}%,trade_name.ilike.%${escaped}%`)
+        .limit(100)
+      customerIdsFilter = custList && custList.length > 0 ? custList.map((c: { id: string }) => c.id) : []
+    } else if (cpf) {
       const { data: custList } = await auth.supabase
         .from('customers')
         .select('id')
@@ -71,7 +89,26 @@ export async function GET(request: NextRequest) {
     if (statusFilter && FINAL_STATUSES.includes(statusFilter)) {
       baseQuery.eq('status', statusFilter)
     }
-    if (customerIdsFilter) baseQuery.in('customer_id', customerIdsFilter)
+    if (customerIdsFilter !== null) {
+      if (customerIdsFilter.length === 0) {
+        baseQuery.eq('customer_id', '00000000-0000-0000-0000-000000000000')
+      } else {
+        baseQuery.in('customer_id', customerIdsFilter)
+      }
+    }
+    if (filterDeviceModelId) baseQuery.eq('device_model_id', filterDeviceModelId)
+    if (filterCreatedFrom && isValidDate(filterCreatedFrom)) {
+      baseQuery.gte('created_at', `${filterCreatedFrom}T00:00:00.000Z`)
+    }
+    if (filterCreatedTo && isValidDate(filterCreatedTo)) {
+      baseQuery.lte('created_at', `${filterCreatedTo}T23:59:59.999Z`)
+    }
+    if (filterReadyFrom && isValidDate(filterReadyFrom)) {
+      baseQuery.gte('estimated_ready_at', `${filterReadyFrom}T00:00:00.000Z`)
+    }
+    if (filterReadyTo && isValidDate(filterReadyTo)) {
+      baseQuery.lte('estimated_ready_at', `${filterReadyTo}T23:59:59.999Z`)
+    }
 
     const { data: ordersList, error } = await baseQuery
     if (error) {

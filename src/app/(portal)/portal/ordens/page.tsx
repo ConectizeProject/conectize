@@ -2,12 +2,9 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { OrdensFilterCollapsible } from './OrdensFilterCollapsible'
 import { OrdensListClient } from './OrdensListClient'
 import { OrdensToastClient } from './OrdensToastClient'
-import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 
 const OPEN_STATUSES = ['orcamento', 'aguardando_aprovacao', 'aprovado', 'aguardando_pecas', 'em_manutencao', 'aguardando_retirada'] as const
 const LIMIT_OPEN = 500
@@ -20,18 +17,58 @@ function isValidOpenStatus(value: string): value is typeof OPEN_STATUSES[number]
   return OPEN_STATUSES.includes(value as any)
 }
 
-type SearchParams = Promise<{ q?: string; cpf?: string; osNumber?: string; status?: string; toast?: string; id?: string; error?: string }>
+function isValidDate(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))
+}
+
+type SearchParams = Promise<{
+  q?: string
+  cpf?: string
+  osNumber?: string
+  status?: string
+  customerId?: string
+  customerName?: string
+  deviceModelId?: string
+  createdFrom?: string
+  createdTo?: string
+  readyFrom?: string
+  readyTo?: string
+  toast?: string
+  id?: string
+  error?: string
+}>
 
 export default async function OrdensPage({
   searchParams,
 }: {
   searchParams: SearchParams
 }) {
-  const { q, cpf, osNumber, status, toast, id, error } = await searchParams
+  const {
+    q,
+    cpf,
+    osNumber,
+    status,
+    customerId,
+    customerName,
+    deviceModelId,
+    createdFrom,
+    createdTo,
+    readyFrom,
+    readyTo,
+    toast,
+    id,
+    error,
+  } = await searchParams
   const query = String(q || '').trim()
   const cpfDigits = normalizeCpf(String(cpf || ''))
   const statusValue = String(status || '').trim()
   const osNumberValue = String(osNumber || '').trim()
+  const customerIdValue = String(customerId || '').trim()
+  const deviceModelIdValue = String(deviceModelId || '').trim()
+  const createdFromValue = isValidDate(createdFrom) ? createdFrom! : ''
+  const createdToValue = isValidDate(createdTo) ? createdTo! : ''
+  const readyFromValue = isValidDate(readyFrom) ? readyFrom! : ''
+  const readyToValue = isValidDate(readyTo) ? readyTo! : ''
   const toastType = String(toast || '').trim()
   const toastId = String(id || '').trim()
   const toastError = String(error || '').trim()
@@ -45,7 +82,17 @@ export default async function OrdensPage({
   const supabase = await createSupabaseServerClient()
 
   let customerIdsFilter: string[] | null = null
-  if (cpfDigits) {
+  if (customerIdValue) {
+    customerIdsFilter = [customerIdValue]
+  } else if (customerName && customerName.trim().length >= 2) {
+    const escaped = String(customerName).trim().replace(/%/g, '\\%').replace(/_/g, '\\_')
+    const { data: custList } = await supabase
+      .from('customers')
+      .select('id')
+      .or(`full_name.ilike.%${escaped}%,company_name.ilike.%${escaped}%,trade_name.ilike.%${escaped}%`)
+      .limit(100)
+    customerIdsFilter = custList && custList.length > 0 ? custList.map((c: { id: string }) => c.id) : []
+  } else if (cpfDigits) {
     const { data: custList } = await supabase
       .from('customers')
       .select('id')
@@ -85,6 +132,23 @@ export default async function OrdensPage({
     if (!Number.isNaN(displayNum)) {
       baseQuery.eq('display_number', displayNum)
     }
+  }
+
+  if (deviceModelIdValue) {
+    baseQuery.eq('device_model_id', deviceModelIdValue)
+  }
+
+  if (createdFromValue) {
+    baseQuery.gte('created_at', `${createdFromValue}T00:00:00.000Z`)
+  }
+  if (createdToValue) {
+    baseQuery.lte('created_at', `${createdToValue}T23:59:59.999Z`)
+  }
+  if (readyFromValue) {
+    baseQuery.gte('estimated_ready_at', `${readyFromValue}T00:00:00.000Z`)
+  }
+  if (readyToValue) {
+    baseQuery.lte('estimated_ready_at', `${readyToValue}T23:59:59.999Z`)
   }
 
   const { data: rawOrders } = await baseQuery
@@ -129,6 +193,19 @@ export default async function OrdensPage({
     openOrdersByStatus[s] = ordersWithRelations.filter((o: any) => o.status === s)
   }
 
+  const { data: deviceModels } = await supabase
+    .from('device_models')
+    .select('id, brand, device_type, model')
+    .order('brand', { ascending: true })
+    .order('model', { ascending: true })
+    .limit(500)
+
+  const hasFilters = Boolean(
+    query || cpfDigits || osNumberValue || statusValue ||
+    customerIdValue || customerName || deviceModelIdValue ||
+    createdFromValue || createdToValue || readyFromValue || readyToValue
+  )
+
   return (
     <div className="space-y-6">
       <OrdensToastClient />
@@ -144,75 +221,23 @@ export default async function OrdensPage({
         </Button>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Buscar</CardTitle>
-          <CardDescription>
-            Filtre por título/descrição, número da OS, CPF ou CNPJ do cliente, ou status.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form action="/portal/ordens" method="get" className="grid gap-4 md:grid-cols-5">
-            <div className="space-y-2">
-              <Label htmlFor="osNumber">Número da OS</Label>
-              <Input
-                id="osNumber"
-                name="osNumber"
-                inputMode="numeric"
-                placeholder="Ex: 123"
-                defaultValue={osNumberValue}
-              />
-            </div>
-            <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="q">Busca</Label>
-              <Input
-                id="q"
-                name="q"
-                placeholder="Ex: troca de tela, iPhone..."
-                defaultValue={query}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="cpf">CPF ou CNPJ do cliente</Label>
-              <Input
-                id="cpf"
-                name="cpf"
-                inputMode="numeric"
-                placeholder="CPF (11 dígitos) ou CNPJ (14 dígitos)"
-                defaultValue={cpfDigits ? formatCpfCnpj(cpfDigits) : ''}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="status">Status</Label>
-              <select
-                id="status"
-                name="status"
-                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-                defaultValue={statusValue}
-              >
-                <option value="">Todos</option>
-                <option value="orcamento">Orçamento</option>
-                <option value="aguardando_aprovacao">Aguardando aprovação</option>
-                <option value="aprovado">Aprovado</option>
-                <option value="aguardando_pecas">Aguardando peças</option>
-                <option value="em_manutencao">Em manutenção</option>
-                <option value="aguardando_retirada">Aguardando retirada</option>
-                <option value="finalizada">Finalizada</option>
-                <option value="finalizada_sem_conserto">Finalizada sem conserto</option>
-                <option value="finalizada_sem_aprovacao">Finalizada sem aprovação</option>
-                <option value="cancelada">Cancelada</option>
-              </select>
-            </div>
-
-            <div className="md:col-span-4 flex items-center gap-3 flex-wrap">
-              <Button type="submit">Buscar</Button>
-              <Button variant="outline" asChild>
-                <Link href="/portal/ordens">Limpar</Link>
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+      <OrdensFilterCollapsible
+        defaultOpen={hasFilters}
+        initialValues={{
+          q: query,
+          cpf: cpfDigits,
+          osNumber: osNumberValue,
+          status: statusValue,
+          customerName: String(customerName || '').trim(),
+          customerId: customerIdValue,
+          deviceModelId: deviceModelIdValue,
+          createdFrom: createdFromValue,
+          createdTo: createdToValue,
+          readyFrom: readyFromValue,
+          readyTo: readyToValue,
+        }}
+        deviceModels={deviceModels || []}
+      />
 
       <OrdensListClient
         openOrdersByStatus={openOrdersByStatus}
@@ -220,6 +245,13 @@ export default async function OrdensPage({
         filterCpf={cpfDigits}
         filterOsNumber={osNumberValue}
         filterStatus={statusValue}
+        filterCustomerId={customerIdValue}
+        filterCustomerName={String(customerName || '').trim()}
+        filterDeviceModelId={deviceModelIdValue}
+        filterCreatedFrom={createdFromValue}
+        filterCreatedTo={createdToValue}
+        filterReadyFrom={readyFromValue}
+        filterReadyTo={readyToValue}
         canDelete={role === 'admin'}
       />
     </div>

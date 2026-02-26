@@ -1,8 +1,10 @@
 /**
  * Modelos e configurações de impressão para Ordem de Serviço.
  * Único ponto de verdade para etiqueta e impressão da OS, usado na listagem e na edição.
+ * Datas sempre exibidas em horário de Brasília (America/Sao_Paulo).
  */
 
+import { formatDateTimeBr, formatDateTimeShortBr } from '@/lib/utils/format-date'
 import { formatPhoneBr } from '@/lib/utils/format-phone'
 
 // --- Configurações (usadas na listagem e na edição) ---
@@ -56,16 +58,7 @@ export type OrdemLabelData = {
 }
 
 function formatDateShort(value: string | null): string {
-  if (!value) return '-'
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return '-'
-  return d.toLocaleString('pt-BR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  return formatDateTimeShortBr(value)
 }
 
 function getPasscodeDisplay(data: OrdemLabelData): string {
@@ -187,16 +180,7 @@ export type OrdemPrintData = {
 }
 
 function formatDate(value: string | null): string {
-  if (!value) return '-'
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return value
-  return d.toLocaleString('pt-BR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  return formatDateTimeBr(value)
 }
 
 function formatDoc(value: string | null, isCompany: boolean): string {
@@ -385,7 +369,7 @@ export function buildOrdemPrintHtml(
   </div>
 
   <div class="footer">
-    Impresso em ${new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })} - ${companyName}
+    Impresso em ${formatDateTimeBr(new Date())} - ${companyName}
   </div>
 
   <script>

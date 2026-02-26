@@ -25,15 +25,17 @@ function getCustomerDisplayName(c: CustomerHit) {
 
 type Props = {
   selectedCustomer: CustomerHit | null
-  documentInput: string
+  searchInput: string
   documentDigits: string
-  onDocumentInputChange: (v: string) => void
+  onSearchInputChange: (v: string) => void
   isCpfPopoverOpen: boolean
   onCpfPopoverOpenChange: (open: boolean) => void
   customersFiltered: CustomerHit[]
   isSearchingDocument: boolean
   documentSearchError: string | null
-  hasFetchedDocPrefix: boolean
+  hasFetched: boolean
+  isDocumentMode: boolean
+  isNameMode: boolean
   onSelectCustomer: (c: CustomerHit) => void
   onClearCustomer: () => void
   onEditCustomer: () => void
@@ -42,15 +44,17 @@ type Props = {
 
 export function NovaOrdemCustomerCard({
   selectedCustomer,
-  documentInput,
+  searchInput,
   documentDigits,
-  onDocumentInputChange,
+  onSearchInputChange,
   isCpfPopoverOpen,
   onCpfPopoverOpenChange,
   customersFiltered,
   isSearchingDocument,
   documentSearchError,
-  hasFetchedDocPrefix,
+  hasFetched,
+  isDocumentMode,
+  isNameMode,
   onSelectCustomer,
   onClearCustomer,
   onEditCustomer,
@@ -131,7 +135,7 @@ export function NovaOrdemCustomerCard({
           </CardHeader>
           <CardContent>
           <div className="space-y-2">
-            <Label htmlFor="customerSearchTrigger">Buscar por CPF/CNPJ</Label>
+            <Label htmlFor="customerSearchTrigger">Buscar cliente</Label>
             <Popover open={isCpfPopoverOpen} onOpenChange={onCpfPopoverOpenChange}>
               <PopoverTrigger asChild>
                 <button
@@ -142,10 +146,10 @@ export function NovaOrdemCustomerCard({
                     'hover:bg-accent/30 transition-colors'
                   )}
                 >
-                  <span className={cn(!documentDigits ? 'text-muted-foreground' : '')}>
-                    {documentDigits
-                      ? formatCpfCnpj(documentDigits)
-                      : 'Digite o CPF/CNPJ (mínimo 5 números)'}
+                  <span className={cn(!searchInput ? 'text-muted-foreground' : '')}>
+                    {searchInput
+                      ? (isDocumentMode ? formatCpfCnpj(documentDigits) : searchInput)
+                      : 'Digite o nome ou CPF/CNPJ (mín. 2 letras ou 5 números)'}
                   </span>
                   <ChevronsUpDown className="h-4 w-4 opacity-50 shrink-0" />
                 </button>
@@ -153,18 +157,24 @@ export function NovaOrdemCustomerCard({
               <PopoverContent className="p-0 w-[min(520px,calc(100vw-2rem))]" align="start">
                 <Command shouldFilter={false}>
                   <CommandInput
-                    placeholder="Digite o CPF/CNPJ…"
-                    value={documentInput}
-                    onValueChange={(v) => onDocumentInputChange(formatCpfCnpj(v))}
+                    placeholder="Nome ou CPF/CNPJ…"
+                    value={searchInput}
+                    onValueChange={(v) => {
+                      if (/[a-zA-Z\u00C0-\u024F]/.test(v)) {
+                        onSearchInputChange(v)
+                      } else {
+                        onSearchInputChange(formatCpfCnpj(v.replace(/\D/g, '')))
+                      }
+                    }}
                   />
                   <CommandList>
                     {customersFiltered.length === 0 ? (
                       <CommandEmpty>
-                        {documentDigits.length < 5
-                          ? 'Digite pelo menos 5 números.'
+                        {!isDocumentMode && !isNameMode
+                          ? 'Digite pelo menos 2 letras (nome) ou 5 números (CPF/CNPJ).'
                           : documentSearchError
                             ? documentSearchError
-                            : hasFetchedDocPrefix
+                            : hasFetched
                               ? 'Nenhum cliente encontrado.'
                               : isSearchingDocument
                                 ? 'Buscando…'
@@ -176,7 +186,7 @@ export function NovaOrdemCustomerCard({
                         {customersFiltered.map((c) => (
                           <CommandItem
                             key={c.id}
-                            value={getCustomerDocumentDigits(c)}
+                            value={`${getCustomerDisplayName(c)} ${getCustomerDocumentDigits(c)}`}
                             onSelect={() => onSelectCustomer(c)}
                           >
                             <Check className="mr-2 h-4 w-4 opacity-0" />
@@ -193,11 +203,13 @@ export function NovaOrdemCustomerCard({
                   </CommandList>
                   <div className="border-t p-2 flex items-center justify-between gap-2">
                     <div className="text-xs text-muted-foreground">
-                      {documentDigits.length === 14
-                        ? 'CNPJ completo'
-                        : documentDigits.length === 11
-                          ? 'CPF completo'
-                          : 'Digite até completar 11 (CPF) ou 14 (CNPJ) números'}
+                      {isDocumentMode
+                        ? (documentDigits.length === 14
+                          ? 'CNPJ completo'
+                          : documentDigits.length === 11
+                            ? 'CPF completo'
+                            : 'Digite até completar 11 (CPF) ou 14 (CNPJ) números')
+                        : 'Busca por nome, razão social ou nome fantasia'}
                     </div>
                     <Button type="button" size="sm" onClick={onCreateCustomer}>
                       <Plus className="h-4 w-4 mr-2" />
