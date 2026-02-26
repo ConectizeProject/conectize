@@ -41,13 +41,24 @@ async function requireStaffOrAdmin() {
   return { ok: true as const, supabase }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const auth = await requireStaffOrAdmin()
   if (!auth.ok) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 
-  const { data: devices, error } = await auth.supabase
+  const { searchParams } = new URL(request.url)
+  const soldParam = searchParams.get('sold')
+  const q = String(searchParams.get('q') || '').trim()
+  const condition = String(searchParams.get('condition') || '').trim()
+  const storageGb = String(searchParams.get('storageGb') || '').trim()
+  const color = String(searchParams.get('color') || '').trim()
+  const purchaseDateFrom = String(searchParams.get('purchaseDateFrom') || '').trim()
+  const purchaseDateTo = String(searchParams.get('purchaseDateTo') || '').trim()
+
+  const soldFilter = soldParam === 'true' ? true : false
+
+  let query = auth.supabase
     .from('resale_devices')
     .select(`
       id,
@@ -78,7 +89,36 @@ export async function GET() {
       created_at,
       updated_at
     `)
-    .order('created_at', { ascending: false })
+
+  if (soldFilter === true) {
+    query = query.eq('sold', true)
+  } else if (soldFilter === false) {
+    query = query.eq('sold', false)
+  }
+
+  if (q) {
+    const escaped = q.replace(/%/g, '\\%').replace(/_/g, '\\_')
+    query = query.or(
+      `device_name.ilike.%${escaped}%,model.ilike.%${escaped}%,color.ilike.%${escaped}%,imei.ilike.%${escaped}%,info.ilike.%${escaped}%`
+    )
+  }
+  if (condition) {
+    query = query.eq('condition', condition)
+  }
+  if (storageGb) {
+    query = query.ilike('storage_gb', `%${storageGb}%`)
+  }
+  if (color) {
+    query = query.ilike('color', `%${color}%`)
+  }
+  if (purchaseDateFrom && /^\d{4}-\d{2}-\d{2}$/.test(purchaseDateFrom)) {
+    query = query.gte('purchase_date', purchaseDateFrom)
+  }
+  if (purchaseDateTo && /^\d{4}-\d{2}-\d{2}$/.test(purchaseDateTo)) {
+    query = query.lte('purchase_date', purchaseDateTo)
+  }
+
+  const { data: devices, error } = await query.order('created_at', { ascending: false })
 
   if (error) {
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
