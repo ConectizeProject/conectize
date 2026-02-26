@@ -55,12 +55,37 @@ type Props = {
   filterCpf: string
   filterOsNumber: string
   filterStatus: string
+  filterCustomerId?: string
+  filterCustomerName?: string
+  filterDeviceModelId?: string
+  filterCreatedFrom?: string
+  filterCreatedTo?: string
+  filterReadyFrom?: string
+  filterReadyTo?: string
   canDelete: boolean
 }
 
-export function OrdensListClient({ openOrdersByStatus, filterQ, filterCpf, filterOsNumber, filterStatus, canDelete }: Props) {
+export function OrdensListClient({
+  openOrdersByStatus,
+  filterQ,
+  filterCpf,
+  filterOsNumber,
+  filterStatus,
+  filterCustomerId = '',
+  filterCustomerName = '',
+  filterDeviceModelId = '',
+  filterCreatedFrom = '',
+  filterCreatedTo = '',
+  filterReadyFrom = '',
+  filterReadyTo = '',
+  canDelete,
+}: Props) {
   const totalOpen = OPEN_STATUS_ORDER.reduce((acc, s) => acc + (openOrdersByStatus[s]?.length ?? 0), 0)
-  const hasFilters = Boolean(filterQ || filterCpf || filterOsNumber || filterStatus)
+  const hasFilters = Boolean(
+    filterQ || filterCpf || filterOsNumber || filterStatus ||
+    filterCustomerId || filterCustomerName || filterDeviceModelId ||
+    filterCreatedFrom || filterCreatedTo || filterReadyFrom || filterReadyTo
+  )
 
   return (
     <div className="space-y-4">
@@ -106,11 +131,18 @@ export function OrdensListClient({ openOrdersByStatus, filterQ, filterCpf, filte
       })}
 
       <OrdensFinalSection
-        key={`final-${filterQ}-${filterCpf}-${filterOsNumber}-${filterStatus}`}
+        key={`final-${filterQ}-${filterCpf}-${filterOsNumber}-${filterStatus}-${filterCustomerId}-${filterDeviceModelId}-${filterCreatedFrom}-${filterCreatedTo}-${filterReadyFrom}-${filterReadyTo}`}
         q={filterQ}
         cpf={filterCpf}
         osNumber={filterOsNumber}
         status={filterStatus}
+        customerId={filterCustomerId}
+        customerName={filterCustomerName}
+        deviceModelId={filterDeviceModelId}
+        createdFrom={filterCreatedFrom}
+        createdTo={filterCreatedTo}
+        readyFrom={filterReadyFrom}
+        readyTo={filterReadyTo}
         defaultOpen={hasFilters}
       />
     </div>

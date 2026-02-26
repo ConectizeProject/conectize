@@ -121,9 +121,12 @@ const orderFormSchema = Yup.object().shape({
 
 export function NovaOrdemClient(props: Props) {
 	const router = useRouter()
-	const [documentInput, setDocumentInput] = useState('')
-	const documentDigits = useMemo(() => onlyDigits(documentInput).slice(0, 14), [documentInput])
+	const [customerSearchInput, setCustomerSearchInput] = useState('')
+	const documentDigits = useMemo(() => onlyDigits(customerSearchInput).slice(0, 14), [customerSearchInput])
 	const documentPrefix = useMemo(() => documentDigits.slice(0, 5), [documentDigits])
+	const nameQuery = useMemo(() => customerSearchInput.trim(), [customerSearchInput])
+	const isDocumentMode = documentDigits.length >= 5
+	const isNameMode = nameQuery.length >= 2 && /[a-zA-Z\u00C0-\u024F]/.test(nameQuery)
 
 	const [duplicateFormValues, setDuplicateFormValues] = useState<FormValues | null>(null)
 	const [duplicateLoaded, setDuplicateLoaded] = useState(false)
@@ -132,9 +135,12 @@ export function NovaOrdemClient(props: Props) {
 	const [isSearchingDocument, setIsSearchingDocument] = useState(false)
 	const [documentSearchError, setDocumentSearchError] = useState<string | null>(null)
 	const [lastPrefixFetched, setLastPrefixFetched] = useState<string | null>(null)
+	const [lastNameQueryFetched, setLastNameQueryFetched] = useState<string | null>(null)
 	const cpfSearchAbortRef = useRef<AbortController | null>(null)
 	const cpfSearchInFlightPrefixRef = useRef<string | null>(null)
+	const nameSearchInFlightRef = useRef<string | null>(null)
 	const cpfSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	const nameSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
 	const [selectedCustomer, setSelectedCustomer] = useState<CustomerHit | null>(null)
 
@@ -211,7 +217,7 @@ export function NovaOrdemClient(props: Props) {
 					})
 				}
 				if (o.documentDigits) {
-					setDocumentInput(formatCpfCnpj(o.documentDigits))
+					setCustomerSearchInput(formatCpfCnpj(o.documentDigits))
 					setLastPrefixFetched(String(o.documentDigits).slice(0, 5))
 				}
 				setDuplicateLoaded(true)
@@ -226,7 +232,7 @@ export function NovaOrdemClient(props: Props) {
 		if (!selectedCustomer) return
 		const doc = getCustomerDocumentDigits(selectedCustomer)
 		if (doc && doc !== documentDigits) {
-			setDocumentInput(formatCpfCnpj(doc))
+			setCustomerSearchInput(formatCpfCnpj(doc))
 		}
 	}, [documentDigits, selectedCustomer])
 
@@ -259,96 +265,119 @@ export function NovaOrdemClient(props: Props) {
 	}, [selectedCustomer])
 
 	useEffect(() => {
-		if (documentDigits.length < 5) {
+		if (!isDocumentMode && !isNameMode) {
 			setDocumentSearchError(null)
 			setCustomersBase([])
 			setLastPrefixFetched(null)
+			setLastNameQueryFetched(null)
 			cpfSearchAbortRef.current?.abort()
 			cpfSearchAbortRef.current = null
 			cpfSearchInFlightPrefixRef.current = null
-			if (cpfSearchDebounceRef.current) {
-				clearTimeout(cpfSearchDebounceRef.current)
-				cpfSearchDebounceRef.current = null
-			}
+			nameSearchInFlightRef.current = null
+			if (cpfSearchDebounceRef.current) clearTimeout(cpfSearchDebounceRef.current)
+			if (nameSearchDebounceRef.current) clearTimeout(nameSearchDebounceRef.current)
+			cpfSearchDebounceRef.current = null
+			nameSearchDebounceRef.current = null
 			setIsSearchingDocument(false)
 			return
 		}
 
-		if (documentPrefix.length < 5) return
-		if (documentPrefix === lastPrefixFetched) return
-		if (cpfSearchInFlightPrefixRef.current === documentPrefix) return
-
 		let cancelled = false
 
-		async function run() {
-			cpfSearchAbortRef.current?.abort()
-			const controller = new AbortController()
-			cpfSearchAbortRef.current = controller
-			cpfSearchInFlightPrefixRef.current = documentPrefix
-
-			setIsSearchingDocument(true)
-			setDocumentSearchError(null)
-
-			try {
-				const res = await portalFetch(`/api/portal/customers/search?documentPrefix=${documentPrefix}`, {
-					signal: controller.signal
-				})
-				const data = await res.json().catch(() => null)
-				if (!res.ok || !data?.ok) {
-					if (!cancelled) {
-						setDocumentSearchError('Não foi possível buscar clientes agora.')
-						setCustomersBase([])
+		if (isDocumentMode) {
+			if (documentPrefix === lastPrefixFetched || cpfSearchInFlightPrefixRef.current === documentPrefix) return
+			if (cpfSearchDebounceRef.current) clearTimeout(cpfSearchDebounceRef.current)
+			cpfSearchDebounceRef.current = setTimeout(() => {
+				if (cancelled) return
+				cpfSearchAbortRef.current?.abort()
+				const controller = new AbortController()
+				cpfSearchAbortRef.current = controller
+				cpfSearchInFlightPrefixRef.current = documentPrefix
+				setIsSearchingDocument(true)
+				setDocumentSearchError(null)
+				portalFetch(`/api/portal/customers/search?documentPrefix=${documentPrefix}`, { signal: controller.signal })
+					.then((res) => res.json())
+					.then((data) => {
+						if (cancelled) return
+						if (!data?.ok) {
+							setDocumentSearchError('Não foi possível buscar clientes agora.')
+							setCustomersBase([])
+							setLastPrefixFetched(documentPrefix)
+							return
+						}
+						setCustomersBase(data.customers || [])
 						setLastPrefixFetched(documentPrefix)
-					}
-					return
-				}
-
-				if (!cancelled) {
-					setCustomersBase(data.customers || [])
-					setLastPrefixFetched(documentPrefix)
-				}
-			} catch (err: any) {
-				if (err?.name === 'AbortError') return
-				if (!cancelled) {
-					setDocumentSearchError('Não foi possível buscar clientes agora.')
-					setCustomersBase([])
-					setLastPrefixFetched(documentPrefix)
-				}
-			} finally {
-				if (!cancelled) setIsSearchingDocument(false)
-				if (cpfSearchInFlightPrefixRef.current === documentPrefix) {
-					cpfSearchInFlightPrefixRef.current = null
-				}
-			}
+					})
+					.catch((err: any) => {
+						if (err?.name === 'AbortError') return
+						if (!cancelled) {
+							setDocumentSearchError('Não foi possível buscar clientes agora.')
+							setCustomersBase([])
+							setLastPrefixFetched(documentPrefix)
+						}
+					})
+					.finally(() => {
+						if (!cancelled) setIsSearchingDocument(false)
+						if (cpfSearchInFlightPrefixRef.current === documentPrefix) cpfSearchInFlightPrefixRef.current = null
+					})
+			}, 350)
+		} else if (isNameMode) {
+			if (nameQuery === lastNameQueryFetched || nameSearchInFlightRef.current === nameQuery) return
+			if (nameSearchDebounceRef.current) clearTimeout(nameSearchDebounceRef.current)
+			nameSearchDebounceRef.current = setTimeout(() => {
+				if (cancelled) return
+				cpfSearchAbortRef.current?.abort()
+				const controller = new AbortController()
+				cpfSearchAbortRef.current = controller
+				nameSearchInFlightRef.current = nameQuery
+				setIsSearchingDocument(true)
+				setDocumentSearchError(null)
+				portalFetch(`/api/portal/customers/search?name=${encodeURIComponent(nameQuery)}`, { signal: controller.signal })
+					.then((res) => res.json())
+					.then((data) => {
+						if (cancelled) return
+						if (!data?.ok) {
+							setDocumentSearchError('Não foi possível buscar clientes agora.')
+							setCustomersBase([])
+							setLastNameQueryFetched(nameQuery)
+							return
+						}
+						setCustomersBase(data.customers || [])
+						setLastNameQueryFetched(nameQuery)
+					})
+					.catch((err: any) => {
+						if (err?.name === 'AbortError') return
+						if (!cancelled) {
+							setDocumentSearchError('Não foi possível buscar clientes agora.')
+							setCustomersBase([])
+							setLastNameQueryFetched(nameQuery)
+						}
+					})
+					.finally(() => {
+						if (!cancelled) setIsSearchingDocument(false)
+						if (nameSearchInFlightRef.current === nameQuery) nameSearchInFlightRef.current = null
+					})
+			}, 350)
 		}
-
-		if (cpfSearchDebounceRef.current) {
-			clearTimeout(cpfSearchDebounceRef.current)
-			cpfSearchDebounceRef.current = null
-		}
-
-		setIsSearchingDocument(false)
-		cpfSearchDebounceRef.current = setTimeout(() => {
-			if (cancelled) return
-			run()
-		}, 350)
 
 		return () => {
 			cancelled = true
-			if (cpfSearchDebounceRef.current) {
-				clearTimeout(cpfSearchDebounceRef.current)
-				cpfSearchDebounceRef.current = null
-			}
+			if (cpfSearchDebounceRef.current) clearTimeout(cpfSearchDebounceRef.current)
+			if (nameSearchDebounceRef.current) clearTimeout(nameSearchDebounceRef.current)
 		}
-	}, [documentDigits.length, documentPrefix, lastPrefixFetched])
+	}, [isDocumentMode, isNameMode, documentPrefix, lastPrefixFetched, nameQuery, lastNameQueryFetched])
 
-	const hasFetchedDocPrefix = documentDigits.length >= 5 && lastPrefixFetched === documentPrefix
+	const hasFetchedDocPrefix = isDocumentMode && lastPrefixFetched === documentPrefix
+	const hasFetchedName = isNameMode && lastNameQueryFetched === nameQuery
+	const hasFetched = hasFetchedDocPrefix || hasFetchedName
 
 	const customersFiltered = useMemo(() => {
-		if (documentDigits.length < 5) return []
-		if (!hasFetchedDocPrefix) return []
-		return customersBase.filter(c => getCustomerDocumentDigits(c).startsWith(documentDigits))
-	}, [documentDigits, customersBase, hasFetchedDocPrefix])
+		if (!hasFetched) return []
+		if (isDocumentMode) {
+			return customersBase.filter(c => getCustomerDocumentDigits(c).startsWith(documentDigits))
+		}
+		return customersBase
+	}, [customersBase, hasFetched, isDocumentMode, documentDigits])
 
 	function buildFormDataFromValues(values: FormValues, documentDigits: string): FormData {
 		const servicesNormalized = (values.services || [])
@@ -405,7 +434,7 @@ export function NovaOrdemClient(props: Props) {
 			<div>
 				<h1 className="text-2xl font-bold">Nova ordem de serviço</h1>
 				<p className="text-sm text-muted-foreground">
-					{duplicateFormValues ? 'Revise os dados e salve para criar a cópia.' : 'Busque o cliente por CPF/CNPJ e preencha os dados da OS.'}
+					{duplicateFormValues ? 'Revise os dados e salve para criar a cópia.' : 'Busque o cliente por nome ou CPF/CNPJ e preencha os dados da OS.'}
 				</p>
 			</div>
 
@@ -424,15 +453,17 @@ export function NovaOrdemClient(props: Props) {
 						<Form className="relative space-y-6">
 							<NovaOrdemCustomerCard
 								selectedCustomer={selectedCustomer}
-								documentInput={documentInput}
+								searchInput={customerSearchInput}
 								documentDigits={documentDigits}
-								onDocumentInputChange={setDocumentInput}
+								onSearchInputChange={setCustomerSearchInput}
 								isCpfPopoverOpen={isCpfPopoverOpen}
 								onCpfPopoverOpenChange={setIsCpfPopoverOpen}
 								customersFiltered={customersFiltered}
 								isSearchingDocument={isSearchingDocument}
 								documentSearchError={documentSearchError}
-								hasFetchedDocPrefix={hasFetchedDocPrefix}
+								hasFetched={hasFetched}
+								isDocumentMode={isDocumentMode}
+								isNameMode={isNameMode}
 								onSelectCustomer={(c) => {
 									setSelectedCustomer(c)
 									setIsCpfPopoverOpen(false)

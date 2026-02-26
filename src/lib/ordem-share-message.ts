@@ -1,6 +1,9 @@
 /**
  * Monta a mensagem de compartilhamento da OS (WhatsApp/email).
+ * Datas exibidas em horário de Brasília.
  */
+
+import { formatDateTimeBr } from '@/lib/utils/format-date'
 
 export type BuildOrderMessageOpts = {
   displayNumber: string | number
@@ -17,14 +20,7 @@ export type BuildOrderMessageOpts = {
 }
 
 function formatPrevisao(value: string | null): string {
-  if (!value) return ''
-  return new Date(value).toLocaleDateString('pt-BR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  return formatDateTimeBr(value) === '-' ? '' : formatDateTimeBr(value)
 }
 
 /**

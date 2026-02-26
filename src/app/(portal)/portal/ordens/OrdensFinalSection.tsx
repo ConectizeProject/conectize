@@ -25,10 +25,30 @@ type Props = {
   cpf?: string
   osNumber?: string
   status?: string
+  customerId?: string
+  customerName?: string
+  deviceModelId?: string
+  createdFrom?: string
+  createdTo?: string
+  readyFrom?: string
+  readyTo?: string
   defaultOpen?: boolean
 }
 
-export function OrdensFinalSection({ q = '', cpf = '', osNumber = '', status = '', defaultOpen = false }: Props) {
+export function OrdensFinalSection({
+  q = '',
+  cpf = '',
+  osNumber = '',
+  status = '',
+  customerId = '',
+  customerName = '',
+  deviceModelId = '',
+  createdFrom = '',
+  createdTo = '',
+  readyFrom = '',
+  readyTo = '',
+  defaultOpen = false,
+}: Props) {
   const [open, setOpen] = useState(defaultOpen)
   const [orders, setOrders] = useState<OrderRow[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -44,6 +64,13 @@ export function OrdensFinalSection({ q = '', cpf = '', osNumber = '', status = '
     if (cpf) params.set('cpf', cpf)
     if (osNumber) params.set('osNumber', osNumber)
     if (status) params.set('status', status)
+    if (customerId) params.set('customerId', customerId)
+    if (customerName) params.set('customerName', customerName)
+    if (deviceModelId) params.set('deviceModelId', deviceModelId)
+    if (createdFrom) params.set('createdFrom', createdFrom)
+    if (createdTo) params.set('createdTo', createdTo)
+    if (readyFrom) params.set('readyFrom', readyFrom)
+    if (readyTo) params.set('readyTo', readyTo)
     portalFetch(`/api/portal/ordens?${params.toString()}`)
       .then((res) => res?.json())
       .then((data) => {
@@ -53,7 +80,7 @@ export function OrdensFinalSection({ q = '', cpf = '', osNumber = '', status = '
       })
       .catch(() => setOrders([]))
       .finally(() => setIsLoading(false))
-  }, [hasFetched, q, cpf, osNumber, status])
+  }, [hasFetched, q, cpf, osNumber, status, customerId, customerName, deviceModelId, createdFrom, createdTo, readyFrom, readyTo])
 
   useEffect(() => {
     if (defaultOpen && !hasFetched && !isLoading) {
