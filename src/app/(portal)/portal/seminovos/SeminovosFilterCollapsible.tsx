@@ -56,7 +56,7 @@ export function SeminovosFilterCollapsible({
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <CollapsibleTrigger className="flex w-full items-center justify-between rounded-md border bg-card px-3 py-2.5 text-sm font-medium hover:bg-muted/50 transition-colors">
+      <CollapsibleTrigger className="flex w-full items-center justify-between rounded-md border bg-card px-3 py-3 sm:py-2.5 text-sm font-medium hover:bg-muted/50 transition-colors touch-manipulation min-h-[2.75rem]">
         <span className="flex items-center gap-2">
           <ChevronDown className={`h-4 w-4 transition-transform ${open ? '' : '-rotate-90'}`} />
           Filtros
@@ -68,7 +68,7 @@ export function SeminovosFilterCollapsible({
         </span>
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <div className="mt-3 rounded-md border bg-card p-4">
+        <div className="mt-3 rounded-md border bg-card p-3 sm:p-4">
           <form action="/portal/seminovos" method="get" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             <div className="space-y-2 sm:col-span-2">
               <Label htmlFor="seminovos-q">Busca (modelo, cor, IMEI, informações)</Label>
