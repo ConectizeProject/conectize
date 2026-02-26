@@ -144,7 +144,10 @@ export async function POST(request: Request) {
     tested: Boolean(body.tested),
     label: cleanText(body.label) || null,
     sold: Boolean(body.sold),
-    actual_profit_cents: toCents(body.actual_profit_cents ?? body.actual_profit, !!body.actual_profit_cents),
+    actual_profit_cents: (() => {
+      const val = body.actual_profit_cents ?? body.actual_profit
+      return typeof val === 'number' ? Math.round(val) : toCents(val, false)
+    })(),
     purchase_date: toDate(body.purchase_date),
     sale_date: toDate(body.sale_date),
   }

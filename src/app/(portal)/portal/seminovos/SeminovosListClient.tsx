@@ -38,10 +38,28 @@ import { formatMoneyInput, maskedFromCents, moneyToCentsFromMasked } from '@/lib
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Copy, DollarSign, Eye, EyeOff, MessageCircle, MoreHorizontal, Plus, Printer, Receipt, Trash2 } from 'lucide-react'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Copy, Calculator, DollarSign, Eye, EyeOff, MessageCircle, MoreHorizontal, Plus, Receipt, Tag, Trash2, Undo2 } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 
 type CostRow = { id?: string; description: string; value_cents: number }
+
+type CreditInstallmentFee = { installments: number; fee_percent: number }
+
+type PaymentMethod = {
+  id: string
+  description: string
+  type: string
+  fee_percent: number
+  credit_installment_fees: CreditInstallmentFee[]
+  sort_order: number
+}
 
 type ResaleDevice = {
   id: string
@@ -118,6 +136,12 @@ export function SeminovosListClient() {
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false)
   const [whatsAppText, setWhatsAppText] = useState('')
   const [showFinancialData, setShowFinancialData] = useState(true)
+  const [simulateModalTarget, setSimulateModalTarget] = useState<ResaleDevice | null>(null)
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([])
+  const [simulatePaymentMethodId, setSimulatePaymentMethodId] = useState<string>('')
+  const [simulateInstallments, setSimulateInstallments] = useState<number>(1)
+  const [simulateValueSource, setSimulateValueSource] = useState<'varejo' | 'atacado' | 'custom'>('varejo')
+  const [simulateValue, setSimulateValue] = useState('')
 
   const loadDevices = useCallback(async () => {
     setIsLoading(true)
@@ -272,6 +296,81 @@ export function SeminovosListClient() {
     setCostModalTarget(d)
   }
 
+  const loadPaymentMethods = useCallback(async () => {
+    const res = await portalFetch('/api/portal/payment-methods')
+    const data = await res?.json().catch(() => null)
+    if (data?.ok && Array.isArray(data.paymentMethods)) {
+      setPaymentMethods(data.paymentMethods)
+    }
+  }, [])
+
+  function openSimulateModal(d: ResaleDevice) {
+    setSimulateModalTarget(d)
+    setSimulatePaymentMethodId('')
+    setSimulateInstallments(1)
+    const varejo = d.sale_value_cents ?? null
+    const atacado = d.wholesale_value_cents ?? null
+    const source = varejo != null ? 'varejo' : atacado != null ? 'atacado' : 'custom'
+    setSimulateValueSource(source)
+    setSimulateValue(varejo != null ? centsToReais(varejo) : atacado != null ? centsToReais(atacado) : '')
+    loadPaymentMethods()
+  }
+
+  function getSimulateBaseValueCents(): number | null {
+    const d = simulateModalTarget
+    if (!d) return null
+    if (simulateValueSource === 'varejo' && d.sale_value_cents != null) return d.sale_value_cents
+    if (simulateValueSource === 'atacado' && d.wholesale_value_cents != null) return d.wholesale_value_cents
+    return moneyToCentsFromMasked(simulateValue)
+  }
+
+  function getSimulateResult(): {
+    receiveCents: number
+    feePercent: number
+    feeCents: number
+    chargeCents: number
+    installments?: number
+    valuePerInstallmentCents?: number
+  } | null {
+    const receiveCents = getSimulateBaseValueCents()
+    if (receiveCents == null || receiveCents <= 0) return null
+    const pm = paymentMethods.find((p) => p.id === simulatePaymentMethodId)
+    if (!pm) return null
+
+    if (pm.type === 'dinheiro') {
+      return { receiveCents, feePercent: 0, feeCents: 0, chargeCents: receiveCents }
+    }
+
+    const feePercent = pm.type === 'credito'
+      ? (() => {
+          const fees = Array.isArray(pm.credit_installment_fees) ? pm.credit_installment_fees : []
+          const sorted = [...fees].sort((a, b) => a.installments - b.installments)
+          const exact = sorted.find((f) => f.installments === simulateInstallments)
+          const match = exact ?? sorted.filter((f) => f.installments <= simulateInstallments).pop() ?? sorted[0]
+          return match ? match.fee_percent : 0
+        })()
+      : (pm.fee_percent ?? 0)
+
+    if (feePercent >= 100) return { receiveCents, feePercent, feeCents: 0, chargeCents: receiveCents }
+
+    const chargeCents = Math.round(receiveCents / (1 - feePercent / 100))
+    const feeCents = chargeCents - receiveCents
+
+    if (pm.type === 'credito') {
+      const valuePerInstallmentCents = Math.round(chargeCents / simulateInstallments)
+      return {
+        receiveCents,
+        feePercent,
+        feeCents,
+        chargeCents,
+        installments: simulateInstallments,
+        valuePerInstallmentCents,
+      }
+    }
+
+    return { receiveCents, feePercent, feeCents, chargeCents }
+  }
+
   function openWhatsAppModal() {
     const today = new Date()
     const dateStr = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}`
@@ -373,6 +472,26 @@ Comprando 3 iPhones
         setSellModalTarget(null)
         await loadDevices()
         toast({ description: 'Aparelho marcado como vendido', duration: 2000 })
+      }
+    } finally {
+      setIsSavingSell(false)
+    }
+  }
+
+  async function handleCancelSell(d: ResaleDevice) {
+    if (isSavingSell) return
+    if (!confirm('Cancelar a venda deste aparelho? O valor e a data de venda serão removidos.')) return
+    setIsSavingSell(true)
+    try {
+      const res = await portalFetch(`/api/portal/resale-devices/${d.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sold: false, sold_for_cents: null, sale_date: null }),
+      })
+      const data = await res?.json().catch(() => null)
+      if (data?.ok) {
+        await loadDevices()
+        toast({ description: 'Venda cancelada', duration: 2000 })
       }
     } finally {
       setIsSavingSell(false)
@@ -868,18 +987,27 @@ Comprando 3 iPhones
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
-                                  {!d.sold && (
+                                  {!d.sold ? (
                                     <DropdownMenuItem onClick={() => openSellModal(d)}>
                                       <DollarSign className="h-3.5 w-3.5 mr-1.5" />
                                       Vendido
+                                    </DropdownMenuItem>
+                                  ) : (
+                                    <DropdownMenuItem onClick={() => handleCancelSell(d)} disabled={isSavingSell}>
+                                      <Undo2 className="h-3.5 w-3.5 mr-1.5" />
+                                      Cancelar venda
                                     </DropdownMenuItem>
                                   )}
                                   <DropdownMenuItem onClick={() => openCostModal(d)}>
                                     <Receipt className="h-3.5 w-3.5 mr-1.5" />
                                     Adicionar custo
                                   </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => openSimulateModal(d)}>
+                                    <Calculator className="h-3.5 w-3.5 mr-1.5" />
+                                    Simular
+                                  </DropdownMenuItem>
                                   <DropdownMenuItem onClick={() => handlePrintLabel(d)}>
-                                    <Printer className="h-3.5 w-3.5 mr-1.5" />
+                                    <Tag className="h-3.5 w-3.5 mr-1.5" />
                                     Imprimir etiqueta
                                   </DropdownMenuItem>
                                   <DropdownMenuItem onClick={() => handleCopyDevice(d)}>
@@ -937,6 +1065,158 @@ Comprando 3 iPhones
               Copiar
             </Button>
             <Button type="button" onClick={() => setShowWhatsAppModal(false)}>
+              Fechar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!simulateModalTarget} onOpenChange={(open) => !open && setSimulateModalTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Simular pagamento</DialogTitle>
+            <DialogDescription>
+              Informe o valor que deseja receber e a forma de pagamento. A taxa é descontada do valor cobrado ao cliente.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            {simulateModalTarget && (
+              <>
+                <div className="space-y-3">
+                  <Label>Valor a receber</Label>
+                  <RadioGroup
+                    value={simulateValueSource}
+                    onValueChange={(v: 'varejo' | 'atacado' | 'custom') => {
+                      setSimulateValueSource(v)
+                      const d = simulateModalTarget
+                      if (!d) return
+                      if (v === 'varejo' && d.sale_value_cents != null) setSimulateValue(centsToReais(d.sale_value_cents))
+                      else if (v === 'atacado' && d.wholesale_value_cents != null) setSimulateValue(centsToReais(d.wholesale_value_cents))
+                      else if (v === 'custom') setSimulateValue('')
+                    }}
+                    className="flex flex-col gap-2"
+                  >
+                    {simulateModalTarget.sale_value_cents != null && (
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="varejo" id="sim-varejo" />
+                        <Label htmlFor="sim-varejo" className="font-normal cursor-pointer">
+                          Varejo – R$ {centsToReais(simulateModalTarget.sale_value_cents)}
+                        </Label>
+                      </div>
+                    )}
+                    {simulateModalTarget.wholesale_value_cents != null && (
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="atacado" id="sim-atacado" />
+                        <Label htmlFor="sim-atacado" className="font-normal cursor-pointer">
+                          Atacado – R$ {centsToReais(simulateModalTarget.wholesale_value_cents)}
+                        </Label>
+                      </div>
+                    )}
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="custom" id="sim-custom" />
+                      <Label htmlFor="sim-custom" className="font-normal cursor-pointer">
+                        Outro valor
+                      </Label>
+                    </div>
+                  </RadioGroup>
+                  {(simulateValueSource === 'custom' || (simulateValueSource === 'varejo' && simulateModalTarget.sale_value_cents == null) || (simulateValueSource === 'atacado' && simulateModalTarget.wholesale_value_cents == null)) && (
+                    <Input
+                      value={simulateValue}
+                      onChange={(e) => setSimulateValue(formatMoneyInput(e.target.value))}
+                      placeholder="0,00"
+                      className="mt-1"
+                    />
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label>Forma de pagamento</Label>
+                  <Select
+                    value={simulatePaymentMethodId}
+                    onValueChange={(v) => {
+                      setSimulatePaymentMethodId(v)
+                      setSimulateInstallments(1)
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {paymentMethods.map((pm) => (
+                        <SelectItem key={pm.id} value={pm.id}>
+                          {pm.description}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {simulatePaymentMethodId && (() => {
+                  const pm = paymentMethods.find((p) => p.id === simulatePaymentMethodId)
+                  if (pm?.type === 'credito') {
+                    const fees = Array.isArray(pm.credit_installment_fees) ? pm.credit_installment_fees : []
+                    const maxInstallments = fees.length > 0
+                      ? Math.max(...fees.map((f) => f.installments))
+                      : 12
+                    return (
+                      <div className="space-y-2">
+                        <Label>Parcelas</Label>
+                        <Select
+                          value={String(simulateInstallments)}
+                          onValueChange={(v) => setSimulateInstallments(parseInt(v, 10) || 1)}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {Array.from({ length: maxInstallments }, (_, i) => i + 1).map((n) => (
+                              <SelectItem key={n} value={String(n)}>
+                                {n}x
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )
+                  }
+                  return null
+                })()}
+                {getSimulateResult() && (
+                  <div className="rounded-lg border bg-muted/50 px-4 py-3 space-y-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Resultado</p>
+                    {(() => {
+                      const r = getSimulateResult()!
+                      return (
+                        <>
+                          <p className="text-sm">
+                            Valor a receber: R$ {centsToReais(r.receiveCents)}
+                          </p>
+                          <p className="text-sm">
+                            Valor que preciso cobrar: R$ {centsToReais(r.chargeCents)}
+                          </p>
+                          {r.installments != null && r.valuePerInstallmentCents != null && (
+                            <p className="text-sm">
+                              Valor da parcela: R$ {centsToReais(r.valuePerInstallmentCents)}
+                            </p>
+                          )}
+                          {r.feePercent > 0 && (
+                            <>
+                              <p className="text-sm">
+                                Valor do juros: R$ {centsToReais(r.feeCents)}
+                              </p>
+                              <p className="text-sm">
+                                Percentual: {r.feePercent.toFixed(2)}%
+                              </p>
+                            </>
+                          )}
+                        </>
+                      )
+                    })()}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button type="button" onClick={() => setSimulateModalTarget(null)}>
               Fechar
             </Button>
           </DialogFooter>

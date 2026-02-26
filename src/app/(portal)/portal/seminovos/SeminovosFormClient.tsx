@@ -22,7 +22,7 @@ import { formatMoneyInput, maskedFromCents, moneyToCentsFromMasked } from '@/lib
 import { toast } from '@/hooks/use-toast'
 import { portalFetch } from '@/lib/portal/portal-fetch'
 import { parse3utoolsText } from '@/lib/resale/parse-3utools'
-import { ArrowLeft, DollarSign, FileInput, Plus, Trash2 } from 'lucide-react'
+import { ArrowLeft, DollarSign, FileInput, Plus, Trash2, Undo2 } from 'lucide-react'
 
 type CostRow = { id?: string; description: string; value_cents: number }
 
@@ -63,86 +63,127 @@ function centsToReais(cents: number | null | undefined): string {
 
 const emptyCost = (): CostRow => ({ description: '', value_cents: 0 })
 
+function getInitialFromDevice(d: ResaleDevice | null | undefined) {
+  if (!d) return null
+  const costs = (d.costs && d.costs.length > 0)
+    ? d.costs.map((c) => ({ id: c.id, description: c.description ?? '', value_cents: c.value_cents ?? 0 }))
+    : [emptyCost()]
+  return {
+    deviceName: d.device_name ?? d.model ?? '',
+    model: d.model ?? '',
+    color: d.color ?? '',
+    storageGb: d.storage_gb ?? '',
+    battery: d.battery ?? '',
+    condition: d.condition ?? '',
+    info: d.info ?? '',
+    imei: d.imei ?? '',
+    imei2: d.imei2 ?? '',
+    serial: d.serial ?? '',
+    purchaseValue: centsToReais(d.purchase_value_cents),
+    wholesaleValue: centsToReais(d.wholesale_value_cents),
+    expectedProfitWholesale: centsToReais(d.expected_profit_wholesale_cents),
+    saleValue: centsToReais(d.sale_value_cents),
+    expectedProfitSale: centsToReais(d.expected_profit_sale_cents),
+    soldFor: centsToReais((d as { sold_for_cents?: number | null }).sold_for_cents),
+    advertised: Boolean(d.advertised),
+    tested: Boolean(d.tested),
+    label: Boolean(d.label),
+    sold: Boolean(d.sold),
+    purchaseDate: d.purchase_date ?? '',
+    saleDate: d.sale_date ?? '',
+    costs,
+  }
+}
+
 type Props = {
   deviceId?: string
   isCreate: boolean
+  initialDevice?: ResaleDevice | null
 }
 
-export function SeminovosFormClient({ deviceId, isCreate }: Props) {
+export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props) {
   const router = useRouter()
-  const [isLoadingDevice, setIsLoadingDevice] = useState(Boolean(deviceId))
+  const init = getInitialFromDevice(initialDevice)
+  const hasInitial = Boolean(init)
+
+  const [isLoadingDevice, setIsLoadingDevice] = useState(Boolean(deviceId) && !hasInitial)
   const [isSaving, setIsSaving] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [threeUtoolsRaw, setThreeUtoolsRaw] = useState('')
 
-  const [formDeviceName, setFormDeviceName] = useState('')
-  const [formModel, setFormModel] = useState('')
-  const [formColor, setFormColor] = useState('')
-  const [formStorageGb, setFormStorageGb] = useState('')
-  const [formBattery, setFormBattery] = useState('')
-  const [formCondition, setFormCondition] = useState('')
-  const [formInfo, setFormInfo] = useState('')
-  const [formImei, setFormImei] = useState('')
-  const [formImei2, setFormImei2] = useState('')
-  const [formSerial, setFormSerial] = useState('')
-  const [formPurchaseValue, setFormPurchaseValue] = useState('')
-  const [formWholesaleValue, setFormWholesaleValue] = useState('')
-  const [formExpectedProfitWholesale, setFormExpectedProfitWholesale] = useState('')
-  const [formSaleValue, setFormSaleValue] = useState('')
-  const [formExpectedProfitSale, setFormExpectedProfitSale] = useState('')
-  const [formSoldFor, setFormSoldFor] = useState('')
-  const [formAdvertised, setFormAdvertised] = useState(false)
-  const [formTested, setFormTested] = useState(false)
-  const [formLabel, setFormLabel] = useState(false)
-  const [formSold, setFormSold] = useState(false)
-  const [formPurchaseDate, setFormPurchaseDate] = useState('')
-  const [formSaleDate, setFormSaleDate] = useState('')
-  const [formCosts, setFormCosts] = useState<CostRow[]>([emptyCost()])
+  const [formDeviceName, setFormDeviceName] = useState(init?.deviceName ?? '')
+  const [formModel, setFormModel] = useState(init?.model ?? '')
+  const [formColor, setFormColor] = useState(init?.color ?? '')
+  const [formStorageGb, setFormStorageGb] = useState(init?.storageGb ?? '')
+  const [formBattery, setFormBattery] = useState(init?.battery ?? '')
+  const [formCondition, setFormCondition] = useState(init?.condition ?? '')
+  const [formInfo, setFormInfo] = useState(init?.info ?? '')
+  const [formImei, setFormImei] = useState(init?.imei ?? '')
+  const [formImei2, setFormImei2] = useState(init?.imei2 ?? '')
+  const [formSerial, setFormSerial] = useState(init?.serial ?? '')
+  const [formPurchaseValue, setFormPurchaseValue] = useState(init?.purchaseValue ?? '')
+  const [formWholesaleValue, setFormWholesaleValue] = useState(init?.wholesaleValue ?? '')
+  const [formExpectedProfitWholesale, setFormExpectedProfitWholesale] = useState(init?.expectedProfitWholesale ?? '')
+  const [formSaleValue, setFormSaleValue] = useState(init?.saleValue ?? '')
+  const [formExpectedProfitSale, setFormExpectedProfitSale] = useState(init?.expectedProfitSale ?? '')
+  const [formSoldFor, setFormSoldFor] = useState(init?.soldFor ?? '')
+  const [formAdvertised, setFormAdvertised] = useState(init?.advertised ?? false)
+  const [formTested, setFormTested] = useState(init?.tested ?? false)
+  const [formLabel, setFormLabel] = useState(init?.label ?? false)
+  const [formSold, setFormSold] = useState(init?.sold ?? false)
+  const [formPurchaseDate, setFormPurchaseDate] = useState(() => {
+    if (init) return init.purchaseDate
+    if (isCreate) {
+      const d = new Date()
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    }
+    return ''
+  })
+  const [formSaleDate, setFormSaleDate] = useState(init?.saleDate ?? '')
+  const [formCosts, setFormCosts] = useState<CostRow[]>(init?.costs ?? [emptyCost()])
   const [showSellModal, setShowSellModal] = useState(false)
   const [sellModalValue, setSellModalValue] = useState('')
   const [sellModalDate, setSellModalDate] = useState('')
   const [isSavingSell, setIsSavingSell] = useState(false)
 
   const loadDevice = useCallback(async () => {
-    if (!deviceId) return
+    if (!deviceId || hasInitial) return
     setIsLoadingDevice(true)
     try {
       const res = await portalFetch(`/api/portal/resale-devices/${deviceId}`)
       const data = await res?.json().catch(() => null)
       if (data?.ok && data.device) {
-        const d = data.device as ResaleDevice
-        setFormDeviceName(d.device_name ?? d.model ?? '')
-        setFormModel(d.model ?? '')
-        setFormColor(d.color ?? '')
-        setFormStorageGb(d.storage_gb ?? '')
-        setFormBattery(d.battery ?? '')
-        setFormCondition(d.condition ?? '')
-        setFormInfo(d.info ?? '')
-        setFormImei(d.imei ?? '')
-        setFormImei2(d.imei2 ?? '')
-        setFormSerial(d.serial ?? '')
-        setFormPurchaseValue(centsToReais(d.purchase_value_cents))
-        setFormWholesaleValue(centsToReais(d.wholesale_value_cents))
-        setFormExpectedProfitWholesale(centsToReais(d.expected_profit_wholesale_cents))
-        setFormSaleValue(centsToReais(d.sale_value_cents))
-        setFormExpectedProfitSale(centsToReais(d.expected_profit_sale_cents))
-        setFormSoldFor(centsToReais((d as { sold_for_cents?: number | null }).sold_for_cents))
-        setFormAdvertised(Boolean(d.advertised))
-        setFormTested(Boolean(d.tested))
-        setFormLabel(Boolean(d.label))
-        setFormSold(Boolean(d.sold))
-        setFormPurchaseDate(d.purchase_date ?? '')
-        setFormSaleDate(d.sale_date ?? '')
-        setFormCosts(
-          (d.costs && d.costs.length > 0)
-            ? d.costs.map((c) => ({ id: c.id, description: c.description ?? '', value_cents: c.value_cents ?? 0 }))
-            : [emptyCost()]
-        )
+        const inited = getInitialFromDevice(data.device as ResaleDevice)
+        if (inited) {
+          setFormDeviceName(inited.deviceName)
+          setFormModel(inited.model)
+          setFormColor(inited.color)
+          setFormStorageGb(inited.storageGb)
+          setFormBattery(inited.battery)
+          setFormCondition(inited.condition)
+          setFormInfo(inited.info)
+          setFormImei(inited.imei)
+          setFormImei2(inited.imei2)
+          setFormSerial(inited.serial)
+          setFormPurchaseValue(inited.purchaseValue)
+          setFormWholesaleValue(inited.wholesaleValue)
+          setFormExpectedProfitWholesale(inited.expectedProfitWholesale)
+          setFormSaleValue(inited.saleValue)
+          setFormExpectedProfitSale(inited.expectedProfitSale)
+          setFormSoldFor(inited.soldFor)
+          setFormAdvertised(inited.advertised)
+          setFormTested(inited.tested)
+          setFormLabel(inited.label)
+          setFormSold(inited.sold)
+          setFormPurchaseDate(inited.purchaseDate)
+          setFormSaleDate(inited.saleDate)
+          setFormCosts(inited.costs)
+        }
       }
     } finally {
       setIsLoadingDevice(false)
     }
-  }, [deviceId])
+  }, [deviceId, hasInitial])
 
   useEffect(() => {
     loadDevice()
@@ -325,6 +366,32 @@ export function SeminovosFormClient({ deviceId, isCreate }: Props) {
     }
   }
 
+  async function handleCancelSell() {
+    if (!deviceId || isSavingSell) return
+    if (!confirm('Cancelar a venda deste aparelho? O valor e a data de venda serão removidos.')) return
+    setIsSavingSell(true)
+    try {
+      const res = await portalFetch(`/api/portal/resale-devices/${deviceId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sold: false, sold_for_cents: null, sale_date: null }),
+      })
+      const data = await res?.json().catch(() => null)
+      if (data?.ok) {
+        setFormSold(false)
+        setFormSoldFor('')
+        setFormSaleDate('')
+        toast({ description: 'Venda cancelada', duration: 2000 })
+      } else {
+        setErrorMessage(data?.message || 'Não foi possível cancelar.')
+      }
+    } catch {
+      setErrorMessage('Erro ao cancelar.')
+    } finally {
+      setIsSavingSell(false)
+    }
+  }
+
   async function handleCopyDeviceData() {
     const lines = [
       [formDeviceName, formStorageGb ? `${formStorageGb}GB` : '', formColor].filter(Boolean).join(' • '),
@@ -416,6 +483,18 @@ export function SeminovosFormClient({ deviceId, isCreate }: Props) {
                 >
                   <DollarSign className="h-4 w-4 mr-2" />
                   Vendido
+                </Button>
+              )}
+              {!isCreate && formSold && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCancelSell}
+                  disabled={isSavingSell}
+                >
+                  <Undo2 className="h-4 w-4 mr-2" />
+                  Cancelar venda
                 </Button>
               )}
               <Button
