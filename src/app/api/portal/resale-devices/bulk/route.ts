@@ -39,12 +39,18 @@ function buildRowFromBody(body: Record<string, unknown>): Record<string, unknown
   if (body.expected_profit_wholesale_cents !== undefined || body.expected_profit_wholesale !== undefined) row.expected_profit_wholesale_cents = toCents(body.expected_profit_wholesale_cents ?? body.expected_profit_wholesale)
   if (body.sale_value_cents !== undefined || body.sale_value !== undefined) row.sale_value_cents = toCents(body.sale_value_cents ?? body.sale_value)
   if (body.expected_profit_sale_cents !== undefined || body.expected_profit_sale !== undefined) row.expected_profit_sale_cents = toCents(body.expected_profit_sale_cents ?? body.expected_profit_sale)
-  if (body.sold_for_cents !== undefined || body.sold_for !== undefined) row.sold_for_cents = toCents(body.sold_for_cents ?? body.sold_for)
+  const soldForCents = body.sold_for_cents !== undefined || body.sold_for !== undefined
+    ? toCents(body.sold_for_cents ?? body.sold_for)
+    : null
+  if (soldForCents !== null) row.sold_for_cents = soldForCents
   if (body.advertised !== undefined) row.advertised = Boolean(body.advertised)
   if (body.tested !== undefined) row.tested = Boolean(body.tested)
   if (body.label !== undefined) row.label = cleanText(body.label) || null
   if (body.sold !== undefined) row.sold = Boolean(body.sold)
-  if (body.actual_profit_cents !== undefined || body.actual_profit !== undefined) row.actual_profit_cents = toCents(body.actual_profit_cents ?? body.actual_profit)
+  if (body.actual_profit_cents !== undefined || body.actual_profit !== undefined) {
+    const val = body.actual_profit_cents ?? body.actual_profit
+    row.actual_profit_cents = typeof val === 'number' ? Math.round(val) : toCents(val)
+  }
   if (body.purchase_date !== undefined) row.purchase_date = toDate(body.purchase_date)
   if (body.sale_date !== undefined) row.sale_date = toDate(body.sale_date)
   return row
@@ -97,6 +103,14 @@ export async function PATCH(request: Request) {
     if (Object.keys(row).length === 0) {
       results.push({ id, ok: true })
       continue
+    }
+
+    if (row.sold_for_cents != null && row.actual_profit_cents === undefined) {
+      const { data: dev } = await auth.supabase.from('resale_devices').select('purchase_value_cents').eq('id', id).single()
+      const { data: costs } = await auth.supabase.from('resale_device_costs').select('value_cents').eq('resale_device_id', id)
+      const purchaseCents = (dev?.purchase_value_cents as number) ?? 0
+      const costsTotal = (costs || []).reduce((acc: number, c: { value_cents?: number }) => acc + (c.value_cents ?? 0), 0)
+      row.actual_profit_cents = (row.sold_for_cents as number) - purchaseCents - costsTotal
     }
 
     const { error } = await auth.supabase

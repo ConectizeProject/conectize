@@ -95,16 +95,12 @@ export function parse3utoolsText(text: string): Parsed3utools {
   const productTypeRaw = map['ProductType'] || ''
   const productType = productTypeRaw ? cleanProductType(productTypeRaw) : ''
   const modelFromProductType = productType || deviceClass || undefined
-
   const colorCode = map['DeviceColor'] || map['DeviceEnclosureColor'] || ''
   const colorFromMap = DEVICE_COLOR_MAP[colorCode] || (colorCode ? colorCode : undefined)
+  const modelNumberRaw = map['ModelNumber'] || '';
+  const regionInfo = map['RegionInfo'] || '';
 
-  const modelNumber =
-    map['ModelNumber'] ||
-    map['Model Number'] ||
-    map['ModelNumber:'] ||
-    map['Model number'] ||
-    undefined
+  const modelNumber = modelNumberRaw.trim() + ' ' + regionInfo.trim();
 
   return {
     model: firstLineParsed ? firstLineParsed.model : modelFromProductType,

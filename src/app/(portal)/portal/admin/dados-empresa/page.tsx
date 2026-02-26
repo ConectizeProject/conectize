@@ -85,18 +85,11 @@ export default async function DadosEmpresaPage({
   return (
     <div className="max-w-2xl space-y-6">
       <DadosEmpresaToastClient />
-      <div>
-        <h1 className="text-2xl font-bold">Dados da empresa</h1>
-        <p className="text-sm text-muted-foreground">
-          Estes dados aparecem no cabeçalho da impressão das ordens de serviço.
-        </p>
-      </div>
-
       <Card>
         <CardHeader>
           <CardTitle>Informações</CardTitle>
           <CardDescription>
-            Nome, CNPJ, endereço, contato e logo.
+            Estes dados aparecem no cabeçalho da impressão das ordens de serviço.
           </CardDescription>
         </CardHeader>
         <CardContent>

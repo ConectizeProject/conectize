@@ -113,8 +113,12 @@ export async function PATCH(
   const soldForCents = body.sold_for_cents !== undefined || body.sold_for !== undefined
     ? toCents(body.sold_for_cents ?? body.sold_for, isCents('sold_for_cents'))
     : null
-  if (soldForCents !== null) row.sold_for_cents = soldForCents
-  if (soldForCents !== null) {
+  if (body.sold === false) {
+    row.sold_for_cents = null
+    row.sale_date = null
+    row.actual_profit_cents = null
+  } else if (soldForCents !== null) {
+    row.sold_for_cents = soldForCents
     const { data: dev } = await auth.supabase.from('resale_devices').select('purchase_value_cents').eq('id', id).single()
     const { data: costs } = await auth.supabase.from('resale_device_costs').select('value_cents').eq('resale_device_id', id)
     const purchaseCents = (dev?.purchase_value_cents as number) ?? 0
@@ -125,7 +129,10 @@ export async function PATCH(
   if (body.tested !== undefined) row.tested = Boolean(body.tested)
   if (body.label !== undefined) row.label = cleanText(body.label) || null
   if (body.sold !== undefined) row.sold = Boolean(body.sold)
-  if (body.actual_profit_cents !== undefined || body.actual_profit !== undefined) row.actual_profit_cents = toCents(body.actual_profit_cents ?? body.actual_profit, isCents('actual_profit_cents'))
+  if (body.actual_profit_cents !== undefined || body.actual_profit !== undefined) {
+    const val = body.actual_profit_cents ?? body.actual_profit
+    row.actual_profit_cents = typeof val === 'number' ? Math.round(val) : toCents(val, false)
+  }
   if (body.purchase_date !== undefined) row.purchase_date = toDate(body.purchase_date)
   if (body.sale_date !== undefined) row.sale_date = toDate(body.sale_date)
 
