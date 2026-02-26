@@ -566,7 +566,6 @@ export function NovaOrdemClient(props: Props) {
 										<div className="flex items-center justify-between gap-3 flex-wrap">
 											<div>
 												<div className="text-sm font-medium">Senha do aparelho</div>
-												<div className="text-xs text-muted-foreground">Texto ou padrão (desenho)</div>
 											</div>
 										</div>
 										<RadioGroup

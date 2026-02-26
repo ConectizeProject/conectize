@@ -29,7 +29,6 @@ export function OrderPasscodeFields(props: Props) {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <div className="text-sm font-medium">Senha do aparelho</div>
-          <div className="text-xs text-muted-foreground">Texto ou padrão (desenho)</div>
         </div>
       </div>
 
@@ -80,7 +79,7 @@ export function OrderPasscodeFields(props: Props) {
       ) : passcodeType === 'pattern' ? (
         <div className="space-y-2">
           <Label htmlFor="passcodePattern">Senha (padrão)</Label>
-          <PatternLockInput id="passcodePattern" value={passcodePattern} onChange={disabled ? () => {} : setPasscodePattern} disabled={disabled} />
+          <PatternLockInput id="passcodePattern" value={passcodePattern} onChange={disabled ? () => { } : setPasscodePattern} disabled={disabled} />
         </div>
       ) : (
         <div className="text-sm text-muted-foreground">

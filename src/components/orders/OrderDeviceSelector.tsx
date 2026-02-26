@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { History, Plus } from 'lucide-react'
+import { ArrowLeftRight, History, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -95,10 +95,22 @@ export function OrderDeviceSelector({
   const [internalDeviceModelId, setInternalDeviceModelId] = useState(initialValue?.deviceModelId ?? '')
   const [internalModel, setInternalModel] = useState(initialValue?.model ?? '')
 
+  const [isEditing, setIsEditing] = useState(false)
+
   const isFormikMode = !!formik
   const brand = isFormikMode ? formik.values.brand : internalBrand
   const deviceType = isFormikMode ? formik.values.deviceType : internalDeviceType
   const deviceModelId = isFormikMode ? formik.values.deviceModelId : internalDeviceModelId
+  const model = isFormikMode ? formik.values.model : internalModel
+
+  const hasDeviceSelected = Boolean(deviceModelId || (brand && model))
+  const showSummary = hasDeviceSelected && !isEditing
+
+  const selectedDeviceSummary = useMemo(() => {
+    if (!hasDeviceSelected) return ''
+    const parts = [brand, deviceType, model].filter(Boolean)
+    return parts.join(' • ') || 'Aparelho selecionado'
+  }, [hasDeviceSelected, brand, deviceType, model])
 
   const brands = useMemo(
     () => uniqueSorted(deviceModels.map((d) => d.brand)),
@@ -181,6 +193,7 @@ export function OrderDeviceSelector({
       setInternalDeviceModelId(id)
       setInternalModel(m?.model ?? '')
     }
+    if (id) setIsEditing(false)
   }
 
   async function handleCreateDevice() {
@@ -240,84 +253,107 @@ export function OrderDeviceSelector({
       <div className="flex items-center justify-between gap-3">
         <span className="text-sm font-medium">Selecione o aparelho</span>
         <div className="flex items-center gap-2">
-          {hasExistingDevices && onOpenExistingDevices ? (
+          {showSummary ? (
             <Button
               type="button"
               variant="outline"
-              size="icon"
-              onClick={onOpenExistingDevices}
-              disabled={isLoadingModels}
-              aria-label="Selecionar aparelho já cadastrado"
-              className="h-8 w-8"
+              size="sm"
+              onClick={() => setIsEditing(true)}
+              disabled={disabled}
+              aria-label="Trocar aparelho"
             >
-              <History className="h-4 w-4" />
+              <ArrowLeftRight className="h-4 w-4 mr-1.5" />
+              Trocar
             </Button>
-          ) : null}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={openCreateDialog}
-            disabled={isLoadingModels}
-            aria-label="Cadastrar novo dispositivo"
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
+          ) : (
+            <>
+              {hasExistingDevices && onOpenExistingDevices ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={onOpenExistingDevices}
+                  disabled={isLoadingModels}
+                  aria-label="Selecionar aparelho já cadastrado"
+                  className="h-8 w-8"
+                >
+                  <History className="h-4 w-4" />
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={openCreateDialog}
+                disabled={isLoadingModels}
+                aria-label="Cadastrar novo dispositivo"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </>
+          )}
         </div>
       </div>
-      <div className="grid gap-4 md:grid-cols-3">
-        <div className="space-y-2">
-          <Label htmlFor="deviceBrand">Marca</Label>
-          <select
-            id="deviceBrand"
-            className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-            value={brand}
-            onChange={(e) => handleBrandChange(e.target.value)}
-            disabled={isLoadingModels}
-          >
-            <option value="">Selecione…</option>
-            {brands.map((b) => (
-              <option key={b} value={b}>
-                {b}
-              </option>
-            ))}
-          </select>
+
+      {showSummary ? (
+        <div className="flex items-center justify-between gap-3 rounded-md bg-muted/50 px-3 py-2.5">
+          <span className="text-sm font-medium truncate">{selectedDeviceSummary}</span>
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="deviceType">Dispositivo</Label>
-          <select
-            id="deviceType"
-            className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-            value={deviceType}
-            onChange={(e) => handleDeviceTypeChange(e.target.value)}
-            disabled={!brand || isLoadingModels}
-          >
-            <option value="">Selecione…</option>
-            {deviceTypes.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="space-y-2">
+            <Label htmlFor="deviceBrand">Marca</Label>
+            <select
+              id="deviceBrand"
+              className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+              value={brand}
+              onChange={(e) => handleBrandChange(e.target.value)}
+              disabled={isLoadingModels}
+            >
+              <option value="">Selecione…</option>
+              {brands.map((b) => (
+                <option key={b} value={b}>
+                  {b}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="deviceType">Dispositivo</Label>
+            <select
+              id="deviceType"
+              className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+              value={deviceType}
+              onChange={(e) => handleDeviceTypeChange(e.target.value)}
+              disabled={!brand || isLoadingModels}
+            >
+              <option value="">Selecione…</option>
+              {deviceTypes.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="deviceModel">Modelo</Label>
+            <select
+              id="deviceModel"
+              className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+              value={deviceModelId}
+              onChange={(e) => handleModelChange(e.target.value)}
+              disabled={!brand || !deviceType || isLoadingModels}
+            >
+              <option value="">Selecione…</option>
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.model}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="deviceModel">Modelo</Label>
-          <select
-            id="deviceModel"
-            className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-            value={deviceModelId}
-            onChange={(e) => handleModelChange(e.target.value)}
-            disabled={!brand || !deviceType || isLoadingModels}
-          >
-            <option value="">Selecione…</option>
-            {models.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.model}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
+      )}
 
       {error ? (
         <p className="text-sm text-destructive">{error}</p>
