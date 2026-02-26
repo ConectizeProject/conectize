@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/dialog'
 import { PatternLockInput } from '@/components/pattern-lock/PatternLockInput'
 import { CreateCustomerDialog, EditCustomerDialog, type CustomerHit } from '@/components/customers'
-import { OrderDeviceSelector, OrderServicesCard, OsAssistAiIconButton, type ServiceLine } from '@/components/orders'
+import { OrderDeviceSelector, OrderPaymentMethodFields, OrderServicesCard, OsAssistAiIconButton, type ServiceLine } from '@/components/orders'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { NovaOrdemCustomerCard } from './NovaOrdemCustomerCard'
 import { parseMoneyToCents } from '@/lib/utils/format-money'
@@ -79,6 +79,7 @@ type FormValues = {
 	passcodeType: string
 	passcodeText: string
 	passcodePattern: string
+	paymentMethods: Array<{ payment_method_id: string; installments?: number; value_cents?: number | null }>
 	customerDescription: string
 	internalDescription: string
 	receivingNotes: string
@@ -102,6 +103,7 @@ const initialFormValues: FormValues = {
 	passcodeType: 'none',
 	passcodeText: '',
 	passcodePattern: '',
+	paymentMethods: [],
 	customerDescription: '',
 	internalDescription: '',
 	receivingNotes: '',
@@ -203,6 +205,9 @@ export function NovaOrdemClient(props: Props) {
 					passcodeType: o.passcodeType ?? 'none',
 					passcodeText: o.passcodeText ?? '',
 					passcodePattern: o.passcodePattern ?? '',
+					paymentMethods: Array.isArray(o.paymentMethods) && o.paymentMethods.length > 0
+						? o.paymentMethods
+						: (o.paymentMethodId ? [{ payment_method_id: o.paymentMethodId, installments: o.installments ?? 1, value_cents: null }] : []),
 					customerDescription: o.customerDescription ?? '',
 					internalDescription: o.internalDescription ?? '',
 					receivingNotes: o.receivingNotes ?? '',
@@ -402,6 +407,7 @@ export function NovaOrdemClient(props: Props) {
 		fd.append('passcodeType', values.passcodeType)
 		fd.append('passcodeText', values.passcodeText)
 		fd.append('passcodePattern', values.passcodePattern)
+		fd.append('paymentMethodsJson', JSON.stringify((values.paymentMethods || []).filter((e) => e.payment_method_id)))
 		fd.append('title', values.title)
 		fd.append('status', values.status)
 		fd.append('imei', values.imei)
@@ -753,6 +759,14 @@ export function NovaOrdemClient(props: Props) {
 										</div>
 										<Field as={Textarea} id="internalDescription" name="internalDescription" placeholder="Anotações internas" />
 									</div>
+
+									<OrderPaymentMethodFields
+										formik={{
+											values: { paymentMethods: formik.values.paymentMethods ?? [] },
+											setFieldValue: formik.setFieldValue,
+										}}
+										totalValueCents={(formik.values.services ?? []).reduce((acc, s) => acc + parseMoneyToCents(s.value), 0)}
+									/>
 
 									{formik.status && typeof formik.status === 'string' ? (
 										<p className="text-sm text-destructive">{formik.status}</p>

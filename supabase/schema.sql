@@ -447,6 +447,8 @@ alter table public.service_orders
   add column if not exists internal_description text,
   add column if not exists receiving_notes text,
   add column if not exists assistance_info text,
+  add column if not exists payment_method_id uuid,
+  add column if not exists installments integer,
   add column if not exists services jsonb,
   add column if not exists services_total_cents integer,
   add column if not exists services_cost_total_cents integer;

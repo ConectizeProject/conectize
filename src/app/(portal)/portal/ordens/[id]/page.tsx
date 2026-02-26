@@ -11,7 +11,7 @@ import { OrderStatusBadge, OsAssistAiIconButton } from '@/components/orders'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { getOrdemErrorMessage } from '@/lib/utils/error-messages'
 import { formatDateBr, formatDateTimeBr } from '@/lib/utils/format-date'
-import { OrderDeviceSelector, OrderServicesCard } from '@/components/orders'
+import { OrderDeviceSelector, OrderPaymentMethodFields, OrderServicesCard } from '@/components/orders'
 import { OrderCustomerCard } from './OrderCustomerCard'
 import { OrderPasscodeFields } from './OrderPasscodeFields'
 import { OrdemDetalheToastClient } from './OrdemDetalheToastClient'
@@ -70,6 +70,42 @@ function getDeviceModelFromOrder(order: any) {
 	return deviceModel || null
 }
 
+function parseOrderPaymentMethods(order: any): Array<{ payment_method_id: string; installments?: number; value_cents?: number | null }> {
+  const pm = order?.payment_methods
+  if (Array.isArray(pm) && pm.length > 0) {
+    return pm
+      .filter((e: any) => e?.payment_method_id)
+      .map((e: any) => ({
+        payment_method_id: String(e.payment_method_id),
+        installments: e.installments != null ? Number(e.installments) : undefined,
+        value_cents: e.value_cents != null ? Math.max(0, Number(e.value_cents) || 0) : null,
+      }))
+  }
+  const legacyId = order?.payment_method_id
+  if (legacyId) {
+    return [{ payment_method_id: legacyId, installments: order?.installments ?? 1, value_cents: null }]
+  }
+  return []
+}
+
+function parsePaymentMethodsJson(raw: unknown): Array<{ payment_method_id: string; installments?: number; value_cents?: number | null }> {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(String(raw))
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .filter((item: unknown) => item && typeof item === 'object' && (item as any).payment_method_id)
+      .map((item: any) => ({
+        payment_method_id: String(item.payment_method_id).trim(),
+        installments: item.installments != null ? Math.max(1, Math.min(24, Number(item.installments) || 1)) : undefined,
+        value_cents: item.value_cents != null ? Math.max(0, Number(item.value_cents) || 0) : null,
+      }))
+      .filter((item) => item.payment_method_id)
+  } catch {
+    return []
+  }
+}
+
 function parseServicesJson(raw: unknown): { items: Array<{ description: string; valueCents: number; costCents: number }>; totalValueCents: number; totalCostCents: number } {
 	if (!raw) return { items: [], totalValueCents: 0, totalCostCents: 0 }
 	try {
@@ -120,7 +156,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 	const [{ data: order }, { data: companySettings }] = await Promise.all([
 		supabase
 			.from('service_orders')
-			.select('id, display_number, status, title, imei, color, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, customer_description, internal_description, receiving_notes, assistance_info, device_model_id, brand, model, services, services_total_cents, services_cost_total_cents, created_at, updated_at, closed_at, share_token, seller_user_id, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date, zip_code, state, city, neighborhood, street, street_number, street_complement, referral_source, referral_source_other ), device_models ( id, brand, device_type, model )')
+			.select('id, display_number, status, title, imei, color, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, payment_methods, customer_description, internal_description, receiving_notes, assistance_info, device_model_id, brand, model, services, services_total_cents, services_cost_total_cents, created_at, updated_at, closed_at, share_token, seller_user_id, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date, zip_code, state, city, neighborhood, street, street_number, street_complement, referral_source, referral_source_other ), device_models ( id, brand, device_type, model )')
 			.eq('id', id)
 			.maybeSingle(),
 		supabase.from('company_settings').select('name, cnpj, address, complement, zip_code, city, state, phone, email, logo_url').eq('id', 1).maybeSingle(),
@@ -177,6 +213,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 		const passcodeType = String(formData.get('passcodeType') || '').trim()
 		const passcodeText = String(formData.get('passcodeText') || '').trim()
 		const passcodePattern = String(formData.get('passcodePattern') || '').trim()
+		const paymentMethodsJson = formData.get('paymentMethodsJson')
 		const customerDescription = String(formData.get('customerDescription') || '').trim()
 		const internalDescription = String(formData.get('internalDescription') || '').trim()
 		const receivingNotes = String(formData.get('receivingNotes') || '').trim()
@@ -222,6 +259,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 			passcode_type: (passcodeType === 'text' || passcodeType === 'pattern') ? passcodeType : null,
 			passcode_text: passcodeType === 'text' ? (passcodeText || null) : null,
 			passcode_pattern: passcodeType === 'pattern' ? (passcodePattern || null) : null,
+			payment_methods: parsePaymentMethodsJson(paymentMethodsJson),
 			customer_description: customerDescription || null,
 			internal_description: internalDescription || null,
 			receiving_notes: receivingNotes || null,
@@ -452,6 +490,13 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 							</div>
 							<Textarea id="assistanceInfo" name="assistanceInfo" defaultValue={order.assistance_info || ''} placeholder="Informações técnicas, serviços realizados, peças trocadas, etc." disabled={isFinalized} />
 						</div>
+
+						<OrderPaymentMethodFields
+							defaultValue={parseOrderPaymentMethods(order)}
+							formId="order-edit-form"
+							disabled={isFinalized}
+							totalValueCents={order.services_total_cents ?? 0}
+						/>
 
 						<div className="fixed bottom-0 left-0 right-0 z-50 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-4 py-3">
 							<div className="max-w-4xl mx-auto flex justify-between items-center gap-3">
