@@ -83,124 +83,126 @@ export default async function DadosEmpresaPage({
   const c = company || {}
 
   return (
-    <div className="max-w-2xl space-y-6">
+    <div className="space-y-6">
       <DadosEmpresaToastClient />
-      <Card>
-        <CardHeader>
-          <CardTitle>Informações</CardTitle>
-          <CardDescription>
-            Estes dados aparecem no cabeçalho da impressão das ordens de serviço.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form action={updateCompanyAction} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Nome da empresa</Label>
-              <Input
-                id="name"
-                name="name"
-                defaultValue={c.name || ''}
-                placeholder="Ex: Conectize Assistência Técnica"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="cnpj">CNPJ</Label>
-              <DocumentMaskedInput
-                name="cnpj"
-                defaultValue={formatCnpj(String(c.cnpj ?? ''))}
-                placeholder="00.000.000/0001-00"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="logoUrl">URL do logo</Label>
-              <Input
-                id="logoUrl"
-                name="logoUrl"
-                defaultValue={c.logo_url || ''}
-                placeholder="/logo_conectize.svg ou URL completa"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="address">Endereço</Label>
-              <Input
-                id="address"
-                name="address"
-                defaultValue={c.address || ''}
-                placeholder="Rua, número"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="complement">Complemento</Label>
-              <Input
-                id="complement"
-                name="complement"
-                defaultValue={c.complement || ''}
-                placeholder="Sala, andar, etc."
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
+      <div className="max-w-2xl">
+        <Card>
+          <CardHeader>
+            <CardTitle>Informações</CardTitle>
+            <CardDescription>
+              Estes dados aparecem no cabeçalho da impressão das ordens de serviço.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form action={updateCompanyAction} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="zipCode">CEP</Label>
+                <Label htmlFor="name">Nome da empresa</Label>
                 <Input
-                  id="zipCode"
-                  name="zipCode"
-                  defaultValue={formatCepBr(c.zip_code)}
-                  placeholder="00000-000"
+                  id="name"
+                  name="name"
+                  defaultValue={c.name || ''}
+                  placeholder="Ex: Conectize Assistência Técnica"
                 />
               </div>
+
               <div className="space-y-2">
-                <Label htmlFor="city">Cidade</Label>
-                <Input
-                  id="city"
-                  name="city"
-                  defaultValue={c.city || ''}
-                  placeholder="Belo Horizonte"
+                <Label htmlFor="cnpj">CNPJ</Label>
+                <DocumentMaskedInput
+                  name="cnpj"
+                  defaultValue={formatCnpj(String(c.cnpj ?? ''))}
+                  placeholder="00.000.000/0001-00"
                 />
               </div>
-            </div>
 
-            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="state">Estado (UF)</Label>
+                <Label htmlFor="logoUrl">URL do logo</Label>
                 <Input
-                  id="state"
-                  name="state"
-                  defaultValue={c.state || ''}
-                  placeholder="MG"
-                  maxLength={2}
+                  id="logoUrl"
+                  name="logoUrl"
+                  defaultValue={c.logo_url || ''}
+                  placeholder="/logo_conectize.svg ou URL completa"
                 />
               </div>
+
               <div className="space-y-2">
-                <Label htmlFor="phone">Telefone</Label>
+                <Label htmlFor="address">Endereço</Label>
                 <Input
-                  id="phone"
-                  name="phone"
-                  defaultValue={c.phone || ''}
-                  placeholder="(31) 99999-9999"
+                  id="address"
+                  name="address"
+                  defaultValue={c.address || ''}
+                  placeholder="Rua, número"
                 />
               </div>
-            </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="email">E-mail</Label>
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                defaultValue={c.email || ''}
-                placeholder="contato@empresa.com.br"
-              />
-            </div>
+              <div className="space-y-2">
+                <Label htmlFor="complement">Complemento</Label>
+                <Input
+                  id="complement"
+                  name="complement"
+                  defaultValue={c.complement || ''}
+                  placeholder="Sala, andar, etc."
+                />
+              </div>
 
-            <DadosEmpresaSubmitButton />
-          </form>
-        </CardContent>
-      </Card>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="zipCode">CEP</Label>
+                  <Input
+                    id="zipCode"
+                    name="zipCode"
+                    defaultValue={formatCepBr(c.zip_code)}
+                    placeholder="00000-000"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="city">Cidade</Label>
+                  <Input
+                    id="city"
+                    name="city"
+                    defaultValue={c.city || ''}
+                    placeholder="Belo Horizonte"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="state">Estado (UF)</Label>
+                  <Input
+                    id="state"
+                    name="state"
+                    defaultValue={c.state || ''}
+                    placeholder="MG"
+                    maxLength={2}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="phone">Telefone</Label>
+                  <Input
+                    id="phone"
+                    name="phone"
+                    defaultValue={c.phone || ''}
+                    placeholder="(31) 99999-9999"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="email">E-mail</Label>
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  defaultValue={c.email || ''}
+                  placeholder="contato@empresa.com.br"
+                />
+              </div>
+
+              <DadosEmpresaSubmitButton />
+            </form>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }

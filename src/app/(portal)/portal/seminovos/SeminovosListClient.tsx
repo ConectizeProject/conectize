@@ -157,8 +157,8 @@ function DeviceBadges({ deviceName, storageGb, color, battery, condition }: { de
   const estadoStyle = est ? (est.startsWith('A') ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' : est.startsWith('B') ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300' : 'bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-300') : ''
 
   return (
-    <div className="min-w-0 space-y-1">
-      <p className="font-medium leading-tight truncate">
+    <div className="min-w-0 space-y-1 leading-tight">
+      <p className="font-medium truncate">
         {nome || '-'}
         {gb && (
           <>
@@ -995,7 +995,7 @@ Comprando 3 iPhones
                                               onClick={(e) => {
                                                 e.preventDefault()
                                                 e.stopPropagation()
-                                                navigator?.clipboard?.writeText(d.imei || '').then(() => toast({ description: 'Copiado', duration: 2000 })).catch(() => {})
+                                                navigator?.clipboard?.writeText(d.imei || '').then(() => toast({ description: 'Copiado', duration: 2000 })).catch(() => { })
                                               }}
                                               className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-mono bg-muted/70 hover:bg-muted border border-border/60"
                                             >
@@ -1045,102 +1045,217 @@ Comprando 3 iPhones
                       </div>
                     )}
                     <div className={!isBulkEdit ? 'hidden md:block overflow-x-auto' : 'overflow-x-auto'}>
-                    <Table>
-                      <colgroup>
-                        <col className="w-[22%]" />
-                        <col className="w-[11%]" />
-                        <col className="w-[14%]" />
-                        <col className="w-[9%]" />
-                        <col className="w-[8%]" />
-                        <col className="w-[12%]" />
-                        <col className="w-[10%]" />
-                        <col className="w-[4%]" />
-                      </colgroup>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Aparelho</TableHead>
-                          <TableHead>IMEI</TableHead>
-                          <TableHead>Informações</TableHead>
-                          <TableHead>
-                            <span className="inline-flex items-center gap-1.5">
-                              Valor compra
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7"
-                                onClick={(e) => { e.stopPropagation(); setShowPurchaseValue((v) => !v) }}
-                                title={showPurchaseValue ? 'Ocultar valor de compra' : 'Exibir valor de compra'}
-                                aria-label={showPurchaseValue ? 'Ocultar valor de compra' : 'Exibir valor de compra'}
-                              >
-                                {showPurchaseValue ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                              </Button>
-                            </span>
-                          </TableHead>
-                          <TableHead>Custos</TableHead>
-                          <TableHead>
-                            <span className="inline-flex items-center gap-1.5">
-                              Valores
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7"
-                                onClick={(e) => { e.stopPropagation(); setShowWholesaleValue((v) => !v) }}
-                                title={showWholesaleValue ? 'Ocultar valor de atacado' : 'Exibir valor de atacado'}
-                                aria-label={showWholesaleValue ? 'Ocultar valor de atacado' : 'Exibir valor de atacado'}
-                              >
-                                {showWholesaleValue ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                              </Button>
-                            </span>
-                          </TableHead>
-                          <TableHead>Data</TableHead>
-                          <TableHead className="text-right">Ações</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {(!isBulkEdit
-                          ? groupedAvailable.flatMap((g) => [
-                            { type: 'group' as const, key: `group-${g.modelKey}`, modelKey: g.modelKey },
-                            ...g.devices.map((d) => ({ type: 'device' as const, key: d.id, d })),
-                          ])
-                          : rows.map((d) => ({ type: 'device' as const, key: d.id, d }))
-                        ).map((item) =>
-                          item.type === 'group' ? (
-                            <TableRow key={item.key} className="bg-muted/40 hover:bg-muted/40">
-                              <TableCell colSpan={8} className="font-semibold py-2 text-sm">
-                                {item.modelKey}
-                              </TableCell>
-                            </TableRow>
-                          ) : (
-                            (() => {
-                              const d = item.d
-                              const totalCostsCents = (d.costs || []).reduce(
-                                (acc, c) => acc + (c.value_cents ?? 0),
-                                0
-                              )
-                              const aparelhoTitle = [d.device_name, d.storage_gb, d.color, d.battery, d.condition].filter(Boolean).join(' | ')
-                              return (
-                                <TableRow
-                                  key={d.id}
-                                  className={`${!isBulkEdit ? 'cursor-pointer' : ''} ${d.sold ? 'bg-muted/60' : ''}`}
+                      <Table>
+                        <colgroup>
+                          <col className="w-[22%]" />
+                          <col className="w-[11%]" />
+                          <col className="w-[14%]" />
+                          <col className="w-[9%]" />
+                          <col className="w-[8%]" />
+                          <col className="w-[12%]" />
+                          <col className="w-[10%]" />
+                          <col className="w-[4%]" />
+                        </colgroup>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Aparelho</TableHead>
+                            <TableHead>IMEI</TableHead>
+                            <TableHead>Informações</TableHead>
+                            <TableHead>
+                              <span className="inline-flex items-center gap-1.5">
+                                Valor compra
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7"
+                                  onClick={(e) => { e.stopPropagation(); setShowPurchaseValue((v) => !v) }}
+                                  title={showPurchaseValue ? 'Ocultar valor de compra' : 'Exibir valor de compra'}
+                                  aria-label={showPurchaseValue ? 'Ocultar valor de compra' : 'Exibir valor de compra'}
                                 >
-                                  {!isBulkEdit ? (
-                                    <TableCell colSpan={7} className="relative p-0 align-middle">
-                                      <Link
-                                        href={`/portal/seminovos/${d.id}`}
-                                        className="absolute inset-0 z-0"
-                                        aria-label={`Abrir aparelho ${aparelhoTitle || d.device_name || d.id}`}
-                                      />
-                                      <div className="relative z-10 grid items-center py-2 px-4 pointer-events-none [&_button]:pointer-events-auto min-w-0" style={{ gridTemplateColumns: '22fr 11fr 14fr 9fr 8fr 12fr 10fr' }}>
-                                        <DeviceBadges deviceName={d.device_name} storageGb={d.storage_gb} color={d.color} battery={d.battery} condition={d.condition} />
-                                        <span>
-                                          {d.imei ? (
+                                  {showPurchaseValue ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                                </Button>
+                              </span>
+                            </TableHead>
+                            <TableHead>Custos</TableHead>
+                            <TableHead>
+                              <span className="inline-flex items-center gap-1.5">
+                                Valores
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7"
+                                  onClick={(e) => { e.stopPropagation(); setShowWholesaleValue((v) => !v) }}
+                                  title={showWholesaleValue ? 'Ocultar valor de atacado' : 'Exibir valor de atacado'}
+                                  aria-label={showWholesaleValue ? 'Ocultar valor de atacado' : 'Exibir valor de atacado'}
+                                >
+                                  {showWholesaleValue ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                                </Button>
+                              </span>
+                            </TableHead>
+                            <TableHead>Data</TableHead>
+                            <TableHead className="text-right">Ações</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {(!isBulkEdit
+                            ? groupedAvailable.flatMap((g) => [
+                              { type: 'group' as const, key: `group-${g.modelKey}`, modelKey: g.modelKey },
+                              ...g.devices.map((d) => ({ type: 'device' as const, key: d.id, d })),
+                            ])
+                            : rows.map((d) => ({ type: 'device' as const, key: d.id, d }))
+                          ).map((item) =>
+                            item.type === 'group' ? (
+                              <TableRow key={item.key} className="bg-muted/40 hover:bg-muted/40">
+                                <TableCell colSpan={8} className="font-semibold py-2 text-sm">
+                                  {item.modelKey}
+                                </TableCell>
+                              </TableRow>
+                            ) : (
+                              (() => {
+                                const d = item.d
+                                const totalCostsCents = (d.costs || []).reduce(
+                                  (acc, c) => acc + (c.value_cents ?? 0),
+                                  0
+                                )
+                                const aparelhoTitle = [d.device_name, d.storage_gb, d.color, d.battery, d.condition].filter(Boolean).join(' | ')
+                                return (
+                                  <TableRow
+                                    key={d.id}
+                                    className={`${!isBulkEdit ? 'cursor-pointer' : ''} ${d.sold ? 'bg-muted/60' : ''}`}
+                                  >
+                                    {!isBulkEdit ? (
+                                      <TableCell colSpan={7} className="relative p-0 align-middle">
+                                        <Link
+                                          href={`/portal/seminovos/${d.id}`}
+                                          className="absolute inset-0 z-0"
+                                          aria-label={`Abrir aparelho ${aparelhoTitle || d.device_name || d.id}`}
+                                        />
+                                        <div className="relative z-10 grid items-center py-2 px-4 pointer-events-none [&_button]:pointer-events-auto min-w-0" style={{ gridTemplateColumns: '22fr 11fr 14fr 9fr 8fr 12fr 10fr' }}>
+                                          <DeviceBadges deviceName={d.device_name} storageGb={d.storage_gb} color={d.color} battery={d.battery} condition={d.condition} />
+                                          <span>
+                                            {d.imei ? (
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation()
+                                                  e.preventDefault()
+                                                  navigator?.clipboard?.writeText(d.imei || '').then(() => {
+                                                    toast({ description: 'Copiado para a área de transferência', duration: 2000 })
+                                                  }).catch(() => { })
+                                                }}
+                                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono bg-muted/70 hover:bg-muted border border-border/60 cursor-pointer transition-colors"
+                                                title="Clique para copiar"
+                                              >
+                                                <span className="truncate max-w-[115px]">{d.imei}</span>
+                                                <Copy className="h-3 w-3 shrink-0 text-muted-foreground" />
+                                              </button>
+                                            ) : '-'}
+                                          </span>
+                                          <span className="max-w-[220px] truncate min-w-0" title={d.info || ''}>{d.info || '-'}</span>
+                                          <span className="min-w-0">
+                                            {showPurchaseValue ? (d.purchase_value_cents != null ? `R$ ${centsToReais(d.purchase_value_cents)}` : '-') : <Skeleton className="h-4 w-16" />}
+                                          </span>
+                                          <span className="min-w-0">{totalCostsCents > 0 ? `R$ ${centsToReais(totalCostsCents)}` : '-'}</span>
+                                          <span className="whitespace-nowrap min-w-0">
+                                            {d.sold ? (
+                                              <span className="block text-xs leading-tight">{d.sold_for_cents != null ? `R$ ${centsToReais(d.sold_for_cents)}` : '-'}</span>
+                                            ) : (
+                                              <>
+                                                <span className="block text-xs leading-tight">{d.sale_value_cents != null ? `R$ ${centsToReais(d.sale_value_cents)}` : '-'}</span>
+                                                {showWholesaleValue && (
+                                                  <span className="block text-xs leading-tight text-muted-foreground">{d.wholesale_value_cents != null ? `R$ ${centsToReais(d.wholesale_value_cents)}` : '-'}</span>
+                                                )}
+                                              </>
+                                            )}
+                                          </span>
+                                          <span className="whitespace-nowrap min-w-0">
+                                            {d.sale_date ? (
+                                              <>
+                                                <span className="block text-xs leading-tight">{d.purchase_date ? formatDateBr(d.purchase_date) : '-'}</span>
+                                                <span className="block text-xs leading-tight text-muted-foreground">{formatDateBr(d.sale_date)}</span>
+                                              </>
+                                            ) : (
+                                              <span className="block text-xs leading-tight">{d.purchase_date ? formatDateBr(d.purchase_date) : '-'}</span>
+                                            )}
+                                          </span>
+                                        </div>
+                                      </TableCell>
+                                    ) : (
+                                      <>
+                                        <TableCell className="font-medium" title={aparelhoTitle || d.device_name || ''}>
+                                          {isBulkEdit ? (
+                                            <div className="space-y-1">
+                                              <div className="flex items-center gap-1">
+                                                <Input
+                                                  value={d.device_name || ''}
+                                                  onChange={(e) => updateRow(d.id, 'device_name', e.target.value)}
+                                                  placeholder="Nome"
+                                                  className="h-8 text-sm"
+                                                />
+                                                <span className="text-muted-foreground shrink-0">-</span>
+                                                <Input
+                                                  value={d.storage_gb || ''}
+                                                  onChange={(e) => updateRow(d.id, 'storage_gb', (e.target.value || '') as any)}
+                                                  placeholder="GB"
+                                                  className="h-8 w-14 text-sm"
+                                                />
+                                              </div>
+                                              <div className="flex items-center gap-1">
+                                                <Input
+                                                  value={d.color || ''}
+                                                  onChange={(e) => updateRow(d.id, 'color', (e.target.value || '') as any)}
+                                                  placeholder="Cor"
+                                                  className="h-8 text-xs"
+                                                />
+                                                <span className="text-muted-foreground shrink-0">-</span>
+                                                <Input
+                                                  inputMode="numeric"
+                                                  value={d.battery || ''}
+                                                  onChange={(e) => {
+                                                    const digits = e.target.value.replace(/\D/g, '')
+                                                    if (!digits) { updateRow(d.id, 'battery', '' as any); return }
+                                                    let n = Number.parseInt(digits, 10)
+                                                    if (Number.isNaN(n)) { updateRow(d.id, 'battery', '' as any); return }
+                                                    if (n > 100) n = 100
+                                                    updateRow(d.id, 'battery', (`${n}%` as any))
+                                                  }}
+                                                  placeholder="Bateria"
+                                                  className="h-8 w-16 text-xs"
+                                                />
+                                                <span className="text-muted-foreground shrink-0">-</span>
+                                                <select
+                                                  className="h-8 rounded-md border border-input bg-background px-2 text-xs w-16"
+                                                  value={d.condition || ''}
+                                                  onChange={(e) => updateRow(d.id, 'condition', (e.target.value || '') as any)}
+                                                >
+                                                  <option value="">Estado</option>
+                                                  <option value="A+">A+</option>
+                                                  <option value="A">A</option>
+                                                  <option value="A-">A-</option>
+                                                  <option value="B+">B+</option>
+                                                  <option value="B">B</option>
+                                                  <option value="B-">B-</option>
+                                                </select>
+                                              </div>
+                                            </div>
+                                          ) : (
+                                            <DeviceBadges deviceName={d.device_name} storageGb={d.storage_gb} color={d.color} battery={d.battery} condition={d.condition} />
+                                          )}
+                                        </TableCell>
+                                        <TableCell>
+                                          {isBulkEdit ? (
+                                            <Input
+                                              value={d.imei || ''}
+                                              onChange={(e) => updateRow(d.id, 'imei', e.target.value)}
+                                              placeholder="IMEI"
+                                            />
+                                          ) : d.imei ? (
                                             <button
                                               type="button"
                                               onClick={(e) => {
                                                 e.stopPropagation()
-                                                e.preventDefault()
                                                 navigator?.clipboard?.writeText(d.imei || '').then(() => {
                                                   toast({ description: 'Copiado para a área de transferência', duration: 2000 })
                                                 }).catch(() => { })
@@ -1151,288 +1266,173 @@ Comprando 3 iPhones
                                               <span className="truncate max-w-[115px]">{d.imei}</span>
                                               <Copy className="h-3 w-3 shrink-0 text-muted-foreground" />
                                             </button>
-                                          ) : '-'}
-                                        </span>
-                                        <span className="max-w-[220px] truncate min-w-0" title={d.info || ''}>{d.info || '-'}</span>
-                                        <span className="min-w-0">
-                                          {showPurchaseValue ? (d.purchase_value_cents != null ? `R$ ${centsToReais(d.purchase_value_cents)}` : '-') : <Skeleton className="h-4 w-16" />}
-                                        </span>
-                                        <span className="min-w-0">{totalCostsCents > 0 ? `R$ ${centsToReais(totalCostsCents)}` : '-'}</span>
-                                        <span className="whitespace-nowrap min-w-0">
-                                          {d.sold ? (
-                                            <span className="block text-xs leading-tight">{d.sold_for_cents != null ? `R$ ${centsToReais(d.sold_for_cents)}` : '-'}</span>
                                           ) : (
-                                            <>
-                                              <span className="block text-xs leading-tight">{d.sale_value_cents != null ? `R$ ${centsToReais(d.sale_value_cents)}` : '-'}</span>
-                                              {showWholesaleValue && (
-                                                <span className="block text-xs leading-tight text-muted-foreground">{d.wholesale_value_cents != null ? `R$ ${centsToReais(d.wholesale_value_cents)}` : '-'}</span>
-                                              )}
-                                            </>
+                                            '-'
                                           )}
-                                        </span>
-                                        <span className="whitespace-nowrap min-w-0">
-                                          {d.sale_date ? (
-                                            <>
-                                              <span className="block text-xs leading-tight">{d.purchase_date ? formatDateBr(d.purchase_date) : '-'}</span>
-                                              <span className="block text-xs leading-tight text-muted-foreground">{formatDateBr(d.sale_date)}</span>
-                                            </>
-                                          ) : (
-                                            <span className="block text-xs leading-tight">{d.purchase_date ? formatDateBr(d.purchase_date) : '-'}</span>
-                                          )}
-                                        </span>
-                                      </div>
-                                    </TableCell>
-                                  ) : (
-                                    <>
-                                      <TableCell className="font-medium" title={aparelhoTitle || d.device_name || ''}>
-                                        {isBulkEdit ? (
-                                          <div className="space-y-1">
-                                            <div className="flex items-center gap-1">
-                                              <Input
-                                                value={d.device_name || ''}
-                                                onChange={(e) => updateRow(d.id, 'device_name', e.target.value)}
-                                                placeholder="Nome"
-                                                className="h-8 text-sm"
-                                              />
-                                              <span className="text-muted-foreground shrink-0">-</span>
-                                              <Input
-                                                value={d.storage_gb || ''}
-                                                onChange={(e) => updateRow(d.id, 'storage_gb', (e.target.value || '') as any)}
-                                                placeholder="GB"
-                                                className="h-8 w-14 text-sm"
-                                              />
-                                            </div>
-                                            <div className="flex items-center gap-1">
-                                              <Input
-                                                value={d.color || ''}
-                                                onChange={(e) => updateRow(d.id, 'color', (e.target.value || '') as any)}
-                                                placeholder="Cor"
-                                                className="h-8 text-xs"
-                                              />
-                                              <span className="text-muted-foreground shrink-0">-</span>
-                                              <Input
-                                                inputMode="numeric"
-                                                value={d.battery || ''}
-                                                onChange={(e) => {
-                                                  const digits = e.target.value.replace(/\D/g, '')
-                                                  if (!digits) { updateRow(d.id, 'battery', '' as any); return }
-                                                  let n = Number.parseInt(digits, 10)
-                                                  if (Number.isNaN(n)) { updateRow(d.id, 'battery', '' as any); return }
-                                                  if (n > 100) n = 100
-                                                  updateRow(d.id, 'battery', (`${n}%` as any))
-                                                }}
-                                                placeholder="Bateria"
-                                                className="h-8 w-16 text-xs"
-                                              />
-                                              <span className="text-muted-foreground shrink-0">-</span>
-                                              <select
-                                                className="h-8 rounded-md border border-input bg-background px-2 text-xs w-16"
-                                                value={d.condition || ''}
-                                                onChange={(e) => updateRow(d.id, 'condition', (e.target.value || '') as any)}
-                                              >
-                                                <option value="">Estado</option>
-                                                <option value="A+">A+</option>
-                                                <option value="A">A</option>
-                                                <option value="A-">A-</option>
-                                                <option value="B+">B+</option>
-                                                <option value="B">B</option>
-                                                <option value="B-">B-</option>
-                                              </select>
-                                            </div>
-                                          </div>
-                                        ) : (
-                                          <DeviceBadges deviceName={d.device_name} storageGb={d.storage_gb} color={d.color} battery={d.battery} condition={d.condition} />
-                                        )}
-                                      </TableCell>
-                                      <TableCell>
-                                        {isBulkEdit ? (
-                                          <Input
-                                            value={d.imei || ''}
-                                            onChange={(e) => updateRow(d.id, 'imei', e.target.value)}
-                                            placeholder="IMEI"
-                                          />
-                                        ) : d.imei ? (
-                                          <button
-                                            type="button"
-                                            onClick={(e) => {
-                                              e.stopPropagation()
-                                              navigator?.clipboard?.writeText(d.imei || '').then(() => {
-                                                toast({ description: 'Copiado para a área de transferência', duration: 2000 })
-                                              }).catch(() => { })
-                                            }}
-                                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono bg-muted/70 hover:bg-muted border border-border/60 cursor-pointer transition-colors"
-                                            title="Clique para copiar"
-                                          >
-                                            <span className="truncate max-w-[115px]">{d.imei}</span>
-                                            <Copy className="h-3 w-3 shrink-0 text-muted-foreground" />
-                                          </button>
-                                        ) : (
-                                          '-'
-                                        )}
-                                      </TableCell>
-                                      <TableCell className="max-w-[220px] truncate" title={d.info || ''}>
-                                        {isBulkEdit ? (
-                                          <Input
-                                            value={d.info || ''}
-                                            onChange={(e) => updateRow(d.id, 'info', e.target.value)}
-                                            placeholder="Informações"
-                                          />
-                                        ) : (
-                                          d.info || '-'
-                                        )}
-                                      </TableCell>
-                                      <TableCell>
-                                        {showPurchaseValue ? (
-                                          isBulkEdit ? (
+                                        </TableCell>
+                                        <TableCell className="max-w-[220px] truncate" title={d.info || ''}>
+                                          {isBulkEdit ? (
                                             <Input
-                                              value={d.purchase_value_cents != null ? centsToReais(d.purchase_value_cents) : ''}
-                                              onChange={(e) => updateMoney(d.id, 'purchase_value_cents', e.target.value)}
-                                              placeholder="0,00"
+                                              value={d.info || ''}
+                                              onChange={(e) => updateRow(d.id, 'info', e.target.value)}
+                                              placeholder="Informações"
                                             />
                                           ) : (
-                                            d.purchase_value_cents != null ? `R$ ${centsToReais(d.purchase_value_cents)}` : '-'
-                                          )
-                                        ) : (
-                                          <Skeleton className="h-8 w-20" />
-                                        )}
-                                      </TableCell>
-                                      <TableCell>
-                                        {totalCostsCents > 0 ? `R$ ${centsToReais(totalCostsCents)}` : '-'}
-                                      </TableCell>
-                                      <TableCell className="whitespace-nowrap">
-                                        {isBulkEdit ? (
-                                          <div className="flex flex-col gap-1">
-                                            {d.sold ? (
+                                            d.info || '-'
+                                          )}
+                                        </TableCell>
+                                        <TableCell>
+                                          {showPurchaseValue ? (
+                                            isBulkEdit ? (
                                               <Input
-                                                value={d.sold_for_cents != null ? centsToReais(d.sold_for_cents) : ''}
-                                                onChange={(e) => updateMoney(d.id, 'sold_for_cents', e.target.value)}
-                                                placeholder="Valor da venda"
-                                                className="h-8 text-xs"
+                                                value={d.purchase_value_cents != null ? centsToReais(d.purchase_value_cents) : ''}
+                                                onChange={(e) => updateMoney(d.id, 'purchase_value_cents', e.target.value)}
+                                                placeholder="0,00"
                                               />
                                             ) : (
-                                              <>
+                                              d.purchase_value_cents != null ? `R$ ${centsToReais(d.purchase_value_cents)}` : '-'
+                                            )
+                                          ) : (
+                                            <Skeleton className="h-8 w-20" />
+                                          )}
+                                        </TableCell>
+                                        <TableCell>
+                                          {totalCostsCents > 0 ? `R$ ${centsToReais(totalCostsCents)}` : '-'}
+                                        </TableCell>
+                                        <TableCell className="whitespace-nowrap">
+                                          {isBulkEdit ? (
+                                            <div className="flex flex-col gap-1">
+                                              {d.sold ? (
                                                 <Input
-                                                  value={d.sale_value_cents != null ? centsToReais(d.sale_value_cents) : ''}
-                                                  onChange={(e) => updateMoney(d.id, 'sale_value_cents', e.target.value)}
-                                                  placeholder="Varejo"
+                                                  value={d.sold_for_cents != null ? centsToReais(d.sold_for_cents) : ''}
+                                                  onChange={(e) => updateMoney(d.id, 'sold_for_cents', e.target.value)}
+                                                  placeholder="Valor da venda"
                                                   className="h-8 text-xs"
                                                 />
-                                                {showWholesaleValue && (
+                                              ) : (
+                                                <>
                                                   <Input
-                                                    value={d.wholesale_value_cents != null ? centsToReais(d.wholesale_value_cents) : ''}
-                                                    onChange={(e) => updateMoney(d.id, 'wholesale_value_cents', e.target.value)}
-                                                    placeholder="Atacado"
+                                                    value={d.sale_value_cents != null ? centsToReais(d.sale_value_cents) : ''}
+                                                    onChange={(e) => updateMoney(d.id, 'sale_value_cents', e.target.value)}
+                                                    placeholder="Varejo"
                                                     className="h-8 text-xs"
                                                   />
-                                                )}
-                                              </>
-                                            )}
-                                          </div>
-                                        ) : (
-                                          <div className="flex flex-col text-xs leading-tight">
-                                            {d.sold ? (
-                                              <span>{d.sold_for_cents != null ? `R$ ${centsToReais(d.sold_for_cents)}` : '-'}</span>
-                                            ) : (
-                                              <>
-                                                <span>{d.sale_value_cents != null ? `R$ ${centsToReais(d.sale_value_cents)}` : '-'}</span>
-                                                {showWholesaleValue && (
-                                                  <span className="text-muted-foreground">{d.wholesale_value_cents != null ? `R$ ${centsToReais(d.wholesale_value_cents)}` : '-'}</span>
-                                                )}
-                                              </>
-                                            )}
-                                          </div>
-                                        )}
-                                      </TableCell>
-                                      <TableCell className="whitespace-nowrap">
-                                        {isBulkEdit ? (
-                                          <div className="flex flex-col gap-1">
-                                            <Input
-                                              type="date"
-                                              value={d.purchase_date || ''}
-                                              onChange={(e) => updateRow(d.id, 'purchase_date', e.target.value)}
-                                              className="h-8 text-xs"
-                                            />
-                                            <Input
-                                              type="date"
-                                              value={d.sale_date || ''}
-                                              onChange={(e) => updateRow(d.id, 'sale_date', e.target.value)}
-                                              className="h-8 text-xs"
-                                            />
-                                          </div>
-                                        ) : (
-                                          <div className="flex flex-col text-xs leading-tight">
-                                            {d.sale_date ? (
-                                              <>
+                                                  {showWholesaleValue && (
+                                                    <Input
+                                                      value={d.wholesale_value_cents != null ? centsToReais(d.wholesale_value_cents) : ''}
+                                                      onChange={(e) => updateMoney(d.id, 'wholesale_value_cents', e.target.value)}
+                                                      placeholder="Atacado"
+                                                      className="h-8 text-xs"
+                                                    />
+                                                  )}
+                                                </>
+                                              )}
+                                            </div>
+                                          ) : (
+                                            <div className="flex flex-col text-xs leading-tight">
+                                              {d.sold ? (
+                                                <span>{d.sold_for_cents != null ? `R$ ${centsToReais(d.sold_for_cents)}` : '-'}</span>
+                                              ) : (
+                                                <>
+                                                  <span>{d.sale_value_cents != null ? `R$ ${centsToReais(d.sale_value_cents)}` : '-'}</span>
+                                                  {showWholesaleValue && (
+                                                    <span className="text-muted-foreground">{d.wholesale_value_cents != null ? `R$ ${centsToReais(d.wholesale_value_cents)}` : '-'}</span>
+                                                  )}
+                                                </>
+                                              )}
+                                            </div>
+                                          )}
+                                        </TableCell>
+                                        <TableCell className="whitespace-nowrap">
+                                          {isBulkEdit ? (
+                                            <div className="flex flex-col gap-1">
+                                              <Input
+                                                type="date"
+                                                value={d.purchase_date || ''}
+                                                onChange={(e) => updateRow(d.id, 'purchase_date', e.target.value)}
+                                                className="h-8 text-xs"
+                                              />
+                                              <Input
+                                                type="date"
+                                                value={d.sale_date || ''}
+                                                onChange={(e) => updateRow(d.id, 'sale_date', e.target.value)}
+                                                className="h-8 text-xs"
+                                              />
+                                            </div>
+                                          ) : (
+                                            <div className="flex flex-col text-xs leading-tight">
+                                              {d.sale_date ? (
+                                                <>
+                                                  <span>{d.purchase_date ? formatDateBr(d.purchase_date) : '-'}</span>
+                                                  <span className="text-muted-foreground">{formatDateBr(d.sale_date)}</span>
+                                                </>
+                                              ) : (
                                                 <span>{d.purchase_date ? formatDateBr(d.purchase_date) : '-'}</span>
-                                                <span className="text-muted-foreground">{formatDateBr(d.sale_date)}</span>
-                                              </>
-                                            ) : (
-                                              <span>{d.purchase_date ? formatDateBr(d.purchase_date) : '-'}</span>
-                                            )}
-                                          </div>
-                                        )}
-                                      </TableCell>
-                                    </>
-                                  )}
-                                  <TableCell
-                                    className="text-right relative z-10"
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    <DropdownMenu>
-                                      <DropdownMenuTrigger asChild>
-                                        <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Ações">
-                                          <MoreHorizontal className="h-4 w-4" />
-                                        </Button>
-                                      </DropdownMenuTrigger>
-                                      <DropdownMenuContent align="end">
-                                        {!d.sold ? (
-                                          <DropdownMenuItem onClick={() => openSellModal(d)}>
-                                            <DollarSign className="h-3.5 w-3.5 mr-1.5" />
-                                            Vendido
+                                              )}
+                                            </div>
+                                          )}
+                                        </TableCell>
+                                      </>
+                                    )}
+                                    <TableCell
+                                      className="text-right relative z-10"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                          <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Ações">
+                                            <MoreHorizontal className="h-4 w-4" />
+                                          </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end">
+                                          {!d.sold ? (
+                                            <DropdownMenuItem onClick={() => openSellModal(d)}>
+                                              <DollarSign className="h-3.5 w-3.5 mr-1.5" />
+                                              Vendido
+                                            </DropdownMenuItem>
+                                          ) : (
+                                            <DropdownMenuItem onClick={() => handleCancelSell(d)} disabled={isSavingSell}>
+                                              <Undo2 className="h-3.5 w-3.5 mr-1.5" />
+                                              Cancelar venda
+                                            </DropdownMenuItem>
+                                          )}
+                                          <DropdownMenuItem onClick={() => openCostModal(d)}>
+                                            <Receipt className="h-3.5 w-3.5 mr-1.5" />
+                                            Adicionar custo
                                           </DropdownMenuItem>
-                                        ) : (
-                                          <DropdownMenuItem onClick={() => handleCancelSell(d)} disabled={isSavingSell}>
-                                            <Undo2 className="h-3.5 w-3.5 mr-1.5" />
-                                            Cancelar venda
+                                          <DropdownMenuItem onClick={() => openSimulateModal(d)}>
+                                            <Calculator className="h-3.5 w-3.5 mr-1.5" />
+                                            Simular
                                           </DropdownMenuItem>
-                                        )}
-                                        <DropdownMenuItem onClick={() => openCostModal(d)}>
-                                          <Receipt className="h-3.5 w-3.5 mr-1.5" />
-                                          Adicionar custo
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => openSimulateModal(d)}>
-                                          <Calculator className="h-3.5 w-3.5 mr-1.5" />
-                                          Simular
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => handlePrintLabel(d)}>
-                                          <Tag className="h-3.5 w-3.5 mr-1.5" />
-                                          Imprimir etiqueta
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => handleCopyDeviceLojista(d)}>
-                                          <Store className="h-3.5 w-3.5 mr-1.5" />
-                                          Copiar dados para lojista
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => handleCopyDeviceCliente(d)}>
-                                          <UserRound className="h-3.5 w-3.5 mr-1.5" />
-                                          Copiar dados para cliente
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem
-                                          className="text-destructive focus:text-destructive"
-                                          onClick={() => setDeleteTarget(d)}
-                                        >
-                                          <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-                                          Excluir
-                                        </DropdownMenuItem>
-                                      </DropdownMenuContent>
-                                    </DropdownMenu>
-                                  </TableCell>
-                                </TableRow>
-                              )
-                            })()
-                          )
-                        )}
-                      </TableBody>
-                    </Table>
+                                          <DropdownMenuItem onClick={() => handlePrintLabel(d)}>
+                                            <Tag className="h-3.5 w-3.5 mr-1.5" />
+                                            Imprimir etiqueta
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem onClick={() => handleCopyDeviceLojista(d)}>
+                                            <Store className="h-3.5 w-3.5 mr-1.5" />
+                                            Copiar dados para lojista
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem onClick={() => handleCopyDeviceCliente(d)}>
+                                            <UserRound className="h-3.5 w-3.5 mr-1.5" />
+                                            Copiar dados para cliente
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem
+                                            className="text-destructive focus:text-destructive"
+                                            onClick={() => setDeleteTarget(d)}
+                                          >
+                                            <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                                            Excluir
+                                          </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                      </DropdownMenu>
+                                    </TableCell>
+                                  </TableRow>
+                                )
+                              })()
+                            )
+                          )}
+                        </TableBody>
+                      </Table>
                     </div>
                   </>
                 )}
@@ -1526,7 +1526,7 @@ Comprando 3 iPhones
                                       {d.imei ? (
                                         <button
                                           type="button"
-                                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); navigator?.clipboard?.writeText(d.imei || '').then(() => toast({ description: 'Copiado', duration: 2000 })).catch(() => {}) }}
+                                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); navigator?.clipboard?.writeText(d.imei || '').then(() => toast({ description: 'Copiado', duration: 2000 })).catch(() => { }) }}
                                           className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-mono bg-muted/70 hover:bg-muted border border-border/60"
                                         >
                                           <span className="truncate max-w-[140px]">{d.imei}</span>
@@ -1563,138 +1563,138 @@ Comprando 3 iPhones
                           })}
                         </div>
                         <div className="hidden md:block overflow-x-auto">
-                        <Table>
-                          <colgroup>
-                            <col className="w-[22%]" />
-                            <col className="w-[11%]" />
-                            <col className="w-[14%]" />
-                            <col className="w-[9%]" />
-                            <col className="w-[8%]" />
-                            <col className="w-[12%]" />
-                            <col className="w-[10%]" />
-                            <col className="w-[4%]" />
-                          </colgroup>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Aparelho</TableHead>
-                              <TableHead>IMEI</TableHead>
-                              <TableHead>Informações</TableHead>
-                              <TableHead>
-                                <span className="inline-flex items-center gap-1.5">
-                                  Valor compra
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-7 w-7"
-                                    onClick={(e) => { e.stopPropagation(); setShowPurchaseValue((v) => !v) }}
-                                    title={showPurchaseValue ? 'Ocultar valor de compra' : 'Exibir valor de compra'}
-                                    aria-label={showPurchaseValue ? 'Ocultar valor de compra' : 'Exibir valor de compra'}
-                                  >
-                                    {showPurchaseValue ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                                  </Button>
-                                </span>
-                              </TableHead>
-                              <TableHead>Custos</TableHead>
-                              <TableHead>
-                                <span className="inline-flex items-center gap-1.5">
-                                  Valores
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-7 w-7"
-                                    onClick={(e) => { e.stopPropagation(); setShowWholesaleValue((v) => !v) }}
-                                    title={showWholesaleValue ? 'Ocultar valor de atacado' : 'Exibir valor de atacado'}
-                                    aria-label={showWholesaleValue ? 'Ocultar valor de atacado' : 'Exibir valor de atacado'}
-                                  >
-                                    {showWholesaleValue ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                                  </Button>
-                                </span>
-                              </TableHead>
-                              <TableHead>Data</TableHead>
-                              <TableHead className="text-right">Ações</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {sortSoldDevices(soldDevices).map((d) => {
-                              const totalCostsCents = (d.costs || []).reduce((acc, c) => acc + (c.value_cents ?? 0), 0)
-                              const aparelhoTitle = [d.device_name, d.storage_gb, d.color, d.battery, d.condition].filter(Boolean).join(' | ')
-                              return (
-                                <TableRow key={d.id} className="bg-muted/60 cursor-pointer">
-                                  <TableCell colSpan={7} className="relative p-0 align-middle">
-                                    <Link href={`/portal/seminovos/${d.id}`} className="absolute inset-0 z-0" aria-label={`Abrir aparelho ${aparelhoTitle || d.device_name || d.id}`} />
-                                    <div className="relative z-10 grid items-center py-2 px-4 pointer-events-none [&_button]:pointer-events-auto min-w-0" style={{ gridTemplateColumns: '22fr 11fr 14fr 9fr 8fr 12fr 10fr' }}>
-                                      <DeviceBadges deviceName={d.device_name} storageGb={d.storage_gb} color={d.color} battery={d.battery} condition={d.condition} />
-                                      <span>
-                                        {d.imei ? (
-                                          <button type="button" onClick={(e) => { e.stopPropagation(); e.preventDefault(); navigator?.clipboard?.writeText(d.imei || '').then(() => toast({ description: 'Copiado', duration: 2000 })).catch(() => { }) }} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono bg-muted/70 hover:bg-muted border border-border/60 cursor-pointer transition-colors" title="Clique para copiar">
-                                            <span className="truncate max-w-[115px]">{d.imei}</span>
-                                            <Copy className="h-3 w-3 shrink-0 text-muted-foreground" />
-                                          </button>
-                                        ) : '-'}
-                                      </span>
-                                      <span className="max-w-[220px] truncate min-w-0" title={d.info || ''}>{d.info || '-'}</span>
-                                      <span className="min-w-0">{showPurchaseValue ? (d.purchase_value_cents != null ? `R$ ${centsToReais(d.purchase_value_cents)}` : '-') : '-'}</span>
-                                      <span className="min-w-0">{totalCostsCents > 0 ? `R$ ${centsToReais(totalCostsCents)}` : '-'}</span>
-                                      <span className="whitespace-nowrap min-w-0">
-                                        <span className="block text-xs leading-tight">{d.sold_for_cents != null ? `R$ ${centsToReais(d.sold_for_cents)}` : '-'}</span>
-                                      </span>
-                                      <span className="whitespace-nowrap min-w-0">
-                                        {d.sale_date ? (
-                                          <>
+                          <Table>
+                            <colgroup>
+                              <col className="w-[22%]" />
+                              <col className="w-[11%]" />
+                              <col className="w-[14%]" />
+                              <col className="w-[9%]" />
+                              <col className="w-[8%]" />
+                              <col className="w-[12%]" />
+                              <col className="w-[10%]" />
+                              <col className="w-[4%]" />
+                            </colgroup>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Aparelho</TableHead>
+                                <TableHead>IMEI</TableHead>
+                                <TableHead>Informações</TableHead>
+                                <TableHead>
+                                  <span className="inline-flex items-center gap-1.5">
+                                    Valor compra
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7"
+                                      onClick={(e) => { e.stopPropagation(); setShowPurchaseValue((v) => !v) }}
+                                      title={showPurchaseValue ? 'Ocultar valor de compra' : 'Exibir valor de compra'}
+                                      aria-label={showPurchaseValue ? 'Ocultar valor de compra' : 'Exibir valor de compra'}
+                                    >
+                                      {showPurchaseValue ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                                    </Button>
+                                  </span>
+                                </TableHead>
+                                <TableHead>Custos</TableHead>
+                                <TableHead>
+                                  <span className="inline-flex items-center gap-1.5">
+                                    Valores
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7"
+                                      onClick={(e) => { e.stopPropagation(); setShowWholesaleValue((v) => !v) }}
+                                      title={showWholesaleValue ? 'Ocultar valor de atacado' : 'Exibir valor de atacado'}
+                                      aria-label={showWholesaleValue ? 'Ocultar valor de atacado' : 'Exibir valor de atacado'}
+                                    >
+                                      {showWholesaleValue ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                                    </Button>
+                                  </span>
+                                </TableHead>
+                                <TableHead>Data</TableHead>
+                                <TableHead className="text-right">Ações</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {sortSoldDevices(soldDevices).map((d) => {
+                                const totalCostsCents = (d.costs || []).reduce((acc, c) => acc + (c.value_cents ?? 0), 0)
+                                const aparelhoTitle = [d.device_name, d.storage_gb, d.color, d.battery, d.condition].filter(Boolean).join(' | ')
+                                return (
+                                  <TableRow key={d.id} className="bg-muted/60 cursor-pointer">
+                                    <TableCell colSpan={7} className="relative p-0 align-middle">
+                                      <Link href={`/portal/seminovos/${d.id}`} className="absolute inset-0 z-0" aria-label={`Abrir aparelho ${aparelhoTitle || d.device_name || d.id}`} />
+                                      <div className="relative z-10 grid items-center py-2 px-4 pointer-events-none [&_button]:pointer-events-auto min-w-0" style={{ gridTemplateColumns: '22fr 11fr 14fr 9fr 8fr 12fr 10fr' }}>
+                                        <DeviceBadges deviceName={d.device_name} storageGb={d.storage_gb} color={d.color} battery={d.battery} condition={d.condition} />
+                                        <span>
+                                          {d.imei ? (
+                                            <button type="button" onClick={(e) => { e.stopPropagation(); e.preventDefault(); navigator?.clipboard?.writeText(d.imei || '').then(() => toast({ description: 'Copiado', duration: 2000 })).catch(() => { }) }} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono bg-muted/70 hover:bg-muted border border-border/60 cursor-pointer transition-colors" title="Clique para copiar">
+                                              <span className="truncate max-w-[115px]">{d.imei}</span>
+                                              <Copy className="h-3 w-3 shrink-0 text-muted-foreground" />
+                                            </button>
+                                          ) : '-'}
+                                        </span>
+                                        <span className="max-w-[220px] truncate min-w-0" title={d.info || ''}>{d.info || '-'}</span>
+                                        <span className="min-w-0">{showPurchaseValue ? (d.purchase_value_cents != null ? `R$ ${centsToReais(d.purchase_value_cents)}` : '-') : '-'}</span>
+                                        <span className="min-w-0">{totalCostsCents > 0 ? `R$ ${centsToReais(totalCostsCents)}` : '-'}</span>
+                                        <span className="whitespace-nowrap min-w-0">
+                                          <span className="block text-xs leading-tight">{d.sold_for_cents != null ? `R$ ${centsToReais(d.sold_for_cents)}` : '-'}</span>
+                                        </span>
+                                        <span className="whitespace-nowrap min-w-0">
+                                          {d.sale_date ? (
+                                            <>
+                                              <span className="block text-xs leading-tight">{d.purchase_date ? formatDateBr(d.purchase_date) : '-'}</span>
+                                              <span className="block text-xs leading-tight text-muted-foreground">{formatDateBr(d.sale_date)}</span>
+                                            </>
+                                          ) : (
                                             <span className="block text-xs leading-tight">{d.purchase_date ? formatDateBr(d.purchase_date) : '-'}</span>
-                                            <span className="block text-xs leading-tight text-muted-foreground">{formatDateBr(d.sale_date)}</span>
-                                          </>
-                                        ) : (
-                                          <span className="block text-xs leading-tight">{d.purchase_date ? formatDateBr(d.purchase_date) : '-'}</span>
-                                        )}
-                                      </span>
-                                    </div>
-                                  </TableCell>
-                                  <TableCell className="text-right relative z-10" onClick={(e) => e.stopPropagation()}>
-                                    <DropdownMenu>
-                                      <DropdownMenuTrigger asChild>
-                                        <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Ações">
-                                          <MoreHorizontal className="h-4 w-4" />
-                                        </Button>
-                                      </DropdownMenuTrigger>
-                                      <DropdownMenuContent align="end">
-                                        <DropdownMenuItem onClick={() => handleCancelSell(d)} disabled={isSavingSell}>
-                                          <Undo2 className="h-3.5 w-3.5 mr-1.5" />
-                                          Cancelar venda
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => openCostModal(d)}>
-                                          <Receipt className="h-3.5 w-3.5 mr-1.5" />
-                                          Adicionar custo
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => handlePrintLabel(d)}>
-                                          <Tag className="h-3.5 w-3.5 mr-1.5" />
-                                          Imprimir etiqueta
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => handleCopyDeviceLojista(d)}>
-                                          <Store className="h-3.5 w-3.5 mr-1.5" />
-                                          Copiar dados para lojista
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => handleCopyDeviceCliente(d)}>
-                                          <UserRound className="h-3.5 w-3.5 mr-1.5" />
-                                          Copiar dados para cliente
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleteTarget(d)}>
-                                          <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-                                          Excluir
-                                        </DropdownMenuItem>
-                                      </DropdownMenuContent>
-                                    </DropdownMenu>
-                                  </TableCell>
-                                </TableRow>
-                              )
-                            })}
-                          </TableBody>
-                        </Table>
+                                          )}
+                                        </span>
+                                      </div>
+                                    </TableCell>
+                                    <TableCell className="text-right relative z-10" onClick={(e) => e.stopPropagation()}>
+                                      <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                          <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Ações">
+                                            <MoreHorizontal className="h-4 w-4" />
+                                          </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end">
+                                          <DropdownMenuItem onClick={() => handleCancelSell(d)} disabled={isSavingSell}>
+                                            <Undo2 className="h-3.5 w-3.5 mr-1.5" />
+                                            Cancelar venda
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem onClick={() => openCostModal(d)}>
+                                            <Receipt className="h-3.5 w-3.5 mr-1.5" />
+                                            Adicionar custo
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem onClick={() => handlePrintLabel(d)}>
+                                            <Tag className="h-3.5 w-3.5 mr-1.5" />
+                                            Imprimir etiqueta
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem onClick={() => handleCopyDeviceLojista(d)}>
+                                            <Store className="h-3.5 w-3.5 mr-1.5" />
+                                            Copiar dados para lojista
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem onClick={() => handleCopyDeviceCliente(d)}>
+                                            <UserRound className="h-3.5 w-3.5 mr-1.5" />
+                                            Copiar dados para cliente
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleteTarget(d)}>
+                                            <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                                            Excluir
+                                          </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                      </DropdownMenu>
+                                    </TableCell>
+                                  </TableRow>
+                                )
+                              })}
+                            </TableBody>
+                          </Table>
                         </div>
                       </>
-                      )}
+                    )}
                   </CardContent>
                 )}
               </CollapsibleContent>

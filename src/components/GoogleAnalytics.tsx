@@ -5,24 +5,10 @@ import { usePathname } from 'next/navigation'
 
 const GA_ID = 'G-1E45FFLYQY'
 
-const PORTAL_PUBLIC_PATHS = [
-  '/portal/login',
-  '/portal/auth/callback',
-  '/portal/redefinir-senha',
-  '/portal/cadastro',
-]
-
-function isPortalLoggedInPath(pathname: string): boolean {
-  if (!pathname.startsWith('/portal')) return false
-  if (pathname === '/portal') return true
-  return !PORTAL_PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))
-}
-
 export function GoogleAnalytics() {
-  const pathname = usePathname()
-  const shouldLoad = pathname != null && !isPortalLoggedInPath(pathname)
+  const pathname = usePathname() || ''
 
-  if (!shouldLoad) return null
+  if (pathname.startsWith('/portal')) return null
 
   return (
     <>
