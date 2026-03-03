@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { portalFetch } from '@/lib/portal/portal-fetch'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
+import { cn } from '@/lib/utils'
 
 type CustomerHit = {
   id: string
@@ -40,6 +41,9 @@ type Props = {
     createdTo: string
     readyFrom: string
     readyTo: string
+    noServices: string
+    noCost: string
+    noPayment: string
   }
   deviceModels: DeviceModel[]
 }
@@ -82,8 +86,34 @@ export function OrdensFilterCollapsible({
     initialValues.createdFrom ||
     initialValues.createdTo ||
     initialValues.readyFrom ||
-    initialValues.readyTo
+    initialValues.readyTo ||
+    initialValues.noServices ||
+    initialValues.noCost ||
+    initialValues.noPayment
   )
+
+  function buildQuickFilterUrl(override: { noServices?: string; noCost?: string; noPayment?: string }) {
+    const params = new URLSearchParams()
+    if (initialValues.q) params.set('q', initialValues.q)
+    if (initialValues.cpf) params.set('cpf', initialValues.cpf)
+    if (initialValues.osNumber) params.set('osNumber', initialValues.osNumber)
+    if (initialValues.status) params.set('status', initialValues.status)
+    if (initialValues.customerId) params.set('customerId', initialValues.customerId)
+    if (initialValues.customerName) params.set('customerName', initialValues.customerName)
+    if (initialValues.deviceModelId) params.set('deviceModelId', initialValues.deviceModelId)
+    if (initialValues.createdFrom) params.set('createdFrom', initialValues.createdFrom)
+    if (initialValues.createdTo) params.set('createdTo', initialValues.createdTo)
+    if (initialValues.readyFrom) params.set('readyFrom', initialValues.readyFrom)
+    if (initialValues.readyTo) params.set('readyTo', initialValues.readyTo)
+    const noServices = override.noServices !== undefined ? override.noServices : initialValues.noServices
+    const noCost = override.noCost !== undefined ? override.noCost : initialValues.noCost
+    const noPayment = override.noPayment !== undefined ? override.noPayment : initialValues.noPayment
+    if (noServices) params.set('noServices', '1')
+    if (noCost) params.set('noCost', '1')
+    if (noPayment) params.set('noPayment', '1')
+    const qs = params.toString()
+    return qs ? `/portal/ordens?${qs}` : '/portal/ordens'
+  }
 
   useEffect(() => {
     if (hasFilters && !open) setOpen(true)
@@ -156,11 +186,44 @@ export function OrdensFilterCollapsible({
         </span>
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <div className="mt-3 rounded-md border bg-card p-4">
+        <div className="mt-3 rounded-md border bg-card p-4 space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-muted-foreground mr-1">Filtros rápidos:</span>
+            <Link
+              href={buildQuickFilterUrl({ noServices: initialValues.noServices ? '' : '1' })}
+              className={cn(
+                'inline-flex items-center rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-muted/80',
+                initialValues.noServices && 'border-primary bg-primary/10 text-primary'
+              )}
+            >
+              Sem serviço a realizar
+            </Link>
+            <Link
+              href={buildQuickFilterUrl({ noCost: initialValues.noCost ? '' : '1' })}
+              className={cn(
+                'inline-flex items-center rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-muted/80',
+                initialValues.noCost && 'border-primary bg-primary/10 text-primary'
+              )}
+            >
+              Sem preço de custo
+            </Link>
+            <Link
+              href={buildQuickFilterUrl({ noPayment: initialValues.noPayment ? '' : '1' })}
+              className={cn(
+                'inline-flex items-center rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-muted/80',
+                initialValues.noPayment && 'border-primary bg-primary/10 text-primary'
+              )}
+            >
+              Sem formas de pagamento
+            </Link>
+          </div>
           <form action="/portal/ordens" method="get" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {selectedCustomer && (
               <input type="hidden" name="customerId" value={selectedCustomer.id} />
             )}
+            {initialValues.noServices && <input type="hidden" name="noServices" value="1" />}
+            {initialValues.noCost && <input type="hidden" name="noCost" value="1" />}
+            {initialValues.noPayment && <input type="hidden" name="noPayment" value="1" />}
             <div className="space-y-2">
               <Label htmlFor="osNumber">Número da OS</Label>
               <Input
