@@ -37,11 +37,22 @@ type Props = {
     purchaseDateFrom: string
     purchaseDateTo: string
   }
+  quickFilters: {
+    notTested: boolean
+    notAdvertised: boolean
+    noLabel: boolean
+    withInfo: boolean
+    onToggleNotTested: () => void
+    onToggleNotAdvertised: () => void
+    onToggleNoLabel: () => void
+    onToggleWithInfo: () => void
+  }
 }
 
 export function SeminovosFilterCollapsible({
   defaultOpen = false,
   initialValues,
+  quickFilters,
 }: Props) {
   const [open, setOpen] = useState(defaultOpen)
 
@@ -137,11 +148,47 @@ export function SeminovosFilterCollapsible({
               />
             </div>
 
-            <div className="sm:col-span-2 lg:col-span-4 flex items-center gap-3 flex-wrap">
-              <Button type="submit">Filtrar</Button>
-              <Button variant="outline" asChild>
-                <Link href="/portal/seminovos">Limpar filtros</Link>
-              </Button>
+            <div className="sm:col-span-2 lg:col-span-4 space-y-3">
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={quickFilters.notTested ? 'default' : 'outline'}
+                  onClick={quickFilters.onToggleNotTested}
+                >
+                  Não testados
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={quickFilters.notAdvertised ? 'default' : 'outline'}
+                  onClick={quickFilters.onToggleNotAdvertised}
+                >
+                  Não anunciados
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={quickFilters.noLabel ? 'default' : 'outline'}
+                  onClick={quickFilters.onToggleNoLabel}
+                >
+                  Sem etiqueta
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={quickFilters.withInfo ? 'default' : 'outline'}
+                  onClick={quickFilters.onToggleWithInfo}
+                >
+                  Com informação
+                </Button>
+              </div>
+              <div className="flex items-center gap-3 flex-wrap">
+                <Button type="submit">Filtrar</Button>
+                <Button variant="outline" asChild>
+                  <Link href="/portal/seminovos">Limpar filtros</Link>
+                </Button>
+              </div>
             </div>
           </form>
         </div>

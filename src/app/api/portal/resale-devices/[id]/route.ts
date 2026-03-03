@@ -93,6 +93,22 @@ export async function PATCH(
   }
 
   const row: Record<string, unknown> = {}
+  if (body.payment_method_id !== undefined) {
+    row.payment_method_id = body.payment_method_id || null
+  }
+  if (body.payment_installments !== undefined || body.installments !== undefined) {
+    const installments = body.payment_installments ?? body.installments
+    row.payment_installments = installments === null || installments === undefined ? null : Number(installments) || null
+  }
+  if (body.buyer_name !== undefined) {
+    row.buyer_name = body.buyer_name ? cleanText(body.buyer_name) : null
+  }
+  if (body.buyer_cpf !== undefined) {
+    row.buyer_cpf = body.buyer_cpf ? cleanText(body.buyer_cpf) : null
+  }
+  if (body.sale_details !== undefined) {
+    row.sale_details = body.sale_details ? cleanText(body.sale_details) : null
+  }
   if (body.device_model_id !== undefined) row.device_model_id = body.device_model_id || null
   if (body.device_name !== undefined) row.device_name = cleanText(body.device_name) || null
   if (body.model !== undefined) row.model = cleanText(body.model) || null
@@ -117,12 +133,46 @@ export async function PATCH(
     row.sold_for_cents = null
     row.sale_date = null
     row.actual_profit_cents = null
+    row.payment_method_id = null
+    row.payment_installments = null
+    row.buyer_name = null
+    row.buyer_cpf = null
+    row.sale_details = null
   } else if (soldForCents !== null) {
     row.sold_for_cents = soldForCents
-    const { data: dev } = await auth.supabase.from('resale_devices').select('purchase_value_cents').eq('id', id).single()
-    const { data: costs } = await auth.supabase.from('resale_device_costs').select('value_cents').eq('resale_device_id', id)
-    const purchaseCents = (dev?.purchase_value_cents as number) ?? 0
-    const costsTotal = (costs || []).reduce((acc: number, c: { value_cents?: number }) => acc + (c.value_cents ?? 0), 0)
+
+    let purchaseCents = 0
+    if (Object.prototype.hasOwnProperty.call(row, 'purchase_value_cents') && typeof row.purchase_value_cents === 'number') {
+      purchaseCents = (row.purchase_value_cents as number) ?? 0
+    } else {
+      const { data: dev } = await auth.supabase
+        .from('resale_devices')
+        .select('purchase_value_cents')
+        .eq('id', id)
+        .single()
+      purchaseCents = (dev?.purchase_value_cents as number) ?? 0
+    }
+
+    let costsTotal = 0
+    if (Array.isArray(body.costs)) {
+      for (const c of body.costs) {
+        const value_cents =
+          typeof c.value_cents === 'number'
+            ? c.value_cents
+            : toCents(c.value ?? c.value_cents) ?? 0
+        costsTotal += value_cents ?? 0
+      }
+    } else {
+      const { data: costsDb } = await auth.supabase
+        .from('resale_device_costs')
+        .select('value_cents')
+        .eq('resale_device_id', id)
+      costsTotal = (costsDb || []).reduce(
+        (acc: number, c: { value_cents?: number }) => acc + (c.value_cents ?? 0),
+        0
+      )
+    }
+
     row.actual_profit_cents = soldForCents - purchaseCents - costsTotal
   }
   if (body.advertised !== undefined) row.advertised = Boolean(body.advertised)
@@ -160,6 +210,14 @@ export async function PATCH(
         value_cents,
       })
     }
+  }
+
+  if (body.sold === false) {
+    await auth.supabase
+      .from('resale_device_costs')
+      .delete()
+      .eq('resale_device_id', id)
+      .eq('description', 'Taxa forma de pagamento')
   }
 
   const { data: costs } = await auth.supabase

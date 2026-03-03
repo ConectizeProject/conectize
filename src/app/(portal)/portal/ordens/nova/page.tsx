@@ -67,6 +67,7 @@ async function createOrderAction(formData: FormData) {
   const customerDescription = String(formData.get('customerDescription') || '').trim()
   const internalDescription = String(formData.get('internalDescription') || '').trim()
   const receivingNotes = String(formData.get('receivingNotes') || '').trim()
+  const deviceEntryChecksJson = String(formData.get('deviceEntryChecksJson') || '').trim()
   const isWarranty = String(formData.get('isWarranty') || '').trim() === '1'
   const estimatedReadyAtRaw = String(formData.get('estimatedReadyAt') || '').trim()
   const passcodeType = String(formData.get('passcodeType') || '').trim()
@@ -114,6 +115,15 @@ async function createOrderAction(formData: FormData) {
     if (sellerUser?.id) sellerUserId = sellerUser.id
   }
 
+  let deviceEntryChecks: any = null
+  if (deviceEntryChecksJson) {
+    try {
+      deviceEntryChecks = JSON.parse(deviceEntryChecksJson)
+    } catch {
+      deviceEntryChecks = null
+    }
+  }
+
   const { data: insertedOrder, error } = await supabase
     .from('service_orders')
     .insert({
@@ -137,6 +147,7 @@ async function createOrderAction(formData: FormData) {
       customer_description: customerDescription || null,
       internal_description: internalDescription || null,
       receiving_notes: receivingNotes || null,
+      device_entry_checks: deviceEntryChecks,
       services: services.items,
       services_total_cents: services.totalValueCents,
       services_cost_total_cents: services.totalCostCents,

@@ -46,10 +46,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { BarChart3, Copy, Calculator, ChevronDown, ChevronRight, DollarSign, Eye, EyeOff, MessageCircle, MoreHorizontal, Package, Plus, Receipt, Store, Tag, TrendingUp, Trash2, Undo2, UserRound, Wrench } from 'lucide-react'
+import { BarChart3, Copy, Calculator, ChevronDown, ChevronRight, DollarSign, Eye, EyeOff, MessageCircle, MoreHorizontal, Package, Plus, Receipt, Store, Tag, TrendingUp, Trash2, Undo2, UserRound, Wrench, FileInput } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { SeminovosFilterCollapsible } from './SeminovosFilterCollapsible'
+import { ResaleDeviceTermsDialog } from './ResaleDeviceTermsDialog'
+import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import type { ResaleDeviceRow, SeminovosFilters, SeminovosStats } from '@/lib/seminovos/fetch-seminovos-data'
 
 type CostRow = { id?: string; description: string; value_cents: number }
@@ -87,10 +89,18 @@ type ResaleDevice = {
   actual_profit_cents?: number | null
   expected_profit_wholesale_cents: number | null
   expected_profit_sale_cents?: number | null
+   advertised: boolean
+   tested: boolean
+   label: string | null
   sold: boolean
   purchase_date: string | null
   sale_date: string | null
   costs: CostRow[]
+  payment_method_id?: string | null
+  payment_installments?: number | null
+  buyer_name?: string | null
+  buyer_cpf?: string | null
+  sale_details?: string | null
 }
 
 function centsToReais(cents: number | null | undefined): string {
@@ -283,6 +293,11 @@ export function SeminovosListClient({
   const [sellValue, setSellValue] = useState('')
   const [sellDate, setSellDate] = useState('')
   const [isSavingSell, setIsSavingSell] = useState(false)
+  const [sellPaymentMethodId, setSellPaymentMethodId] = useState<string>('')
+  const [sellPaymentInstallments, setSellPaymentInstallments] = useState<number>(1)
+  const [sellBuyerName, setSellBuyerName] = useState('')
+  const [sellBuyerCpf, setSellBuyerCpf] = useState('')
+  const [sellSaleDetails, setSellSaleDetails] = useState('')
   const [costModalTarget, setCostModalTarget] = useState<ResaleDevice | null>(null)
   const [costDescription, setCostDescription] = useState('')
   const [costValue, setCostValue] = useState('')
@@ -302,6 +317,12 @@ export function SeminovosListClient({
   const [overviewCollapsibleOpen, setOverviewCollapsibleOpen] = useState(false)
   const [isLoadingSold, setIsLoadingSold] = useState(false)
   const [stats, setStats] = useState<SeminovosStats | null>(initialStats)
+  const [termsDevice, setTermsDevice] = useState<ResaleDevice | null>(null)
+  const [showTermsDialog, setShowTermsDialog] = useState(false)
+  const [filterNotTested, setFilterNotTested] = useState(false)
+  const [filterNotAdvertised, setFilterNotAdvertised] = useState(false)
+  const [filterNoLabel, setFilterNoLabel] = useState(false)
+  const [filterWithInfo, setFilterWithInfo] = useState(false)
 
   useEffect(() => {
     setDevices(initialDevices as ResaleDevice[])
@@ -351,7 +372,18 @@ export function SeminovosListClient({
     }
   }
 
-  const groupedAvailable = groupDevicesByModel(devices)
+  const groupedAvailableAll = groupDevicesByModel(devices)
+  const flatAvailableAll = groupedAvailableAll.flatMap((g) => g.devices)
+
+  const filteredDevices = devices.filter((d) => {
+    if (filterNotTested && d.tested) return false
+    if (filterNotAdvertised && d.advertised) return false
+    if (filterNoLabel && d.label) return false
+    if (filterWithInfo && !d.info) return false
+    return true
+  })
+
+  const groupedAvailable = groupDevicesByModel(filteredDevices)
   const flatAvailable = groupedAvailable.flatMap((g) => g.devices)
   const rows = isBulkEdit ? editedDevices : flatAvailable
 
@@ -382,7 +414,7 @@ export function SeminovosListClient({
   }
 
   function getChangedUpdates(): Array<{ id: string } & Record<string, unknown>> {
-    const originalMap = new Map(flatAvailable.map((d) => [d.id, d]))
+    const originalMap = new Map(flatAvailableAll.map((d) => [d.id, d]))
     const updates: Array<{ id: string } & Record<string, unknown>> = []
     for (const edited of editedDevices) {
       const orig = originalMap.get(edited.id)
@@ -444,6 +476,26 @@ export function SeminovosListClient({
     setSellValueSource(source)
     setSellValue(varejo != null ? centsToReais(varejo) : atacado != null ? centsToReais(atacado) : '')
     setSellDate(new Date().toISOString().slice(0, 10))
+    setSellPaymentMethodId('')
+    setSellPaymentInstallments(1)
+    setSellBuyerName('')
+    setSellBuyerCpf('')
+    setSellSaleDetails(d.info || '')
+    loadPaymentMethods()
+    setSellModalTarget(d)
+  }
+
+  function openEditSellModal(d: ResaleDevice) {
+    const soldCents = d.sold_for_cents ?? null
+    setSellValueSource('custom')
+    setSellValue(soldCents != null ? centsToReais(soldCents) : '')
+    setSellDate(d.sale_date || new Date().toISOString().slice(0, 10))
+    setSellPaymentMethodId(d.payment_method_id ?? '')
+    setSellPaymentInstallments(d.payment_installments ?? 1)
+    setSellBuyerName(d.buyer_name ?? '')
+    setSellBuyerCpf(formatCpfCnpj(d.buyer_cpf ?? ''))
+    setSellSaleDetails(d.sale_details ?? d.info ?? '')
+    loadPaymentMethods()
     setSellModalTarget(d)
   }
 
@@ -642,16 +694,77 @@ Comprando 3 iPhones
     if (!d || isSavingSell) return
     const valueCents = getEffectiveSellValueCents()
     if (valueCents === null) return
+
+    let paymentFeeCents = 0
+    if (sellPaymentMethodId) {
+      const pm = paymentMethods.find((p) => p.id === sellPaymentMethodId)
+      if (pm) {
+        let feePercent = Number(pm.fee_percent) || 0
+        if (pm.type === 'credito' && Array.isArray(pm.credit_installment_fees) && pm.credit_installment_fees.length > 0) {
+          const byInstallments = pm.credit_installment_fees.find(
+            (f) => Number(f.installments) === Number(sellPaymentInstallments || 1)
+          )
+          if (byInstallments && byInstallments.fee_percent != null) {
+            feePercent = Number(byInstallments.fee_percent) || 0
+          }
+        }
+        if (feePercent > 0) {
+          paymentFeeCents = Math.floor((valueCents * feePercent) / 100)
+        }
+      }
+    }
+
+    const baseCosts = (d.costs || []).map((c) => ({
+      description: (c.description ?? '') || null,
+      value_cents: c.value_cents ?? 0,
+    }))
+
+    const costsWithoutPaymentFee = baseCosts.filter(
+      (c) => (c.description || '').toLowerCase() !== 'taxa forma de pagamento'
+    )
+
+    const costsPayload =
+      paymentFeeCents > 0
+        ? [
+            ...costsWithoutPaymentFee,
+            {
+              description: 'Taxa forma de pagamento',
+              value_cents: paymentFeeCents,
+            },
+          ]
+        : costsWithoutPaymentFee
+
+    const payload: Record<string, unknown> = {
+      sold: true,
+      sold_for_cents: valueCents,
+      sale_date: sellDate || null,
+      payment_method_id: sellPaymentMethodId || null,
+      payment_installments: sellPaymentMethodId ? sellPaymentInstallments || 1 : null,
+      buyer_name: sellBuyerName.trim() || null,
+      buyer_cpf: sellBuyerCpf.trim() || null,
+      sale_details: sellSaleDetails.trim() || null,
+      costs: costsPayload,
+    }
+
     setIsSavingSell(true)
     try {
       const res = await portalFetch(`/api/portal/resale-devices/${d.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sold: true, sold_for_cents: valueCents, sale_date: sellDate || null }),
+        body: JSON.stringify(payload),
       })
       const data = await res?.json().catch(() => null)
       if (data?.ok) {
+        const updated = data.device as ResaleDevice
+        const hasBuyerOrDetails =
+          (updated.buyer_name && updated.buyer_name.trim()) ||
+          (updated.buyer_cpf && updated.buyer_cpf.trim()) ||
+          (updated.sale_details && updated.sale_details.trim())
         setSellModalTarget(null)
+        if (hasBuyerOrDetails) {
+          setTermsDevice(updated)
+          setShowTermsDialog(true)
+        }
         router.refresh()
         if (soldCollapsibleOpen) loadSoldDevices()
         toast({ description: 'Aparelho marcado como vendido', duration: 2000 })
@@ -669,7 +782,16 @@ Comprando 3 iPhones
       const res = await portalFetch(`/api/portal/resale-devices/${d.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sold: false, sold_for_cents: null, sale_date: null }),
+        body: JSON.stringify({
+          sold: false,
+          sold_for_cents: null,
+          sale_date: null,
+          payment_method_id: null,
+          payment_installments: null,
+          buyer_name: null,
+          buyer_cpf: null,
+          sale_details: null,
+        }),
       })
       const data = await res?.json().catch(() => null)
       if (data?.ok) {
@@ -883,6 +1005,16 @@ Comprando 3 iPhones
         <SeminovosFilterCollapsible
           defaultOpen={hasFilters}
           initialValues={filterInitialValues}
+          quickFilters={{
+            notTested: filterNotTested,
+            notAdvertised: filterNotAdvertised,
+            noLabel: filterNoLabel,
+            withInfo: filterWithInfo,
+            onToggleNotTested: () => setFilterNotTested((v) => !v),
+            onToggleNotAdvertised: () => setFilterNotAdvertised((v) => !v),
+            onToggleNoLabel: () => setFilterNoLabel((v) => !v),
+            onToggleWithInfo: () => setFilterWithInfo((v) => !v),
+          }}
         />
 
         {isAdmin && (
@@ -910,7 +1042,7 @@ Comprando 3 iPhones
               <p className="text-sm text-muted-foreground">Carregando…</p>
             ) : (
               <>
-                {devices.length === 0 ? (
+                {groupedAvailable.length === 0 ? (
                   <p className="text-sm text-muted-foreground mb-4">
                     Nenhum aparelho disponível.{' '}
                     <Link href="/portal/seminovos/nova" className="text-primary underline">
@@ -1391,9 +1523,26 @@ Comprando 3 iPhones
                                               Vendido
                                             </DropdownMenuItem>
                                           ) : (
-                                            <DropdownMenuItem onClick={() => handleCancelSell(d)} disabled={isSavingSell}>
-                                              <Undo2 className="h-3.5 w-3.5 mr-1.5" />
-                                              Cancelar venda
+                                            <>
+                                              <DropdownMenuItem onClick={() => openEditSellModal(d)} disabled={isSavingSell}>
+                                                <DollarSign className="h-3.5 w-3.5 mr-1.5" />
+                                                Editar venda
+                                              </DropdownMenuItem>
+                                              <DropdownMenuItem onClick={() => handleCancelSell(d)} disabled={isSavingSell}>
+                                                <Undo2 className="h-3.5 w-3.5 mr-1.5" />
+                                                Cancelar venda
+                                              </DropdownMenuItem>
+                                            </>
+                                          )}
+                                          {d.sold && ((d.buyer_name && d.buyer_name.trim()) || (d.buyer_cpf && d.buyer_cpf.trim()) || (d.sale_details && d.sale_details.trim())) && (
+                                            <DropdownMenuItem
+                                              onClick={() => {
+                                                setTermsDevice(d)
+                                                setShowTermsDialog(true)
+                                              }}
+                                            >
+                                              <FileInput className="h-3.5 w-3.5 mr-1.5" />
+                                              Ver termos de compra
                                             </DropdownMenuItem>
                                           )}
                                           <DropdownMenuItem onClick={() => openCostModal(d)}>
@@ -1493,10 +1642,25 @@ Comprando 3 iPhones
                                         </Button>
                                       </DropdownMenuTrigger>
                                       <DropdownMenuContent align="end">
-                                        <DropdownMenuItem onClick={() => handleCancelSell(d)} disabled={isSavingSell}>
-                                          <Undo2 className="h-3.5 w-3.5 mr-1.5" />
-                                          Cancelar venda
-                                        </DropdownMenuItem>
+                                          <DropdownMenuItem onClick={() => openEditSellModal(d)} disabled={isSavingSell}>
+                                            <DollarSign className="h-3.5 w-3.5 mr-1.5" />
+                                            Editar venda
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem onClick={() => handleCancelSell(d)} disabled={isSavingSell}>
+                                            <Undo2 className="h-3.5 w-3.5 mr-1.5" />
+                                            Cancelar venda
+                                          </DropdownMenuItem>
+                                          {((d.buyer_name && d.buyer_name.trim()) || (d.buyer_cpf && d.buyer_cpf.trim()) || (d.sale_details && d.sale_details.trim())) && (
+                                            <DropdownMenuItem
+                                              onClick={() => {
+                                                setTermsDevice(d)
+                                                setShowTermsDialog(true)
+                                              }}
+                                            >
+                                              <FileInput className="h-3.5 w-3.5 mr-1.5" />
+                                              Ver termos de compra
+                                            </DropdownMenuItem>
+                                          )}
                                         <DropdownMenuItem onClick={() => openCostModal(d)}>
                                           <Receipt className="h-3.5 w-3.5 mr-1.5" />
                                           Adicionar custo
@@ -1660,6 +1824,10 @@ Comprando 3 iPhones
                                           </Button>
                                         </DropdownMenuTrigger>
                                         <DropdownMenuContent align="end">
+                                          <DropdownMenuItem onClick={() => openEditSellModal(d)} disabled={isSavingSell}>
+                                            <DollarSign className="h-3.5 w-3.5 mr-1.5" />
+                                            Editar venda
+                                          </DropdownMenuItem>
                                           <DropdownMenuItem onClick={() => handleCancelSell(d)} disabled={isSavingSell}>
                                             <Undo2 className="h-3.5 w-3.5 mr-1.5" />
                                             Cancelar venda
@@ -1889,6 +2057,31 @@ Comprando 3 iPhones
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <ResaleDeviceTermsDialog
+        open={showTermsDialog}
+        onOpenChange={setShowTermsDialog}
+        device={
+          termsDevice
+            ? {
+                id: termsDevice.id,
+                device_name: termsDevice.device_name,
+                model: termsDevice.model,
+                color: termsDevice.color,
+                storage_gb: termsDevice.storage_gb,
+                battery: termsDevice.battery,
+                imei: termsDevice.imei,
+                serial: termsDevice.serial,
+                sold_for_cents: termsDevice.sold_for_cents,
+                sale_date: termsDevice.sale_date,
+                buyer_name: termsDevice.buyer_name ?? null,
+                buyer_cpf: termsDevice.buyer_cpf ?? null,
+                sale_details: termsDevice.sale_details ?? null,
+                payment_method_id: termsDevice.payment_method_id ?? null,
+                payment_installments: termsDevice.payment_installments ?? null,
+              }
+            : null
+        }
+      />
 
       <Dialog open={!!costModalTarget} onOpenChange={(open) => !open && setCostModalTarget(null)}>
         <DialogContent>
@@ -1983,6 +2176,87 @@ Comprando 3 iPhones
               )}
             </div>
             <div className="space-y-2">
+              <Label>Forma de pagamento</Label>
+              <Select
+                value={sellPaymentMethodId || '__none__'}
+                onValueChange={(v) => {
+                  if (v === '__none__') {
+                    setSellPaymentMethodId('')
+                    setSellPaymentInstallments(1)
+                    return
+                  }
+                  setSellPaymentMethodId(v)
+                  setSellPaymentInstallments(1)
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Nenhum</SelectItem>
+                  {paymentMethods.map((pm) => (
+                    <SelectItem key={pm.id} value={pm.id}>
+                      {pm.description}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {sellPaymentMethodId && (() => {
+              const pm = paymentMethods.find((p) => p.id === sellPaymentMethodId)
+              const isCredit = pm?.type === 'credito'
+              if (!isCredit) return null
+              const maxInstallments = pm?.credit_installment_fees?.length
+                ? Math.max(...pm.credit_installment_fees.map((f) => f.installments))
+                : 12
+              return (
+                <div className="space-y-2">
+                  <Label>Parcelas</Label>
+                  <Select
+                    value={String(sellPaymentInstallments || 1)}
+                    onValueChange={(v) => setSellPaymentInstallments(Number(v) || 1)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from({ length: maxInstallments }, (_, i) => i + 1).map((n) => (
+                        <SelectItem key={n} value={String(n)}>
+                          {n}x
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )
+            })()}
+            <div className="space-y-2">
+              <Label>Nome completo do comprador (opcional)</Label>
+              <Input
+                value={sellBuyerName}
+                onChange={(e) => setSellBuyerName(e.target.value)}
+                placeholder="Nome completo"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>CPF/CNPJ do comprador (opcional)</Label>
+              <Input
+                value={sellBuyerCpf}
+                onChange={(e) => setSellBuyerCpf(formatCpfCnpj(e.target.value))}
+                placeholder="CPF ou CNPJ"
+                inputMode="numeric"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Detalhes do aparelho para o termo (opcional)</Label>
+              <Textarea
+                value={sellSaleDetails}
+                onChange={(e) => setSellSaleDetails(e.target.value)}
+                placeholder="Este campo será exibido no termo de compra."
+                rows={3}
+              />
+            </div>
+            <div className="space-y-2">
               <Label htmlFor="sell-date">Data da venda</Label>
               <Input
                 id="sell-date"
@@ -1994,7 +2268,35 @@ Comprando 3 iPhones
             {sellModalTarget && (() => {
               const soldCents = getEffectiveSellValueCents()
               const purchaseCents = sellModalTarget.purchase_value_cents ?? 0
-              const costsCents = (sellModalTarget.costs || []).reduce((acc, c) => acc + (c.value_cents ?? 0), 0)
+              const baseCostsCents = (sellModalTarget.costs || []).reduce(
+                (acc, c) => acc + (c.value_cents ?? 0),
+                0
+              )
+
+              let paymentFeePreviewCents = 0
+              if (soldCents != null && sellPaymentMethodId) {
+                const pm = paymentMethods.find((p) => p.id === sellPaymentMethodId)
+                if (pm) {
+                  let feePercent = Number(pm.fee_percent) || 0
+                  if (
+                    pm.type === 'credito' &&
+                    Array.isArray(pm.credit_installment_fees) &&
+                    pm.credit_installment_fees.length > 0
+                  ) {
+                    const byInstallments = pm.credit_installment_fees.find(
+                      (f) => Number(f.installments) === Number(sellPaymentInstallments || 1)
+                    )
+                    if (byInstallments && byInstallments.fee_percent != null) {
+                      feePercent = Number(byInstallments.fee_percent) || 0
+                    }
+                  }
+                  if (feePercent > 0) {
+                    paymentFeePreviewCents = Math.floor((soldCents * feePercent) / 100)
+                  }
+                }
+              }
+
+              const costsCents = baseCostsCents + paymentFeePreviewCents
               const lucroCents = soldCents != null ? soldCents - purchaseCents - costsCents : null
               return (
                 <div className="rounded-lg border bg-muted/50 px-4 py-3">

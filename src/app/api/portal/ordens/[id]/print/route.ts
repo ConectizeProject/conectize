@@ -62,6 +62,7 @@ function orderToPrintData(order: any): OrdemPrintData {
     internalDescription: order.internal_description ?? null,
     receivingNotes: order.receiving_notes ?? null,
     assistanceInfo: order.assistance_info ?? null,
+    deviceEntryChecks: order.device_entry_checks ?? null,
     services:
       (order.services as Array<{ description?: string; valueCents?: number; costCents?: number }>) ??
       [],
@@ -97,7 +98,7 @@ export async function GET(
     auth.supabase
       .from('service_orders')
       .select(
-        'id, display_number, status, title, imei, is_warranty, estimated_ready_at, customer_description, internal_description, receiving_notes, assistance_info, services, created_at, updated_at, closed_at, brand, model, customers ( cpf, cnpj, is_company, full_name, company_name, email, mobile_phone, contact_phone, contact_notes, address_full ), device_models ( brand, device_type, model )'
+        'id, display_number, status, title, imei, is_warranty, estimated_ready_at, customer_description, internal_description, receiving_notes, assistance_info, device_entry_checks, services, created_at, updated_at, closed_at, brand, model, customers ( cpf, cnpj, is_company, full_name, company_name, email, mobile_phone, contact_phone, contact_notes, address_full ), device_models ( brand, device_type, model )'
       )
       .eq('id', id)
       .maybeSingle(),

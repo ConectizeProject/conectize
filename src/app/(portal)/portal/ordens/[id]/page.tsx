@@ -14,6 +14,7 @@ import { formatDateBr, formatDateTimeBr } from '@/lib/utils/format-date'
 import { OrderDeviceSelector, OrderPaymentMethodFields, OrderServicesCard } from '@/components/orders'
 import { OrderCustomerCard } from './OrderCustomerCard'
 import { OrderPasscodeFields } from './OrderPasscodeFields'
+import { OrderDeviceEntryChecksEditor } from './OrderDeviceEntryChecksEditor'
 import { OrdemDetalheToastClient } from './OrdemDetalheToastClient'
 import { OrdemLabelPrintButton } from './OrdemLabelPrintButton'
 import { OrdemPrintButton } from './OrdemPrintButton'
@@ -218,10 +219,21 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 		const internalDescription = String(formData.get('internalDescription') || '').trim()
 		const receivingNotes = String(formData.get('receivingNotes') || '').trim()
 		const assistanceInfo = String(formData.get('assistanceInfo') || '').trim()
+		const deviceEntryChecksRaw = formData.get('deviceEntryChecksJson')
+		const deviceEntryChecksJson = typeof deviceEntryChecksRaw === 'string' ? deviceEntryChecksRaw.trim() : ''
 		const deviceModelId = String(formData.get('deviceModelId') || '').trim()
 		const formSellerUserId = String(formData.get('seller_user_id') || '').trim()
 		const servicesJson = formData.get('servicesJson')
 		const services = parseServicesJson(servicesJson)
+
+		let deviceEntryChecks: any = null
+		if (deviceEntryChecksJson) {
+			try {
+				deviceEntryChecks = JSON.parse(deviceEntryChecksJson)
+			} catch {
+				deviceEntryChecks = null
+			}
+		}
 
 		const estimatedReadyAt = previsaoToISO(estimatedReadyAtRaw)
 
@@ -268,6 +280,9 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 			services: services.items,
 			services_total_cents: services.totalValueCents,
 			services_cost_total_cents: services.totalCostCents,
+		}
+		if (formData.has('deviceEntryChecksJson')) {
+			updatePayload.device_entry_checks = deviceEntryChecks
 		}
 		if (role === 'admin' && formSellerUserId) {
 			const { data: sellerUser } = await supabase
@@ -467,6 +482,12 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 							</div>
 							<Textarea id="receivingNotes" name="receivingNotes" defaultValue={order.receiving_notes || ''} placeholder="Checklist, avarias, acessórios, etc." disabled={isFinalized} />
 						</div>
+
+						<OrderDeviceEntryChecksEditor
+							initialValue={order.device_entry_checks ?? null}
+							disabled={isFinalized}
+							formId="order-edit-form"
+						/>
 
 						<OrderServicesCard
 							initialServices={(order.services as Array<{ description?: string; valueCents?: number; costCents?: number }>) ?? []}
