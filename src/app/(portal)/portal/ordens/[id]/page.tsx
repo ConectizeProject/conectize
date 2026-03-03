@@ -258,7 +258,8 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 			.select('status')
 			.eq('id', orderId)
 			.maybeSingle()
-		if (existing && FINALIZED_STATUSES.has(existing.status)) {
+		const isOrderFinalized = existing && FINALIZED_STATUSES.has(existing.status)
+		if (isOrderFinalized && role !== 'admin') {
 			redirect(`/portal/ordens/${id}?error=ordem_finalizada`)
 		}
 		const updatePayload: Record<string, unknown> = {
@@ -331,6 +332,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 	}
 
 	const isFinalized = FINALIZED_STATUSES.has(order.status)
+	const formDisabled = isFinalized && role !== 'admin'
 
 	return (
 		<div className="max-w-4xl space-y-6 pb-24">
@@ -392,16 +394,16 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 							model: deviceModel?.model ?? order.model ?? null,
 						}}
 						formId="order-edit-form"
-						disabled={isFinalized}
+						disabled={formDisabled}
 					/>
 					<div className="grid md:grid-cols-2 gap-4">
 						<div className="space-y-2">
 							<Label htmlFor="color">Cor</Label>
-							<Input id="color" name="color" form="order-edit-form" defaultValue={order.color || ''} placeholder="Ex: Preto, Prateado" disabled={isFinalized} />
+							<Input id="color" name="color" form="order-edit-form" defaultValue={order.color || ''} placeholder="Ex: Preto, Prateado" disabled={formDisabled} />
 						</div>
 						<div className="space-y-2">
 							<Label htmlFor="imei">Número de série / IMEI</Label>
-							<Input id="imei" name="imei" form="order-edit-form" defaultValue={order.imei || ''} placeholder="Digite o número" disabled={isFinalized} />
+							<Input id="imei" name="imei" form="order-edit-form" defaultValue={order.imei || ''} placeholder="Digite o número" disabled={formDisabled} />
 						</div>
 					</div>
 					<OrderPasscodeFields
@@ -409,7 +411,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 						defaultPasscodeText={order.passcode_text || ''}
 						defaultPasscodePattern={order.passcode_pattern || ''}
 						formId="order-edit-form"
-						disabled={isFinalized}
+						disabled={formDisabled}
 					/>
 				</CardContent>
 			</Card>
@@ -423,7 +425,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 						<div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
 							<div className="space-y-2 md:col-span-2">
 								<Label htmlFor="title">Título</Label>
-								<Input id="title" name="title" defaultValue={order.title} placeholder="Título" disabled={isFinalized} />
+								<Input id="title" name="title" defaultValue={order.title} placeholder="Título" disabled={formDisabled} />
 							</div>
 							<div className="space-y-2">
 								<Label htmlFor={isAdmin ? 'seller_user_id' : 'sellerDisplayName'}>Vendedor</Label>
@@ -433,7 +435,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 										name="seller_user_id"
 										defaultValue={sellerUserId || sellerOptions[0]?.id || ''}
 										className="w-full h-10 rounded-md border border-input px-3 py-2 text-sm"
-										disabled={isFinalized}
+										disabled={formDisabled}
 									>
 										{sellerOptions.map((u) => (
 											<option key={u.id} value={u.id}>
@@ -442,7 +444,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 										))}
 									</select>
 								) : (
-									<Input id="sellerDisplayName" value={sellerDisplayName} readOnly disabled={isFinalized} />
+									<Input id="sellerDisplayName" value={sellerDisplayName} readOnly disabled={formDisabled} />
 								)}
 							</div>
 							<div className="space-y-2">
@@ -452,7 +454,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 									name="estimatedReadyAt"
 									min={getMinPrevisaoForEdit(order.created_at)}
 									defaultValue={formatDateTimeLocal(order.estimated_ready_at)}
-									disabled={isFinalized}
+									disabled={formDisabled}
 								/>
 							</div>
 							<div className="flex items-center gap-2 rounded-md border p-3">
@@ -461,7 +463,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 									name="isWarranty"
 									type="checkbox"
 									defaultChecked={Boolean(order.is_warranty)}
-									disabled={isFinalized}
+									disabled={formDisabled}
 								/>
 								<Label htmlFor="isWarranty" className="cursor-pointer">Serviço em garantia</Label>
 							</div>
@@ -470,22 +472,22 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 						<div className="space-y-2">
 							<div className="flex items-center justify-between gap-2">
 								<Label htmlFor="customerDescription">Descrição</Label>
-								<OsAssistAiIconButton fieldId="customerDescription" device={deviceString} disabled={isFinalized} />
+								<OsAssistAiIconButton fieldId="customerDescription" device={deviceString} disabled={formDisabled} />
 							</div>
-							<Textarea id="customerDescription" name="customerDescription" defaultValue={order.customer_description || ''} placeholder="Texto que o cliente vê" disabled={isFinalized} />
+							<Textarea id="customerDescription" name="customerDescription" defaultValue={order.customer_description || ''} placeholder="Texto que o cliente vê" disabled={formDisabled} />
 						</div>
 
 						<div className="space-y-2">
 							<div className="flex items-center justify-between gap-2">
 								<Label htmlFor="receivingNotes">Observações do recebimento</Label>
-								<OsAssistAiIconButton fieldId="receivingNotes" device={deviceString} disabled={isFinalized} />
+								<OsAssistAiIconButton fieldId="receivingNotes" device={deviceString} disabled={formDisabled} />
 							</div>
-							<Textarea id="receivingNotes" name="receivingNotes" defaultValue={order.receiving_notes || ''} placeholder="Checklist, avarias, acessórios, etc." disabled={isFinalized} />
+							<Textarea id="receivingNotes" name="receivingNotes" defaultValue={order.receiving_notes || ''} placeholder="Checklist, avarias, acessórios, etc." disabled={formDisabled} />
 						</div>
 
 						<OrderDeviceEntryChecksEditor
 							initialValue={order.device_entry_checks ?? null}
-							disabled={isFinalized}
+							disabled={formDisabled}
 							formId="order-edit-form"
 						/>
 
@@ -493,29 +495,29 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 							initialServices={(order.services as Array<{ description?: string; valueCents?: number; costCents?: number }>) ?? []}
 							inputName="servicesJson"
 							formId="order-edit-form"
-							disabled={isFinalized}
+							disabled={formDisabled}
 						/>
 
 						<div className="space-y-2">
 							<div className="flex items-center justify-between gap-2">
 								<Label htmlFor="internalDescription">Descrição interna</Label>
-								<OsAssistAiIconButton fieldId="internalDescription" device={deviceString} disabled={isFinalized} />
+								<OsAssistAiIconButton fieldId="internalDescription" device={deviceString} disabled={formDisabled} />
 							</div>
-							<Textarea id="internalDescription" name="internalDescription" defaultValue={order.internal_description || ''} placeholder="Anotações internas" disabled={isFinalized} />
+							<Textarea id="internalDescription" name="internalDescription" defaultValue={order.internal_description || ''} placeholder="Anotações internas" disabled={formDisabled} />
 						</div>
 
 						<div className="space-y-2">
 							<div className="flex items-center justify-between gap-2">
 								<Label htmlFor="assistanceInfo">Informações sobre a assistência</Label>
-								<OsAssistAiIconButton fieldId="assistanceInfo" device={deviceString} disabled={isFinalized} />
+								<OsAssistAiIconButton fieldId="assistanceInfo" device={deviceString} disabled={formDisabled} />
 							</div>
-							<Textarea id="assistanceInfo" name="assistanceInfo" defaultValue={order.assistance_info || ''} placeholder="Informações técnicas, serviços realizados, peças trocadas, etc." disabled={isFinalized} />
+							<Textarea id="assistanceInfo" name="assistanceInfo" defaultValue={order.assistance_info || ''} placeholder="Informações técnicas, serviços realizados, peças trocadas, etc." disabled={formDisabled} />
 						</div>
 
 						<OrderPaymentMethodFields
 							defaultValue={parseOrderPaymentMethods(order)}
 							formId="order-edit-form"
-							disabled={isFinalized}
+							disabled={formDisabled}
 							totalValueCents={order.services_total_cents ?? 0}
 						/>
 
@@ -524,7 +526,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 								<Button variant="outline" asChild>
 									<Link href="/portal/ordens">{isFinalized ? 'Voltar à lista' : 'Voltar'}</Link>
 								</Button>
-								{!isFinalized && <UpdateOrderSubmitButton />}
+								{!formDisabled && <UpdateOrderSubmitButton />}
 							</div>
 						</div>
 					</form>
