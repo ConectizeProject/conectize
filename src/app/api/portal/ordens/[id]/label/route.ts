@@ -54,8 +54,10 @@ export async function GET(
     ? (cust.company_name ?? '').trim()
     : (cust?.full_name ?? '').trim()
   const customerFirstName = nameForFirst ? nameForFirst.split(/\s+/)[0] ?? null : null
-  const dt = dm?.device_types || null
-  const brandRow = dt?.device_brands || null
+  const dtRaw = dm?.device_types ?? null
+  const dt = Array.isArray(dtRaw) ? dtRaw[0] : dtRaw
+  const brandRaw = dt?.device_brands ?? null
+  const brandRow = Array.isArray(brandRaw) ? brandRaw[0] : brandRaw
   const brandName = brandRow?.name ?? ''
   const deviceTypeName = dt?.name ?? ''
   const deviceModel = dm

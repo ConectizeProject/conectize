@@ -215,6 +215,7 @@ export function NovaOrdemClient(props: Props) {
 					internalDescription: o.internalDescription ?? '',
 					receivingNotes: o.receivingNotes ?? '',
 					services: o.services ?? [],
+					deviceEntryChecksJson: typeof o.deviceEntryChecks === 'string' ? o.deviceEntryChecks : (o.deviceEntryChecks ? JSON.stringify(o.deviceEntryChecks) : ''),
 				})
 				if (o.customer) {
 					setSelectedCustomer(o.customer as CustomerHit)

@@ -233,11 +233,22 @@ export default async function OrdensPage({
     openOrdersByStatus[s] = ordersWithRelations.filter((o: any) => o.status === s)
   }
 
-  const { data: deviceModels } = await supabase
+  const { data: deviceModelsRaw } = await supabase
     .from('device_models')
     .select('id, model, device_types ( name, device_brands ( name ) )')
     .order('model', { ascending: true })
     .limit(500)
+
+  const deviceModels = (deviceModelsRaw || []).map((d: any) => {
+    const dt = Array.isArray(d.device_types) ? d.device_types[0] : d.device_types
+    const brandRow = dt && (Array.isArray(dt.device_brands) ? dt.device_brands[0] : dt.device_brands)
+    return {
+      id: d.id,
+      brand: brandRow?.name ?? null,
+      device_type: dt?.name ?? null,
+      model: d.model ?? null,
+    }
+  })
 
   const hasFilters = Boolean(
     query || cpfDigits || osNumberValue || statusValue ||
@@ -279,7 +290,7 @@ export default async function OrdensPage({
           noCost: quickNoCost ? '1' : '',
           noPayment: quickNoPayment ? '1' : '',
         }}
-        deviceModels={deviceModels || []}
+        deviceModels={deviceModels}
       />
 
       <OrdensListClient

@@ -47,7 +47,7 @@ export function QuickDatePresets () {
         <Button
           key={preset.key}
           type="button"
-          size="xs"
+          size="sm"
           variant="outline"
           onClick={() => handleClick(preset.key)}
           className="h-7 px-2 text-xs"
