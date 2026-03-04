@@ -38,7 +38,7 @@ export async function GET(
   const { data: order, error } = await auth.supabase
     .from('service_orders')
     .select(
-      'id, customer_id, title, status, device_model_id, imei, color, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, payment_methods, customer_description, internal_description, receiving_notes, services, brand, model, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full ), device_models ( id, brand, device_type, model )'
+      'id, customer_id, title, status, device_model_id, imei, color, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, payment_methods, customer_description, internal_description, receiving_notes, services, brand, model, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full ), device_models ( id, model, device_types ( name, device_brands ( name ) ) )'
     )
     .eq('id', id)
     .maybeSingle()
@@ -49,6 +49,8 @@ export async function GET(
 
   const cust = Array.isArray(order.customers) ? order.customers[0] : order.customers
   const dm = Array.isArray(order.device_models) ? order.device_models[0] : order.device_models
+  const dt = dm?.device_types || null
+  const brandRow = dt?.device_brands || null
 
   const services = Array.isArray(order.services) ? order.services : []
   const servicesFormatted = services.map((s: { description?: string; valueCents?: number; costCents?: number }, i: number) => ({
@@ -79,8 +81,8 @@ export async function GET(
     documentDigits: cust?.cnpj ? String(cust.cnpj).replace(/\D/g, '').slice(0, 14) : (cust?.cpf ? String(cust.cpf).replace(/\D/g, '').slice(0, 11) : ''),
     title: order.title || '',
     deviceModelId: order.device_model_id ?? (dm?.id ?? ''),
-    brand: dm?.brand ?? order.brand ?? '',
-    deviceType: dm?.device_type ?? '',
+    brand: brandRow?.name ?? order.brand ?? '',
+    deviceType: dt?.name ?? '',
     model: dm?.model ?? order.model ?? '',
     imei: order.imei ?? '',
     color: order.color ?? '',

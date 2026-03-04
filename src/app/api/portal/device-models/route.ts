@@ -113,8 +113,6 @@ export async function POST(request: Request) {
     .insert({
       device_type_id: deviceTypeId,
       model,
-      brand: brandName,
-      device_type: deviceTypeName,
     })
     .select('id, model, device_type_id')
     .single()

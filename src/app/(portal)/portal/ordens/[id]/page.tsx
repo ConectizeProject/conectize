@@ -157,7 +157,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 	const [{ data: order }, { data: companySettings }] = await Promise.all([
 		supabase
 			.from('service_orders')
-			.select('id, display_number, status, title, imei, color, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, payment_methods, customer_description, internal_description, receiving_notes, assistance_info, device_model_id, brand, model, services, services_total_cents, services_cost_total_cents, created_at, updated_at, closed_at, share_token, seller_user_id, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date, zip_code, state, city, neighborhood, street, street_number, street_complement, referral_source, referral_source_other ), device_models ( id, brand, device_type, model )')
+			.select('id, display_number, status, title, imei, color, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, payment_methods, customer_description, internal_description, receiving_notes, assistance_info, device_model_id, brand, model, services, services_total_cents, services_cost_total_cents, created_at, updated_at, closed_at, share_token, seller_user_id, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date, zip_code, state, city, neighborhood, street, street_number, street_complement, referral_source, referral_source_other ), device_models ( id, model, device_types ( name, device_brands ( name ) ) )')
 			.eq('id', id)
 			.maybeSingle(),
 		supabase.from('company_settings').select('name, cnpj, address, complement, zip_code, city, state, phone, email, logo_url').eq('id', 1).maybeSingle(),
@@ -197,8 +197,12 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 
 	const customer = getCustomerFromOrder(order)
 	const deviceModel = getDeviceModelFromOrder(order)
+	const dt = (deviceModel as any)?.device_types || null
+	const brandRow = dt?.device_brands || null
+	const brandName = (brandRow?.name as string | undefined) ?? (order.brand as string | null) ?? ''
+	const deviceTypeName = (dt?.name as string | undefined) ?? ''
 	const deviceString = deviceModel
-		? [deviceModel.brand, deviceModel.device_type, deviceModel.model].filter(Boolean).join(' ')
+		? [brandName, deviceTypeName, (deviceModel as any)?.model as string | undefined].filter(Boolean).join(' ')
 		: (order.brand || order.model ? [order.brand, order.model].filter(Boolean).join(' ') : '')
 
 	async function updateOrderAction(formData: FormData) {
@@ -389,9 +393,9 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 					<OrderDeviceSelector
 						initialValue={{
 							deviceModelId: (deviceModel as { id?: string })?.id ?? order.device_model_id ?? null,
-							brand: deviceModel?.brand ?? order.brand ?? null,
-							deviceType: deviceModel?.device_type ?? null,
-							model: deviceModel?.model ?? order.model ?? null,
+							brand: brandName || order.brand || null,
+							deviceType: deviceTypeName || null,
+							model: (deviceModel as any)?.model ?? order.model ?? null,
 						}}
 						formId="order-edit-form"
 						disabled={formDisabled}

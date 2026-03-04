@@ -63,19 +63,6 @@ export async function PATCH(
   if (!updated) {
     return NextResponse.json({ ok: false, error: 'not_found' }, { status: 404 })
   }
-  // Manter device_models.device_type em sync para não perder vínculo na listagem (que filtra por nome)
-  await auth.supabase.from('device_models').update({ device_type: name }).eq('device_type_id', id)
-  // Aparelhos vinculados só por texto (brand + device_type, sem device_type_id)
-  if (oldName) {
-    const { data: brandRow } = await auth.supabase.from('device_brands').select('name').eq('id', brandId).maybeSingle()
-    if (brandRow?.name) {
-      await auth.supabase
-        .from('device_models')
-        .update({ device_type: name })
-        .eq('brand', brandRow.name)
-        .eq('device_type', oldName)
-    }
-  }
   return NextResponse.json({ ok: true, deviceType: updated })
 }
 

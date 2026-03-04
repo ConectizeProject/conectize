@@ -27,10 +27,14 @@ async function requireStaffOrAdmin() {
 function orderToPrintData(order: any): OrdemPrintData {
   const cust = Array.isArray(order.customers) ? order.customers[0] : order.customers
   const dm = Array.isArray(order.device_models) ? order.device_models[0] : order.device_models
+  const dt = dm?.device_types || null
+  const brandRow = dt?.device_brands || null
+  const brandName = brandRow?.name ?? ''
+  const deviceTypeName = dt?.name ?? ''
   const device = dm
-    ? (dm.brand?.toLowerCase() === 'apple'
-        ? `${dm.device_type || ''} ${dm.model || ''}`.trim()
-        : `${dm.brand || ''} ${dm.model || ''}`.trim()) || '-'
+    ? (brandName.toLowerCase() === 'apple'
+        ? `${deviceTypeName || ''} ${dm.model || ''}`.trim()
+        : `${brandName || ''} ${dm.model || ''}`.trim()) || '-'
     : order.brand || order.model
       ? `${order.brand || ''} ${order.model || ''}`.trim()
       : '-'
@@ -98,7 +102,7 @@ export async function GET(
     auth.supabase
       .from('service_orders')
       .select(
-        'id, display_number, status, title, imei, is_warranty, estimated_ready_at, customer_description, internal_description, receiving_notes, assistance_info, device_entry_checks, services, created_at, updated_at, closed_at, brand, model, customers ( cpf, cnpj, is_company, full_name, company_name, email, mobile_phone, contact_phone, contact_notes, address_full ), device_models ( brand, device_type, model )'
+        'id, display_number, status, title, imei, is_warranty, estimated_ready_at, customer_description, internal_description, receiving_notes, assistance_info, device_entry_checks, services, created_at, updated_at, closed_at, brand, model, customers ( cpf, cnpj, is_company, full_name, company_name, email, mobile_phone, contact_phone, contact_notes, address_full ), device_models ( model, device_types ( name, device_brands ( name ) ) )'
       )
       .eq('id', id)
       .maybeSingle(),

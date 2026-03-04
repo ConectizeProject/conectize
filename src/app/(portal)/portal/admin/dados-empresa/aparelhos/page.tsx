@@ -28,17 +28,27 @@ export default async function DadosEmpresaAparelhosPage({
   const initialDeviceType = String(deviceType ?? '').trim()
   const initialModelQuery = String(q ?? '').trim()
 
-  const { data: deviceModels } = await supabase
+  const { data: deviceModelsRaw } = await supabase
     .from('device_models')
-    .select('id, brand, device_type, model, created_at')
-    .order('brand', { ascending: true })
-    .order('device_type', { ascending: true })
+    .select('id, model, created_at, device_types ( name, device_brands ( name ) )')
     .order('model', { ascending: true })
     .limit(2000)
 
+  const deviceModels = (deviceModelsRaw || []).map((d: any) => {
+    const dt = d.device_types || null
+    const brandRow = dt?.device_brands || null
+    return {
+      id: d.id,
+      brand: brandRow?.name ?? null,
+      device_type: dt?.name ?? null,
+      model: d.model ?? null,
+      created_at: d.created_at ?? null,
+    }
+  })
+
   return (
     <AparelhosClient
-      initialDeviceModels={(deviceModels || []) as any}
+      initialDeviceModels={deviceModels as any}
       initialBrand={initialBrand}
       initialDeviceType={initialDeviceType}
       initialModelQuery={initialModelQuery}

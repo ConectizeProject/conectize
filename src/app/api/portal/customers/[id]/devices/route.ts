@@ -24,7 +24,7 @@ export async function GET(
 
   const { data: devices, error } = await auth.supabase
     .from('customer_devices')
-    .select('id, customer_id, device_model_id, brand, model, device_type, imei, color, notes, created_at, updated_at, device_models ( id, brand, device_type, model )')
+    .select('id, customer_id, device_model_id, brand, model, device_type, imei, color, notes, created_at, updated_at, device_models ( id, model, device_types ( name, device_brands ( name ) ) )')
     .eq('customer_id', customerId)
     .order('created_at', { ascending: false })
 
@@ -35,13 +35,15 @@ export async function GET(
 
   const list = (devices ?? []).map((d: any) => {
     const dm = Array.isArray(d.device_models) ? d.device_models[0] : d.device_models
+    const dt = dm?.device_types || null
+    const brandRow = dt?.device_brands || null
     return {
       id: d.id,
       customer_id: d.customer_id,
       device_model_id: d.device_model_id,
-      brand: d.brand ?? dm?.brand ?? null,
+      brand: d.brand ?? brandRow?.name ?? null,
       model: d.model ?? dm?.model ?? null,
-      device_type: d.device_type ?? dm?.device_type ?? null,
+      device_type: d.device_type ?? dt?.name ?? null,
       imei: d.imei,
       color: d.color,
       notes: d.notes,

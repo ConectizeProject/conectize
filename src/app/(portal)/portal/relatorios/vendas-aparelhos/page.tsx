@@ -41,7 +41,7 @@ export default async function RelatorioVendasAparelhosPage ({
   const fromSql = fromStr
   const toSql = toStr
 
-  const [{ data: soldDevices }, { data: models }] = await Promise.all([
+  const [{ data: soldDevices }, { data: modelsRaw }] = await Promise.all([
     supabase
       .from('resale_devices')
       .select('id, sold_for_cents, actual_profit_cents, sale_date, device_model_id, device_name, model')
@@ -50,12 +50,22 @@ export default async function RelatorioVendasAparelhosPage ({
       .lte('sale_date', toSql),
     supabase
       .from('device_models')
-      .select('id, brand, device_type, model')
+      .select('id, model, device_types ( name, device_brands ( name ) )')
       .limit(5000),
   ])
 
   const list = soldDevices || []
-  const modelsMap = buildModelsMap(models || [])
+  const models: DeviceModel[] = (modelsRaw || []).map((d: any) => {
+    const dt = d.device_types || null
+    const brandRow = dt?.device_brands || null
+    return {
+      id: d.id,
+      brand: brandRow?.name ?? null,
+      device_type: dt?.name ?? null,
+      model: d.model ?? null,
+    }
+  })
+  const modelsMap = buildModelsMap(models)
 
   const salesCount = list.length
 

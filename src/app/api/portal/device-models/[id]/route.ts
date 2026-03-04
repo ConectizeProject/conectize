@@ -64,8 +64,6 @@ export async function PATCH(
     .update({
       device_type_id: deviceTypeId,
       model,
-      brand: brandName,
-      device_type: deviceTypeName,
     })
     .eq('id', id)
     .select('id, model, device_type_id')
