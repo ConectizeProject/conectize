@@ -4,6 +4,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 
 type PresetKey =
+  | 'today'
   | 'thisMonth'
   | 'lastMonth'
   | 'last90'
@@ -12,6 +13,7 @@ type PresetKey =
   | 'last360'
 
 const PRESETS: { key: PresetKey; label: string }[] = [
+  { key: 'today', label: 'Hoje' },
   { key: 'thisMonth', label: 'Este mês' },
   { key: 'lastMonth', label: 'Mês passado' },
   { key: 'last90', label: 'Últimos 90 dias' },
@@ -59,6 +61,13 @@ export function QuickDatePresets () {
 
 function buildRange (now: Date, preset: PresetKey) {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+
+  if (preset === 'today') {
+    return {
+      from: formatYmd(today),
+      to: formatYmd(today),
+    }
+  }
 
   if (preset === 'thisMonth') {
     const from = new Date(today.getFullYear(), today.getMonth(), 1)
