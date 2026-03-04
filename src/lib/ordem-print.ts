@@ -177,6 +177,7 @@ export type OrdemPrintData = {
     valueCents?: number | null
     costCents?: number | null
   }> | null
+  deviceEntryChecks?: any | null
 }
 
 function formatDate(value: string | null): string {
@@ -359,6 +360,107 @@ export function buildOrdemPrintHtml(
 
   ${data.customerDescription ? `<div class="section"><h2>Descrição</h2><div class="block">${data.customerDescription}</div></div>` : ''}
   ${data.receivingNotes ? `<div class="section"><h2>Observações do recebimento</h2><div class="block">${data.receivingNotes}</div></div>` : ''}
+  ${(() => {
+    const checks = data.deviceEntryChecks
+    if (!checks || typeof checks !== 'object') return ''
+    const status = typeof checks.status === 'string' ? checks.status : null
+    const list = checks.checks && typeof checks.checks === 'object' ? checks.checks as Record<string, unknown> : null
+
+    const statusLabel = status
+      ? ({
+        operante: 'Aparelho liga normalmente',
+        sem_bateria: 'Aparelho não liga na entrada',
+        display_apagado: 'Display apagado/danificado na entrada',
+        nao_liga: 'Aparelho não liga na entrada',
+      } as Record<string, string>)[status] || status
+      : null
+
+    const notTested = status && status !== 'operante'
+    if (notTested) {
+      return `
+      <div class="section">
+        <h2>Testes realizados na entrada do aparelho</h2>
+        <div class="row"><span>${statusLabel || ''}</span></div>
+        <div class="block" style="margin-top: 6px;">
+          Não foi possível testar o aparelho na entrada. Será realizada uma análise mais detalhada assim que o dispositivo estiver em situação de teste para gerar o diagnóstico geral, podendo surgir novos serviços após os testes.
+        </div>
+      </div>
+    `
+    }
+
+    const labels: Record<string, string> = {
+      rear_camera_main: 'Câmera traseira (1x)',
+      rear_camera_2x: 'Câmera traseira (2x)',
+      rear_camera_3x: 'Câmera traseira (3x)',
+      front_camera: 'Câmera frontal',
+      microphone: 'Microfone',
+      earpiece_speaker: 'Alto-falante de ouvido',
+      loudspeaker: 'Alto-falante principal',
+      charging_port: 'Carregamento (cabo)',
+      wireless_charging: 'Carregamento por indução',
+      sim_signal: 'Sinal de operadora',
+      wifi: 'Wi‑Fi',
+      bluetooth: 'Bluetooth',
+      face_touch_id: 'Face ID / Touch ID',
+      volume_buttons: 'Botões de volume',
+      power_button: 'Botão power',
+      vibration: 'Vibração',
+      proximity_sensor: 'Sensor de proximidade',
+      display_touch: 'Toque na tela',
+      display_colors: 'Cores/brilho da tela',
+    }
+
+    const normalize = (v: unknown): 'ok' | 'fail' | 'na' | null => {
+      if (v === true) return 'ok'
+      if (v === false) return 'fail'
+      if (v === 'ok' || v === 'fail' || v === 'na') return v
+      return null
+    }
+
+    const okItems: string[] = []
+    const failItems: string[] = []
+    const naItems: string[] = []
+    if (list) {
+      for (const [key, value] of Object.entries(list)) {
+        const v = normalize(value)
+        const label = labels[key] || key
+        if (v === 'ok') okItems.push(label)
+        else if (v === 'fail') failItems.push(label)
+        else if (v === 'na') naItems.push(label)
+      }
+    }
+
+    const hasAnyMarked = okItems.length > 0 || failItems.length > 0 || naItems.length > 0
+    if (!notTested && !hasAnyMarked) return ''
+
+    if (failItems.length > 0) {
+      return `
+      <div class="section">
+        <h2>Testes realizados na entrada do aparelho</h2>
+        <div class="row"><span>${statusLabel || 'Aparelho liga normalmente'}</span></div>
+        <div class="block" style="margin-top: 6px;">
+          <strong>Problemas identificados:</strong> ${failItems.join(', ')}.
+          <br/><br/>
+          O aparelho foi testado no momento da análise. Os itens acima apresentaram falha e devem ser considerados no diagnóstico e nos serviços.
+        </div>
+      </div>
+    `
+    }
+
+    if (okItems.length > 0 || naItems.length > 0) {
+      return `
+      <div class="section">
+        <h2>Testes realizados na entrada do aparelho</h2>
+        <div class="row"><span>${statusLabel || 'Aparelho liga normalmente'}</span></div>
+        <div class="block" style="margin-top: 6px;">
+          O aparelho foi testado no momento da análise e está tudo em ordem.
+        </div>
+      </div>
+    `
+    }
+
+    return ''
+  })()}
   ${data.assistanceInfo ? `<div class="section"><h2>Informações sobre a assistência</h2><div class="block">${data.assistanceInfo}</div></div>` : ''}
   ${buildServicesSection(data.services)}
 

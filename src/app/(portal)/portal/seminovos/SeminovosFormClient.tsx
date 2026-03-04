@@ -19,12 +19,24 @@ import {
 } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatMoneyInput, maskedFromCents, moneyToCentsFromMasked } from '@/lib/utils/money'
+import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { toast } from '@/hooks/use-toast'
 import { portalFetch } from '@/lib/portal/portal-fetch'
 import { parse3utoolsText } from '@/lib/resale/parse-3utools'
 import { ArrowLeft, DollarSign, FileInput, Plus, Trash2, Undo2 } from 'lucide-react'
+import { ResaleDeviceTermsDialog } from './ResaleDeviceTermsDialog'
 
 type CostRow = { id?: string; description: string; value_cents: number }
+
+type CreditInstallmentFee = { installments: number; fee_percent: number }
+
+type PaymentMethod = {
+  id: string
+  description: string
+  type: string
+  fee_percent: number
+  credit_installment_fees: CreditInstallmentFee[]
+}
 
 type ResaleDevice = {
   id: string
@@ -54,6 +66,11 @@ type ResaleDevice = {
   sale_date: string | null
   created_at: string
   costs: CostRow[]
+  payment_method_id: string | null
+  payment_installments: number | null
+  buyer_name: string | null
+  buyer_cpf: string | null
+  sale_details: string | null
 }
 
 function centsToReais(cents: number | null | undefined): string {
@@ -145,6 +162,15 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
   const [sellModalValue, setSellModalValue] = useState('')
   const [sellModalDate, setSellModalDate] = useState('')
   const [isSavingSell, setIsSavingSell] = useState(false)
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([])
+  const [isLoadingPaymentMethods, setIsLoadingPaymentMethods] = useState(false)
+  const [sellPaymentMethodId, setSellPaymentMethodId] = useState('')
+  const [sellPaymentInstallments, setSellPaymentInstallments] = useState(1)
+  const [sellBuyerName, setSellBuyerName] = useState('')
+  const [sellBuyerCpf, setSellBuyerCpf] = useState('')
+  const [sellSaleDetails, setSellSaleDetails] = useState('')
+  const [showTermsDialog, setShowTermsDialog] = useState(false)
+  const [termsDevice, setTermsDevice] = useState<ResaleDevice | null>(null)
 
   const loadDevice = useCallback(async () => {
     if (!deviceId || hasInitial) return
@@ -188,6 +214,23 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
   useEffect(() => {
     loadDevice()
   }, [loadDevice])
+
+  const loadPaymentMethods = useCallback(async () => {
+    setIsLoadingPaymentMethods(true)
+    try {
+      const res = await portalFetch('/api/portal/payment-methods')
+      const data = await res?.json().catch(() => null)
+      if (data?.ok && Array.isArray(data.paymentMethods)) {
+        setPaymentMethods(data.paymentMethods as PaymentMethod[])
+      }
+    } finally {
+      setIsLoadingPaymentMethods(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadPaymentMethods()
+  }, [loadPaymentMethods])
 
   function handleParse3utools() {
     const parsed = parse3utoolsText(threeUtoolsRaw)
@@ -335,26 +378,126 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
     const suggested = formSaleValue || formWholesaleValue || formSoldFor || ''
     setSellModalValue(suggested)
     setSellModalDate(new Date().toISOString().slice(0, 10))
+    setSellPaymentMethodId('')
+    setSellPaymentInstallments(1)
+    setSellBuyerName('')
+    setSellBuyerCpf('')
+    setSellSaleDetails(formInfo || '')
     setShowSellModal(true)
+  }
+
+  async function openEditSellModal() {
+    if (!deviceId || isSavingSell) return
+    try {
+      const res = await portalFetch(`/api/portal/resale-devices/${deviceId}`)
+      const data = await res?.json().catch(() => null)
+      if (data?.ok && data.device) {
+        const d = data.device as ResaleDevice
+        const soldCents = (d as any).sold_for_cents ?? null
+        const valueMasked = soldCents != null ? maskedFromCents(soldCents) : ''
+        setSellModalValue(valueMasked)
+        setSellModalDate(d.sale_date || new Date().toISOString().slice(0, 10))
+        setSellPaymentMethodId((d as any).payment_method_id ?? '')
+        setSellPaymentInstallments((d as any).payment_installments ?? 1)
+        setSellBuyerName((d as any).buyer_name ?? '')
+        setSellBuyerCpf(formatCpfCnpj((d as any).buyer_cpf ?? ''))
+        setSellSaleDetails((d as any).sale_details ?? d.info ?? '')
+        loadPaymentMethods()
+        setShowSellModal(true)
+      }
+    } catch {
+      // em caso de erro, não abre o modal
+    }
   }
 
   async function handleConfirmSell() {
     if (!deviceId || isSavingSell) return
     const valueCents = moneyToCentsFromMasked(sellModalValue)
     if (valueCents === null) return
+
+    let paymentFeeCents = 0
+    if (sellPaymentMethodId) {
+      const pm = paymentMethods.find((p) => p.id === sellPaymentMethodId)
+      if (pm) {
+        let feePercent = Number(pm.fee_percent) || 0
+        if (pm.type === 'credito' && Array.isArray(pm.credit_installment_fees) && pm.credit_installment_fees.length > 0) {
+          const byInstallments = pm.credit_installment_fees.find(
+            (f) => Number(f.installments) === Number(sellPaymentInstallments || 1)
+          )
+          if (byInstallments && byInstallments.fee_percent != null) {
+            feePercent = Number(byInstallments.fee_percent) || 0
+          }
+        }
+        if (feePercent > 0) {
+          paymentFeeCents = Math.floor((valueCents * feePercent) / 100)
+        }
+      }
+    }
+
+    const baseCosts = formCosts
+      .filter((c) => (c.description && c.description.trim()) || (c.value_cents && c.value_cents > 0))
+      .map((c) => ({
+        description: c.description.trim() || null,
+        value_cents: c.value_cents ?? 0,
+      }))
+
+    const costsWithoutPaymentFee = baseCosts.filter(
+      (c) => (c.description || '').toLowerCase() !== 'taxa forma de pagamento'
+    )
+
+    const costsPayload =
+      paymentFeeCents > 0
+        ? [
+            ...costsWithoutPaymentFee,
+            {
+              description: 'Taxa forma de pagamento',
+              value_cents: paymentFeeCents,
+            },
+          ]
+        : costsWithoutPaymentFee
+
+    const payload: Record<string, unknown> = {
+      sold: true,
+      sold_for_cents: valueCents,
+      sale_date: sellModalDate || null,
+      payment_method_id: sellPaymentMethodId || null,
+      payment_installments: sellPaymentMethodId ? sellPaymentInstallments || 1 : null,
+      buyer_name: sellBuyerName.trim() || null,
+      buyer_cpf: sellBuyerCpf.trim() || null,
+      sale_details: sellSaleDetails.trim() || null,
+      costs: costsPayload,
+    }
+
     setIsSavingSell(true)
     try {
       const res = await portalFetch(`/api/portal/resale-devices/${deviceId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sold: true, sold_for_cents: valueCents, sale_date: sellModalDate || null }),
+        body: JSON.stringify(payload),
       })
       const data = await res?.json().catch(() => null)
       if (data?.ok) {
+        const updated = data.device as ResaleDevice
         setFormSold(true)
         setFormSoldFor(sellModalValue)
         setFormSaleDate(sellModalDate)
+        if (updated && Array.isArray((updated as any).costs)) {
+          const mappedCosts = (updated as any).costs.map((c: any) => ({
+            id: c.id,
+            description: c.description ?? '',
+            value_cents: c.value_cents ?? 0,
+          }))
+          setFormCosts(mappedCosts.length > 0 ? mappedCosts : [emptyCost()])
+        }
         setShowSellModal(false)
+        const hasBuyerOrDetails =
+          (updated.buyer_name && updated.buyer_name.trim()) ||
+          (updated.buyer_cpf && updated.buyer_cpf.trim()) ||
+          (updated.sale_details && updated.sale_details.trim())
+        if (hasBuyerOrDetails) {
+          setTermsDevice(updated)
+          setShowTermsDialog(true)
+        }
         toast({ description: 'Aparelho marcado como vendido', duration: 2000 })
       } else {
         setErrorMessage(data?.message || 'Não foi possível salvar.')
@@ -374,13 +517,23 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
       const res = await portalFetch(`/api/portal/resale-devices/${deviceId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sold: false, sold_for_cents: null, sale_date: null }),
+        body: JSON.stringify({
+          sold: false,
+          sold_for_cents: null,
+          sale_date: null,
+          payment_method_id: null,
+          payment_installments: null,
+          buyer_name: null,
+          buyer_cpf: null,
+          sale_details: null,
+        }),
       })
       const data = await res?.json().catch(() => null)
       if (data?.ok) {
         setFormSold(false)
         setFormSoldFor('')
         setFormSaleDate('')
+        setShowTermsDialog(false)
         toast({ description: 'Venda cancelada', duration: 2000 })
       } else {
         setErrorMessage(data?.message || 'Não foi possível cancelar.')
@@ -486,16 +639,27 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
                 </Button>
               )}
               {!isCreate && formSold && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleCancelSell}
-                  disabled={isSavingSell}
-                >
-                  <Undo2 className="h-4 w-4 mr-2" />
-                  Cancelar venda
-                </Button>
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={openEditSellModal}
+                    disabled={isSavingSell}
+                  >
+                    Editar venda
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCancelSell}
+                    disabled={isSavingSell}
+                  >
+                    <Undo2 className="h-4 w-4 mr-2" />
+                    Cancelar venda
+                  </Button>
+                </>
               )}
               <Button
                 type="button"
@@ -791,7 +955,7 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
           <DialogHeader>
             <DialogTitle>Marcar como vendido</DialogTitle>
             <DialogDescription>
-              Informe o valor e a data da venda. Sugestão preenchida com os valores previstos.
+              Informe o valor, forma de pagamento, dados do comprador e a data da venda. Sugestão preenchida com os valores previstos.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
@@ -812,6 +976,73 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
               )}
             </div>
             <div className="space-y-2">
+              <Label>Forma de pagamento</Label>
+              <select
+                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                value={sellPaymentMethodId || ''}
+                onChange={(e) => setSellPaymentMethodId(e.target.value)}
+                disabled={isLoadingPaymentMethods}
+              >
+                <option value="">Selecione</option>
+                {paymentMethods.map((pm) => (
+                  <option key={pm.id} value={pm.id}>
+                    {pm.description}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {(() => {
+              const pm = paymentMethods.find((p) => p.id === sellPaymentMethodId)
+              const isCredit = pm?.type === 'credito'
+              if (!isCredit) return null
+              const maxInstallments = pm?.credit_installment_fees?.length
+                ? Math.max(...pm.credit_installment_fees.map((f) => f.installments))
+                : 12
+              return (
+                <div className="space-y-2">
+                  <Label>Parcelas</Label>
+                  <select
+                    className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                    value={String(sellPaymentInstallments || 1)}
+                    onChange={(e) => setSellPaymentInstallments(Number(e.target.value) || 1)}
+                  >
+                    {Array.from({ length: maxInstallments }, (_, i) => i + 1).map((n) => (
+                      <option key={n} value={n}>
+                        {n}x
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )
+            })()}
+            <div className="space-y-2">
+              <Label>Nome completo do comprador (opcional)</Label>
+              <Input
+                value={sellBuyerName}
+                onChange={(e) => setSellBuyerName(e.target.value)}
+                placeholder="Nome completo"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>CPF/CNPJ do comprador (opcional)</Label>
+              <Input
+                value={sellBuyerCpf}
+                onChange={(e) => setSellBuyerCpf(formatCpfCnpj(e.target.value))}
+                placeholder="CPF ou CNPJ"
+                inputMode="numeric"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Detalhes do aparelho para o termo (opcional)</Label>
+              <textarea
+                className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                value={sellSaleDetails}
+                onChange={(e) => setSellSaleDetails(e.target.value)}
+                placeholder="Este campo será exibido no termo de compra."
+                rows={3}
+              />
+            </div>
+            <div className="space-y-2">
               <Label>Data da venda</Label>
               <Input
                 type="date"
@@ -830,6 +1061,31 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <ResaleDeviceTermsDialog
+        open={showTermsDialog}
+        onOpenChange={setShowTermsDialog}
+        device={
+          termsDevice
+            ? {
+                id: termsDevice.id,
+                device_name: termsDevice.device_name,
+                model: termsDevice.model,
+                color: termsDevice.color,
+                storage_gb: termsDevice.storage_gb,
+                battery: termsDevice.battery,
+                imei: termsDevice.imei,
+                serial: termsDevice.serial,
+                sold_for_cents: (termsDevice as any).sold_for_cents ?? null,
+                sale_date: termsDevice.sale_date,
+                buyer_name: (termsDevice as any).buyer_name ?? null,
+                buyer_cpf: (termsDevice as any).buyer_cpf ?? null,
+                sale_details: (termsDevice as any).sale_details ?? null,
+                payment_method_id: (termsDevice as any).payment_method_id ?? null,
+                payment_installments: (termsDevice as any).payment_installments ?? null,
+              }
+            : null
+        }
+      />
     </div>
   )
 }

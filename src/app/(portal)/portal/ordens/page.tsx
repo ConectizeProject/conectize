@@ -33,6 +33,9 @@ type SearchParams = Promise<{
   createdTo?: string
   readyFrom?: string
   readyTo?: string
+  noServices?: string
+  noCost?: string
+  noPayment?: string
   toast?: string
   id?: string
   error?: string
@@ -55,6 +58,9 @@ export default async function OrdensPage({
     createdTo,
     readyFrom,
     readyTo,
+    noServices,
+    noCost,
+    noPayment,
     toast,
     id,
     error,
@@ -69,6 +75,9 @@ export default async function OrdensPage({
   const createdToValue = isValidDate(createdTo) ? createdTo! : ''
   const readyFromValue = isValidDate(readyFrom) ? readyFrom! : ''
   const readyToValue = isValidDate(readyTo) ? readyTo! : ''
+  const quickNoServices = String(noServices || '').trim() === '1'
+  const quickNoCost = String(noCost || '').trim() === '1'
+  const quickNoPayment = String(noPayment || '').trim() === '1'
   const toastType = String(toast || '').trim()
   const toastId = String(id || '').trim()
   const toastError = String(error || '').trim()
@@ -103,9 +112,14 @@ export default async function OrdensPage({
     }
   }
 
+  const needsQuickFilterColumns = quickNoServices || quickNoCost || quickNoPayment
   const baseQuery = supabase
     .from('service_orders')
-    .select('id, display_number, status, title, created_at, updated_at, closed_at, estimated_ready_at, share_token, customer_id, device_model_id')
+    .select(
+      needsQuickFilterColumns
+        ? 'id, display_number, status, title, created_at, updated_at, closed_at, estimated_ready_at, share_token, customer_id, device_model_id, services, services_cost_total_cents, payment_methods'
+        : 'id, display_number, status, title, created_at, updated_at, closed_at, estimated_ready_at, share_token, customer_id, device_model_id'
+    )
     .in('status', [...OPEN_STATUSES])
     .order('created_at', { ascending: false })
     .limit(LIMIT_OPEN)
@@ -153,7 +167,26 @@ export default async function OrdensPage({
 
   const { data: rawOrders } = await baseQuery
 
-  const ordersList = rawOrders || []
+  let ordersList = rawOrders || []
+  if (needsQuickFilterColumns && ordersList.length > 0) {
+    ordersList = ordersList.filter((o: any) => {
+      if (quickNoServices) {
+        const svc = o.services
+        const hasServices = Array.isArray(svc) && svc.length > 0
+        if (hasServices) return false
+      }
+      if (quickNoCost) {
+        const cost = o.services_cost_total_cents
+        if (cost != null && Number(cost) > 0) return false
+      }
+      if (quickNoPayment) {
+        const pm = o.payment_methods
+        const hasPayment = Array.isArray(pm) && pm.length > 0
+        if (hasPayment) return false
+      }
+      return true
+    })
+  }
   const customerIds = [...new Set(ordersList.map((o: any) => o.customer_id).filter(Boolean))]
   const deviceModelIds = [...new Set(ordersList.map((o: any) => o.device_model_id).filter(Boolean))]
 
@@ -174,10 +207,17 @@ export default async function OrdensPage({
   if (deviceModelIds.length > 0) {
     const { data: deviceModels } = await supabase
       .from('device_models')
-      .select('id, brand, device_type, model')
+      .select('id, model, device_types ( name, device_brands ( name ) )')
       .in('id', deviceModelIds)
     deviceModelsMap = (deviceModels || []).reduce((acc: Record<string, any>, d: any) => {
-      acc[d.id] = d
+      const dt = (d as any).device_types || null
+      const brandRow = dt?.device_brands || null
+      acc[d.id] = {
+        id: d.id,
+        brand: brandRow?.name ?? null,
+        device_type: dt?.name ?? null,
+        model: d.model ?? null,
+      }
       return acc
     }, {})
   }
@@ -193,17 +233,28 @@ export default async function OrdensPage({
     openOrdersByStatus[s] = ordersWithRelations.filter((o: any) => o.status === s)
   }
 
-  const { data: deviceModels } = await supabase
+  const { data: deviceModelsRaw } = await supabase
     .from('device_models')
-    .select('id, brand, device_type, model')
-    .order('brand', { ascending: true })
+    .select('id, model, device_types ( name, device_brands ( name ) )')
     .order('model', { ascending: true })
     .limit(500)
+
+  const deviceModels = (deviceModelsRaw || []).map((d: any) => {
+    const dt = Array.isArray(d.device_types) ? d.device_types[0] : d.device_types
+    const brandRow = dt && (Array.isArray(dt.device_brands) ? dt.device_brands[0] : dt.device_brands)
+    return {
+      id: d.id,
+      brand: brandRow?.name ?? null,
+      device_type: dt?.name ?? null,
+      model: d.model ?? null,
+    }
+  })
 
   const hasFilters = Boolean(
     query || cpfDigits || osNumberValue || statusValue ||
     customerIdValue || customerName || deviceModelIdValue ||
-    createdFromValue || createdToValue || readyFromValue || readyToValue
+    createdFromValue || createdToValue || readyFromValue || readyToValue ||
+    quickNoServices || quickNoCost || quickNoPayment
   )
 
   return (
@@ -235,8 +286,11 @@ export default async function OrdensPage({
           createdTo: createdToValue,
           readyFrom: readyFromValue,
           readyTo: readyToValue,
+          noServices: quickNoServices ? '1' : '',
+          noCost: quickNoCost ? '1' : '',
+          noPayment: quickNoPayment ? '1' : '',
         }}
-        deviceModels={deviceModels || []}
+        deviceModels={deviceModels}
       />
 
       <OrdensListClient

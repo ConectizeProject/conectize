@@ -94,7 +94,7 @@ export default async function OrdemPublicaPage({
 	const [{ data: order }, { data: company }] = await Promise.all([
 		supabase
 			.from('service_orders')
-			.select('id, display_number, status, title, imei, is_warranty, estimated_ready_at, customer_description, receiving_notes, assistance_info, brand, model, created_at, updated_at, closed_at, customers ( cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date ), device_models ( brand, device_type, model )')
+			.select('id, display_number, status, title, imei, is_warranty, estimated_ready_at, customer_description, receiving_notes, assistance_info, brand, model, created_at, updated_at, closed_at, customers ( cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date ), device_models ( model, device_types ( name, device_brands ( name ) ) )')
 			.eq('share_token', token)
 			.maybeSingle(),
 		supabase
@@ -130,8 +130,12 @@ export default async function OrdemPublicaPage({
 
 	const customer = getCustomerFromOrder(order)
 	const deviceModel = getDeviceModelFromOrder(order)
+	const dt = deviceModel?.device_types || null
+	const brandRow = dt?.device_brands || null
+	const brandName = brandRow?.name ?? ''
+	const deviceTypeName = dt?.name ?? ''
 	const deviceDisplay = deviceModel
-		? `${deviceModel.brand || ''} ${deviceModel.device_type || ''} ${deviceModel.model || ''}`.trim()
+		? `${brandName || ''} ${deviceTypeName || ''} ${deviceModel.model || ''}`.trim()
 		: order.brand || order.model
 			? `${order.brand || ''} ${order.model || ''}`.trim()
 			: '-'

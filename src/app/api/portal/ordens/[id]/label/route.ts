@@ -39,7 +39,7 @@ export async function GET(
   const { data: order, error } = await auth.supabase
     .from('service_orders')
     .select(
-      'display_number, title, created_at, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, customers ( full_name, is_company, company_name, mobile_phone ), device_models ( brand, device_type, model )'
+      'display_number, title, created_at, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, customers ( full_name, is_company, company_name, mobile_phone ), device_models ( model, device_types ( name, device_brands ( name ) ) )'
     )
     .eq('id', id)
     .maybeSingle()
@@ -54,10 +54,16 @@ export async function GET(
     ? (cust.company_name ?? '').trim()
     : (cust?.full_name ?? '').trim()
   const customerFirstName = nameForFirst ? nameForFirst.split(/\s+/)[0] ?? null : null
+  const dtRaw = dm?.device_types ?? null
+  const dt = Array.isArray(dtRaw) ? dtRaw[0] : dtRaw
+  const brandRaw = dt?.device_brands ?? null
+  const brandRow = Array.isArray(brandRaw) ? brandRaw[0] : brandRaw
+  const brandName = brandRow?.name ?? ''
+  const deviceTypeName = dt?.name ?? ''
   const deviceModel = dm
-    ? (dm.brand?.toLowerCase() === 'apple'
-        ? `${dm.device_type || ''} ${dm.model || ''}`.trim()
-        : `${dm.brand || ''} ${dm.model || ''}`.trim()) || null
+    ? (brandName.toLowerCase() === 'apple'
+        ? `${deviceTypeName || ''} ${dm.model || ''}`.trim()
+        : `${brandName || ''} ${dm.model || ''}`.trim()) || null
     : null
 
   const labelData = {

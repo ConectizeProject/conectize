@@ -136,10 +136,17 @@ export async function GET(request: NextRequest) {
     if (deviceModelIds.length > 0) {
       const { data: deviceModels } = await auth.supabase
         .from('device_models')
-        .select('id, brand, device_type, model')
+        .select('id, model, device_types ( name, device_brands ( name ) )')
         .in('id', deviceModelIds)
       deviceModelsMap = (deviceModels || []).reduce((acc: Record<string, any>, d: any) => {
-        acc[d.id] = d
+        const dt = (d as any).device_types || null
+        const brandRow = dt?.device_brands || null
+        acc[d.id] = {
+          id: d.id,
+          brand: brandRow?.name ?? null,
+          device_type: dt?.name ?? null,
+          model: d.model ?? null,
+        }
         return acc
       }, {})
     }

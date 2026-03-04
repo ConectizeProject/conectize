@@ -86,6 +86,11 @@ export async function GET(request: Request) {
       actual_profit_cents,
       purchase_date,
       sale_date,
+      payment_method_id,
+      payment_installments,
+      buyer_name,
+      buyer_cpf,
+      sale_details,
       created_at,
       updated_at
     `)
@@ -162,6 +167,12 @@ export async function POST(request: Request) {
   }
 
   const device_model_id = body.device_model_id || null
+  const payment_method_id = body.payment_method_id || null
+  const payment_installments = body.payment_installments ?? body.installments ?? null
+  const buyer_name = body.buyer_name || null
+  const buyer_cpf = body.buyer_cpf || null
+  const sale_details = body.sale_details || null
+
   const row = {
     device_model_id: device_model_id || null,
     device_name: cleanText(body.device_name) || null,
@@ -190,6 +201,11 @@ export async function POST(request: Request) {
     })(),
     purchase_date: toDate(body.purchase_date),
     sale_date: toDate(body.sale_date),
+    payment_method_id: payment_method_id || null,
+    payment_installments: payment_installments === null || payment_installments === undefined ? null : Number(payment_installments) || null,
+    buyer_name: buyer_name ? cleanText(buyer_name) : null,
+    buyer_cpf: buyer_cpf ? cleanText(buyer_cpf) : null,
+    sale_details: sale_details ? cleanText(sale_details) : null,
   }
 
   const { data: inserted, error } = await auth.supabase

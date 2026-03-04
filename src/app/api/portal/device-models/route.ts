@@ -33,8 +33,7 @@ export async function GET(request: Request) {
   }
 
   const url = new URL(request.url)
-  const brand = cleanText(String(url.searchParams.get('brand') || ''))
-  const deviceType = cleanText(String(url.searchParams.get('deviceType') || ''))
+  const deviceTypeId = cleanText(String(url.searchParams.get('device_type_id') || url.searchParams.get('deviceTypeId') || ''))
   const q = cleanText(String(url.searchParams.get('q') || ''))
 
   let limit = Number.parseInt(String(url.searchParams.get('limit') || '500'), 10)
@@ -43,14 +42,11 @@ export async function GET(request: Request) {
 
   const query = auth.supabase
     .from('device_models')
-    .select('id, brand, device_type, model, created_at')
-    .order('brand', { ascending: true })
-    .order('device_type', { ascending: true })
+    .select('id, model, device_type_id, device_types ( id, name, device_brands ( id, name ) )')
     .order('model', { ascending: true })
     .limit(limit)
 
-  if (brand) query.eq('brand', brand)
-  if (deviceType) query.eq('device_type', deviceType)
+  if (deviceTypeId) query.eq('device_type_id', deviceTypeId)
   if (q) query.ilike('model', `%${q}%`)
 
   const { data, error } = await query
@@ -58,7 +54,18 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
   }
 
-  return NextResponse.json({ ok: true, deviceModels: data || [] })
+  const rows = (data || []).map((row: any) => {
+    const dt = row.device_types
+    const brand = dt?.device_brands
+    return {
+      id: row.id,
+      model: row.model,
+      device_type_id: row.device_type_id,
+      brand: brand?.name ?? null,
+      device_type: dt?.name ?? null,
+    }
+  })
+  return NextResponse.json({ ok: true, deviceModels: rows })
 }
 
 export async function POST(request: Request) {
@@ -68,52 +75,69 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json().catch(() => null)
-  const brand = cleanText(body?.brand)
-  const deviceType = cleanText(body?.deviceType)
+  const deviceTypeId = (body?.device_type_id ?? body?.deviceTypeId ?? '').trim()
   const model = cleanText(body?.model)
 
-  if (!brand || !deviceType || !model) {
+  if (!deviceTypeId || !model) {
     return NextResponse.json({ ok: false, error: 'invalid_payload' }, { status: 400 })
+  }
+
+  const { data: typeRow } = await auth.supabase
+    .from('device_types')
+    .select('id, name, device_brands ( id, name )')
+    .eq('id', deviceTypeId)
+    .maybeSingle()
+  const brandName = (typeRow as any)?.device_brands?.name ?? ''
+  const deviceTypeName = (typeRow as any)?.name ?? ''
+  if (!brandName || !deviceTypeName) {
+    return NextResponse.json({ ok: false, error: 'invalid_device_type' }, { status: 400 })
   }
 
   const { data: existing } = await auth.supabase
     .from('device_models')
-    .select('id, brand, device_type, model')
-    .eq('brand', brand)
-    .eq('device_type', deviceType)
+    .select('id, model, device_type_id')
+    .eq('device_type_id', deviceTypeId)
     .eq('model', model)
     .maybeSingle()
 
   if (existing?.id) {
-    return NextResponse.json({ ok: true, deviceModel: existing, existed: true })
+    return NextResponse.json({
+      ok: true,
+      deviceModel: { id: existing.id, model: existing.model, device_type_id: existing.device_type_id, brand: brandName, device_type: deviceTypeName },
+      existed: true,
+    })
   }
 
   const { data: inserted, error } = await auth.supabase
     .from('device_models')
     .insert({
-      brand,
-      device_type: deviceType,
+      device_type_id: deviceTypeId,
       model,
     })
-    .select('id, brand, device_type, model')
+    .select('id, model, device_type_id')
     .single()
 
   if (error) {
     const { data: after } = await auth.supabase
       .from('device_models')
-      .select('id, brand, device_type, model')
-      .eq('brand', brand)
-      .eq('device_type', deviceType)
+      .select('id, model, device_type_id')
+      .eq('device_type_id', deviceTypeId)
       .eq('model', model)
       .maybeSingle()
-
     if (after?.id) {
-      return NextResponse.json({ ok: true, deviceModel: after, existed: true })
+      return NextResponse.json({
+        ok: true,
+        deviceModel: { id: after.id, model: after.model, device_type_id: after.device_type_id, brand: brandName, device_type: deviceTypeName },
+        existed: true,
+      })
     }
-
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
   }
 
-  return NextResponse.json({ ok: true, deviceModel: inserted, existed: false })
+  return NextResponse.json({
+    ok: true,
+    deviceModel: { id: inserted.id, model: inserted.model, device_type_id: inserted.device_type_id, brand: brandName, device_type: deviceTypeName },
+    existed: false,
+  })
 }
 

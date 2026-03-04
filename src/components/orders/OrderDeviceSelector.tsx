@@ -1,18 +1,12 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeftRight, History, Plus } from 'lucide-react'
+import { ArrowLeftRight, ChevronsUpDown, History } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { portalFetch } from '@/lib/portal/portal-fetch'
 
 export type DeviceModel = {
@@ -82,12 +76,12 @@ export function OrderDeviceSelector({
   const [deviceModels, setDeviceModels] = useState<DeviceModel[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [isCreateOpen, setIsCreateOpen] = useState(false)
-  const [createError, setCreateError] = useState<string | null>(null)
-  const [isCreating, setIsCreating] = useState(false)
-  const [newBrand, setNewBrand] = useState('')
-  const [newDeviceType, setNewDeviceType] = useState('')
-  const [newModel, setNewModel] = useState('')
+  const [brandSearch, setBrandSearch] = useState('')
+  const [deviceTypeSearch, setDeviceTypeSearch] = useState('')
+  const [modelSearch, setModelSearch] = useState('')
+  const [brandOpen, setBrandOpen] = useState(false)
+  const [deviceTypeOpen, setDeviceTypeOpen] = useState(false)
+  const [modelOpen, setModelOpen] = useState(false)
 
   // Estado interno para modo form nativo
   const [internalBrand, setInternalBrand] = useState(initialValue?.brand ?? '')
@@ -95,22 +89,11 @@ export function OrderDeviceSelector({
   const [internalDeviceModelId, setInternalDeviceModelId] = useState(initialValue?.deviceModelId ?? '')
   const [internalModel, setInternalModel] = useState(initialValue?.model ?? '')
 
-  const [isEditing, setIsEditing] = useState(false)
-
   const isFormikMode = !!formik
   const brand = isFormikMode ? formik.values.brand : internalBrand
   const deviceType = isFormikMode ? formik.values.deviceType : internalDeviceType
   const deviceModelId = isFormikMode ? formik.values.deviceModelId : internalDeviceModelId
   const model = isFormikMode ? formik.values.model : internalModel
-
-  const hasDeviceSelected = Boolean(deviceModelId || (brand && model))
-  const showSummary = hasDeviceSelected && !isEditing
-
-  const selectedDeviceSummary = useMemo(() => {
-    if (!hasDeviceSelected) return ''
-    const parts = [brand, deviceType, model].filter(Boolean)
-    return parts.join(' • ') || 'Aparelho selecionado'
-  }, [hasDeviceSelected, brand, deviceType, model])
 
   const brands = useMemo(
     () => uniqueSorted(deviceModels.map((d) => d.brand)),
@@ -193,32 +176,69 @@ export function OrderDeviceSelector({
       setInternalDeviceModelId(id)
       setInternalModel(m?.model ?? '')
     }
-    if (id) setIsEditing(false)
   }
 
-  async function handleCreateDevice() {
-    setCreateError(null)
-    if (!newBrand.trim() || !newDeviceType.trim() || !newModel.trim()) {
-      setCreateError('Preencha marca, dispositivo e modelo.')
+  async function handleCreateDevice(brandNameRaw: string, deviceTypeNameRaw: string, modelNameRaw: string) {
+    const brandName = brandNameRaw.trim()
+    const deviceTypeName = deviceTypeNameRaw.trim()
+    const modelName = modelNameRaw.trim()
+    if (!brandName || !deviceTypeName || !modelName) {
+      setError('Preencha marca, dispositivo e modelo.')
       return
     }
-    setIsCreating(true)
+    setError(null)
     try {
-      const res = await portalFetch('/api/portal/device-models', {
+      // 1) Garante a marca (cria ou reutiliza existente)
+      const brandRes = await portalFetch('/api/portal/device-brands', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          brand: newBrand.trim(),
-          deviceType: newDeviceType.trim(),
-          model: newModel.trim(),
-        }),
+        body: JSON.stringify({ name: brandName }),
       })
-      const data = await res.json().catch(() => null)
-      if (!res.ok || !data?.ok || !data?.deviceModel?.id) {
-        setCreateError('Não foi possível cadastrar o dispositivo.')
+      const brandData = await brandRes?.json().catch(() => null)
+      const brandRow = brandData?.deviceBrand as { id: string; name: string } | undefined
+      if (!brandRes?.ok || !brandData?.ok || !brandRow?.id) {
+        setError('Não foi possível cadastrar a marca.')
         return
       }
-      const dm = data.deviceModel as DeviceModel
+
+      // 2) Garante o dispositivo (cria ou reutiliza associado à marca)
+      const typeRes = await portalFetch('/api/portal/device-types', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brandId: brandRow.id, name: deviceTypeName }),
+      })
+      const typeData = await typeRes?.json().catch(() => null)
+      const typeRow = typeData?.deviceType as { id: string; name: string } | undefined
+      if (!typeRes?.ok || !typeData?.ok || !typeRow?.id) {
+        setError('Não foi possível cadastrar o dispositivo.')
+        return
+      }
+
+      // 3) Cria o modelo (aparelho) vinculado ao dispositivo
+      const modelRes = await portalFetch('/api/portal/device-models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_type_id: typeRow.id, model: modelName }),
+      })
+      const modelData = await modelRes?.json().catch(() => null)
+      const rawDeviceModel = modelData?.deviceModel as {
+        id: string
+        model: string
+        brand?: string | null
+        device_type?: string | null
+      } | undefined
+      if (!modelRes?.ok || !modelData?.ok || !rawDeviceModel?.id) {
+        setError('Não foi possível cadastrar o aparelho.')
+        return
+      }
+
+      const dm: DeviceModel = {
+        id: rawDeviceModel.id,
+        model: rawDeviceModel.model,
+        brand: rawDeviceModel.brand || brandRow.name,
+        device_type: rawDeviceModel.device_type || typeRow.name,
+      }
+
       setDeviceModels((prev) => {
         const exists = prev.some((p) => p.id === dm.id)
         if (exists) return prev
@@ -227,133 +247,237 @@ export function OrderDeviceSelector({
       handleBrandChange(dm.brand)
       handleDeviceTypeChange(dm.device_type)
       handleModelChange(dm.id)
-      setNewBrand('')
-      setNewDeviceType('')
-      setNewModel('')
-      setIsCreateOpen(false)
     } catch {
-      setCreateError('Não foi possível cadastrar o dispositivo.')
-    } finally {
-      setIsCreating(false)
+      setError('Não foi possível cadastrar o aparelho.')
     }
-  }
-
-  function openCreateDialog() {
-    setCreateError(null)
-    setNewBrand(brand)
-    setNewDeviceType(deviceType)
-    setNewModel('')
-    setIsCreateOpen(true)
   }
 
   const isLoadingModels = isLoading || disabled
 
   return (
-    <div className="rounded-md border p-4 space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-sm font-medium">Selecione o aparelho</span>
-        <div className="flex items-center gap-2">
-          {showSummary ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setIsEditing(true)}
-              disabled={disabled}
-              aria-label="Trocar aparelho"
-            >
-              <ArrowLeftRight className="h-4 w-4 mr-1.5" />
-              Trocar
-            </Button>
-          ) : (
-            <>
-              {hasExistingDevices && onOpenExistingDevices ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={onOpenExistingDevices}
-                  disabled={isLoadingModels}
-                  aria-label="Selecionar aparelho já cadastrado"
-                  className="h-8 w-8"
-                >
-                  <History className="h-4 w-4" />
-                </Button>
-              ) : null}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={openCreateDialog}
-                disabled={isLoadingModels}
-                aria-label="Cadastrar novo dispositivo"
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
-            </>
-          )}
-        </div>
+    <div className="space-y-3">
+      <div className="flex justify-end">
+        {hasExistingDevices && onOpenExistingDevices ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            onClick={onOpenExistingDevices}
+            disabled={isLoadingModels}
+            aria-label="Selecionar aparelho já cadastrado"
+            className="h-8 w-8"
+          >
+            <History className="h-4 w-4" />
+          </Button>
+        ) : null}
       </div>
 
-      {showSummary ? (
-        <div className="flex items-center justify-between gap-3 rounded-md bg-muted/50 px-3 py-2.5">
-          <span className="text-sm font-medium truncate">{selectedDeviceSummary}</span>
-        </div>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-3">
-          <div className="space-y-2">
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="space-y-2">
             <Label htmlFor="deviceBrand">Marca</Label>
-            <select
-              id="deviceBrand"
-              className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-              value={brand}
-              onChange={(e) => handleBrandChange(e.target.value)}
-              disabled={isLoadingModels}
-            >
-              <option value="">Selecione…</option>
-              {brands.map((b) => (
-                <option key={b} value={b}>
-                  {b}
-                </option>
-              ))}
-            </select>
+          <Popover open={brandOpen} onOpenChange={setBrandOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  id="deviceBrand"
+                  disabled={isLoadingModels}
+                  className="w-full inline-flex items-center justify-between rounded-md border border-input bg-background px-3 py-2.5 text-sm hover:bg-accent/40 disabled:cursor-not-allowed"
+                >
+                  <span className={!brand ? 'text-muted-foreground' : ''}>
+                    {brand || 'Selecione…'}
+                  </span>
+                  <ChevronsUpDown className="h-4 w-4 opacity-50" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="p-0 w-[260px]" align="start">
+                <Command>
+                  <CommandInput
+                    placeholder="Filtrar marca..."
+                    value={brandSearch}
+                    onValueChange={(value) => setBrandSearch(value)}
+                  />
+                  <CommandList>
+                    <CommandEmpty>Nenhuma marca encontrada.</CommandEmpty>
+                    <CommandGroup>
+                      {brands.map((b) => (
+                        <CommandItem
+                          key={b}
+                          value={b}
+                          onSelect={(value) => {
+                            setBrandSearch(value)
+                            handleBrandChange(value)
+                            setBrandOpen(false)
+                          }}
+                        >
+                          {b}
+                        </CommandItem>
+                      ))}
+                      {brandSearch.trim() && !brands.some((b) => b.toLowerCase() === brandSearch.trim().toLowerCase()) ? (
+                        <CommandItem
+                          value={brandSearch.trim()}
+                          onSelect={async () => {
+                            const name = brandSearch.trim()
+                            setBrandSearch('')
+                            try {
+                              await portalFetch('/api/portal/device-brands', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ name }),
+                              })
+                            } catch {
+                              // erro silencioso; usuário pode tentar novamente
+                            }
+                            handleBrandChange(name)
+                            setBrandOpen(false)
+                          }}
+                        >
+                          Criar &quot;{brandSearch.trim()}&quot; como nova marca
+                        </CommandItem>
+                      ) : null}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
           </div>
-          <div className="space-y-2">
+        <div className="space-y-2">
             <Label htmlFor="deviceType">Dispositivo</Label>
-            <select
-              id="deviceType"
-              className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-              value={deviceType}
-              onChange={(e) => handleDeviceTypeChange(e.target.value)}
-              disabled={!brand || isLoadingModels}
-            >
-              <option value="">Selecione…</option>
-              {deviceTypes.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
+          <Popover open={deviceTypeOpen} onOpenChange={setDeviceTypeOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  id="deviceType"
+                  disabled={!brand || isLoadingModels}
+                  className="w-full inline-flex items-center justify-between rounded-md border border-input bg-background px-3 py-2.5 text-sm hover:bg-accent/40 disabled:cursor-not-allowed"
+                >
+                  <span className={!deviceType ? 'text-muted-foreground' : ''}>
+                    {deviceType || 'Selecione…'}
+                  </span>
+                  <ChevronsUpDown className="h-4 w-4 opacity-50" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="p-0 w-[260px]" align="start">
+                <Command>
+                  <CommandInput
+                    placeholder="Filtrar dispositivo..."
+                    value={deviceTypeSearch}
+                    onValueChange={(value) => setDeviceTypeSearch(value)}
+                  />
+                  <CommandList>
+                    <CommandEmpty>Nenhum dispositivo encontrado.</CommandEmpty>
+                    <CommandGroup>
+                      {deviceTypes.map((t) => (
+                        <CommandItem
+                          key={t}
+                          value={t}
+                          onSelect={(value) => {
+                            setDeviceTypeSearch(value)
+                            handleDeviceTypeChange(value)
+                            setDeviceTypeOpen(false)
+                          }}
+                        >
+                          {t}
+                        </CommandItem>
+                      ))}
+                      {deviceTypeSearch.trim() && brand && !deviceTypes.some((t) => t.toLowerCase() === deviceTypeSearch.trim().toLowerCase()) ? (
+                        <CommandItem
+                          value={deviceTypeSearch.trim()}
+                          onSelect={async () => {
+                            const name = deviceTypeSearch.trim()
+                            setDeviceTypeSearch('')
+                            try {
+                              // garante que a marca exista e obtem id
+                              const brandRes = await portalFetch('/api/portal/device-brands', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ name: brand }),
+                              })
+                              const brandData = await brandRes?.json().catch(() => null)
+                              const brandRow = brandData?.deviceBrand as { id: string } | undefined
+                              if (brandRes?.ok && brandData?.ok && brandRow?.id) {
+                                await portalFetch('/api/portal/device-types', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ brandId: brandRow.id, name }),
+                                })
+                              }
+                            } catch {
+                              // erro silencioso
+                            }
+                            handleDeviceTypeChange(name)
+                            setDeviceTypeOpen(false)
+                          }}
+                        >
+                          Criar &quot;{deviceTypeSearch.trim()}&quot; como novo dispositivo
+                        </CommandItem>
+                      ) : null}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
           </div>
-          <div className="space-y-2">
+        <div className="space-y-2">
             <Label htmlFor="deviceModel">Modelo</Label>
-            <select
-              id="deviceModel"
-              className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-              value={deviceModelId}
-              onChange={(e) => handleModelChange(e.target.value)}
-              disabled={!brand || !deviceType || isLoadingModels}
-            >
-              <option value="">Selecione…</option>
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.model}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Popover open={modelOpen} onOpenChange={setModelOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  id="deviceModel"
+                  disabled={!brand || !deviceType || isLoadingModels}
+                  className="w-full inline-flex items-center justify-between rounded-md border border-input bg-background px-3 py-2.5 text-sm hover:bg-accent/40 disabled:cursor-not-allowed"
+                >
+                  <span className={!deviceModelId ? 'text-muted-foreground' : ''}>
+                    {models.find((m) => m.id === deviceModelId)?.model || 'Selecione…'}
+                  </span>
+                  <ChevronsUpDown className="h-4 w-4 opacity-50" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="p-0 w-[260px]" align="start">
+                <Command>
+                  <CommandInput
+                    placeholder="Filtrar modelo..."
+                    value={modelSearch}
+                    onValueChange={(value) => setModelSearch(value)}
+                  />
+                  <CommandList>
+                    <CommandEmpty>Nenhum modelo encontrado.</CommandEmpty>
+                    <CommandGroup>
+                      {models.map((m) => (
+                        <CommandItem
+                          key={m.id}
+                          value={m.model}
+                          onSelect={() => {
+                            setModelSearch(m.model)
+                            handleModelChange(m.id)
+                            setModelOpen(false)
+                          }}
+                        >
+                          <span className="text-sm">{m.model}</span>
+                        </CommandItem>
+                      ))}
+                      {modelSearch.trim() && brand && deviceType && !models.some((m) => m.model.toLowerCase() === modelSearch.trim().toLowerCase())
+                        ? (
+                          <CommandItem
+                            value={modelSearch.trim()}
+                            onSelect={() => {
+                              setModelSearch('')
+                              // criação encadeada: marca, dispositivo e modelo
+                              void handleCreateDevice(brand, deviceType, modelSearch.trim())
+                              setModelOpen(false)
+                            }}
+                          >
+                            <span className="text-sm">Criar &quot;{modelSearch.trim()}&quot; como novo modelo</span>
+                          </CommandItem>
+                        )
+                        : null}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
         </div>
-      )}
+      </div>
 
       {error ? (
         <p className="text-sm text-destructive">{error}</p>
@@ -395,67 +519,6 @@ export function OrderDeviceSelector({
           />
         </>
       ) : null}
-
-      <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Cadastrar dispositivo</DialogTitle>
-            <DialogDescription>
-              Adicione um novo modelo ao catálogo.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="newDeviceBrand">Marca</Label>
-                <Input
-                  id="newDeviceBrand"
-                  value={newBrand}
-                  onChange={(e) => setNewBrand(e.target.value)}
-                  placeholder="Ex: Apple"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="newDeviceType">Dispositivo</Label>
-                <Input
-                  id="newDeviceType"
-                  value={newDeviceType}
-                  onChange={(e) => setNewDeviceType(e.target.value)}
-                  placeholder="Ex: smartphone"
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="newDeviceModel">Modelo</Label>
-              <Input
-                id="newDeviceModel"
-                value={newModel}
-                onChange={(e) => setNewModel(e.target.value)}
-                placeholder="Ex: iPhone 13"
-              />
-            </div>
-            {createError ? (
-              <p className="text-sm text-destructive">{createError}</p>
-            ) : null}
-          </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setIsCreateOpen(false)}
-            >
-              Cancelar
-            </Button>
-            <Button
-              type="button"
-              onClick={handleCreateDevice}
-              disabled={isCreating}
-            >
-              {isCreating ? 'Salvando…' : 'Salvar dispositivo'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

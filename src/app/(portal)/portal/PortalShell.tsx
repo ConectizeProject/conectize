@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Building2, ChevronDown, ClipboardList, Home, LayoutDashboard, LogOut, Moon, Plug2, Settings, Sun, UserCheck, Smartphone, Users } from 'lucide-react'
+import { BarChart3, Building2, ChevronDown, ClipboardList, Home, LayoutDashboard, LogOut, Moon, Plug2, Settings, Sun, UserCheck, Smartphone, Users } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
 	DropdownMenu,
@@ -61,6 +61,7 @@ export function PortalShell(props: PortalShellProps) {
 	}
 
 	const normalizedRole = props.role === 'customer' ? 'user' : props.role
+	const isAdmin = props.role === 'admin'
 	const isBasicUser = normalizedRole === 'user' || !normalizedRole
 	const isStaff = normalizedRole === 'staff'
 	const displayName = props.userName || props.userEmail
@@ -83,8 +84,8 @@ export function PortalShell(props: PortalShellProps) {
 				{ href: '/portal/clientes', label: 'Clientes', icon: Users },
 				{ href: '/portal/admin/usuarios', label: 'Usuários', icon: UserCheck },
 				{ href: '/portal/hub', label: 'HUB', icon: Plug2 },
-				{ href: '/portal/aparelhos', label: 'Aparelhos', icon: Smartphone },
 				{ href: '/portal/seminovos', label: 'Seminovos', icon: Smartphone },
+				...(isAdmin ? [{ href: '/portal/relatorios/servicos', label: 'Relatórios', icon: BarChart3 }] : []),
 			]
 
 	return (
@@ -198,7 +199,7 @@ export function PortalShell(props: PortalShellProps) {
 									<DropdownMenuItem asChild>
 										<Link href="/portal/admin/dados-empresa" className="flex items-center gap-2">
 											<Building2 className="h-4 w-4" />
-											<span>Dados da empresa</span>
+											<span>Configurações gerais</span>
 										</Link>
 									</DropdownMenuItem>
 								)}
