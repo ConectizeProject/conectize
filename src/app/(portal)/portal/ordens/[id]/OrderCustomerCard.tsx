@@ -116,7 +116,6 @@ export function OrderCustomerCard({ customer }: Props) {
           <CardHeader>
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div>
-                <CardTitle className="text-base">Dados do cliente</CardTitle>
                 <CardDescription>
                   {getCustomerDisplayName(customer)} • {getCustomerDocumentMasked(customer)}
                 </CardDescription>
