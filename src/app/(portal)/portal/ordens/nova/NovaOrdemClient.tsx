@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/dialog'
 import { PatternLockInput } from '@/components/pattern-lock/PatternLockInput'
 import { CreateCustomerDialog, EditCustomerDialog, type CustomerHit } from '@/components/customers'
-import { OrderDeviceSelector, OrderPaymentMethodFields, OrderServicesCard, OsAssistAiIconButton, type ServiceLine } from '@/components/orders'
+import { OrderDeviceSelector, OrderPaymentMethodFields, OrderServicesCard, OrderServicesTotalProvider, OsAssistAiIconButton, type OrderServicesCardRef, type ServiceLine } from '@/components/orders'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { NovaOrdemCustomerCard } from './NovaOrdemCustomerCard'
 import { parseMoneyToCents } from '@/lib/utils/format-money'
@@ -145,6 +145,7 @@ export function NovaOrdemClient(props: Props) {
 	const nameSearchInFlightRef = useRef<string | null>(null)
 	const cpfSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 	const nameSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	const servicesCardRef = useRef<OrderServicesCardRef>(null)
 
 	const [selectedCustomer, setSelectedCustomer] = useState<CustomerHit | null>(null)
 
@@ -390,12 +391,32 @@ export function NovaOrdemClient(props: Props) {
 
 	function buildFormDataFromValues(values: FormValues, documentDigits: string): FormData {
 		const servicesNormalized = (values.services || [])
-			.map((s) => ({
-				description: String(s.description || '').trim(),
-				valueCents: parseMoneyToCents(s.value),
-				costCents: parseMoneyToCents(s.cost),
-			}))
+			.map((s) => {
+				const kind = s.kind === 'product' ? 'product' : 'service'
+				const description = String(s.description || '').trim()
+				const quantityRaw =
+					kind === 'product'
+						? Number.parseInt(String(s.quantity || '1'), 10)
+						: 1
+				const quantity = Number.isFinite(quantityRaw) && quantityRaw > 0
+					? Math.min(9999, Math.max(1, quantityRaw))
+					: 1
+				const unitValueCents = parseMoneyToCents(s.value)
+				const unitCostCents = parseMoneyToCents(s.cost)
+				const valueCents = unitValueCents * quantity
+				const costCents = unitCostCents * quantity
+				return {
+					kind,
+					description,
+					quantity,
+					unitValueCents,
+					unitCostCents,
+					valueCents,
+					costCents,
+				}
+			})
 			.filter((s) => s.description || s.valueCents > 0 || s.costCents > 0)
+
 		const totalValueCents = servicesNormalized.reduce((acc, s) => acc + s.valueCents, 0)
 		const totalCostCents = servicesNormalized.reduce((acc, s) => acc + s.costCents, 0)
 		const servicesJson = JSON.stringify({ items: servicesNormalized, totals: { totalValueCents, totalCostCents } })
@@ -462,6 +483,7 @@ export function NovaOrdemClient(props: Props) {
 				{(formik) => (
 					<>
 						<Form className="relative space-y-6">
+							<OrderServicesTotalProvider initialTotal={0}>
 							<NovaOrdemCustomerCard
 								selectedCustomer={selectedCustomer}
 								searchInput={customerSearchInput}
@@ -795,11 +817,13 @@ export function NovaOrdemClient(props: Props) {
 									<FieldArray name="services">
 										{({ push, remove }) => (
 											<OrderServicesCard
+												ref={servicesCardRef}
 												formik={{
 													services: formik.values.services ?? [],
 													onAdd: (item) => push(item),
 													onRemove: remove,
 													onUpdate: (idx, field, value) => formik.setFieldValue(`services.${idx}.${field}`, value),
+													onBlurSync: (services) => formik.setFieldValue('services', services),
 												}}
 											/>
 										)}
@@ -814,7 +838,7 @@ export function NovaOrdemClient(props: Props) {
 												device={[formik.values.brand, formik.values.deviceType, formik.values.model].filter(Boolean).join(' ')}
 											/>
 										</div>
-										<Field as={Textarea} id="internalDescription" name="internalDescription" placeholder="Anotações internas" />
+										<Field as={Textarea} id="internalDescription" name="internalDescription" placeholder="" />
 									</div>
 
 									<OrderPaymentMethodFields
@@ -822,7 +846,6 @@ export function NovaOrdemClient(props: Props) {
 											values: { paymentMethods: formik.values.paymentMethods ?? [] },
 											setFieldValue: formik.setFieldValue,
 										}}
-										totalValueCents={(formik.values.services ?? []).reduce((acc, s) => acc + parseMoneyToCents(s.value), 0)}
 									/>
 
 									{formik.status && typeof formik.status === 'string' ? (
@@ -839,6 +862,12 @@ export function NovaOrdemClient(props: Props) {
 										type="submit"
 										className="w-full"
 										disabled={formik.isSubmitting || !selectedCustomer}
+										onClick={(e) => {
+											e.preventDefault()
+											servicesCardRef.current?.syncToFormik()
+											// Submit no próximo tick para o Formik ter os serviços atualizados
+											setTimeout(() => formik.submitForm(), 0)
+										}}
 									>
 										{formik.isSubmitting ? (
 											<span className="inline-flex items-center gap-2">
@@ -851,6 +880,7 @@ export function NovaOrdemClient(props: Props) {
 									</Button>
 								</CardContent>
 							</Card>
+							</OrderServicesTotalProvider>
 						</Form>
 
 						<Dialog open={isEntryChecksDialogOpen} onOpenChange={setIsEntryChecksDialogOpen}>

@@ -1,6 +1,7 @@
 export { OrderStatusBadge } from './OrderStatusBadge'
 export { CustomerDataGrid } from './CustomerDataGrid'
-export { OrderServicesCard, type ServiceLine, type ServiceItemDb } from './OrderServicesCard'
+export { OrderServicesCard, type ServiceLine, type ServiceItemDb, type OrderServicesCardRef } from './OrderServicesCard'
+export { OrderServicesTotalProvider } from './OrderServicesTotalContext'
 export { OrderDeviceSelector, type DeviceModel } from './OrderDeviceSelector'
 export { OrderPaymentMethodFields } from './OrderPaymentMethodFields'
 export { OsAssistAi } from './OsAssistAi'

@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { useOrderServicesTotalSubscription } from './OrderServicesTotalContext'
 import { Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -52,21 +53,42 @@ function makeEntryId() {
   return `pm-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
 }
 
+const DEFAULT_EMPTY_ENTRY: PaymentMethodEntry = { payment_method_id: '', installments: 1, value_cents: null }
+
 export function OrderPaymentMethodFields({
   formik,
   defaultValue = [],
   formId,
   disabled = false,
-  totalValueCents,
+  totalValueCents: totalValueCentsProp,
 }: Props) {
+  const totalFromSubscription = useOrderServicesTotalSubscription()
+  const totalValueCents = totalValueCentsProp ?? totalFromSubscription
+
   const [paymentMethodsCatalog, setPaymentMethodsCatalog] = useState<PaymentMethod[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [internalEntries, setInternalEntries] = useState<PaymentMethodEntry[]>(
-    defaultValue.length > 0 ? defaultValue : [{ payment_method_id: '', installments: 1, value_cents: null }]
+    defaultValue.length > 0 ? defaultValue : [DEFAULT_EMPTY_ENTRY]
   )
 
   const isFormikMode = !!formik
   const entries = isFormikMode ? formik.values.paymentMethods : internalEntries
+
+  // Garante sempre pelo menos uma forma de pagamento exibida
+  useEffect(() => {
+    if (entries.length === 0) {
+      setEntries([DEFAULT_EMPTY_ENTRY])
+    }
+  }, [entries.length])
+
+  // Sincroniza estado interno com defaultValue na montagem/atualização do valor inicial (edição da OS)
+  const defaultLength = defaultValue?.length ?? 0
+  useEffect(() => {
+    if (isFormikMode) return
+    if (defaultLength > 0) {
+      setInternalEntries(defaultValue.map((e) => ({ ...e })))
+    }
+  }, [isFormikMode, defaultLength])
 
   const loadPaymentMethods = useCallback(async () => {
     setIsLoading(true)
@@ -94,20 +116,15 @@ export function OrderPaymentMethodFields({
   }
 
   function addEntry() {
-    const next: PaymentMethodEntry = {
-      payment_method_id: '',
-      installments: 1,
-      value_cents: null,
-    }
-    setEntries([...entries, next])
+    setEntries([...entries, { ...DEFAULT_EMPTY_ENTRY }])
   }
 
   function removeEntry(index: number) {
-    const next = entries.filter((_, i) => i !== index)
-    if (next.length === 0) {
-      next.push({ payment_method_id: '', installments: 1, value_cents: null })
+    if (entries.length === 1) {
+      setEntries([{ ...DEFAULT_EMPTY_ENTRY }])
+    } else {
+      setEntries(entries.filter((_, i) => i !== index))
     }
-    setEntries(next)
   }
 
   function updateEntry(index: number, field: 'payment_method_id' | 'installments' | 'value_cents', value: string | number | null) {
@@ -146,7 +163,10 @@ export function OrderPaymentMethodFields({
 
       <div className="space-y-3">
         {entries.map((entry, index) => {
-          const pm = paymentMethodsCatalog.find((p) => p.id === entry.payment_method_id)
+          const entryMethodId = entry.payment_method_id ? String(entry.payment_method_id).trim() : ''
+          const pm = paymentMethodsCatalog.find(
+            (p) => String(p.id).toLowerCase() === entryMethodId.toLowerCase()
+          )
           const isCredit = pm?.type === 'credito'
           const maxInstallments = pm?.credit_installment_fees?.length
             ? Math.max(...pm.credit_installment_fees.map((f) => f.installments))
@@ -163,7 +183,7 @@ export function OrderPaymentMethodFields({
               <div className="flex-1 min-w-[140px] space-y-1.5">
                 <Label className="text-xs">Forma {index + 1}</Label>
                 <Select
-                  value={entry.payment_method_id || '__none__'}
+                  value={pm ? String(pm.id) : (entryMethodId || '__none__')}
                   onValueChange={(v) => updateEntry(index, 'payment_method_id', v === '__none__' ? '' : v)}
                   disabled={isLoading || disabled}
                 >
@@ -173,7 +193,7 @@ export function OrderPaymentMethodFields({
                   <SelectContent>
                     <SelectItem value="__none__">Nenhum</SelectItem>
                     {paymentMethodsCatalog.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
+                      <SelectItem key={p.id} value={String(p.id)}>
                         {p.description}
                       </SelectItem>
                     ))}
@@ -219,8 +239,8 @@ export function OrderPaymentMethodFields({
                 variant="ghost"
                 size="icon"
                 onClick={() => removeEntry(index)}
-                disabled={disabled || entries.length <= 1}
-                aria-label="Remover"
+                disabled={disabled}
+                aria-label={entries.length === 1 ? 'Limpar' : 'Remover'}
                 className="h-10 w-10 shrink-0"
               >
                 <Trash2 className="h-4 w-4 text-muted-foreground" />
