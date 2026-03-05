@@ -48,6 +48,9 @@ type OrderRow = {
   share_token?: string | null
   customers: Record<string, unknown> | null
   device_models: Record<string, unknown> | null
+  services?: any[] | null
+  services_total_cents?: number | null
+  services_cost_total_cents?: number | null
 }
 
 type Props = {

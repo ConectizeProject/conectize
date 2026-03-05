@@ -63,6 +63,17 @@ type OrderRow = {
     mobile_phone?: string | null
   } | null
   device_models: { brand?: string; device_type?: string; model?: string } | null
+  services?: Array<{
+    kind?: 'service' | 'product'
+    description?: string | null
+    quantity?: number | null
+    unitValueCents?: number | null
+    unitCostCents?: number | null
+    valueCents?: number | null
+    costCents?: number | null
+  }> | null
+  services_total_cents?: number | null
+  services_cost_total_cents?: number | null
 }
 
 type Props = {

@@ -1,0 +1,77 @@
+'use client'
+
+import { createContext, useContext, useRef, useEffect, useState } from 'react'
+
+type Listener = (cents: number) => void
+
+type OrderServicesTotalContextValue = {
+  setTotalValueCents: (cents: number) => void
+  subscribe: (listener: Listener) => () => void
+  getTotalValueCents: () => number
+}
+
+const OrderServicesTotalContext = createContext<OrderServicesTotalContextValue | null>(null)
+
+export function OrderServicesTotalProvider({
+  initialTotal = 0,
+  children,
+}: {
+  initialTotal?: number
+  children: React.ReactNode
+}) {
+  const totalRef = useRef(initialTotal)
+  const listenersRef = useRef<Set<Listener>>(new Set())
+
+  useEffect(() => {
+    totalRef.current = initialTotal
+  }, [initialTotal])
+
+  const setTotalValueCents = (cents: number) => {
+    if (totalRef.current === cents) return
+    totalRef.current = cents
+    listenersRef.current.forEach((listener) => listener(cents))
+  }
+
+  const subscribe = (listener: Listener) => {
+    listenersRef.current.add(listener)
+    listener(totalRef.current)
+    return () => {
+      listenersRef.current.delete(listener)
+    }
+  }
+
+  const getTotalValueCents = () => totalRef.current
+
+  const value: OrderServicesTotalContextValue = {
+    setTotalValueCents,
+    subscribe,
+    getTotalValueCents,
+  }
+
+  return (
+    <OrderServicesTotalContext.Provider value={value}>
+      {children}
+    </OrderServicesTotalContext.Provider>
+  )
+}
+
+export function useOrderServicesTotal() {
+  return useContext(OrderServicesTotalContext)
+}
+
+/** Retorna o total em centavos e re-renderiza apenas quando o total muda (subscription). Sem provider retorna 0. */
+export function useOrderServicesTotalSubscription(): number {
+  const ctx = useOrderServicesTotal()
+  const [total, setTotal] = useState(0)
+
+  useEffect(() => {
+    if (!ctx) {
+      setTotal(0)
+      return
+    }
+    setTotal(ctx.getTotalValueCents())
+    return ctx.subscribe(setTotal)
+  }, [ctx])
+
+  return ctx ? total : 0
+}

@@ -11,7 +11,7 @@ import { OrderStatusBadge, OsAssistAiIconButton } from '@/components/orders'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { getOrdemErrorMessage } from '@/lib/utils/error-messages'
 import { formatDateBr, formatDateTimeBr } from '@/lib/utils/format-date'
-import { OrderDeviceSelector, OrderPaymentMethodFields, OrderServicesCard } from '@/components/orders'
+import { OrderDeviceSelector, OrderPaymentMethodFields, OrderServicesCard, OrderServicesTotalProvider } from '@/components/orders'
 import { OrderCustomerCard } from './OrderCustomerCard'
 import { OrderPasscodeFields } from './OrderPasscodeFields'
 import { OrderDeviceEntryChecksEditor } from './OrderDeviceEntryChecksEditor'
@@ -72,42 +72,61 @@ function getDeviceModelFromOrder(order: any) {
 }
 
 function parseOrderPaymentMethods(order: any): Array<{ payment_method_id: string; installments?: number; value_cents?: number | null }> {
-  const pm = order?.payment_methods
-  if (Array.isArray(pm) && pm.length > 0) {
-    return pm
-      .filter((e: any) => e?.payment_method_id)
-      .map((e: any) => ({
-        payment_method_id: String(e.payment_method_id),
-        installments: e.installments != null ? Number(e.installments) : undefined,
-        value_cents: e.value_cents != null ? Math.max(0, Number(e.value_cents) || 0) : null,
-      }))
-  }
-  const legacyId = order?.payment_method_id
-  if (legacyId) {
-    return [{ payment_method_id: legacyId, installments: order?.installments ?? 1, value_cents: null }]
-  }
-  return []
+	let pm = order?.payment_methods
+	if (typeof pm === 'string') {
+		try {
+			pm = JSON.parse(pm)
+		} catch {
+			pm = null
+		}
+	}
+	if (Array.isArray(pm) && pm.length > 0) {
+		return pm
+			.filter((e: any) => e?.payment_method_id)
+			.map((e: any) => ({
+				payment_method_id: String(e.payment_method_id),
+				installments: e.installments != null ? Number(e.installments) : undefined,
+				value_cents: e.value_cents != null ? Math.max(0, Number(e.value_cents) || 0) : null,
+			}))
+	}
+	const legacyId = order?.payment_method_id
+	if (legacyId) {
+		return [{ payment_method_id: legacyId, installments: order?.installments ?? 1, value_cents: null }]
+	}
+	return []
 }
 
 function parsePaymentMethodsJson(raw: unknown): Array<{ payment_method_id: string; installments?: number; value_cents?: number | null }> {
-  if (!raw) return []
-  try {
-    const parsed = JSON.parse(String(raw))
-    if (!Array.isArray(parsed)) return []
-    return parsed
-      .filter((item: unknown) => item && typeof item === 'object' && (item as any).payment_method_id)
-      .map((item: any) => ({
-        payment_method_id: String(item.payment_method_id).trim(),
-        installments: item.installments != null ? Math.max(1, Math.min(24, Number(item.installments) || 1)) : undefined,
-        value_cents: item.value_cents != null ? Math.max(0, Number(item.value_cents) || 0) : null,
-      }))
-      .filter((item) => item.payment_method_id)
-  } catch {
-    return []
-  }
+	if (!raw) return []
+	try {
+		const parsed = JSON.parse(String(raw))
+		if (!Array.isArray(parsed)) return []
+		return parsed
+			.filter((item: unknown) => item && typeof item === 'object' && (item as any).payment_method_id)
+			.map((item: any) => ({
+				payment_method_id: String(item.payment_method_id).trim(),
+				installments: item.installments != null ? Math.max(1, Math.min(24, Number(item.installments) || 1)) : undefined,
+				value_cents: item.value_cents != null ? Math.max(0, Number(item.value_cents) || 0) : null,
+			}))
+			.filter((item) => item.payment_method_id)
+	} catch {
+		return []
+	}
 }
 
-function parseServicesJson(raw: unknown): { items: Array<{ description: string; valueCents: number; costCents: number }>; totalValueCents: number; totalCostCents: number } {
+function parseServicesJson(raw: unknown): {
+	items: Array<{
+		kind?: 'service' | 'product'
+		description: string
+		quantity?: number
+		unitValueCents?: number
+		unitCostCents?: number
+		valueCents: number
+		costCents: number
+	}>
+	totalValueCents: number
+	totalCostCents: number
+} {
 	if (!raw) return { items: [], totalValueCents: 0, totalCostCents: 0 }
 	try {
 		const parsed = JSON.parse(String(raw)) as { items?: unknown[]; totals?: { totalValueCents?: number; totalCostCents?: number } }
@@ -116,10 +135,36 @@ function parseServicesJson(raw: unknown): { items: Array<{ description: string; 
 			.slice(0, 100)
 			.map((item: unknown) => {
 				const i = item as Record<string, unknown>
+				const kind: 'service' | 'product' = i.kind === 'product' ? 'product' : 'service'
+				const description = String(i?.description ?? '').trim().slice(0, 240)
+				const quantityRaw =
+					kind === 'product'
+						? Number.parseInt(String(i?.quantity ?? '1'), 10)
+						: 1
+				const quantity =
+					Number.isFinite(quantityRaw) && quantityRaw > 0
+						? Math.min(9999, Math.max(1, quantityRaw))
+						: 1
+				const unitValueCentsRaw = i.unitValueCents ?? i.valueCents ?? 0
+				const unitCostCentsRaw = i.unitCostCents ?? i.costCents ?? 0
+				const unitValueCents = Math.max(
+					0,
+					Number(unitValueCentsRaw ?? 0) || 0,
+				)
+				const unitCostCents = Math.max(
+					0,
+					Number(unitCostCentsRaw ?? 0) || 0,
+				)
+				const valueCents = unitValueCents * quantity
+				const costCents = unitCostCents * quantity
 				return {
-					description: String(i?.description ?? '').trim().slice(0, 240),
-					valueCents: Math.max(0, Number(i?.valueCents ?? 0) || 0),
-					costCents: Math.max(0, Number(i?.costCents ?? 0) || 0),
+					kind,
+					description,
+					quantity,
+					unitValueCents,
+					unitCostCents,
+					valueCents,
+					costCents,
 				}
 			})
 			.filter((s) => s.description || s.valueCents > 0 || s.costCents > 0)
@@ -140,12 +185,12 @@ function formatDateTimeLocal(value: string | null | undefined) {
 
 type PageProps = {
 	params: Promise<{ id: string }>
-	searchParams: Promise<{ ok?: string; error?: string }>
+	searchParams: Promise<{ ok?: string; error?: string; servicesModal?: string }>
 }
 
 export default async function OrdemDetalhePage({ params, searchParams }: PageProps) {
 	const { id } = await params
-	const { error } = await searchParams
+	const { error, servicesModal } = await searchParams
 
 	const { user, role } = await getPortalAuth()
 	if (!user) redirect('/portal/login')
@@ -337,6 +382,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 
 	const isFinalized = FINALIZED_STATUSES.has(order.status)
 	const formDisabled = isFinalized && role !== 'admin'
+	const openServicesModalInitially = String(servicesModal || '').trim() === '1'
 
 	return (
 		<div className="max-w-4xl space-y-6 pb-24">
@@ -422,6 +468,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 
 			<Card>
 				<CardContent>
+					<OrderServicesTotalProvider initialTotal={order.services_total_cents ?? 0}>
 					<form id="order-edit-form" action={updateOrderAction} className="space-y-6" key={`${order.id}-${order.updated_at ?? order.status}`}>
 						<input type="hidden" name="orderId" value={order.id} />
 						<input type="hidden" name="status" value={order.status} />
@@ -500,6 +547,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 							inputName="servicesJson"
 							formId="order-edit-form"
 							disabled={formDisabled}
+							advancedInitiallyOpen={openServicesModalInitially}
 						/>
 
 						<div className="space-y-2">
@@ -507,7 +555,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 								<Label htmlFor="internalDescription">Descrição interna</Label>
 								<OsAssistAiIconButton fieldId="internalDescription" device={deviceString} disabled={formDisabled} />
 							</div>
-							<Textarea id="internalDescription" name="internalDescription" defaultValue={order.internal_description || ''} placeholder="Anotações internas" disabled={formDisabled} />
+							<Textarea id="internalDescription" name="internalDescription" defaultValue={order.internal_description || ''} placeholder="" disabled={formDisabled} />
 						</div>
 
 						<div className="space-y-2">
@@ -515,14 +563,13 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 								<Label htmlFor="assistanceInfo">Informações sobre a assistência</Label>
 								<OsAssistAiIconButton fieldId="assistanceInfo" device={deviceString} disabled={formDisabled} />
 							</div>
-							<Textarea id="assistanceInfo" name="assistanceInfo" defaultValue={order.assistance_info || ''} placeholder="Informações técnicas, serviços realizados, peças trocadas, etc." disabled={formDisabled} />
+							<Textarea id="assistanceInfo" name="assistanceInfo" defaultValue={order.assistance_info || ''} placeholder="" disabled={formDisabled} />
 						</div>
 
 						<OrderPaymentMethodFields
 							defaultValue={parseOrderPaymentMethods(order)}
 							formId="order-edit-form"
 							disabled={formDisabled}
-							totalValueCents={order.services_total_cents ?? 0}
 						/>
 
 						<div className="fixed bottom-0 left-0 right-0 z-50 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-4 py-3">
@@ -534,6 +581,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 							</div>
 						</div>
 					</form>
+					</OrderServicesTotalProvider>
 				</CardContent>
 			</Card>
 		</div>
