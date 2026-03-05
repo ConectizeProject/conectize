@@ -28,6 +28,9 @@ type OrderRow = {
     mobile_phone?: string | null
   } | null
   device_models: { brand?: string; device_type?: string; model?: string } | null
+  services?: any[] | null
+  services_total_cents?: number | null
+  services_cost_total_cents?: number | null
 }
 
 type Props = {

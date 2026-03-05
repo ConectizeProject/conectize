@@ -117,8 +117,8 @@ export default async function OrdensPage({
     .from('service_orders')
     .select(
       needsQuickFilterColumns
-        ? 'id, display_number, status, title, created_at, updated_at, closed_at, estimated_ready_at, share_token, customer_id, device_model_id, services, services_cost_total_cents, payment_methods'
-        : 'id, display_number, status, title, created_at, updated_at, closed_at, estimated_ready_at, share_token, customer_id, device_model_id'
+        ? 'id, display_number, status, title, created_at, updated_at, closed_at, estimated_ready_at, share_token, customer_id, device_model_id, services, services_total_cents, services_cost_total_cents, payment_methods'
+        : 'id, display_number, status, title, created_at, updated_at, closed_at, estimated_ready_at, share_token, customer_id, device_model_id, services, services_total_cents, services_cost_total_cents'
     )
     .in('status', [...OPEN_STATUSES])
     .order('created_at', { ascending: false })

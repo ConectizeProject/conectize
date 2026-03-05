@@ -39,10 +39,36 @@ function parseServicesJson(raw: unknown) {
   const normalized = items
     .slice(0, 100)
     .map((item: any) => {
+      const description = String(item?.description || '').trim().slice(0, 240)
+      const kind = item?.kind === 'product' ? 'product' : 'service'
+      const quantityRaw =
+        kind === 'product'
+          ? Number.parseInt(String(item?.quantity ?? '1'), 10)
+          : 1
+      const quantity =
+        Number.isFinite(quantityRaw) && quantityRaw > 0
+          ? Math.min(9999, Math.max(1, quantityRaw))
+          : 1
+      const unitValueCentsRaw = item?.unitValueCents ?? item?.valueCents ?? 0
+      const unitCostCentsRaw = item?.unitCostCents ?? item?.costCents ?? 0
+      const unitValueCents = Math.max(
+        0,
+        Number.parseInt(String(unitValueCentsRaw || '0'), 10) || 0,
+      )
+      const unitCostCents = Math.max(
+        0,
+        Number.parseInt(String(unitCostCentsRaw || '0'), 10) || 0,
+      )
+      const valueCents = unitValueCents * quantity
+      const costCents = unitCostCents * quantity
       return {
-        description: String(item?.description || '').trim().slice(0, 240),
-        valueCents: Math.max(0, Number.parseInt(String(item?.valueCents || '0'), 10) || 0),
-        costCents: Math.max(0, Number.parseInt(String(item?.costCents || '0'), 10) || 0),
+        kind,
+        description,
+        quantity,
+        unitValueCents,
+        unitCostCents,
+        valueCents,
+        costCents,
       }
     })
     .filter((s: any) => s.description || s.valueCents > 0 || s.costCents > 0)
