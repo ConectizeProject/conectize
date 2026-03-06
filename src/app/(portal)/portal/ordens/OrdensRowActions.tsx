@@ -92,7 +92,9 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
   const deviceModel = order.device_models
   const displayNumber = order.display_number ?? order.id
   const customerName = customer?.is_company ? (customer?.company_name || customer?.full_name || '') : (customer?.full_name || '')
-  const device = deviceModel ? `${deviceModel.brand || ''} ${deviceModel.device_type || ''} ${deviceModel.model || ''}`.trim() || '-' : '-'
+  const device = deviceModel
+    ? [deviceModel.brand, deviceModel.device_type, deviceModel.model].filter(Boolean).join(' • ') || '-'
+    : '-'
   const statusLabel = STATUS_LABELS[order.status] || order.status
 
   const publicPath = order.share_token ? `/os/${order.share_token}` : null
@@ -199,6 +201,19 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
                 <MessageCircle className={iconClass} />
                 Enviar WhatsApp
               </a>
+            </DropdownMenuItem>
+          ) : null}
+          {message ? (
+            <DropdownMenuItem
+              className={itemClass}
+              onClick={() => {
+                navigator?.clipboard?.writeText(message).then(() => {
+                  toast({ description: 'Dados copiados para a área de transferência', duration: 2000 })
+                }).catch(() => {})
+              }}
+            >
+              <Copy className={iconClass} />
+              Copiar dados
             </DropdownMenuItem>
           ) : null}
           {mailtoHref ? (

@@ -95,7 +95,7 @@ export function OrdensListClient({
     const initial: Record<string, boolean> = {}
     for (const status of OPEN_STATUS_ORDER) {
       const list = openOrdersByStatus[status] ?? []
-      if (list.length > 0) initial[status] = true
+      if (list.length > 0) initial[status] = false
     }
     return initial
   })
@@ -195,7 +195,7 @@ export function OrdensListClient({
         createdTo={filterCreatedTo}
         readyFrom={filterReadyFrom}
         readyTo={filterReadyTo}
-        defaultOpen={hasFilters}
+        defaultOpen={false}
       />
     </div>
   )

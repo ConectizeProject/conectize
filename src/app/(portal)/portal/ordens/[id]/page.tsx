@@ -247,8 +247,8 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 	const brandName = (brandRow?.name as string | undefined) ?? (order.brand as string | null) ?? ''
 	const deviceTypeName = (dt?.name as string | undefined) ?? ''
 	const deviceString = deviceModel
-		? [brandName, deviceTypeName, (deviceModel as any)?.model as string | undefined].filter(Boolean).join(' ')
-		: (order.brand || order.model ? [order.brand, order.model].filter(Boolean).join(' ') : '')
+		? [brandName, deviceTypeName, (deviceModel as any)?.model as string | undefined].filter(Boolean).join(' • ') || ''
+		: (order.brand || order.model ? [order.brand, order.model].filter(Boolean).join(' • ') : '')
 
 	async function updateOrderAction(formData: FormData) {
 		'use server'
@@ -411,7 +411,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 						displayNumber={order.display_number ?? order.id}
 						title={order.title}
 						customerName={customer?.is_company ? (customer?.company_name ?? '') : (customer?.full_name ?? '')}
-						device={deviceModel ? `${deviceModel.brand} • ${deviceModel.device_type} • ${deviceModel.model}` : (order.brand || order.model ? `${order.brand || ''} ${order.model || ''}`.trim() : '-')}
+						device={deviceString || '-'}
 						status={order.status}
 						estimatedReadyAt={order.estimated_ready_at}
 						mobilePhone={customer?.mobile_phone}

@@ -319,7 +319,7 @@ export function buildOrdemPrintHtml(
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <title>OS #${data.displayNumber ?? ''} - Conectize</title>
+  <title>OS #${data.displayNumber ?? ''}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: system-ui, -apple-system, sans-serif; font-size: 12px; line-height: 1.4; color: #111; padding: 20px; max-width: 800px; margin: 0 auto; }
@@ -361,23 +361,23 @@ export function buildOrdemPrintHtml(
   ${data.customerDescription ? `<div class="section"><h2>Descrição</h2><div class="block">${data.customerDescription}</div></div>` : ''}
   ${data.receivingNotes ? `<div class="section"><h2>Observações do recebimento</h2><div class="block">${data.receivingNotes}</div></div>` : ''}
   ${(() => {
-    const checks = data.deviceEntryChecks
-    if (!checks || typeof checks !== 'object') return ''
-    const status = typeof checks.status === 'string' ? checks.status : null
-    const list = checks.checks && typeof checks.checks === 'object' ? checks.checks as Record<string, unknown> : null
+      const checks = data.deviceEntryChecks
+      if (!checks || typeof checks !== 'object') return ''
+      const status = typeof checks.status === 'string' ? checks.status : null
+      const list = checks.checks && typeof checks.checks === 'object' ? checks.checks as Record<string, unknown> : null
 
-    const statusLabel = status
-      ? ({
-        operante: 'Aparelho liga normalmente',
-        sem_bateria: 'Aparelho não liga na entrada',
-        display_apagado: 'Display apagado/danificado na entrada',
-        nao_liga: 'Aparelho não liga na entrada',
-      } as Record<string, string>)[status] || status
-      : null
+      const statusLabel = status
+        ? ({
+          operante: 'Aparelho liga normalmente',
+          sem_bateria: 'Aparelho não liga na entrada',
+          display_apagado: 'Display apagado/danificado na entrada',
+          nao_liga: 'Aparelho não liga na entrada',
+        } as Record<string, string>)[status] || status
+        : null
 
-    const notTested = status && status !== 'operante'
-    if (notTested) {
-      return `
+      const notTested = status && status !== 'operante'
+      if (notTested) {
+        return `
       <div class="section">
         <h2>Testes realizados na entrada do aparelho</h2>
         <div class="row"><span>${statusLabel || ''}</span></div>
@@ -386,55 +386,55 @@ export function buildOrdemPrintHtml(
         </div>
       </div>
     `
-    }
-
-    const labels: Record<string, string> = {
-      rear_camera_main: 'Câmera traseira (1x)',
-      rear_camera_2x: 'Câmera traseira (2x)',
-      rear_camera_3x: 'Câmera traseira (3x)',
-      front_camera: 'Câmera frontal',
-      microphone: 'Microfone',
-      earpiece_speaker: 'Alto-falante de ouvido',
-      loudspeaker: 'Alto-falante principal',
-      charging_port: 'Carregamento (cabo)',
-      wireless_charging: 'Carregamento por indução',
-      sim_signal: 'Sinal de operadora',
-      wifi: 'Wi‑Fi',
-      bluetooth: 'Bluetooth',
-      face_touch_id: 'Face ID / Touch ID',
-      volume_buttons: 'Botões de volume',
-      power_button: 'Botão power',
-      vibration: 'Vibração',
-      proximity_sensor: 'Sensor de proximidade',
-      display_touch: 'Toque na tela',
-      display_colors: 'Cores/brilho da tela',
-    }
-
-    const normalize = (v: unknown): 'ok' | 'fail' | 'na' | null => {
-      if (v === true) return 'ok'
-      if (v === false) return 'fail'
-      if (v === 'ok' || v === 'fail' || v === 'na') return v
-      return null
-    }
-
-    const okItems: string[] = []
-    const failItems: string[] = []
-    const naItems: string[] = []
-    if (list) {
-      for (const [key, value] of Object.entries(list)) {
-        const v = normalize(value)
-        const label = labels[key] || key
-        if (v === 'ok') okItems.push(label)
-        else if (v === 'fail') failItems.push(label)
-        else if (v === 'na') naItems.push(label)
       }
-    }
 
-    const hasAnyMarked = okItems.length > 0 || failItems.length > 0 || naItems.length > 0
-    if (!notTested && !hasAnyMarked) return ''
+      const labels: Record<string, string> = {
+        rear_camera_main: 'Câmera traseira (1x)',
+        rear_camera_2x: 'Câmera traseira (2x)',
+        rear_camera_3x: 'Câmera traseira (3x)',
+        front_camera: 'Câmera frontal',
+        microphone: 'Microfone',
+        earpiece_speaker: 'Alto-falante de ouvido',
+        loudspeaker: 'Alto-falante principal',
+        charging_port: 'Carregamento (cabo)',
+        wireless_charging: 'Carregamento por indução',
+        sim_signal: 'Sinal de operadora',
+        wifi: 'Wi‑Fi',
+        bluetooth: 'Bluetooth',
+        face_touch_id: 'Face ID / Touch ID',
+        volume_buttons: 'Botões de volume',
+        power_button: 'Botão power',
+        vibration: 'Vibração',
+        proximity_sensor: 'Sensor de proximidade',
+        display_touch: 'Toque na tela',
+        display_colors: 'Cores/brilho da tela',
+      }
 
-    if (failItems.length > 0) {
-      return `
+      const normalize = (v: unknown): 'ok' | 'fail' | 'na' | null => {
+        if (v === true) return 'ok'
+        if (v === false) return 'fail'
+        if (v === 'ok' || v === 'fail' || v === 'na') return v
+        return null
+      }
+
+      const okItems: string[] = []
+      const failItems: string[] = []
+      const naItems: string[] = []
+      if (list) {
+        for (const [key, value] of Object.entries(list)) {
+          const v = normalize(value)
+          const label = labels[key] || key
+          if (v === 'ok') okItems.push(label)
+          else if (v === 'fail') failItems.push(label)
+          else if (v === 'na') naItems.push(label)
+        }
+      }
+
+      const hasAnyMarked = okItems.length > 0 || failItems.length > 0 || naItems.length > 0
+      if (!notTested && !hasAnyMarked) return ''
+
+      if (failItems.length > 0) {
+        return `
       <div class="section">
         <h2>Testes realizados na entrada do aparelho</h2>
         <div class="row"><span>${statusLabel || 'Aparelho liga normalmente'}</span></div>
@@ -445,10 +445,10 @@ export function buildOrdemPrintHtml(
         </div>
       </div>
     `
-    }
+      }
 
-    if (okItems.length > 0 || naItems.length > 0) {
-      return `
+      if (okItems.length > 0 || naItems.length > 0) {
+        return `
       <div class="section">
         <h2>Testes realizados na entrada do aparelho</h2>
         <div class="row"><span>${statusLabel || 'Aparelho liga normalmente'}</span></div>
@@ -457,10 +457,10 @@ export function buildOrdemPrintHtml(
         </div>
       </div>
     `
-    }
+      }
 
-    return ''
-  })()}
+      return ''
+    })()}
   ${data.assistanceInfo ? `<div class="section"><h2>Informações sobre a assistência</h2><div class="block">${data.assistanceInfo}</div></div>` : ''}
   ${buildServicesSection(data.services)}
 

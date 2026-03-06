@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { MessageCircle, Mail } from 'lucide-react'
+import { MessageCircle, Mail, Copy } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { toast } from '@/hooks/use-toast'
 import { buildOrderMessage } from '@/lib/ordem-share-message'
 import { formatPhoneForWhatsApp } from '@/lib/utils/format-phone'
 
@@ -74,9 +75,16 @@ export function OrdemShareButtons({
     : null
 
   const isLoading = !orderHref
-  const hasAnyChannel = Boolean(whatsappNumber || email)
+  const hasAnyChannel = Boolean(whatsappNumber || email || message)
 
   if (!hasAnyChannel) return null
+
+  function handleCopy() {
+    if (!message) return
+    navigator?.clipboard?.writeText(message).then(() => {
+      toast({ description: 'Dados copiados para a área de transferência', duration: 2000 })
+    }).catch(() => {})
+  }
 
   return (
     <div className="flex items-center gap-2">
@@ -86,6 +94,12 @@ export function OrdemShareButtons({
             <MessageCircle className="h-4 w-4 mr-2" />
             {isLoading ? 'Carregando…' : 'Enviar WhatsApp'}
           </a>
+        </Button>
+      ) : null}
+      {message ? (
+        <Button variant="outline" size="sm" onClick={handleCopy} disabled={isLoading}>
+          <Copy className="h-4 w-4 mr-2" />
+          Copiar dados
         </Button>
       ) : null}
       {mailtoHref ? (

@@ -23,7 +23,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { MessageCircle, Mail, MoreVertical, Trash2 } from 'lucide-react'
+import { MessageCircle, Mail, MoreVertical, Trash2, Copy } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 import { buildOrderMessage } from '@/lib/ordem-share-message'
 import { formatPhoneForWhatsApp } from '@/lib/utils/format-phone'
@@ -163,6 +163,18 @@ export function OrdemActionsMenu({
                 <MessageCircle className="h-4 w-4 mr-2" />
                 Enviar WhatsApp
               </a>
+            </DropdownMenuItem>
+          ) : null}
+          {message ? (
+            <DropdownMenuItem
+              onClick={() => {
+                navigator?.clipboard?.writeText(message).then(() => {
+                  toast({ description: 'Dados copiados para a área de transferência', duration: 2000 })
+                }).catch(() => {})
+              }}
+            >
+              <Copy className="h-4 w-4 mr-2" />
+              Copiar dados
             </DropdownMenuItem>
           ) : null}
           {mailtoHref ? (
