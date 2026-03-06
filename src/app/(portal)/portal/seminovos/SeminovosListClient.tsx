@@ -798,15 +798,15 @@ Comprando 3 iPhones
 			.join(' • ')
 
 		const valorCents = d.wholesale_value_cents ?? d.sale_value_cents ?? 0
-		if (valorCents <= 0) return
-
 		const lines: string[] = [
 			aparelho,
 			d.battery ? `Bateria: ${d.battery}` : '',
 			d.condition ? `Estado: ${d.condition}` : '',
 			d.imei ? `IMEI: ${d.imei}` : '',
-			`Valor: R$ ${maskedFromCents(valorCents)}`,
 		]
+		if (valorCents > 0) {
+			lines.push(`Valor: R$ ${maskedFromCents(valorCents)}`)
+		}
 
 		const text = lines.filter(Boolean).join('\n')
 		if (!text) return
@@ -832,17 +832,16 @@ Comprando 3 iPhones
 			.join(' • ')
 
 		const valorCents = d.sale_value_cents ?? d.wholesale_value_cents ?? 0
-		if (valorCents <= 0) return
-
 		const lines: string[] = [
 			aparelho,
 			d.battery ? `Bateria: ${d.battery}` : '',
-			`Valor: R$ ${maskedFromCents(valorCents)}`,
 		]
-
-		const r12 = calc12xCredito(valorCents)
-		if (r12) {
-			lines.push(`ou 12x de R$ ${maskedFromCents(r12.valuePerInstallmentCents)}`)
+		if (valorCents > 0) {
+			lines.push(`Valor: R$ ${maskedFromCents(valorCents)}`)
+			const r12 = calc12xCredito(valorCents)
+			if (r12) {
+				lines.push(`ou 12x de R$ ${maskedFromCents(r12.valuePerInstallmentCents)}`)
+			}
 		}
 
 		const text = lines.filter(Boolean).join('\n')

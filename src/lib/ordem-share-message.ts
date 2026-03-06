@@ -23,13 +23,19 @@ function formatPrevisao(value: string | null): string {
   return formatDateTimeBr(value) === '-' ? '' : formatDateTimeBr(value)
 }
 
+function getFirstName(name: string): string {
+  const first = String(name || '').trim().split(/\s+/)[0]
+  return first || name || ''
+}
+
 /**
  * Gera o texto da mensagem para compartilhar OS (WhatsApp ou email).
  */
 export function buildOrderMessage(opts: BuildOrderMessageOpts): string {
+  const firstName = getFirstName(opts.customerName)
   const titleSuffix = opts.titleSuffix !== false ? ' - Conectize' : ''
   const lines = [
-    `Olá${opts.customerName ? ` ${opts.customerName}` : ''}!`,
+    `Olá${firstName ? ` ${firstName}` : ''}, segue abaixo os dados da sua ordem de serviço:`,
     '',
     `*Ordem de Serviço #${opts.displayNumber}*${titleSuffix}`,
     `Título: ${opts.title}`,
@@ -37,7 +43,7 @@ export function buildOrderMessage(opts: BuildOrderMessageOpts): string {
   if (opts.includeStatus !== false) {
     lines.push(`Status: ${opts.status}`)
   }
-  lines.push(`Dispositivo: ${opts.device || '-'}`)
+  lines.push(`Aparelho: ${opts.device || '-'}`)
   if (opts.estimatedReadyAt) {
     lines.push(`Previsão: ${formatPrevisao(opts.estimatedReadyAt)}`)
   }
