@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { buildRevenueSeries } from '@/lib/reports/revenue-series'
 import { RevenueChartTabs } from '@/components/reports/RevenueChartTabs'
 import { QuickDatePresets } from '@/components/reports/QuickDatePresets'
+import { DateRangePicker } from '@/components/ui/date-range-picker'
 import { maskedFromCents } from '@/lib/utils/money'
 
 export const dynamic = 'force-dynamic'
@@ -106,27 +107,14 @@ export default async function RelatorioVendasAparelhosPage ({
         <div className="md:col-span-3 space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="flex flex-col gap-1.5">
-              <label htmlFor="from" className="text-sm font-medium">
-                Data inicial
+              <label className="text-sm font-medium">
+                Período
               </label>
-              <input
-                id="from"
-                name="from"
-                type="date"
-                defaultValue={formatInputDate(fromDate)}
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="to" className="text-sm font-medium">
-                Data final
-              </label>
-              <input
-                id="to"
-                name="to"
-                type="date"
-                defaultValue={formatInputDate(toDate)}
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              <DateRangePicker
+                defaultFrom={fromStr}
+                defaultTo={toStr}
+                nameFrom="from"
+                nameTo="to"
               />
             </div>
           </div>

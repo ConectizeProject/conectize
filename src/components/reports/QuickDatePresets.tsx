@@ -26,6 +26,8 @@ export function QuickDatePresets () {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const fromParam = searchParams?.get('from') ?? ''
+  const toParam = searchParams?.get('to') ?? ''
 
   function handleClick (preset: PresetKey) {
     const now = new Date()
@@ -38,6 +40,12 @@ export function QuickDatePresets () {
     router.push(`${pathname}?${params.toString()}`)
   }
 
+  const now = new Date()
+  function isPresetActive (presetKey: PresetKey) {
+    const { from, to } = buildRange(now, presetKey)
+    return fromParam === from && toParam === to
+  }
+
   return (
     <div className="flex flex-wrap gap-2 text-xs">
       <span className="text-xs text-muted-foreground">
@@ -48,7 +56,7 @@ export function QuickDatePresets () {
           key={preset.key}
           type="button"
           size="sm"
-          variant="outline"
+          variant={isPresetActive(preset.key) ? 'default' : 'outline'}
           onClick={() => handleClick(preset.key)}
           className="h-7 px-2 text-xs"
         >
