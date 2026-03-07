@@ -79,11 +79,10 @@ export default async function DashboardPage() {
   let ordersAguardandoPecas: Array<{ id: string; display_number: string | null; status: string; title: string }> = []
 
   if (isStaffOrAdmin && staffResults.length >= 3) {
-    const [devicesRes, modelsRes, openOrdersRes] = staffResults as [
-      { data: Array<{ id: string; device_model_id: string | null; device_name: string | null; model: string | null; color: string | null; sale_value_cents: number | null }> | null },
-      { data: Array<{ id: string; model: string | null; device_types: { name: string; device_brands: { name: string } } | null }> | null },
-      { data: Array<{ id: string; display_number: string | null; status: string; title: string; created_at: string; estimated_ready_at: string | null }> | null },
-    ]
+    type DevicesRes = { data: Array<{ id: string; device_model_id: string | null; device_name: string | null; model: string | null; color: string | null; sale_value_cents: number | null }> | null }
+    type ModelsRes = { data: Array<{ id: string; model: string | null; device_types: { name: string; device_brands: { name: string } } | null }> | null }
+    type OpenOrdersRes = { data: Array<{ id: string; display_number: string | null; status: string; title: string; created_at: string; estimated_ready_at: string | null }> | null }
+    const [devicesRes, modelsRes, openOrdersRes] = staffResults as unknown as [DevicesRes, ModelsRes, OpenOrdersRes]
     const devices = devicesRes?.data ?? []
     const modelsRaw = modelsRes?.data ?? []
     const openOrdersRaw = openOrdersRes?.data ?? []

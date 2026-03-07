@@ -159,7 +159,7 @@ export function DateRangePicker ({
             <div className="p-3">
               <Calendar
                 mode="range"
-                selected={range}
+                selected={range.from !== undefined ? { from: range.from, to: range.to } : undefined}
                 onSelect={(r) => setRange(r ?? {})}
                 numberOfMonths={2}
                 defaultMonth={range.from ?? new Date()}
