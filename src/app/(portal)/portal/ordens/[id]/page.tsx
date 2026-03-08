@@ -382,6 +382,8 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 
 	const isFinalized = FINALIZED_STATUSES.has(order.status)
 	const formDisabled = isFinalized && role !== 'admin'
+	const canEditDeviceModelWhenFinalized = isAdmin && isFinalized
+	const deviceModelDisabled = isFinalized && !canEditDeviceModelWhenFinalized
 	const openServicesModalInitially = String(servicesModal || '').trim() === '1'
 
 	return (
@@ -444,7 +446,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 							model: (deviceModel as any)?.model ?? order.model ?? null,
 						}}
 						formId="order-edit-form"
-						disabled={formDisabled}
+						disabled={deviceModelDisabled}
 					/>
 					<div className="grid md:grid-cols-2 gap-4">
 						<div className="space-y-2">
