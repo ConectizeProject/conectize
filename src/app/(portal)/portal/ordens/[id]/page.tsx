@@ -15,6 +15,7 @@ import { OrderDeviceSelector, OrderPaymentMethodFields, OrderServicesCard, Order
 import { OrderCustomerCard } from './OrderCustomerCard'
 import { OrderPasscodeFields } from './OrderPasscodeFields'
 import { OrderDeviceEntryChecksEditor } from './OrderDeviceEntryChecksEditor'
+import { OrderEntryPhotos } from './OrderEntryPhotos'
 import { OrdemDetalheToastClient } from './OrdemDetalheToastClient'
 import { OrdemLabelPrintButton } from './OrdemLabelPrintButton'
 import { OrdemPrintButton } from './OrdemPrintButton'
@@ -543,6 +544,8 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 							disabled={formDisabled}
 							formId="order-edit-form"
 						/>
+
+						<OrderEntryPhotos orderId={order.id} disabled={formDisabled} />
 
 						<OrderServicesCard
 							initialServices={(order.services as Array<{ description?: string; valueCents?: number; costCents?: number }>) ?? []}

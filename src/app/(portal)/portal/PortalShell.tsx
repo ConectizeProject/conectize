@@ -75,7 +75,6 @@ export function PortalShell(props: PortalShellProps) {
 				{ href: '/portal/dashboard', label: 'Dashboard', icon: LayoutDashboard },
 				{ href: '/portal/ordens', label: 'Ordens de serviço', icon: ClipboardList },
 				{ href: '/portal/clientes', label: 'Clientes', icon: Users },
-				{ href: '/portal/aparelhos', label: 'Aparelhos', icon: Smartphone },
 				{ href: '/portal/seminovos', label: 'Seminovos', icon: Smartphone },
 			]
 			: [
