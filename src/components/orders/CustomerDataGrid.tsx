@@ -70,5 +70,3 @@ export function CustomerDataGrid({ customer, grid = true }: Props) {
     </div>
   )
 }
-
-export { getDisplayName }

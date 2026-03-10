@@ -65,7 +65,10 @@ export async function GET(request: Request) {
       device_type: dt?.name ?? null,
     }
   })
-  return NextResponse.json({ ok: true, deviceModels: rows })
+
+  const res = NextResponse.json({ ok: true, deviceModels: rows })
+  res.headers.set('Cache-Control', 'private, max-age=300')
+  return res
 }
 
 export async function POST(request: Request) {

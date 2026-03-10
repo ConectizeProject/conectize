@@ -16,6 +16,31 @@ export type DeviceModel = {
   model: string
 }
 
+const DEVICE_MODELS_CACHE_KEY = 'portal_device_models_v1'
+const DEVICE_MODELS_CACHE_TTL_MS = 5 * 60 * 1000 // 5 min
+
+function getCachedDeviceModels(): DeviceModel[] | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = sessionStorage.getItem(DEVICE_MODELS_CACHE_KEY)
+    if (!raw) return null
+    const { data, at } = JSON.parse(raw)
+    if (!Array.isArray(data) || Date.now() - at > DEVICE_MODELS_CACHE_TTL_MS) return null
+    return data
+  } catch {
+    return null
+  }
+}
+
+function setCachedDeviceModels(list: DeviceModel[]) {
+  if (typeof window === 'undefined') return
+  try {
+    sessionStorage.setItem(DEVICE_MODELS_CACHE_KEY, JSON.stringify({ data: list, at: Date.now() }))
+  } catch {
+    // ignore
+  }
+}
+
 function uniqueSorted(values: string[]) {
   return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b))
 }
@@ -53,6 +78,8 @@ type OrderDeviceSelectorProps = {
   formId?: string
   /** Desabilita o componente (ex: durante loading). */
   disabled?: boolean
+  /** Lista de modelos carregada no servidor (evita request client-side). */
+  initialDeviceModels?: DeviceModel[]
   /** Se há aparelhos já cadastrados (ex.: do cliente atual). */
   hasExistingDevices?: boolean
   /** Abre seleção de aparelhos já cadastrados. */
@@ -70,11 +97,21 @@ export function OrderDeviceSelector({
   },
   formId,
   disabled = false,
+  initialDeviceModels: serverDeviceModels,
   hasExistingDevices = false,
   onOpenExistingDevices,
 }: OrderDeviceSelectorProps) {
-  const [deviceModels, setDeviceModels] = useState<DeviceModel[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const hasInitialSelection = Boolean(
+    initialValue?.deviceModelId || (initialValue?.brand && initialValue?.model)
+  )
+  const [deviceModels, setDeviceModels] = useState<DeviceModel[]>(() => {
+    if (serverDeviceModels?.length) return serverDeviceModels
+    return getCachedDeviceModels() ?? []
+  })
+  const [isLoading, setIsLoading] = useState(() => {
+    if (serverDeviceModels?.length) return false
+    return !hasInitialSelection && !getCachedDeviceModels()?.length
+  })
   const [error, setError] = useState<string | null>(null)
   const [brandSearch, setBrandSearch] = useState('')
   const [deviceTypeSearch, setDeviceTypeSearch] = useState('')
@@ -119,15 +156,31 @@ export function OrderDeviceSelector({
   )
 
   useEffect(() => {
+    if (serverDeviceModels?.length) {
+      setDeviceModels(serverDeviceModels)
+      setIsLoading(false)
+      return
+    }
+
+    const cached = getCachedDeviceModels()
+    if (cached?.length) {
+      setDeviceModels(cached)
+      setIsLoading(false)
+    }
+
     let cancelled = false
     async function fetchModels() {
-      setIsLoading(true)
-      setError(null)
+      const fromCache = getCachedDeviceModels()
+      if (!fromCache?.length && !hasInitialSelection) {
+        setIsLoading(true)
+        setError(null)
+      }
       try {
-        const res = await portalFetch('/api/portal/device-models?limit=2000')
+        const res = await portalFetch('/api/portal/device-models?limit=1000')
         const data = await res.json().catch(() => null)
         if (!cancelled && data?.deviceModels) {
           setDeviceModels(data.deviceModels)
+          setCachedDeviceModels(data.deviceModels)
         }
       } catch {
         if (!cancelled) setError('Não foi possível carregar os dispositivos.')
@@ -139,7 +192,7 @@ export function OrderDeviceSelector({
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [hasInitialSelection, serverDeviceModels])
 
   function handleBrandChange(value: string) {
     if (isFormikMode) {
@@ -427,8 +480,8 @@ export function OrderDeviceSelector({
                   disabled={!brand || !deviceType || isLoadingModels}
                   className="w-full inline-flex items-center justify-between rounded-md border border-input bg-background px-3 py-2.5 text-sm hover:bg-accent/40 disabled:cursor-not-allowed"
                 >
-                  <span className={!deviceModelId ? 'text-muted-foreground' : ''}>
-                    {models.find((m) => m.id === deviceModelId)?.model || 'Selecione…'}
+                  <span className={!deviceModelId && !model ? 'text-muted-foreground' : ''}>
+                    {(model || models.find((m) => m.id === deviceModelId)?.model) || 'Selecione…'}
                   </span>
                   <ChevronsUpDown className="h-4 w-4 opacity-50" />
                 </button>

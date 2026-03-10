@@ -15,6 +15,7 @@ import { OrderDeviceSelector, OrderPaymentMethodFields, OrderServicesCard, Order
 import { OrderCustomerCard } from './OrderCustomerCard'
 import { OrderPasscodeFields } from './OrderPasscodeFields'
 import { OrderDeviceEntryChecksEditor } from './OrderDeviceEntryChecksEditor'
+import { OrderEntryPhotos } from './OrderEntryPhotos'
 import { OrdemDetalheToastClient } from './OrdemDetalheToastClient'
 import { OrdemLabelPrintButton } from './OrdemLabelPrintButton'
 import { OrdemPrintButton } from './OrdemPrintButton'
@@ -22,6 +23,7 @@ import { OrdemActionsMenu } from './OrdemActionsMenu'
 import { PrevisaoInput } from '@/components/previsao-input'
 import { getMinPrevisaoForEdit, previsaoToISO, toDateTimeLocalInBrazil } from '@/lib/utils/previsao-ordem'
 import { UpdateOrderSubmitButton } from './UpdateOrderSubmitButton'
+import { fetchDeviceModelsForSelector } from '@/lib/portal/device-models-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -199,13 +201,14 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 	if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
 
 	const supabase = await createSupabaseServerClient()
-	const [{ data: order }, { data: companySettings }] = await Promise.all([
+	const [{ data: order }, { data: companySettings }, deviceModels] = await Promise.all([
 		supabase
 			.from('service_orders')
 			.select('id, display_number, status, title, imei, color, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, payment_methods, customer_description, internal_description, receiving_notes, assistance_info, device_model_id, brand, model, services, services_total_cents, services_cost_total_cents, created_at, updated_at, closed_at, share_token, seller_user_id, device_entry_checks, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date, zip_code, state, city, neighborhood, street, street_number, street_complement, referral_source, referral_source_other ), device_models ( id, model, device_types ( name, device_brands ( name ) ) )')
 			.eq('id', id)
 			.maybeSingle(),
 		supabase.from('company_settings').select('name, cnpj, address, complement, zip_code, city, state, phone, email, logo_url').eq('id', 1).maybeSingle(),
+		fetchDeviceModelsForSelector(supabase),
 	])
 
 	if (!order) {
@@ -445,6 +448,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 							deviceType: deviceTypeName || null,
 							model: (deviceModel as any)?.model ?? order.model ?? null,
 						}}
+						initialDeviceModels={deviceModels}
 						formId="order-edit-form"
 						disabled={deviceModelDisabled}
 					/>
@@ -543,6 +547,8 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 							disabled={formDisabled}
 							formId="order-edit-form"
 						/>
+
+						<OrderEntryPhotos orderId={order.id} disabled={formDisabled} />
 
 						<OrderServicesCard
 							initialServices={(order.services as Array<{ description?: string; valueCents?: number; costCents?: number }>) ?? []}

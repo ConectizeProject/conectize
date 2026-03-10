@@ -41,7 +41,10 @@ type PaymentMethod = {
   fee_percent: number
   credit_installment_fees: CreditInstallmentFee[]
   sort_order: number
+  conta_id?: string | null
 }
+
+type Bank = { id: string; name: string }
 
 type Props = {
   initialPaymentMethods: PaymentMethod[]
@@ -56,6 +59,8 @@ export function FormasPagamentoClient({ initialPaymentMethods }: Props) {
   const [formType, setFormType] = useState<string>('dinheiro')
   const [formFeePercent, setFormFeePercent] = useState('')
   const [formCreditFees, setFormCreditFees] = useState<CreditInstallmentFee[]>([])
+  const [formContaId, setFormContaId] = useState<string>('')
+  const [contas, setContas] = useState<Bank[]>([])
 
   const loadPaymentMethods = useCallback(async () => {
     const res = await portalFetch('/api/portal/admin/payment-methods')
@@ -65,9 +70,19 @@ export function FormasPagamentoClient({ initialPaymentMethods }: Props) {
     }
   }, [])
 
+  const loadBanks = useCallback(async () => {
+    const res = await portalFetch('/api/portal/admin/banks')
+    const data = await res?.json().catch(() => null)
+    if (data?.ok && Array.isArray(data.contas)) setContas(data.contas)
+  }, [])
+
   useEffect(() => {
     loadPaymentMethods()
   }, [loadPaymentMethods])
+
+  useEffect(() => {
+    loadBanks()
+  }, [loadBanks])
 
   const hasFees = ['pix_direto', 'pix_maquina', 'credito', 'debito'].includes(formType)
 
@@ -77,6 +92,7 @@ export function FormasPagamentoClient({ initialPaymentMethods }: Props) {
     setFormType('dinheiro')
     setFormFeePercent('')
     setFormCreditFees([])
+    setFormContaId('__none__')
     setDialogOpen(true)
   }
 
@@ -86,6 +102,7 @@ export function FormasPagamentoClient({ initialPaymentMethods }: Props) {
     setFormType(pm.type)
     setFormFeePercent(String(pm.fee_percent ?? ''))
     setFormCreditFees(Array.isArray(pm.credit_installment_fees) ? pm.credit_installment_fees : [])
+    setFormContaId(pm.conta_id ?? '__none__')
     setDialogOpen(true)
   }
 
@@ -124,6 +141,7 @@ export function FormasPagamentoClient({ initialPaymentMethods }: Props) {
         type: formType,
         fee_percent: feePercent,
         credit_installment_fees: formType === 'credito' ? formCreditFees : [],
+        conta_id: formContaId === '__none__' ? null : formContaId,
       }
 
       if (editingId) {
@@ -211,6 +229,9 @@ export function FormasPagamentoClient({ initialPaymentMethods }: Props) {
                     <p className="font-medium">{pm.description}</p>
                     <p className="text-sm text-muted-foreground">
                       {getTypeLabel(pm.type)}
+                      {pm.conta_id && contas.length > 0 && (
+                        <> • Conta: {contas.find((c) => c.id === pm.conta_id)?.name ?? pm.conta_id}</>
+                      )}
                       {pm.fee_percent > 0 && ` • Taxa: ${pm.fee_percent}%`}
                       {pm.type === 'credito' &&
                         Array.isArray(pm.credit_installment_fees) &&
@@ -278,6 +299,22 @@ export function FormasPagamentoClient({ initialPaymentMethods }: Props) {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Conta (Financeiro)</Label>
+              <Select value={formContaId} onValueChange={setFormContaId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Nenhum" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Nenhum</SelectItem>
+                  {contas.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Vincula esta forma de pagamento a uma conta para saldo no Financeiro.</p>
             </div>
 
             {hasFees && (

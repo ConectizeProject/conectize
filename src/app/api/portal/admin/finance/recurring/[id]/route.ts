@@ -19,8 +19,6 @@ async function requireAdmin() {
   return { ok: true as const, supabase }
 }
 
-const VALID_TYPES = new Set(['dinheiro', 'pix_direto', 'pix_maquina', 'credito', 'debito'])
-
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -34,30 +32,22 @@ export async function PATCH(
   if (!id) return NextResponse.json({ ok: false, error: 'id_required' }, { status: 400 })
 
   const body = await request.json().catch(() => null)
-  const description = body?.description != null ? String(body.description).trim() : undefined
-  const type = body?.type != null ? String(body.type).trim() : undefined
-  const feePercent = body?.fee_percent != null ? Number(body.fee_percent) : undefined
-  const creditInstallmentFees = body?.credit_installment_fees
-
-  const updatePayload: Record<string, unknown> = { updated_at: new Date().toISOString() }
-  if (description !== undefined) updatePayload.description = description
-  if (body?.conta_id !== undefined) updatePayload.conta_id = body.conta_id === null || body.conta_id === '' ? null : body.conta_id
-  if (type !== undefined) {
-    if (!VALID_TYPES.has(type)) {
-      return NextResponse.json({ ok: false, error: 'invalid_type' }, { status: 400 })
-    }
-    updatePayload.type = type
+  const update: Record<string, unknown> = { updated_at: new Date().toISOString() }
+  if (body?.description !== undefined) update.description = String(body.description).trim()
+  if (body?.amount_cents !== undefined) {
+    const n = Number(body.amount_cents)
+    if (Number.isFinite(n) && n > 0) update.amount_cents = n
   }
-  if (feePercent !== undefined) updatePayload.fee_percent = feePercent
-  if (creditInstallmentFees !== undefined) {
-    updatePayload.credit_installment_fees = Array.isArray(creditInstallmentFees)
-      ? creditInstallmentFees
-      : []
+  if (body?.conta_id !== undefined) update.conta_id = body.conta_id
+  if (body?.billing_day !== undefined) {
+    const d = Number(body.billing_day)
+    if (Number.isInteger(d) && d >= 1 && d <= 31) update.billing_day = d
   }
+  if (body?.is_active !== undefined) update.is_active = Boolean(body.is_active)
 
   const { data, error } = await auth.supabase
-    .from('payment_methods')
-    .update(updatePayload)
+    .from('recurring_expenses')
+    .update(update)
     .eq('id', id)
     .select()
     .single()
@@ -66,7 +56,7 @@ export async function PATCH(
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
   }
 
-  return NextResponse.json({ ok: true, paymentMethod: data })
+  return NextResponse.json({ ok: true, recurring: data })
 }
 
 export async function DELETE(
@@ -82,7 +72,7 @@ export async function DELETE(
   if (!id) return NextResponse.json({ ok: false, error: 'id_required' }, { status: 400 })
 
   const { error } = await auth.supabase
-    .from('payment_methods')
+    .from('recurring_expenses')
     .delete()
     .eq('id', id)
 

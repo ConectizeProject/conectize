@@ -74,40 +74,6 @@ interface AwesomeApiCepResponse {
 }
 
 /**
- * Busca informações do CEP usando BrasilAPI
- */
-export async function buscarCep (cep: string): Promise<CepInfo | null> {
-  const cepLimpo = cep.replace(/\D/g, '')
-  
-  if (cepLimpo.length !== 8) {
-    return null
-  }
-
-  try {
-    const response = await fetch(`https://brasilapi.com.br/api/cep/v1/${cepLimpo}`)
-    
-    if (!response.ok) {
-      return null
-    }
-    
-    const data: BrasilApiCepResponse = await response.json()
-    
-    // Converte o formato da BrasilAPI para o formato esperado
-    return {
-      cep: data.cep,
-      logradouro: data.street || '',
-      complemento: '',
-      bairro: data.neighborhood || '',
-      localidade: data.city,
-      uf: data.state
-    }
-  } catch (error) {
-    console.error('Erro ao buscar CEP na BrasilAPI:', error)
-    return null
-  }
-}
-
-/**
  * Obtém coordenadas (lat/lng) a partir do CEP usando AwesomeAPI CEP
  * (mais confiável para CEPs no Brasil do que tentar geocodificar com Nominatim)
  */

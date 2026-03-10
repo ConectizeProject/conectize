@@ -31,6 +31,7 @@ export default async function FormasPagamentoPage() {
           ? pm.credit_installment_fees
           : [],
         sort_order: pm.sort_order ?? 0,
+        conta_id: (pm as { conta_id?: string | null }).conta_id ?? null,
       }))}
     />
   )
