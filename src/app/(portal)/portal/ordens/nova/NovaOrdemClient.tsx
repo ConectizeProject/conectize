@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/dialog'
 import { PatternLockInput } from '@/components/pattern-lock/PatternLockInput'
 import { CreateCustomerDialog, EditCustomerDialog, type CustomerHit } from '@/components/customers'
-import { OrderDeviceSelector, OrderPaymentMethodFields, OrderServicesCard, OrderServicesTotalProvider, OsAssistAiIconButton, type OrderServicesCardRef, type ServiceLine } from '@/components/orders'
+import { OrderDeviceSelector, OrderPaymentMethodFields, OrderServicesCard, OrderServicesTotalProvider, OsAssistAiIconButton, type DeviceModel, type OrderServicesCardRef, type ServiceLine } from '@/components/orders'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { NovaOrdemCustomerCard } from './NovaOrdemCustomerCard'
 import { parseMoneyToCents } from '@/lib/utils/format-money'
@@ -58,6 +58,7 @@ type Props = {
 	sellerName: string
 	isAdmin: boolean
 	sellerOptions: SellerOption[]
+	deviceModels?: DeviceModel[]
 	currentUserId: string
 	duplicateOrderId?: string
 }
@@ -536,6 +537,7 @@ export function NovaOrdemClient(props: Props) {
 											},
 											setFieldValue: formik.setFieldValue,
 										}}
+										initialDeviceModels={props.deviceModels}
 										hasExistingDevices={customerDevices.length > 0}
 										onOpenExistingDevices={() => setIsDevicesDialogOpen(true)}
 									/>

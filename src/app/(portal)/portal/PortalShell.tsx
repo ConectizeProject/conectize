@@ -2,7 +2,8 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { BarChart3, Building2, ChevronDown, ClipboardList, Home, LayoutDashboard, LogOut, Moon, Plug2, Settings, Sun, UserCheck, Smartphone, Users } from 'lucide-react'
+import { BarChart3, Building2, ChevronDown, ClipboardList, DollarSign, Home, LayoutDashboard, LogOut, Moon, Plug2, Settings, Sun, UserCheck, Smartphone, Users } from 'lucide-react'
+import { PortalDataChat } from './PortalDataChat'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
 	DropdownMenu,
@@ -84,7 +85,10 @@ export function PortalShell(props: PortalShellProps) {
 				{ href: '/portal/admin/usuarios', label: 'Usuários', icon: UserCheck },
 				{ href: '/portal/hub', label: 'HUB', icon: Plug2 },
 				{ href: '/portal/seminovos', label: 'Seminovos', icon: Smartphone },
-				...(isAdmin ? [{ href: '/portal/relatorios/servicos', label: 'Relatórios', icon: BarChart3 }] : []),
+				...(isAdmin ? [
+					{ href: '/portal/financeiro', label: 'Financeiro', icon: DollarSign },
+					{ href: '/portal/relatorios/servicos', label: 'Relatórios', icon: BarChart3 },
+				] : []),
 			]
 
 	return (
@@ -218,6 +222,8 @@ export function PortalShell(props: PortalShellProps) {
 					{props.children}
 				</div>
 			</SidebarInset>
+
+			{!isBasicUser && <PortalDataChat role={props.role} />}
 		</SidebarProvider>
 	)
 }

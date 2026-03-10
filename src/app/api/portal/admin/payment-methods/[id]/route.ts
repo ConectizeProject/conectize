@@ -41,6 +41,7 @@ export async function PATCH(
 
   const updatePayload: Record<string, unknown> = { updated_at: new Date().toISOString() }
   if (description !== undefined) updatePayload.description = description
+  if (body?.conta_id !== undefined) updatePayload.conta_id = body.conta_id === null || body.conta_id === '' ? null : body.conta_id
   if (type !== undefined) {
     if (!VALID_TYPES.has(type)) {
       return NextResponse.json({ ok: false, error: 'invalid_type' }, { status: 400 })

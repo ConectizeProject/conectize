@@ -4,6 +4,5 @@ export { OrderServicesCard, type ServiceLine, type ServiceItemDb, type OrderServ
 export { OrderServicesTotalProvider } from './OrderServicesTotalContext'
 export { OrderDeviceSelector, type DeviceModel } from './OrderDeviceSelector'
 export { OrderPaymentMethodFields } from './OrderPaymentMethodFields'
-export { OsAssistAi } from './OsAssistAi'
 export { OsAssistAiIconButton } from './OsAssistAiIconButton'
 export { CustomerOrderHistoryModal } from './CustomerOrderHistoryModal'
