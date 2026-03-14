@@ -34,6 +34,7 @@ export const SEMINOVOS_COLOR_MAP: Record<string, { bg: string; text: string }> =
   natural: { bg: '#d8d8b8', text: '#1a1a1a' },
   'titânio': { bg: '#71717a', text: '#fff' },
   titanium: { bg: '#71717a', text: '#fff' },
+  starlight: { bg: '#e5e0d8', text: '#2c2825' },
 }
 
 export function getSeminovosColorStyle(cor: string): { bg: string; text: string } {

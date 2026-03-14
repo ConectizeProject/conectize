@@ -230,14 +230,19 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 	const sellerUserId = (order as { seller_user_id?: string | null }).seller_user_id ?? null
 	const isAdmin = role === 'admin'
 
-	const [sellerUser, staffAdminUsers] = await Promise.all([
+	const [sellerUser, staffAdminUsers, entryPhotoCountRes] = await Promise.all([
 		sellerUserId
 			? supabase.from('users').select('id, full_name, email').eq('id', sellerUserId).maybeSingle()
 			: Promise.resolve({ data: null }),
 		isAdmin
 			? supabase.from('users').select('id, full_name, email').in('role', ['admin', 'staff']).order('email')
 			: Promise.resolve({ data: [] }),
+		supabase
+			.from('service_order_entry_photos')
+			.select('*', { count: 'exact', head: true })
+			.eq('service_order_id', order.id),
 	])
+	const entryPhotoCount = entryPhotoCountRes?.count ?? 0
 
 	const seller = sellerUser.data
 	const sellerDisplayName = seller ? (String(seller.full_name || '').trim() || String(seller.email || '').trim() || '(Sem nome)') : ''
@@ -274,6 +279,8 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 		const deviceEntryChecksRaw = formData.get('deviceEntryChecksJson')
 		const deviceEntryChecksJson = typeof deviceEntryChecksRaw === 'string' ? deviceEntryChecksRaw.trim() : ''
 		const deviceModelId = String(formData.get('deviceModelId') || '').trim()
+		const brand = String(formData.get('brand') || '').trim() || null
+		const model = String(formData.get('model') || '').trim() || null
 		const formSellerUserId = String(formData.get('seller_user_id') || '').trim()
 		const servicesJson = formData.get('servicesJson')
 		const services = parseServicesJson(servicesJson)
@@ -330,6 +337,8 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 			receiving_notes: receivingNotes || null,
 			assistance_info: assistanceInfo || null,
 			device_model_id: deviceModelId || null,
+			brand: brand ?? null,
+			model: model ?? null,
 			services: services.items,
 			services_total_cents: services.totalValueCents,
 			services_cost_total_cents: services.totalCostCents,
@@ -548,7 +557,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 							formId="order-edit-form"
 						/>
 
-						<OrderEntryPhotos orderId={order.id} disabled={formDisabled} />
+						<OrderEntryPhotos orderId={order.id} initialPhotoCount={entryPhotoCount} disabled={formDisabled} />
 
 						<OrderServicesCard
 							initialServices={(order.services as Array<{ description?: string; valueCents?: number; costCents?: number }>) ?? []}

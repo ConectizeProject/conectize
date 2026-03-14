@@ -99,10 +99,13 @@ type ResaleDevice = {
 	costs: CostRow[]
 	payment_method_id?: string | null
 	payment_installments?: number | null
+	sale_payment_methods?: Array<{ payment_method_id: string; value_cents?: number | null; installments?: number }> | null
 	buyer_name?: string | null
 	buyer_cpf?: string | null
 	sale_details?: string | null
 }
+
+type SalePaymentEntry = { payment_method_id: string; value_cents: number | null; installments: number }
 
 function centsToReais(cents: number | null | undefined): string {
 	if (cents === null || cents === undefined) return ''
@@ -269,8 +272,7 @@ export function SeminovosListClient({
 	const [sellValue, setSellValue] = useState('')
 	const [sellDate, setSellDate] = useState('')
 	const [isSavingSell, setIsSavingSell] = useState(false)
-	const [sellPaymentMethodId, setSellPaymentMethodId] = useState<string>('')
-	const [sellPaymentInstallments, setSellPaymentInstallments] = useState<number>(1)
+	const [sellPaymentMethods, setSellPaymentMethods] = useState<SalePaymentEntry[]>([])
 	const [sellBuyerName, setSellBuyerName] = useState('')
 	const [sellBuyerCpf, setSellBuyerCpf] = useState('')
 	const [sellSaleDetails, setSellSaleDetails] = useState('')
@@ -448,12 +450,20 @@ export function SeminovosListClient({
 	function openSellModal(d: ResaleDevice) {
 		const varejo = d.sale_value_cents ?? null
 		const atacado = d.wholesale_value_cents ?? null
+		const pms = Array.isArray(d.sale_payment_methods) && d.sale_payment_methods.length > 0
+			? d.sale_payment_methods.map((e) => ({
+				payment_method_id: String(e.payment_method_id ?? ''),
+				value_cents: e.value_cents != null ? Number(e.value_cents) : null,
+				installments: e.installments != null ? Math.max(1, Number(e.installments)) : 1,
+			}))
+			: (d.payment_method_id
+				? [{ payment_method_id: d.payment_method_id, value_cents: null, installments: d.payment_installments ?? 1 }]
+				: [{ payment_method_id: '', value_cents: null, installments: 1 }])
+		setSellPaymentMethods(pms.length > 0 ? pms : [{ payment_method_id: '', value_cents: null, installments: 1 }])
 		const source = varejo != null ? 'varejo' : atacado != null ? 'atacado' : 'custom'
 		setSellValueSource(source)
 		setSellValue(varejo != null ? centsToReais(varejo) : atacado != null ? centsToReais(atacado) : '')
 		setSellDate(new Date().toISOString().slice(0, 10))
-		setSellPaymentMethodId('')
-		setSellPaymentInstallments(1)
 		setSellBuyerName('')
 		setSellBuyerCpf('')
 		setSellSaleDetails(d.info || '')
@@ -463,16 +473,40 @@ export function SeminovosListClient({
 
 	function openEditSellModal(d: ResaleDevice) {
 		const soldCents = d.sold_for_cents ?? null
+		const pms = Array.isArray(d.sale_payment_methods) && d.sale_payment_methods.length > 0
+			? d.sale_payment_methods.map((e) => ({
+				payment_method_id: String(e.payment_method_id ?? ''),
+				value_cents: e.value_cents != null ? Number(e.value_cents) : null,
+				installments: e.installments != null ? Math.max(1, Number(e.installments)) : 1,
+			}))
+			: (d.payment_method_id
+				? [{ payment_method_id: d.payment_method_id, value_cents: null, installments: d.payment_installments ?? 1 }]
+				: [{ payment_method_id: '', value_cents: null, installments: 1 }])
+		setSellPaymentMethods(pms.length > 0 ? pms : [{ payment_method_id: '', value_cents: null, installments: 1 }])
 		setSellValueSource('custom')
 		setSellValue(soldCents != null ? centsToReais(soldCents) : '')
 		setSellDate(d.sale_date || new Date().toISOString().slice(0, 10))
-		setSellPaymentMethodId(d.payment_method_id ?? '')
-		setSellPaymentInstallments(d.payment_installments ?? 1)
 		setSellBuyerName(d.buyer_name ?? '')
 		setSellBuyerCpf(formatCpfCnpj(d.buyer_cpf ?? ''))
 		setSellSaleDetails(d.sale_details ?? d.info ?? '')
 		loadPaymentMethods()
 		setSellModalTarget(d)
+	}
+
+	function setSellPaymentMethodAt(i: number, upd: Partial<SalePaymentEntry>) {
+		setSellPaymentMethods((prev) => {
+			const next = [...prev]
+			next[i] = { ...next[i], ...upd }
+			return next
+		})
+	}
+
+	function addSellPaymentMethod() {
+		setSellPaymentMethods((prev) => [...prev, { payment_method_id: '', value_cents: null, installments: 1 }])
+	}
+
+	function removeSellPaymentMethod(i: number) {
+		setSellPaymentMethods((prev) => prev.filter((_, idx) => idx !== i))
 	}
 
 	function getSellValueCents(): number | null {
@@ -671,22 +705,28 @@ Comprando 3 iPhones
 		const valueCents = getEffectiveSellValueCents()
 		if (valueCents === null) return
 
+		const validMethods = sellPaymentMethods.filter((e) => e.payment_method_id?.trim())
+		const totalFromMethods = validMethods.reduce((acc, e) => acc + (e.value_cents ?? 0), 0)
+		const singleMethod = validMethods.length === 1 && (validMethods[0].value_cents == null || validMethods[0].value_cents === 0)
+
 		let paymentFeeCents = 0
-		if (sellPaymentMethodId) {
-			const pm = paymentMethods.find((p) => p.id === sellPaymentMethodId)
-			if (pm) {
-				let feePercent = Number(pm.fee_percent) || 0
-				if (pm.type === 'credito' && Array.isArray(pm.credit_installment_fees) && pm.credit_installment_fees.length > 0) {
-					const byInstallments = pm.credit_installment_fees.find(
-						(f) => Number(f.installments) === Number(sellPaymentInstallments || 1)
-					)
-					if (byInstallments && byInstallments.fee_percent != null) {
-						feePercent = Number(byInstallments.fee_percent) || 0
-					}
+		for (const entry of validMethods) {
+			const pm = paymentMethods.find((p) => p.id === entry.payment_method_id)
+			if (!pm) continue
+			let amountCents = entry.value_cents ?? 0
+			if (singleMethod) amountCents = valueCents
+			else if (entry.value_cents == null || entry.value_cents === 0) continue
+			let feePercent = Number(pm.fee_percent) || 0
+			if (pm.type === 'credito' && Array.isArray(pm.credit_installment_fees) && pm.credit_installment_fees.length > 0) {
+				const byInstallments = pm.credit_installment_fees.find(
+					(f) => Number(f.installments) === Number(entry.installments || 1)
+				)
+				if (byInstallments && byInstallments.fee_percent != null) {
+					feePercent = Number(byInstallments.fee_percent) || 0
 				}
-				if (feePercent > 0) {
-					paymentFeeCents = Math.floor((valueCents * feePercent) / 100)
-				}
+			}
+			if (feePercent > 0) {
+				paymentFeeCents += Math.floor((amountCents * feePercent) / 100)
 			}
 		}
 
@@ -710,12 +750,17 @@ Comprando 3 iPhones
 				]
 				: costsWithoutPaymentFee
 
+		const salePaymentMethodsPayload = validMethods.map((e) => ({
+			payment_method_id: e.payment_method_id,
+			value_cents: singleMethod ? null : (e.value_cents ?? 0),
+			installments: e.installments ?? 1,
+		}))
+
 		const payload: Record<string, unknown> = {
 			sold: true,
 			sold_for_cents: valueCents,
 			sale_date: sellDate || null,
-			payment_method_id: sellPaymentMethodId || null,
-			payment_installments: sellPaymentMethodId ? sellPaymentInstallments || 1 : null,
+			sale_payment_methods: salePaymentMethodsPayload,
 			buyer_name: sellBuyerName.trim() || null,
 			buyer_cpf: sellBuyerCpf.trim() || null,
 			sale_details: sellSaleDetails.trim() || null,
@@ -2099,60 +2144,98 @@ Comprando 3 iPhones
 							)}
 						</div>
 						<div className="space-y-2">
-							<Label>Forma de pagamento</Label>
-							<Select
-								value={sellPaymentMethodId || '__none__'}
-								onValueChange={(v) => {
-									if (v === '__none__') {
-										setSellPaymentMethodId('')
-										setSellPaymentInstallments(1)
-										return
-									}
-									setSellPaymentMethodId(v)
-									setSellPaymentInstallments(1)
-								}}
-							>
-								<SelectTrigger>
-									<SelectValue placeholder="Selecione..." />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="__none__">Nenhum</SelectItem>
-									{paymentMethods.map((pm) => (
-										<SelectItem key={pm.id} value={pm.id}>
-											{pm.description}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
+							<div className="flex items-center justify-between">
+								<Label>Formas de pagamento</Label>
+								<Button type="button" variant="outline" size="sm" onClick={addSellPaymentMethod} className="gap-1">
+									<Plus className="h-3.5 w-3.5" />
+									Adicionar
+								</Button>
+							</div>
+							<div className="space-y-3">
+								{sellPaymentMethods.map((entry, i) => (
+									<div key={i} className="flex flex-wrap items-end gap-2 rounded border p-2 bg-muted/30">
+										<div className="flex-1 min-w-[140px] space-y-1">
+											<Label className="text-xs">Forma</Label>
+											<Select
+												value={entry.payment_method_id || '__none__'}
+												onValueChange={(v) => {
+													if (v === '__none__') {
+														setSellPaymentMethodAt(i, { payment_method_id: '', value_cents: null, installments: 1 })
+														return
+													}
+													setSellPaymentMethodAt(i, { payment_method_id: v, installments: 1 })
+												}}
+											>
+												<SelectTrigger className="h-9">
+													<SelectValue placeholder="Selecione..." />
+												</SelectTrigger>
+												<SelectContent>
+													<SelectItem value="__none__">Nenhum</SelectItem>
+													{paymentMethods.map((pm) => (
+														<SelectItem key={pm.id} value={pm.id}>
+															{pm.description}
+														</SelectItem>
+													))}
+												</SelectContent>
+											</Select>
+										</div>
+										{sellPaymentMethods.length > 1 && (
+											<div className="w-24 space-y-1">
+												<Label className="text-xs">Valor (R$)</Label>
+												<Input
+													value={entry.value_cents != null ? maskedFromCents(entry.value_cents) : ''}
+													onChange={(e) => {
+														const raw = moneyToCentsFromMasked(formatMoneyInput(e.target.value))
+														setSellPaymentMethodAt(i, { value_cents: raw })
+													}}
+													placeholder="0,00"
+													className="h-9"
+												/>
+											</div>
+										)}
+										{entry.payment_method_id && (() => {
+											const pm = paymentMethods.find((p) => p.id === entry.payment_method_id)
+											const isCredit = pm?.type === 'credito'
+											if (!isCredit) return null
+											const maxInstallments = pm?.credit_installment_fees?.length
+												? Math.max(...pm.credit_installment_fees.map((f) => f.installments))
+												: 12
+											return (
+												<div className="w-20 space-y-1">
+													<Label className="text-xs">Parcelas</Label>
+													<Select
+														value={String(entry.installments || 1)}
+														onValueChange={(v) => setSellPaymentMethodAt(i, { installments: Number(v) || 1 })}
+													>
+														<SelectTrigger className="h-9">
+															<SelectValue />
+														</SelectTrigger>
+														<SelectContent>
+															{Array.from({ length: maxInstallments }, (_, n) => n + 1).map((n) => (
+																<SelectItem key={n} value={String(n)}>
+																	{n}x
+																</SelectItem>
+															))}
+														</SelectContent>
+													</Select>
+												</div>
+											)
+										})()}
+										<Button
+											type="button"
+											variant="ghost"
+											size="icon"
+											className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
+											onClick={() => removeSellPaymentMethod(i)}
+											disabled={sellPaymentMethods.length <= 1}
+											aria-label="Remover forma de pagamento"
+										>
+											<Trash2 className="h-4 w-4" />
+										</Button>
+									</div>
+								))}
+							</div>
 						</div>
-						{sellPaymentMethodId && (() => {
-							const pm = paymentMethods.find((p) => p.id === sellPaymentMethodId)
-							const isCredit = pm?.type === 'credito'
-							if (!isCredit) return null
-							const maxInstallments = pm?.credit_installment_fees?.length
-								? Math.max(...pm.credit_installment_fees.map((f) => f.installments))
-								: 12
-							return (
-								<div className="space-y-2">
-									<Label>Parcelas</Label>
-									<Select
-										value={String(sellPaymentInstallments || 1)}
-										onValueChange={(v) => setSellPaymentInstallments(Number(v) || 1)}
-									>
-										<SelectTrigger>
-											<SelectValue />
-										</SelectTrigger>
-										<SelectContent>
-											{Array.from({ length: maxInstallments }, (_, i) => i + 1).map((n) => (
-												<SelectItem key={n} value={String(n)}>
-													{n}x
-												</SelectItem>
-											))}
-										</SelectContent>
-									</Select>
-								</div>
-							)
-						})()}
 						<div className="space-y-2">
 							<Label>Nome completo do comprador (opcional)</Label>
 							<Input
@@ -2196,26 +2279,26 @@ Comprando 3 iPhones
 								0
 							)
 
+							const validPreview = sellPaymentMethods.filter((e) => e.payment_method_id?.trim())
+							const singlePreview = validPreview.length === 1 && (validPreview[0].value_cents == null || validPreview[0].value_cents === 0)
 							let paymentFeePreviewCents = 0
-							if (soldCents != null && sellPaymentMethodId) {
-								const pm = paymentMethods.find((p) => p.id === sellPaymentMethodId)
-								if (pm) {
-									let feePercent = Number(pm.fee_percent) || 0
-									if (
-										pm.type === 'credito' &&
-										Array.isArray(pm.credit_installment_fees) &&
-										pm.credit_installment_fees.length > 0
-									) {
-										const byInstallments = pm.credit_installment_fees.find(
-											(f) => Number(f.installments) === Number(sellPaymentInstallments || 1)
-										)
-										if (byInstallments && byInstallments.fee_percent != null) {
-											feePercent = Number(byInstallments.fee_percent) || 0
-										}
+							for (const entry of validPreview) {
+								const pm = paymentMethods.find((p) => p.id === entry.payment_method_id)
+								if (!pm) continue
+								let amountCents = entry.value_cents ?? 0
+								if (singlePreview && soldCents != null) amountCents = soldCents
+								else if (entry.value_cents == null || entry.value_cents === 0) continue
+								let feePercent = Number(pm.fee_percent) || 0
+								if (pm.type === 'credito' && Array.isArray(pm.credit_installment_fees) && pm.credit_installment_fees.length > 0) {
+									const byInstallments = pm.credit_installment_fees.find(
+										(f) => Number(f.installments) === Number(entry.installments || 1)
+									)
+									if (byInstallments && byInstallments.fee_percent != null) {
+										feePercent = Number(byInstallments.fee_percent) || 0
 									}
-									if (feePercent > 0) {
-										paymentFeePreviewCents = Math.floor((soldCents * feePercent) / 100)
-									}
+								}
+								if (feePercent > 0) {
+									paymentFeePreviewCents += Math.floor((amountCents * feePercent) / 100)
 								}
 							}
 

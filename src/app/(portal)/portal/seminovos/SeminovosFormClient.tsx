@@ -68,10 +68,13 @@ type ResaleDevice = {
   costs: CostRow[]
   payment_method_id: string | null
   payment_installments: number | null
+  sale_payment_methods?: Array<{ payment_method_id: string; value_cents?: number | null; installments?: number }> | null
   buyer_name: string | null
   buyer_cpf: string | null
   sale_details: string | null
 }
+
+type SalePaymentEntry = { payment_method_id: string; value_cents: number | null; installments: number }
 
 function centsToReais(cents: number | null | undefined): string {
   if (cents === null || cents === undefined) return ''
@@ -164,8 +167,7 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
   const [isSavingSell, setIsSavingSell] = useState(false)
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([])
   const [isLoadingPaymentMethods, setIsLoadingPaymentMethods] = useState(false)
-  const [sellPaymentMethodId, setSellPaymentMethodId] = useState('')
-  const [sellPaymentInstallments, setSellPaymentInstallments] = useState(1)
+  const [sellPaymentMethods, setSellPaymentMethods] = useState<SalePaymentEntry[]>([])
   const [sellBuyerName, setSellBuyerName] = useState('')
   const [sellBuyerCpf, setSellBuyerCpf] = useState('')
   const [sellSaleDetails, setSellSaleDetails] = useState('')
@@ -378,12 +380,27 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
     const suggested = formSaleValue || formWholesaleValue || formSoldFor || ''
     setSellModalValue(suggested)
     setSellModalDate(new Date().toISOString().slice(0, 10))
-    setSellPaymentMethodId('')
-    setSellPaymentInstallments(1)
+    setSellPaymentMethods([{ payment_method_id: '', value_cents: null, installments: 1 }])
     setSellBuyerName('')
     setSellBuyerCpf('')
     setSellSaleDetails(formInfo || '')
     setShowSellModal(true)
+  }
+
+  function setSellPaymentMethodAt(i: number, upd: Partial<SalePaymentEntry>) {
+    setSellPaymentMethods((prev) => {
+      const next = [...prev]
+      next[i] = { ...next[i], ...upd }
+      return next
+    })
+  }
+
+  function addSellPaymentMethod() {
+    setSellPaymentMethods((prev) => [...prev, { payment_method_id: '', value_cents: null, installments: 1 }])
+  }
+
+  function removeSellPaymentMethod(i: number) {
+    setSellPaymentMethods((prev) => prev.filter((_, idx) => idx !== i))
   }
 
   async function openEditSellModal() {
@@ -393,12 +410,21 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
       const data = await res?.json().catch(() => null)
       if (data?.ok && data.device) {
         const d = data.device as ResaleDevice
+        const salePms = (d as any).sale_payment_methods
+        const pms = Array.isArray(salePms) && salePms.length > 0
+          ? salePms.map((e: any) => ({
+            payment_method_id: String(e.payment_method_id ?? ''),
+            value_cents: e.value_cents != null ? Number(e.value_cents) : null,
+            installments: e.installments != null ? Math.max(1, Number(e.installments)) : 1,
+          }))
+          : (d.payment_method_id
+            ? [{ payment_method_id: d.payment_method_id, value_cents: null, installments: d.payment_installments ?? 1 }]
+            : [{ payment_method_id: '', value_cents: null, installments: 1 }])
+        setSellPaymentMethods(pms.length > 0 ? pms : [{ payment_method_id: '', value_cents: null, installments: 1 }])
         const soldCents = (d as any).sold_for_cents ?? null
         const valueMasked = soldCents != null ? maskedFromCents(soldCents) : ''
         setSellModalValue(valueMasked)
         setSellModalDate(d.sale_date || new Date().toISOString().slice(0, 10))
-        setSellPaymentMethodId((d as any).payment_method_id ?? '')
-        setSellPaymentInstallments((d as any).payment_installments ?? 1)
         setSellBuyerName((d as any).buyer_name ?? '')
         setSellBuyerCpf(formatCpfCnpj((d as any).buyer_cpf ?? ''))
         setSellSaleDetails((d as any).sale_details ?? d.info ?? '')
@@ -415,22 +441,27 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
     const valueCents = moneyToCentsFromMasked(sellModalValue)
     if (valueCents === null) return
 
+    const validMethods = sellPaymentMethods.filter((e) => e.payment_method_id?.trim())
+    const singleMethod = validMethods.length === 1 && (validMethods[0].value_cents == null || validMethods[0].value_cents === 0)
+
     let paymentFeeCents = 0
-    if (sellPaymentMethodId) {
-      const pm = paymentMethods.find((p) => p.id === sellPaymentMethodId)
-      if (pm) {
-        let feePercent = Number(pm.fee_percent) || 0
-        if (pm.type === 'credito' && Array.isArray(pm.credit_installment_fees) && pm.credit_installment_fees.length > 0) {
-          const byInstallments = pm.credit_installment_fees.find(
-            (f) => Number(f.installments) === Number(sellPaymentInstallments || 1)
-          )
-          if (byInstallments && byInstallments.fee_percent != null) {
-            feePercent = Number(byInstallments.fee_percent) || 0
-          }
+    for (const entry of validMethods) {
+      const pm = paymentMethods.find((p) => p.id === entry.payment_method_id)
+      if (!pm) continue
+      let amountCents = entry.value_cents ?? 0
+      if (singleMethod) amountCents = valueCents
+      else if (entry.value_cents == null || entry.value_cents === 0) continue
+      let feePercent = Number(pm.fee_percent) || 0
+      if (pm.type === 'credito' && Array.isArray(pm.credit_installment_fees) && pm.credit_installment_fees.length > 0) {
+        const byInstallments = pm.credit_installment_fees.find(
+          (f) => Number(f.installments) === Number(entry.installments || 1)
+        )
+        if (byInstallments && byInstallments.fee_percent != null) {
+          feePercent = Number(byInstallments.fee_percent) || 0
         }
-        if (feePercent > 0) {
-          paymentFeeCents = Math.floor((valueCents * feePercent) / 100)
-        }
+      }
+      if (feePercent > 0) {
+        paymentFeeCents += Math.floor((amountCents * feePercent) / 100)
       }
     }
 
@@ -456,12 +487,17 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
           ]
         : costsWithoutPaymentFee
 
+    const salePaymentMethodsPayload = validMethods.map((e) => ({
+      payment_method_id: e.payment_method_id,
+      value_cents: singleMethod ? null : (e.value_cents ?? 0),
+      installments: e.installments ?? 1,
+    }))
+
     const payload: Record<string, unknown> = {
       sold: true,
       sold_for_cents: valueCents,
       sale_date: sellModalDate || null,
-      payment_method_id: sellPaymentMethodId || null,
-      payment_installments: sellPaymentMethodId ? sellPaymentInstallments || 1 : null,
+      sale_payment_methods: salePaymentMethodsPayload,
       buyer_name: sellBuyerName.trim() || null,
       buyer_cpf: sellBuyerCpf.trim() || null,
       sale_details: sellSaleDetails.trim() || null,
@@ -976,45 +1012,88 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
               )}
             </div>
             <div className="space-y-2">
-              <Label>Forma de pagamento</Label>
-              <select
-                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-                value={sellPaymentMethodId || ''}
-                onChange={(e) => setSellPaymentMethodId(e.target.value)}
-                disabled={isLoadingPaymentMethods}
-              >
-                <option value="">Selecione</option>
-                {paymentMethods.map((pm) => (
-                  <option key={pm.id} value={pm.id}>
-                    {pm.description}
-                  </option>
+              <div className="flex items-center justify-between">
+                <Label>Formas de pagamento</Label>
+                <Button type="button" variant="outline" size="sm" onClick={addSellPaymentMethod} className="gap-1">
+                  <Plus className="h-3.5 w-3.5" />
+                  Adicionar
+                </Button>
+              </div>
+              <div className="space-y-3">
+                {sellPaymentMethods.map((entry, i) => (
+                  <div key={i} className="flex flex-wrap items-end gap-2 rounded border p-2 bg-muted/30">
+                    <div className="flex-1 min-w-[140px] space-y-1">
+                      <Label className="text-xs">Forma</Label>
+                      <select
+                        className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                        value={entry.payment_method_id || ''}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          setSellPaymentMethodAt(i, { payment_method_id: v, installments: 1 })
+                        }}
+                        disabled={isLoadingPaymentMethods}
+                      >
+                        <option value="">Selecione</option>
+                        {paymentMethods.map((pm) => (
+                          <option key={pm.id} value={pm.id}>
+                            {pm.description}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {sellPaymentMethods.length > 1 && (
+                      <div className="w-24 space-y-1">
+                        <Label className="text-xs">Valor (R$)</Label>
+                        <Input
+                          value={entry.value_cents != null ? maskedFromCents(entry.value_cents) : ''}
+                          onChange={(e) => {
+                            const raw = moneyToCentsFromMasked(formatMoneyInput(e.target.value))
+                            setSellPaymentMethodAt(i, { value_cents: raw })
+                          }}
+                          placeholder="0,00"
+                          className="h-9"
+                        />
+                      </div>
+                    )}
+                    {entry.payment_method_id && (() => {
+                      const pm = paymentMethods.find((p) => p.id === entry.payment_method_id)
+                      const isCredit = pm?.type === 'credito'
+                      if (!isCredit) return null
+                      const maxInstallments = pm?.credit_installment_fees?.length
+                        ? Math.max(...pm.credit_installment_fees.map((f) => f.installments))
+                        : 12
+                      return (
+                        <div className="w-20 space-y-1">
+                          <Label className="text-xs">Parcelas</Label>
+                          <select
+                            className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                            value={String(entry.installments || 1)}
+                            onChange={(e) => setSellPaymentMethodAt(i, { installments: Number(e.target.value) || 1 })}
+                          >
+                            {Array.from({ length: maxInstallments }, (_, n) => n + 1).map((n) => (
+                              <option key={n} value={n}>
+                                {n}x
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )
+                    })()}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
+                      onClick={() => removeSellPaymentMethod(i)}
+                      disabled={sellPaymentMethods.length <= 1}
+                      aria-label="Remover forma de pagamento"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 ))}
-              </select>
+              </div>
             </div>
-            {(() => {
-              const pm = paymentMethods.find((p) => p.id === sellPaymentMethodId)
-              const isCredit = pm?.type === 'credito'
-              if (!isCredit) return null
-              const maxInstallments = pm?.credit_installment_fees?.length
-                ? Math.max(...pm.credit_installment_fees.map((f) => f.installments))
-                : 12
-              return (
-                <div className="space-y-2">
-                  <Label>Parcelas</Label>
-                  <select
-                    className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-                    value={String(sellPaymentInstallments || 1)}
-                    onChange={(e) => setSellPaymentInstallments(Number(e.target.value) || 1)}
-                  >
-                    {Array.from({ length: maxInstallments }, (_, i) => i + 1).map((n) => (
-                      <option key={n} value={n}>
-                        {n}x
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )
-            })()}
             <div className="space-y-2">
               <Label>Nome completo do comprador (opcional)</Label>
               <Input
@@ -1082,6 +1161,7 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
                 sale_details: (termsDevice as any).sale_details ?? null,
                 payment_method_id: (termsDevice as any).payment_method_id ?? null,
                 payment_installments: (termsDevice as any).payment_installments ?? null,
+                sale_payment_methods: (termsDevice as any).sale_payment_methods ?? null,
               }
             : null
         }

@@ -22,9 +22,9 @@ async function requireStaffOrAdmin() {
   return { ok: true as const, supabase }
 }
 
-/** GET: lista fotos de entrada da OS com URLs assinadas (1h) */
+/** GET: lista fotos (com URLs assinadas) ou só contagem (?countOnly=1) */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const auth = await requireStaffOrAdmin()
@@ -35,6 +35,20 @@ export async function GET(
   const { id } = await params
   if (!id) {
     return NextResponse.json({ ok: false, error: 'id_required' }, { status: 400 })
+  }
+
+  const { searchParams } = new URL(request.url)
+  const countOnly = searchParams.get('countOnly') === '1'
+
+  if (countOnly) {
+    const { count, error } = await auth.supabase
+      .from('service_order_entry_photos')
+      .select('*', { count: 'exact', head: true })
+      .eq('service_order_id', id)
+    if (error) {
+      return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+    }
+    return NextResponse.json({ ok: true, count: count ?? 0 })
   }
 
   const { data: rows, error } = await auth.supabase
