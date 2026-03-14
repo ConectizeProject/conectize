@@ -175,39 +175,39 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 
 	const handleAddService = formik
 		? () => {
-				const item: ServiceLine = {
-					id: makeServiceId(),
-					kind: 'service',
-					description: '',
-					quantity: '1',
-					value: '',
-					cost: '',
-				}
-				formik.onAdd(item)
-				setInternalServices((prev) => prev.concat(item))
+			const item: ServiceLine = {
+				id: makeServiceId(),
+				kind: 'service',
+				description: '',
+				quantity: '1',
+				value: '',
+				cost: '',
 			}
+			formik.onAdd(item)
+			setInternalServices((prev) => prev.concat(item))
+		}
 		: addInternalService
 
 	const handleAddProduct = formik
 		? () => {
-				const item: ServiceLine = {
-					id: makeServiceId(),
-					kind: 'product',
-					description: '',
-					quantity: '1',
-					value: '',
-					cost: '',
-				}
-				formik.onAdd(item)
-				setInternalServices((prev) => prev.concat(item))
+			const item: ServiceLine = {
+				id: makeServiceId(),
+				kind: 'product',
+				description: '',
+				quantity: '1',
+				value: '',
+				cost: '',
 			}
+			formik.onAdd(item)
+			setInternalServices((prev) => prev.concat(item))
+		}
 		: addInternalProduct
 
 	const handleRemove = formik
 		? (idx: number) => {
-				formik.onRemove(idx)
-				setInternalServices((prev) => prev.filter((_, i) => i !== idx))
-			}
+			formik.onRemove(idx)
+			setInternalServices((prev) => prev.filter((_, i) => i !== idx))
+		}
 		: removeInternal
 
 	const handleUpdate = formik ? updateInternal : updateInternal
@@ -385,7 +385,7 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 					disabled={disabled}
 				>
 					<Plus className="h-4 w-4 mr-2" />
-					Adicionar serviço
+					Serviço
 				</Button>
 				<Button
 					type="button"
@@ -395,7 +395,7 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 					disabled={disabled}
 				>
 					<Plus className="h-4 w-4 mr-2" />
-					Adicionar produto
+					Produto
 				</Button>
 			</div>
 
