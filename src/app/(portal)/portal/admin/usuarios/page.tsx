@@ -11,6 +11,8 @@ async function updateRoleAction (formData: FormData) {
 
   const userId = String(formData.get('userId') || '').trim()
   const role = String(formData.get('role') || '').trim()
+  const fullName = String(formData.get('fullName') || '').trim()
+  const cpf = String(formData.get('cpf') || '').trim()
 
   if (!userId || !isValidRole(role)) {
     redirect('/portal/admin/usuarios?error=dados_invalidos')
@@ -30,9 +32,19 @@ async function updateRoleAction (formData: FormData) {
   const myNormalizedRole = myRole === 'customer' ? 'user' : myRole
   if (myNormalizedRole !== 'admin') redirect('/portal/ordens')
 
+  const payload: Record<string, unknown> = {
+    role: role === 'customer' ? 'user' : role,
+  }
+  if (formData.has('fullName')) {
+    payload.full_name = fullName || null
+  }
+  if (formData.has('cpf')) {
+    payload.cpf = cpf || null
+  }
+
   const { error } = await supabase
     .from('users')
-    .update({ role: role === 'customer' ? 'user' : role })
+    .update(payload)
     .eq('id', userId)
 
   if (error) redirect('/portal/admin/usuarios?error=nao_foi_possivel_atualizar')
@@ -64,7 +76,7 @@ export default async function AdminUsuariosPage ({
 
   const { data: adminsAndStaff } = await supabase
     .from('users')
-    .select('id, email, role, created_at')
+    .select('id, email, full_name, cpf, role, created_at')
     .in('role', ['admin', 'staff'])
     .order('created_at', { ascending: false })
 

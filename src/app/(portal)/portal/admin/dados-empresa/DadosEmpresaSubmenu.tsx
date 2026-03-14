@@ -2,13 +2,13 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Building2, CreditCard, Smartphone } from 'lucide-react'
+import { Building2, Smartphone, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const submenuItems = [
   { href: '/portal/admin/dados-empresa', label: 'Informações', icon: Building2, exact: true },
-  { href: '/portal/admin/dados-empresa/formas-pagamento', label: 'Formas de pagamento', icon: CreditCard, exact: false },
   { href: '/portal/admin/dados-empresa/aparelhos', label: 'Aparelhos', icon: Smartphone, exact: false },
+  { href: '/portal/admin/presets', label: 'Presets', icon: FileText, exact: false },
 ]
 
 export function DadosEmpresaSubmenu() {

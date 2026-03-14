@@ -2,12 +2,13 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { List, Landmark } from 'lucide-react'
+import { List, Landmark, CreditCard } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const submenuItems = [
   { href: '/portal/financeiro', label: 'Movimentação', icon: List, exact: true },
   { href: '/portal/financeiro/bancos', label: 'Contas', icon: Landmark, exact: false },
+  { href: '/portal/financeiro/formas-pagamento', label: 'Formas de pagamento', icon: CreditCard, exact: false },
 ]
 
 export function FinanceiroSubmenu() {

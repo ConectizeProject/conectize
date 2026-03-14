@@ -26,9 +26,49 @@ import {
 	SidebarProvider,
 	SidebarRail,
 	SidebarTrigger,
+	useSidebar,
 } from '@/components/ui/sidebar'
 import { useTheme } from 'next-themes'
 import { cn } from '@/lib/utils'
+
+type NavItem = { href: string; label: string; icon: React.ComponentType<{ className?: string }> }
+
+function PortalSidebarNav ({ items, pathname }: { items: NavItem[]; pathname: string }) {
+	const { isMobile, setOpenMobile } = useSidebar()
+	const closeMobile = () => {
+		if (isMobile) setOpenMobile(false)
+	}
+	return (
+		<>
+			{items.map((item) => {
+				const Icon = item.icon
+				const active = isActivePath(pathname, item.href)
+				return (
+					<SidebarMenuItem key={item.href}>
+						<SidebarMenuButton asChild isActive={active} tooltip={item.label}>
+							<Link href={item.href} onClick={closeMobile}>
+								<Icon />
+								<span>{item.label}</span>
+							</Link>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+				)
+			})}
+			<SidebarMenuItem>
+				<SidebarMenuButton
+					asChild
+					isActive={isActivePath(pathname, '/portal/complete-profile')}
+					tooltip="Dados"
+				>
+					<Link href="/portal/complete-profile" onClick={closeMobile}>
+						<Settings />
+						<span>Dados</span>
+					</Link>
+				</SidebarMenuButton>
+			</SidebarMenuItem>
+		</>
+	)
+}
 
 type PortalShellProps = {
 	children: React.ReactNode
@@ -106,33 +146,7 @@ export function PortalShell(props: PortalShellProps) {
 						<SidebarGroupLabel>Navegação</SidebarGroupLabel>
 						<SidebarGroupContent>
 							<SidebarMenu>
-								{items.map((item) => {
-									const Icon = item.icon
-									const active = isActivePath(pathname, item.href)
-									return (
-										<SidebarMenuItem key={item.href}>
-											<SidebarMenuButton asChild isActive={active} tooltip={item.label}>
-												<Link href={item.href}>
-													<Icon />
-													<span>{item.label}</span>
-												</Link>
-											</SidebarMenuButton>
-										</SidebarMenuItem>
-									)
-								})}
-
-								<SidebarMenuItem>
-									<SidebarMenuButton
-										asChild
-										isActive={isActivePath(pathname, '/portal/complete-profile')}
-										tooltip="Dados"
-									>
-										<Link href="/portal/complete-profile">
-											<Settings />
-											<span>Dados</span>
-										</Link>
-									</SidebarMenuButton>
-								</SidebarMenuItem>
+								<PortalSidebarNav items={items} pathname={pathname} />
 							</SidebarMenu>
 						</SidebarGroupContent>
 					</SidebarGroup>
