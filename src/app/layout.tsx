@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { Outfit } from 'next/font/google'
 import { Providers } from '@/providers/providers'
 import { NuqsAdapter } from 'nuqs/adapters/next/app'
-import { GoogleAnalytics } from '@/components/GoogleAnalytics'
+import { GoogleAnalyticsSafe } from '@/components/GoogleAnalyticsSafe'
 import './globals.css'
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://conectize.com.br'
@@ -125,7 +125,7 @@ export default function RootLayout ({
   return (
     <html lang="pt-BR" className={outfit.variable} suppressHydrationWarning>
       <body>
-        <GoogleAnalytics />
+        <GoogleAnalyticsSafe />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}

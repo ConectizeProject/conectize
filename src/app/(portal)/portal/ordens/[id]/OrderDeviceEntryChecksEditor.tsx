@@ -14,28 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-
-const ENTRY_CHECK_ITEMS: { key: string; label: string; requiresOn?: boolean }[] = [
-  { key: 'rear_camera_main', label: 'Câmera traseira (1x)', requiresOn: true },
-  { key: 'rear_camera_2x', label: 'Câmera traseira (2x)', requiresOn: true },
-  { key: 'rear_camera_3x', label: 'Câmera traseira (3x)', requiresOn: true },
-  { key: 'front_camera', label: 'Câmera frontal', requiresOn: true },
-  { key: 'microphone', label: 'Microfone', requiresOn: true },
-  { key: 'earpiece_speaker', label: 'Alto-falante de ouvido', requiresOn: true },
-  { key: 'loudspeaker', label: 'Alto-falante principal', requiresOn: true },
-  { key: 'charging_port', label: 'Carregamento (cabo)', requiresOn: true },
-  { key: 'wireless_charging', label: 'Carregamento por indução', requiresOn: true },
-  { key: 'sim_signal', label: 'Sinal de operadora', requiresOn: true },
-  { key: 'wifi', label: 'Wi‑Fi', requiresOn: true },
-  { key: 'bluetooth', label: 'Bluetooth', requiresOn: true },
-  { key: 'face_touch_id', label: 'Face ID / Touch ID', requiresOn: true },
-  { key: 'volume_buttons', label: 'Botões de volume', requiresOn: true },
-  { key: 'power_button', label: 'Botão power', requiresOn: true },
-  { key: 'vibration', label: 'Vibração', requiresOn: true },
-  { key: 'proximity_sensor', label: 'Sensor de proximidade', requiresOn: true },
-  { key: 'display_touch', label: 'Toque na tela', requiresOn: true },
-  { key: 'display_colors', label: 'Cores/brilho da tela', requiresOn: true },
-]
+import { ENTRY_CHECK_ITEMS } from '@/lib/orders/entry-check-items'
 
 function parseChecks(raw: Record<string, unknown> | null): Record<string, 'ok' | 'fail' | 'na'> {
   const out: Record<string, 'ok' | 'fail' | 'na'> = {}

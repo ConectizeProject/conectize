@@ -103,9 +103,31 @@
     @apply border-border;
   }
 
+  html,
+  body {
+    @apply overflow-x-hidden;
+  }
+
   body {
     @apply bg-background text-foreground font-sans antialiased;
     font-family: var(--font-outfit), sans-serif;
+  }
+
+  /* Evita zoom automático ao focar em campos no mobile (iOS/Safari) */
+  @media (max-width: 768px) {
+    input:not([type="checkbox"]):not([type="radio"]),
+    textarea,
+    select {
+      font-size: 16px !important;
+    }
+  }
+
+  /* Evita inputs estourarem a largura da tela */
+  input,
+  textarea,
+  select {
+    max-width: 100%;
+    box-sizing: border-box;
   }
 
   h1,

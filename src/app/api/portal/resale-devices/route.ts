@@ -88,6 +88,7 @@ export async function GET(request: Request) {
       sale_date,
       payment_method_id,
       payment_installments,
+      sale_payment_methods,
       buyer_name,
       buyer_cpf,
       sale_details,

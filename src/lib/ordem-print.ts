@@ -305,10 +305,13 @@ export function buildOrdemPrintHtml(
   company?: CompanyPrintData | null,
   baseUrl: string = ''
 ): string {
+  // URL do logo: absoluta (http) usa como está; path com / usa em relação à origem da janela de impressão (mesmo domínio)
   const logoFullUrl = company?.logoUrl
     ? company.logoUrl.startsWith('http')
       ? company.logoUrl
-      : `${baseUrl}${company.logoUrl.startsWith('/') ? company.logoUrl : '/' + company.logoUrl}`
+      : company.logoUrl.startsWith('/')
+        ? company.logoUrl
+        : `${baseUrl}${baseUrl.endsWith('/') ? '' : '/'}${company.logoUrl}`
     : ''
   const customerName = data.customer.isCompany
     ? (data.customer.companyName || data.customer.fullName || '-')
@@ -339,7 +342,7 @@ export function buildOrdemPrintHtml(
 <body>
   ${company && (company.name || company.logoUrl || company.address || company.cnpj) ? `
   <div class="print-header">
-    ${logoFullUrl ? `<img src="${logoFullUrl}" alt="Logo" style="height: 48px; width: auto;" onerror="this.style.display='none'" />` : ''}
+    ${logoFullUrl ? `<img src="${escapeHtml(logoFullUrl)}" alt="Logo" style="height: 48px; width: auto;" onerror="this.style.display='none'" />` : ''}
     <div style="flex: 1;">
       ${company.name ? `<div style="font-size: 16px; font-weight: 700;">${company.name}</div>` : ''}
       ${company.cnpj ? `<div style="font-size: 11px; color: #555;">CNPJ ${formatCompanyCnpj(company.cnpj)}</div>` : ''}

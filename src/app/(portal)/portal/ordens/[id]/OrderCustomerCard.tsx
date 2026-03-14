@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Pencil, ChevronDown, ChevronUp, History } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { EditCustomerDialog, type CustomerHit } from '@/components/customers'
 import { CustomerDataGrid, CustomerOrderHistoryModal } from '@/components/orders'
@@ -114,13 +114,16 @@ export function OrderCustomerCard({ customer }: Props) {
       <Collapsible open={isDataOpen} onOpenChange={setIsDataOpen}>
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div>
-                <CardDescription>
-                  {getCustomerDisplayName(customer)} • {getCustomerDocumentMasked(customer)}
-                </CardDescription>
+            <div className="flex items-center justify-between gap-3 flex-nowrap">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-foreground truncate">
+                  {getCustomerDisplayName(customer)}
+                </p>
+                <p className="text-sm text-muted-foreground truncate">
+                  {getCustomerDocumentMasked(customer)}
+                </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 {showHistoryButton ? (
                   <Button
                     type="button"

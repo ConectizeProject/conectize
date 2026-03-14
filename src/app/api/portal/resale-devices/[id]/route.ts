@@ -23,6 +23,23 @@ function toDate(value: unknown): string | null {
   return s
 }
 
+type SalePaymentEntry = { payment_method_id: string; installments?: number; value_cents?: number | null }
+
+function normalizeSalePaymentMethods(
+  raw: unknown
+): Array<SalePaymentEntry> | undefined {
+  if (raw === undefined) return undefined
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((e: unknown) => e && typeof e === 'object' && (e as SalePaymentEntry).payment_method_id)
+    .map((e: SalePaymentEntry) => ({
+      payment_method_id: String((e as SalePaymentEntry).payment_method_id).trim(),
+      installments: (e as SalePaymentEntry).installments != null ? Math.max(1, Math.min(24, Number((e as SalePaymentEntry).installments) || 1)) : undefined,
+      value_cents: (e as SalePaymentEntry).value_cents != null ? Math.max(0, Number((e as SalePaymentEntry).value_cents) || 0) : null,
+    }))
+    .filter((e) => e.payment_method_id)
+}
+
 async function requireStaffOrAdmin() {
   const supabase = await createSupabaseServerClient()
   const { user } = await getAuthUser()
@@ -93,12 +110,19 @@ export async function PATCH(
   }
 
   const row: Record<string, unknown> = {}
-  if (body.payment_method_id !== undefined) {
-    row.payment_method_id = body.payment_method_id || null
-  }
-  if (body.payment_installments !== undefined || body.installments !== undefined) {
-    const installments = body.payment_installments ?? body.installments
-    row.payment_installments = installments === null || installments === undefined ? null : Number(installments) || null
+
+  const salePaymentMethods = normalizeSalePaymentMethods(body.sale_payment_methods)
+  if (salePaymentMethods !== undefined) {
+    row.sale_payment_methods = salePaymentMethods
+    const first = Array.isArray(salePaymentMethods) && salePaymentMethods.length > 0 ? salePaymentMethods[0] : null
+    row.payment_method_id = first?.payment_method_id || null
+    row.payment_installments = first?.installments != null ? Number(first.installments) : null
+  } else {
+    if (body.payment_method_id !== undefined) row.payment_method_id = body.payment_method_id || null
+    if (body.payment_installments !== undefined || body.installments !== undefined) {
+      const installments = body.payment_installments ?? body.installments
+      row.payment_installments = installments === null || installments === undefined ? null : Number(installments) || null
+    }
   }
   if (body.buyer_name !== undefined) {
     row.buyer_name = body.buyer_name ? cleanText(body.buyer_name) : null
@@ -135,6 +159,7 @@ export async function PATCH(
     row.actual_profit_cents = null
     row.payment_method_id = null
     row.payment_installments = null
+    row.sale_payment_methods = []
     row.buyer_name = null
     row.buyer_cpf = null
     row.sale_details = null

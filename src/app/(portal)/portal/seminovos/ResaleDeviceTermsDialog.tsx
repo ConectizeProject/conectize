@@ -32,6 +32,7 @@ type ResaleDeviceForTerms = {
   sale_details: string | null
   payment_method_id: string | null
   payment_installments: number | null
+  sale_payment_methods?: Array<{ payment_method_id: string; value_cents?: number | null; installments?: number }> | null
 }
 
 type Props = {
@@ -92,19 +93,33 @@ export function ResaleDeviceTermsDialog({ open, onOpenChange, device }: Props) {
   }, [open])
 
   const paymentSummary = useMemo(() => {
-    if (!device || !device.payment_method_id) return 'Não informado'
-    const pm = paymentMethods.find((p) => p.id === device.payment_method_id)
-    if (!pm) return 'Não informado'
+    if (!device) return 'Não informado'
+    const list = Array.isArray(device.sale_payment_methods) && device.sale_payment_methods.length > 0
+      ? device.sale_payment_methods
+      : (device.payment_method_id
+        ? [{ payment_method_id: device.payment_method_id, installments: device.payment_installments ?? 1, value_cents: null }]
+        : [])
+    if (list.length === 0) return 'Não informado'
 
-    if (pm.type === 'dinheiro') return 'Dinheiro'
-    if (pm.type === 'pix_direto' || pm.type === 'pix_maquina') return 'PIX'
-    if (pm.type === 'debito') return 'Cartão de débito'
-    if (pm.type === 'credito') {
-      const installments = device.payment_installments && device.payment_installments > 1 ? device.payment_installments : 1
-      if (installments > 1) return `Cartão de crédito ${installments}x`
-      return 'Cartão de crédito'
+    const labels: string[] = []
+    for (const entry of list) {
+      const pm = paymentMethods.find((p) => p.id === entry.payment_method_id)
+      if (!pm) continue
+      let label = 'Não informado'
+      if (pm.type === 'dinheiro') label = 'Dinheiro'
+      else if (pm.type === 'pix_direto' || pm.type === 'pix_maquina') label = 'PIX'
+      else if (pm.type === 'debito') label = 'Cartão de débito'
+      else if (pm.type === 'credito') {
+        const installments = entry.installments && entry.installments > 1 ? entry.installments : 1
+        label = installments > 1 ? `Cartão de crédito ${installments}x` : 'Cartão de crédito'
+      } else label = pm.description || 'Não informado'
+      if (entry.value_cents != null && entry.value_cents > 0) {
+        const value = (entry.value_cents / 100).toFixed(2).replace('.', ',')
+        label = `${label} (R$ ${value})`
+      }
+      labels.push(label)
     }
-    return pm.description || 'Não informado'
+    return labels.length > 0 ? labels.join('; ') : 'Não informado'
   }, [device, paymentMethods])
 
   const saleDateBr = formatDateBrFromIso(device?.sale_date ?? null)
