@@ -172,6 +172,7 @@ export type OrdemPrintData = {
   internalDescription: string | null
   receivingNotes: string | null
   assistanceInfo?: string | null
+  warrantyText?: string | null
   services?: Array<{
     description?: string | null
     valueCents?: number | null
@@ -464,7 +465,8 @@ export function buildOrdemPrintHtml(
 
       return ''
     })()}
-  ${data.assistanceInfo ? `<div class="section"><h2>Informações sobre a assistência</h2><div class="block">${data.assistanceInfo}</div></div>` : ''}
+  ${data.warrantyText ? `<div class="section"><h2>Termos de garantia</h2><div class="block">${escapeHtml(data.warrantyText)}</div></div>` : ''}
+  ${data.assistanceInfo ? `<div class="section"><h2>Informações sobre a assistência</h2><div class="block">${escapeHtml(data.assistanceInfo)}</div></div>` : ''}
   ${buildServicesSection(data.services)}
 
   <div class="section">

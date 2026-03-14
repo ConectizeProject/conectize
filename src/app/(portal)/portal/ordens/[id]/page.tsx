@@ -11,7 +11,7 @@ import { OrderStatusBadge, OsAssistAiIconButton } from '@/components/orders'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { getOrdemErrorMessage } from '@/lib/utils/error-messages'
 import { formatDateBr, formatDateTimeBr } from '@/lib/utils/format-date'
-import { OrderDeviceSelector, OrderPaymentMethodFields, OrderServicesCard, OrderServicesTotalProvider } from '@/components/orders'
+import { OrderDeviceSelector, OrderPaymentMethodFields, OrderServicesCard, OrderServicesTotalProvider, OrderWarrantySelector } from '@/components/orders'
 import { OrderCustomerCard } from './OrderCustomerCard'
 import { OrderPasscodeFields } from './OrderPasscodeFields'
 import { OrderDeviceEntryChecksEditor } from './OrderDeviceEntryChecksEditor'
@@ -201,14 +201,20 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 	if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
 
 	const supabase = await createSupabaseServerClient()
-	const [{ data: order }, { data: companySettings }, deviceModels] = await Promise.all([
+	const [{ data: order }, { data: companySettings }, deviceModels, { data: warrantyTemplates }] = await Promise.all([
 		supabase
 			.from('service_orders')
-			.select('id, display_number, status, title, imei, color, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, payment_methods, customer_description, internal_description, receiving_notes, assistance_info, device_model_id, brand, model, services, services_total_cents, services_cost_total_cents, created_at, updated_at, closed_at, share_token, seller_user_id, device_entry_checks, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date, zip_code, state, city, neighborhood, street, street_number, street_complement, referral_source, referral_source_other ), device_models ( id, model, device_types ( name, device_brands ( name ) ) )')
+			.select('id, display_number, status, title, imei, color, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, payment_methods, customer_description, internal_description, receiving_notes, assistance_info, warranty_template_id, warranty_text, device_model_id, brand, model, services, services_total_cents, services_cost_total_cents, created_at, updated_at, closed_at, share_token, seller_user_id, device_entry_checks, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date, zip_code, state, city, neighborhood, street, street_number, street_complement, referral_source, referral_source_other ), device_models ( id, model, device_types ( name, device_brands ( name ) ) )')
 			.eq('id', id)
 			.maybeSingle(),
 		supabase.from('company_settings').select('name, cnpj, address, complement, zip_code, city, state, phone, email, logo_url').eq('id', 1).maybeSingle(),
 		fetchDeviceModelsForSelector(supabase),
+		supabase
+			.from('warranty_templates')
+			.select('id, name, body, is_active, is_default')
+			.order('is_default', { ascending: false })
+			.order('sort_order', { ascending: true })
+			.order('created_at', { ascending: true }),
 	])
 
 	if (!order) {
@@ -281,6 +287,8 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 		const deviceModelId = String(formData.get('deviceModelId') || '').trim()
 		const brand = String(formData.get('brand') || '').trim() || null
 		const model = String(formData.get('model') || '').trim() || null
+		const warrantyTemplateId = String(formData.get('warrantyTemplateId') || '').trim() || null
+		const warrantyTextRaw = String(formData.get('warrantyText') || '').trim()
 		const formSellerUserId = String(formData.get('seller_user_id') || '').trim()
 		const servicesJson = formData.get('servicesJson')
 		const services = parseServicesJson(servicesJson)
@@ -336,6 +344,8 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 			internal_description: internalDescription || null,
 			receiving_notes: receivingNotes || null,
 			assistance_info: assistanceInfo || null,
+			warranty_template_id: warrantyTemplateId || null,
+			warranty_text: warrantyTextRaw || null,
 			device_model_id: deviceModelId || null,
 			brand: brand ?? null,
 			model: model ?? null,
@@ -582,6 +592,26 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 							</div>
 							<Textarea id="assistanceInfo" name="assistanceInfo" defaultValue={order.assistance_info || ''} placeholder="" disabled={formDisabled} />
 						</div>
+
+						{Array.isArray(warrantyTemplates) && warrantyTemplates.length > 0 && (
+							<Card>
+								<CardHeader>
+									<CardTitle>Garantia</CardTitle>
+									<CardDescription>
+										Modelo e texto de garantia exibidos na impressão e na visão pública da OS.
+									</CardDescription>
+								</CardHeader>
+								<CardContent>
+									<OrderWarrantySelector
+										templates={warrantyTemplates as Array<{ id: string; name: string; body: string; is_active?: boolean; is_default?: boolean }>}
+										initialTemplateId={(order.warranty_template_id as string | null) ?? null}
+										initialText={(order.warranty_text as string | null) ?? null}
+										formId="order-edit-form"
+										disabled={formDisabled}
+									/>
+								</CardContent>
+							</Card>
+						)}
 
 						<OrderPaymentMethodFields
 							defaultValue={parseOrderPaymentMethods(order)}
