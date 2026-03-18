@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -16,10 +16,12 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import Link from 'next/link'
 import {
   Bot,
   Check,
   ExternalLink,
+  History,
   Package,
   Settings,
   ShoppingCart,
@@ -110,10 +112,33 @@ const OPENAI_MODELS = [
   { value: 'gpt-4o', label: 'GPT-4o (versão anterior)' },
 ] as const
 
+type BlingConnection = {
+  id: string
+  platform_id: string
+  metadata?: Record<string, unknown> | null
+  created_at?: string
+}
+
 type Props = {
   initialConnections: string[]
+  blingConnections?: BlingConnection[]
   isAdmin?: boolean
   chatgptModel?: string
+}
+
+function formatConnectionLabel(connection: BlingConnection, index: number) {
+  if (connection.metadata && typeof connection.metadata === 'object' && 'nome' in connection.metadata && connection.metadata.nome) {
+    return String(connection.metadata.nome)
+  }
+  if (connection.created_at) {
+    try {
+      const d = new Date(connection.created_at)
+      return `Conectada em ${d.toLocaleDateString('pt-BR')}`
+    } catch {
+      // fallback
+    }
+  }
+  return `Conta ${index + 1}`
 }
 
 function IntegrationCard({
@@ -123,6 +148,8 @@ function IntegrationCard({
   onConnect,
   onDisconnect,
   onConfigure,
+  blingConnections = [],
+  onDisconnectBlingConnection,
 }: {
   integration: Integration
   isConnected: boolean
@@ -130,11 +157,14 @@ function IntegrationCard({
   onConnect: () => void
   onDisconnect: () => void
   onConfigure?: () => void
+  blingConnections?: BlingConnection[]
+  onDisconnectBlingConnection?: (connectionId: string) => void
 }) {
   const Icon = integration.icon
   const isComingSoon = integration.status === 'coming_soon'
   const canConnectApiKey = isAdmin && !isComingSoon && integration.authType === 'api_key'
   const canConnectOAuth = isAdmin && !isComingSoon && integration.authType === 'oauth' && integration.oauthUrl
+  const isBling = integration.id === 'bling'
   const canConnect = canConnectApiKey || canConnectOAuth
 
   return (
@@ -163,7 +193,32 @@ function IntegrationCard({
           <CardDescription className="text-sm">{integration.description}</CardDescription>
         </div>
       </CardHeader>
-      <CardContent className="pt-0">
+      <CardContent className="pt-0 space-y-3">
+        {isBling && blingConnections.length > 0 && (
+          <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">Contas conectadas</p>
+            <ul className="space-y-2">
+              {blingConnections.map((conn, index) => (
+                <li
+                  key={conn.id}
+                  className="flex items-center justify-between gap-2 text-sm"
+                >
+                  <span className="truncate">{formatConnectionLabel(conn, index)}</span>
+                  {onDisconnectBlingConnection && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="shrink-0 h-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                      onClick={() => onDisconnectBlingConnection(conn.id)}
+                    >
+                      Desconectar
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <div className="flex items-center gap-2 flex-wrap">
           {canConnect && (
             <>
@@ -175,9 +230,15 @@ function IntegrationCard({
                       Configurar
                     </Button>
                   ) : null}
-                  <Button size="sm" variant="outline" onClick={onDisconnect}>
-                    Desconectar
-                  </Button>
+                  {isBling && integration.oauthUrl ? (
+                    <Button size="sm" asChild>
+                      <a href={integration.oauthUrl}>Conectar outra conta</a>
+                    </Button>
+                  ) : !isBling ? (
+                    <Button size="sm" variant="outline" onClick={onDisconnect}>
+                      Desconectar
+                    </Button>
+                  ) : null}
                 </>
               ) : integration.oauthUrl ? (
                 <Button size="sm" asChild>
@@ -197,15 +258,27 @@ function IntegrationCard({
               </a>
             </Button>
           )}
+          {isBling && isAdmin && (
+            <Button size="sm" variant="ghost" asChild>
+              <Link href="/portal/admin/webhooks" className="inline-flex items-center gap-1.5">
+                <History className="h-4 w-4" />
+                Histórico de webhooks
+              </Link>
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>
   )
 }
 
-export function HubClient({ initialConnections, isAdmin = false, chatgptModel = 'gpt-5-mini' }: Props) {
+export function HubClient({ initialConnections, blingConnections: initialBlingConnections = [], isAdmin = false, chatgptModel = 'gpt-5-mini' }: Props) {
   const router = useRouter()
   const [connections, setConnections] = useState<Set<string>>(new Set(initialConnections))
+  const [blingConnections, setBlingConnections] = useState<BlingConnection[]>(initialBlingConnections)
+  useEffect(() => {
+    setBlingConnections(initialBlingConnections)
+  }, [initialBlingConnections])
   const [connectDialog, setConnectDialog] = useState<Integration | null>(null)
   const [apiKey, setApiKey] = useState('')
   const [selectedModel, setSelectedModel] = useState<string>(chatgptModel)
@@ -308,6 +381,32 @@ export function HubClient({ initialConnections, isAdmin = false, chatgptModel = 
     }
   }
 
+  async function handleDisconnectBlingConnection(connectionId: string) {
+    if (!confirm('Desconectar esta conta do Bling?')) return
+
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/portal/hub/connections/item/${connectionId}`, { method: 'DELETE' })
+      const data = await res.json().catch(() => null)
+
+      if (!res.ok || !data?.ok) {
+        toast({ title: 'Erro ao desconectar', variant: 'destructive' })
+        return
+      }
+
+      setBlingConnections((prev) => prev.filter((c) => c.id !== connectionId))
+      setConnections((prev) => {
+        const next = new Set(prev)
+        if (blingConnections.length <= 1) next.delete('bling')
+        return next
+      })
+      toast({ variant: 'success', title: 'Conta desconectada', description: 'Conta do Bling removida.' })
+      router.refresh()
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="rounded-lg border bg-muted/30 p-4">
@@ -320,12 +419,16 @@ export function HubClient({ initialConnections, isAdmin = false, chatgptModel = 
 
       <div>
         <h2 className="text-lg font-semibold mb-4">Integrações disponíveis</h2>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {integrations.map((integration) => (
             <IntegrationCard
               key={integration.id}
               integration={integration}
-              isConnected={connections.has(integration.id)}
+              isConnected={
+                integration.id === 'bling'
+                  ? blingConnections.length > 0
+                  : connections.has(integration.id)
+              }
               isAdmin={isAdmin}
               onConnect={() => {
                 setSelectedModel(integration.id === 'chatgpt' ? chatgptModel : 'gpt-5-mini')
@@ -339,6 +442,10 @@ export function HubClient({ initialConnections, isAdmin = false, chatgptModel = 
                       setConnectDialog(integration)
                     }
                   : undefined
+              }
+              blingConnections={integration.id === 'bling' ? blingConnections : undefined}
+              onDisconnectBlingConnection={
+                integration.id === 'bling' ? handleDisconnectBlingConnection : undefined
               }
             />
           ))}

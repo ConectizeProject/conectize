@@ -102,7 +102,7 @@ export async function GET(request: NextRequest) {
         created_by: user.id,
         updated_at: new Date().toISOString(),
       },
-      { onConflict: 'platform_id' }
+      { onConflict: 'platform_id,created_by' }
     )
 
   if (dbError) {

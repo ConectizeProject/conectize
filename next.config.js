@@ -3,6 +3,24 @@ const nextConfig = {
 	reactStrictMode: true,
 	images: {
 		formats: ['image/avif', 'image/webp'],
+		remotePatterns: [
+			{
+				protocol: 'https',
+				hostname: 'm.media-amazon.com',
+			},
+			{
+				protocol: 'https',
+				hostname: 'http2.mlstatic.com',
+			},
+			{
+				protocol: 'https',
+				hostname: 'elastobor.vtexassets.com',
+			},
+			{
+				protocol: 'https',
+				hostname: 'nacionalsmart.com.br',
+			},
+		],
 	},
 	// Turbopack: cache em disco para dev mais rápido entre reinícios (Next.js 16)
 	experimental: {
