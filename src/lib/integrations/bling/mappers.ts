@@ -83,6 +83,11 @@ export function mapBlingProductToLocal (dto: BlingProductDto): LocalProduct {
       : tipo === 'S' ? 'service'
         : null
 
+  const situacao = (dto.situacao || '').toString().trim().toUpperCase()
+  const isActive = situacao
+    ? situacao !== 'INATIVO' && situacao !== 'I'
+    : true
+
   return {
     blingId: id,
     parentBlingId: parentId,
@@ -92,7 +97,7 @@ export function mapBlingProductToLocal (dto: BlingProductDto): LocalProduct {
     description: (dto.descricao ?? dto.descricaoCurta) ? String(dto.descricao ?? dto.descricaoCurta ?? '').trim() : null,
     salePriceCents: typeof dto.preco === 'number' && Number.isFinite(dto.preco) ? Math.round(dto.preco * 100) : null,
     costPriceCents: costCents,
-    isActive: dto.situacao ? dto.situacao.toLowerCase() !== 'inativo' && dto.situacao.toLowerCase() !== 'i' : true,
+    isActive,
     imageUrl,
     kind,
     estoqueAtual,
@@ -109,7 +114,7 @@ export function mapLocalProductToBling (product: LocalProduct): Record<string, u
   if (typeof product.salePriceCents === 'number') payload.preco = product.salePriceCents / 100
   if (typeof product.costPriceCents === 'number') payload.custo = product.costPriceCents / 100
   if (typeof product.isActive === 'boolean') {
-    payload.situacao = product.isActive ? 'Ativo' : 'Inativo'
+    payload.situacao = product.isActive ? 'A' : 'I'
   }
   if (product.kind === 'product') payload.tipo = 'P'
   if (product.kind === 'service') payload.tipo = 'S'

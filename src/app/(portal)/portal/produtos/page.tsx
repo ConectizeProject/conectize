@@ -4,6 +4,7 @@ import { getPortalAuth, createSupabaseServerClient } from '@/lib/supabase/server
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ProductsListClient } from './ProductsListClient'
+import type { ProductRow } from './ProductsListClient'
 import { ImportFromBlingButton } from './ImportFromBlingButton'
 import { BackfillFromBlingButton } from './BackfillFromBlingButton'
 
@@ -19,6 +20,30 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
   const pageSize = 100
   const offset = (pageNumber - 1) * pageSize
 
+  type Raw = {
+    id: string
+    bling_id?: string | null
+    parent_bling_id?: string | null
+    bling_sync_pending?: boolean | null
+    kind?: 'product' | 'service' | null
+    name: string
+    sku?: string | null
+    barcode?: string | null
+    image_url?: string | null
+    sale_price_cents?: number | null
+    cost_price_cents?: number | null
+    is_active?: boolean
+    created_at?: string
+  }
+
+  type MovementRow = {
+    product_id: string
+    type: string
+    quantity: number
+    unit_value_cents?: number
+    created_at?: string
+  }
+
   const { user, role } = await getPortalAuth()
   if (!user) redirect('/portal/login')
 
@@ -30,7 +55,7 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
   // 1) Pais paginados
   let parentsQuery = supabase
     .from('products')
-    .select('id, bling_id, kind, name, sku, barcode, image_url, sale_price_cents, cost_price_cents, is_active, created_at', { count: 'exact' })
+    .select('id, bling_id, bling_sync_pending, kind, name, sku, barcode, image_url, sale_price_cents, cost_price_cents, is_active, created_at', { count: 'exact' })
     .is('parent_bling_id', null)
     .order('created_at', { ascending: false })
 
@@ -55,11 +80,11 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
     .map((p: { bling_id?: string | null }) => p.bling_id)
     .filter((id): id is string => typeof id === 'string' && id.length > 0)
 
-  let children: any[] = []
+  let children: Raw[] = []
   if (parentBlingIds.length > 0) {
     let childrenQuery = supabase
       .from('products')
-      .select('id, bling_id, parent_bling_id, name, sku, barcode, image_url, sale_price_cents, cost_price_cents, is_active, created_at')
+      .select('id, bling_id, bling_sync_pending, parent_bling_id, name, sku, barcode, image_url, sale_price_cents, cost_price_cents, is_active, created_at')
       .in('parent_bling_id', parentBlingIds)
 
     if (activeFilter === 'active') {
@@ -77,6 +102,7 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
 
   const stockByProductId: Record<string, number> = {}
   const lastEntryCostByProductId: Record<string, number> = {}
+  const lastEntryDateByProductId: Record<string, number> = {}
   const hasStockMovementsByProductId: Record<string, boolean> = {}
 
   if (allProducts.length > 0) {
@@ -88,12 +114,12 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
       .limit(10000)
 
     if (!movementsError && movements && Array.isArray(movements)) {
-      for (const m of movements) {
-        const pid = (m as { product_id: string }).product_id
-        const type = String((m as { type: string }).type ?? '').toLowerCase()
-        const qty = Number((m as { quantity: number }).quantity) || 0
-        const valueCents = Number((m as { unit_value_cents?: number }).unit_value_cents) || 0
-        const createdAt = (m as { created_at?: string }).created_at
+      for (const m of movements as MovementRow[]) {
+        const pid = m.product_id
+        const type = String(m.type ?? '').toLowerCase()
+        const qty = Number(m.quantity) || 0
+        const valueCents = Number(m.unit_value_cents) || 0
+        const createdAt = m.created_at
 
         hasStockMovementsByProductId[pid] = true
 
@@ -103,41 +129,22 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
 
         if (type === 'entry' && valueCents > 0 && createdAt) {
           const currentDate = new Date(createdAt).getTime()
-          const existingDate = lastEntryCostByProductId[pid] != null
-            ? new Date(
-                (movements as any[])
-                  .find((x) => (x as any).product_id === pid && (x as any).type === 'entry' && (x as any).unit_value_cents === lastEntryCostByProductId[pid])
-                  ?.created_at || 0,
-              ).getTime()
-            : 0
+          const existingDate = lastEntryDateByProductId[pid] ?? 0
 
           if (!lastEntryCostByProductId[pid] || currentDate >= existingDate) {
             lastEntryCostByProductId[pid] = valueCents
+            lastEntryDateByProductId[pid] = currentDate
           }
         }
       }
     }
   }
 
-  type Raw = {
-    id: string
-    bling_id?: string | null
-    parent_bling_id?: string | null
-    kind?: 'product' | 'service' | null
-    name: string
-    sku?: string | null
-    barcode?: string | null
-    image_url?: string | null
-    sale_price_cents?: number | null
-    cost_price_cents?: number | null
-    is_active?: boolean
-    created_at?: string
-  }
-
   const normalize = (p: Raw) => ({
     id: p.id,
     bling_id: p.bling_id ?? null,
     parent_bling_id: p.parent_bling_id ?? null,
+    bling_sync_pending: p.bling_sync_pending ?? false,
     kind: p.kind ?? null,
     name: p.name,
     sku: p.sku ?? null,
@@ -172,7 +179,7 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
     childrenByParentId.set(parent.id, arr)
   }
 
-  const productsWithStock = parentRows.flatMap((parent) => {
+  const productsWithStock: ProductRow[] = parentRows.flatMap((parent) => {
     const parentRow = {
       ...parent,
       is_variation: false,
@@ -258,7 +265,7 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
         </CardContent>
       </Card>
 
-      <ProductsListClient products={productsWithStock as any} />
+      <ProductsListClient products={productsWithStock} />
     </div>
   )
 }

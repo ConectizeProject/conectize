@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { BarChart3, Building2, ChevronDown, ClipboardList, DollarSign, Home, LayoutDashboard, LogOut, Moon, Plug2, Settings, Sun, UserCheck, Smartphone, Users, Package, Webhook } from 'lucide-react'
+import { BarChart3, Building2, ChevronDown, ClipboardList, DollarSign, Home, LayoutDashboard, LogOut, Moon, Plug2, Settings, Sun, UserCheck, Smartphone, Users, Package } from 'lucide-react'
 import { PortalDataChat } from './PortalDataChat'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
@@ -130,7 +130,6 @@ export function PortalShell(props: PortalShellProps) {
 				...(isAdmin ? [
 					{ href: '/portal/financeiro', label: 'Financeiro', icon: DollarSign },
 					{ href: '/portal/relatorios/servicos', label: 'Relatórios', icon: BarChart3 },
-					{ href: '/portal/admin/webhooks', label: 'Webhooks', icon: Webhook },
 				] : []),
 			]
 

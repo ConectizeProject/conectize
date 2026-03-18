@@ -1,13 +1,18 @@
 import { getBlingClientForCurrentUser } from '@/lib/integrations/bling/api'
-import { mapLocalProductToBling } from '@/lib/integrations/bling/mappers'
+import { mapBlingProductToLocal } from '@/lib/integrations/bling/mappers'
+import {
+  buildBlingPayloadFromSnapshotDiff,
+  createProductSyncSnapshot,
+} from '@/lib/products/bling-sync'
 import {
   getProductById,
   updateProduct,
   type Product,
+  type ProductSyncSnapshot,
   type UpdateProductInput,
 } from '@/lib/products/service'
 
-type UpdateProductAndSyncResult =
+type ProductMutationResult =
   | {
     ok: true
     product: Product
@@ -106,24 +111,10 @@ function normalizePatch (input: UpdateProductInput): NormalizePatchResult {
   return { ok: true as const, patch }
 }
 
-function mergeProduct (currentProduct: Product, patch: UpdateProductInput) {
-  return {
-    blingId: currentProduct.blingId,
-    kind: patch.kind !== undefined ? patch.kind : currentProduct.kind ?? null,
-    name: patch.name !== undefined ? patch.name : currentProduct.name,
-    sku: patch.sku !== undefined ? patch.sku : currentProduct.sku,
-    barcode: patch.barcode !== undefined ? patch.barcode : currentProduct.barcode,
-    description: patch.description !== undefined ? patch.description : currentProduct.description,
-    salePriceCents: patch.salePriceCents !== undefined ? patch.salePriceCents : currentProduct.salePriceCents,
-    costPriceCents: patch.costPriceCents !== undefined ? patch.costPriceCents : currentProduct.costPriceCents,
-    isActive: patch.isActive !== undefined ? patch.isActive : currentProduct.isActive,
-  }
-}
-
 export async function updateProductAndSyncBling (
   id: string,
   input: UpdateProductInput,
-): Promise<UpdateProductAndSyncResult> {
+): Promise<ProductMutationResult> {
   const normalizedPatch = normalizePatch(input)
   if ('error' in normalizedPatch) {
     return { ok: false, error: normalizedPatch.error }
@@ -135,19 +126,53 @@ export async function updateProductAndSyncBling (
   }
 
   const currentProduct = currentResult.product
+  const updatedResult = await updateProduct(id, {
+    ...normalizedPatch.patch,
+    blingSyncPending: Boolean(currentProduct.blingId),
+  })
 
-  if (currentProduct.blingId) {
-    const clientResult = await getBlingClientForCurrentUser()
-    if (!clientResult.ok || !('client' in clientResult)) {
-      return { ok: false, error: 'error' in clientResult ? clientResult.error : 'bling_client_unavailable' }
-    }
+  if (!updatedResult.ok || !('product' in updatedResult)) {
+    return { ok: false, error: 'error' in updatedResult ? updatedResult.error ?? 'db_error' : 'db_error' }
+  }
 
+  return {
+    ok: true,
+    product: updatedResult.product,
+    syncedToBling: false,
+  }
+}
+
+export async function syncProductToBling (
+  id: string,
+): Promise<ProductMutationResult> {
+  const currentResult = await getProductById(id)
+  if (!currentResult.ok || !('product' in currentResult)) {
+    return { ok: false, error: 'product_not_found' }
+  }
+
+  const currentProduct = currentResult.product
+  if (!currentProduct.blingId) {
+    return { ok: false, error: 'product_not_linked_bling' }
+  }
+
+  const clientResult = await getBlingClientForCurrentUser()
+  if (!clientResult.ok || !('client' in clientResult)) {
+    return { ok: false, error: 'error' in clientResult ? clientResult.error : 'bling_client_unavailable' }
+  }
+
+  let baseSnapshot = currentProduct.blingSyncSnapshot
+
+  if (!baseSnapshot) {
     try {
-      await clientResult.client.request({
-        method: 'PUT',
+      const data = await clientResult.client.request<{
+        data?: Record<string, unknown>
+      } | Record<string, unknown>>({
+        method: 'GET',
         path: `/produtos/${currentProduct.blingId}`,
-        body: mapLocalProductToBling(mergeProduct(currentProduct, normalizedPatch.patch)),
       })
+
+      const dto = data?.data ?? data ?? {}
+      baseSnapshot = createProductSyncSnapshot(mapBlingProductToLocal(dto))
     } catch (err) {
       return {
         ok: false,
@@ -157,7 +182,47 @@ export async function updateProductAndSyncBling (
     }
   }
 
-  const updatedResult = await updateProduct(id, normalizedPatch.patch)
+  const {
+    payload: blingPayload,
+    currentSnapshot,
+    hasChanges,
+  } = buildBlingPayloadFromSnapshotDiff(currentProduct, baseSnapshot)
+
+  if (!hasChanges) {
+    const unchangedResult = await updateProduct(id, {
+      blingSyncPending: false,
+      blingSyncSnapshot: currentSnapshot,
+    })
+
+    if (!unchangedResult.ok || !('product' in unchangedResult)) {
+      return { ok: false, error: 'error' in unchangedResult ? unchangedResult.error ?? 'db_error' : 'db_error' }
+    }
+
+    return {
+      ok: true,
+      product: unchangedResult.product,
+      syncedToBling: true,
+    }
+  }
+
+  try {
+    await clientResult.client.request({
+      method: 'PATCH',
+      path: `/produtos/${currentProduct.blingId}`,
+      body: blingPayload,
+    })
+  } catch (err) {
+    return {
+      ok: false,
+      error: 'bling_request_failed',
+      message: normalizeBlingSyncMessage(err instanceof Error ? err.message : 'unknown_error'),
+    }
+  }
+
+  const updatedResult = await updateProduct(id, {
+    blingSyncPending: false,
+    blingSyncSnapshot: currentSnapshot,
+  })
   if (!updatedResult.ok || !('product' in updatedResult)) {
     return { ok: false, error: 'error' in updatedResult ? updatedResult.error ?? 'db_error' : 'db_error' }
   }
@@ -165,6 +230,6 @@ export async function updateProductAndSyncBling (
   return {
     ok: true,
     product: updatedResult.product,
-    syncedToBling: Boolean(currentProduct.blingId),
+    syncedToBling: true,
   }
 }

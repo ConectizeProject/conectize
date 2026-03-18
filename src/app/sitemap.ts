@@ -51,6 +51,12 @@ export default function sitemap (): MetadataRoute.Sitemap {
       changeFrequency: 'monthly',
       priority: 0.8,
     },
+    {
+      url: `${baseUrl}/manual/bling`,
+      lastModified,
+      changeFrequency: 'monthly',
+      priority: 0.6,
+    },
   ]
   
   // Adicionar páginas de serviços (nova semântica: serviço + marca + modelo em slug único)

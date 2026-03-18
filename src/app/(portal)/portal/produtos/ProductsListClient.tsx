@@ -1,10 +1,10 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
+import { memo, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
-import { Copy, MoreHorizontal, Pencil } from 'lucide-react'
+import { Copy, Loader2, MoreHorizontal, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import {
@@ -19,9 +19,10 @@ import { StockManagementModal } from './StockManagementModal'
 import { cn } from '@/lib/utils'
 import { ProductEditDialog } from './ProductEditDialog'
 
-type ProductRow = {
+export type ProductRow = {
   id: string
   bling_id?: string | null
+  bling_sync_pending?: boolean
   parent_bling_id?: string | null
   kind?: 'product' | 'service' | null
   name: string
@@ -49,6 +50,161 @@ const allowedImageHosts = new Set<string>([
   'nacionalsmart.com.br',
 ])
 
+type QuickSalePriceCellProps = {
+  productId: string
+  blingId?: string | null
+  salePriceCents?: number | null
+}
+
+const QuickSalePriceCell = memo(function QuickSalePriceCell ({
+  productId,
+  blingId,
+  salePriceCents,
+}: QuickSalePriceCellProps) {
+  const router = useRouter()
+  const { toast } = useToast()
+  const [isEditing, setIsEditing] = useState(false)
+  const [value, setValue] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
+
+  async function handleSavePrice () {
+    const numericValue = Number(String(value).replace(',', '.'))
+    if (!Number.isFinite(numericValue) || numericValue < 0) {
+      toast({ description: 'Informe um valor válido', variant: 'destructive' })
+      return
+    }
+
+    setIsSaving(true)
+
+    try {
+      const response = await fetch(`/api/portal/produtos/${productId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ salePrice: numericValue }),
+      })
+
+      const data = await response.json().catch(() => null)
+      if (!response.ok) {
+        toast({
+          description: data?.message || data?.error || 'Erro ao salvar preço',
+          variant: 'destructive',
+        })
+        return
+      }
+
+      if (blingId) {
+        const syncResponse = await fetch(`/api/portal/produtos/${productId}/sync-bling`, {
+          method: 'POST',
+        })
+        const syncData = await syncResponse.json().catch(() => null)
+
+        if (!syncResponse.ok || !syncData?.ok) {
+          toast({
+            title: 'Preço salvo no portal',
+            description: syncData?.message || syncData?.error || 'Falha ao sincronizar com o Bling. O item ficou pendente de sincronização.',
+            variant: 'destructive',
+          })
+          setIsEditing(false)
+          setValue('')
+          router.refresh()
+          return
+        }
+
+        toast({
+          title: 'Preço salvo e sincronizado com o Bling.',
+          variant: 'success',
+        })
+      } else {
+        toast({
+          title: 'Preço salvo com sucesso.',
+          variant: 'success',
+        })
+      }
+
+      setIsEditing(false)
+      setValue('')
+      router.refresh()
+    } catch {
+      toast({ description: 'Erro ao salvar preço', variant: 'destructive' })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  if (isEditing) {
+    return (
+      <div
+        className="flex items-center justify-end gap-1"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          className="h-8 w-24 rounded border border-input bg-background px-2 text-right text-xs"
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+        />
+        <Button
+          type="button"
+          variant="ghost"
+          className="h-8 px-2 text-xs"
+          disabled={isSaving}
+          onClick={handleSavePrice}
+        >
+          {isSaving
+            ? (
+              <>
+                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                Salvando...
+              </>
+              )
+            : 'OK'}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          className="h-8 px-2 text-xs"
+          disabled={isSaving}
+          onClick={() => {
+            setIsEditing(false)
+            setValue('')
+          }}
+        >
+          X
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <div
+      className="flex items-center justify-end gap-1"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <span className="tabular-nums">
+        {typeof salePriceCents === 'number'
+          ? formatCurrency(salePriceCents / 100)
+          : '-'}
+      </span>
+      <button
+        type="button"
+        className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted"
+        onClick={() => {
+          setIsEditing(true)
+          setValue(
+            typeof salePriceCents === 'number'
+              ? (salePriceCents / 100).toFixed(2)
+              : ''
+          )
+        }}
+      >
+        <Pencil className="h-3 w-3" />
+      </button>
+    </div>
+  )
+})
+
 export function ProductsListClient ({ products }: Props) {
   const router = useRouter()
   const { toast } = useToast()
@@ -59,9 +215,6 @@ export function ProductsListClient ({ products }: Props) {
     currentStock: number
   } | null>(null)
   const [filterType, setFilterType] = useState<'product' | 'service'>('product')
-  const [editingPriceId, setEditingPriceId] = useState<string | null>(null)
-  const [editingPriceValue, setEditingPriceValue] = useState<string>('')
-  const [savingPrice, setSavingPrice] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Pick<ProductRow, 'id' | 'name'> | null>(null)
   const [syncingId, setSyncingId] = useState<string | null>(null)
   const isProductTab = filterType === 'product'
@@ -111,33 +264,6 @@ export function ProductsListClient ({ products }: Props) {
     },
     [rows, filterType]
   )
-
-  async function handleSavePrice (productId: string) {
-    const value = Number(String(editingPriceValue).replace(',', '.'))
-    if (!Number.isFinite(value) || value < 0) {
-      toast({ description: 'Informe um valor válido', variant: 'destructive' })
-      return
-    }
-    setSavingPrice(true)
-    try {
-      const res = await fetch(`/api/portal/produtos/${productId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ salePrice: value }),
-      })
-      if (!res.ok) {
-        toast({ description: 'Erro ao salvar preço', variant: 'destructive' })
-        return
-      }
-      setEditingPriceId(null)
-      setEditingPriceValue('')
-      router.refresh()
-    } catch (err) {
-      toast({ description: 'Erro ao salvar preço', variant: 'destructive' })
-    } finally {
-      setSavingPrice(false)
-    }
-  }
 
   async function handleSyncFromBling (productId: string) {
     if (syncingId) return
@@ -279,6 +405,11 @@ export function ProductsListClient ({ products }: Props) {
                                   Inativo
                                 </span>
                               )}
+                              {product.bling_id && product.bling_sync_pending && (
+                                <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                                  Desincronizado
+                                </span>
+                              )}
                             </div>
                             {product.created_at && (
                               <span className="text-[11px] text-muted-foreground">
@@ -352,68 +483,11 @@ export function ProductsListClient ({ products }: Props) {
                         </td>
                       )}
                       <td className="py-2 px-2 align-top text-right">
-                        {editingPriceId === product.id ? (
-                          <div
-                            className="flex items-center justify-end gap-1"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              className="h-8 w-24 rounded border border-input bg-background px-2 text-right text-xs"
-                              value={editingPriceValue}
-                              onChange={(e) => setEditingPriceValue(e.target.value)}
-                            />
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="ghost"
-                              className="h-7 w-7"
-                              disabled={savingPrice}
-                              onClick={() => handleSavePrice(product.id)}
-                            >
-                              OK
-                            </Button>
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="ghost"
-                              className="h-7 w-7"
-                              onClick={() => {
-                                setEditingPriceId(null)
-                                setEditingPriceValue('')
-                              }}
-                            >
-                              X
-                            </Button>
-                          </div>
-                        ) : (
-                          <div
-                            className="flex items-center justify-end gap-1"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <span className="tabular-nums">
-                              {typeof product.sale_price_cents === 'number'
-                                ? formatCurrency(product.sale_price_cents / 100)
-                                : '-'}
-                            </span>
-                            <button
-                              type="button"
-                              className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted"
-                              onClick={() => {
-                                setEditingPriceId(product.id)
-                                setEditingPriceValue(
-                                  typeof product.sale_price_cents === 'number'
-                                    ? (product.sale_price_cents / 100).toFixed(2)
-                                    : ''
-                                )
-                              }}
-                            >
-                              <Pencil className="h-3 w-3" />
-                            </button>
-                          </div>
-                        )}
+                        <QuickSalePriceCell
+                          productId={product.id}
+                          blingId={product.bling_id}
+                          salePriceCents={product.sale_price_cents}
+                        />
                       </td>
                       {isProductTab && (
                         <td className="py-2 px-2 align-top text-right">
@@ -424,9 +498,16 @@ export function ProductsListClient ({ products }: Props) {
                       )}
                       <td className="py-2 px-2 align-top text-center">
                         {product.bling_id ? (
-                          <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-blue-600 dark:text-blue-400">
-                            Bling
-                          </span>
+                          <div className="flex items-center justify-center gap-1">
+                            <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-blue-600 dark:text-blue-400">
+                              Bling
+                            </span>
+                            {product.bling_sync_pending && (
+                              <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                                Pendente
+                              </span>
+                            )}
+                          </div>
                         ) : (
                           <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                             Manual

@@ -5,17 +5,38 @@ import { cookies } from 'next/headers'
 const BLING_TOKEN_URL = 'https://www.bling.com.br/Api/v3/oauth/token'
 const PLATFORM_ID = 'bling'
 
-function getBaseUrl() {
-  const url = process.env.NEXT_PUBLIC_SITE_URL || process.env.VERCEL_URL
-  if (url) return url.startsWith('http') ? url : `https://${url}`
-  return 'http://localhost:3000'
+function normalizeUrl (value: string) {
+  return value.trim().replace(/\/$/, '')
+}
+
+function getRequestOrigin (request: NextRequest) {
+  const forwardedHost = request.headers.get('x-forwarded-host')
+  if (forwardedHost) {
+    const forwardedProto = request.headers.get('x-forwarded-proto') || 'https'
+    return `${forwardedProto}://${forwardedHost}`.replace(/\/$/, '')
+  }
+
+  return request.nextUrl.origin.replace(/\/$/, '')
+}
+
+function getAppBaseUrl (request: NextRequest) {
+  return getRequestOrigin(request)
+}
+
+function getBlingRedirectUri (request: NextRequest) {
+  const configuredRedirectUri = process.env.BLING_REDIRECT_URI
+  if (configuredRedirectUri) {
+    return normalizeUrl(configuredRedirectUri)
+  }
+
+  return `${getRequestOrigin(request)}/api/portal/hub/oauth/bling/callback`
 }
 
 export async function GET(request: NextRequest) {
   const supabase = await createSupabaseServerClient()
   const { user } = await getAuthUser()
   if (!user) {
-    return NextResponse.redirect(new URL('/portal/login', getBaseUrl()))
+    return NextResponse.redirect(new URL('/portal/login', getAppBaseUrl(request)))
   }
 
   const { data: appUser } = await supabase
@@ -25,7 +46,7 @@ export async function GET(request: NextRequest) {
     .maybeSingle()
 
   if (appUser?.role !== 'admin') {
-    return NextResponse.redirect(new URL('/portal/minhas-ordens', getBaseUrl()))
+    return NextResponse.redirect(new URL('/portal/minhas-ordens', getAppBaseUrl(request)))
   }
 
   const searchParams = request.nextUrl.searchParams
@@ -35,12 +56,12 @@ export async function GET(request: NextRequest) {
 
   if (error) {
     return NextResponse.redirect(
-      new URL(`/portal/hub?toast=bling_error&message=${encodeURIComponent(error)}`, getBaseUrl())
+      new URL(`/portal/hub?toast=bling_error&message=${encodeURIComponent(error)}`, getAppBaseUrl(request))
     )
   }
 
   if (!code || !state) {
-    return NextResponse.redirect(new URL('/portal/hub?toast=bling_error&message=missing_params', getBaseUrl()))
+    return NextResponse.redirect(new URL('/portal/hub?toast=bling_error&message=missing_params', getAppBaseUrl(request)))
   }
 
   const cookieStore = await cookies()
@@ -51,16 +72,16 @@ export async function GET(request: NextRequest) {
   cookieStore.delete('hub_oauth_redirect')
 
   if (!savedState || savedState !== state) {
-    return NextResponse.redirect(new URL('/portal/hub?toast=bling_error&message=invalid_state', getBaseUrl()))
+    return NextResponse.redirect(new URL('/portal/hub?toast=bling_error&message=invalid_state', getAppBaseUrl(request)))
   }
 
   const clientId = process.env.BLING_CLIENT_ID
   const clientSecret = process.env.BLING_CLIENT_SECRET
   if (!clientId || !clientSecret) {
-    return NextResponse.redirect(new URL('/portal/hub?toast=bling_error&message=config_missing', getBaseUrl()))
+    return NextResponse.redirect(new URL('/portal/hub?toast=bling_error&message=config_missing', getAppBaseUrl(request)))
   }
 
-  const redirectUri = `${getBaseUrl()}/api/portal/hub/oauth/bling/callback`
+  const redirectUri = getBlingRedirectUri(request)
   const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
 
   const tokenRes = await fetch(BLING_TOKEN_URL, {
@@ -82,7 +103,7 @@ export async function GET(request: NextRequest) {
   if (!tokenRes.ok || !tokenData?.access_token) {
     const errMsg = tokenData?.error_description || tokenData?.error || 'token_failed'
     return NextResponse.redirect(
-      new URL(`/portal/hub?toast=bling_error&message=${encodeURIComponent(String(errMsg))}`, getBaseUrl())
+      new URL(`/portal/hub?toast=bling_error&message=${encodeURIComponent(String(errMsg))}`, getAppBaseUrl(request))
     )
   }
 
@@ -106,8 +127,8 @@ export async function GET(request: NextRequest) {
     )
 
   if (dbError) {
-    return NextResponse.redirect(new URL('/portal/hub?toast=bling_error&message=db_error', getBaseUrl()))
+    return NextResponse.redirect(new URL('/portal/hub?toast=bling_error&message=db_error', getAppBaseUrl(request)))
   }
 
-  return NextResponse.redirect(new URL(`${redirectTo}?toast=bling_connected`, getBaseUrl()))
+  return NextResponse.redirect(new URL(`${redirectTo}?toast=bling_connected`, getAppBaseUrl(request)))
 }
