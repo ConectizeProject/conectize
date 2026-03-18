@@ -25,10 +25,10 @@ export default async function ProdutoDetalhePage ({ params }: { params: Params }
   if (normalizedRole === 'user' || !normalizedRole) redirect('/portal/minhas-ordens')
 
   const productRes = await getProductWithStock(id)
-  if (!productRes.ok || !productRes.product) notFound()
+  if (!productRes.ok || !('product' in productRes)) notFound()
 
   const movementsRes = await listStockMovements(id)
-  const movements = movementsRes.ok ? movementsRes.items : []
+  const movements = movementsRes.ok && 'items' in movementsRes ? movementsRes.items : []
 
   async function registerMovement (formData: FormData) {
     'use server'

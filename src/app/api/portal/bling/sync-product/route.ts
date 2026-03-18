@@ -21,7 +21,7 @@ export async function POST (request: Request) {
   }
 
   const current = await getProductById(productId)
-  if (!current.ok || !current.product) {
+  if (!current.ok || !('product' in current)) {
     return NextResponse.json({ ok: false, error: 'product_not_found' }, { status: 404 })
   }
   if (!current.product.blingId) {
@@ -29,12 +29,15 @@ export async function POST (request: Request) {
   }
 
   const clientRes = await getBlingClientForCurrentUser()
-  if (!clientRes.ok) {
-    return NextResponse.json({ ok: false, error: clientRes.error }, { status: 400 })
+  if (!clientRes.ok || !('client' in clientRes)) {
+    const error = 'error' in clientRes ? clientRes.error : 'bling_client_unavailable'
+    return NextResponse.json({ ok: false, error }, { status: 400 })
   }
 
   try {
-    const data = await clientRes.client.request<any>({
+    const data = await clientRes.client.request<{
+      data?: Record<string, unknown>
+    } | Record<string, unknown>>({
       method: 'GET',
       path: `/produtos/${current.product.blingId}`,
     })

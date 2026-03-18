@@ -80,7 +80,7 @@ export async function POST (
   })
 
   if (!result.ok) {
-    return NextResponse.json({ error: result.error }, { status: 400 })
+    return NextResponse.json({ error: 'error' in result ? result.error : 'db_error' }, { status: 400 })
   }
 
   return NextResponse.json({

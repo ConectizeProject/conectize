@@ -1,5 +1,7 @@
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 
+type SupabaseServerClient = Awaited<ReturnType<typeof createSupabaseServerClient>>
+
 export type Product = {
   id: string
   blingId: string | null
@@ -52,7 +54,63 @@ export type AddStockMovementInput = {
   externalReference?: string | null
 }
 
-async function requireAuth () {
+type AuthFailure = {
+  ok: false
+  error: 'not_authenticated'
+}
+
+type AuthSuccess = {
+  ok: true
+  supabase: SupabaseServerClient
+  userId: string
+}
+
+type CreateProductResult =
+  | { ok: true, product: Product }
+  | AuthFailure
+  | { ok: false, error: 'name_required' | 'db_error' }
+
+type UpdateProductResult =
+  | { ok: true, product: Product }
+  | AuthFailure
+  | { ok: false, error: 'nothing_to_update' | 'db_error' }
+
+type DeleteProductResult =
+  | { ok: true }
+  | AuthFailure
+  | { ok: false, error: 'db_error' }
+
+type GetProductResult =
+  | { ok: true, product: Product }
+  | AuthFailure
+  | { ok: false, error: 'not_found' }
+
+type ListProductsResult =
+  | { ok: true, items: Product[], total: number }
+  | AuthFailure
+  | { ok: false, error: 'db_error' }
+
+type AddStockMovementResult =
+  | { ok: true, movement: StockMovement, currentStock: number | null }
+  | AuthFailure
+  | { ok: false, error: 'quantity_invalid' | 'type_invalid' | 'db_error' }
+
+type ListStockMovementsResult =
+  | { ok: true, items: StockMovement[] }
+  | AuthFailure
+  | { ok: false, error: 'db_error' }
+
+type GetProductCurrentStockResult =
+  | { ok: true, currentStock: number }
+  | AuthFailure
+  | { ok: false, error: 'db_error' }
+
+type GetProductWithStockResult =
+  | { ok: true, product: Product, currentStock: number }
+  | AuthFailure
+  | { ok: false, error: 'not_found' | 'db_error' }
+
+async function requireAuth (): Promise<AuthSuccess | AuthFailure> {
   const supabase = await createSupabaseServerClient()
   const { user } = await getAuthUser()
   if (!user) {
@@ -68,9 +126,9 @@ function normalizeMoney (value: unknown): number | null {
   return Math.round(num)
 }
 
-export async function createProduct (input: CreateProductInput) {
+export async function createProduct (input: CreateProductInput): Promise<CreateProductResult> {
   const auth = await requireAuth()
-  if (!auth.ok) return auth
+  if (!auth.ok) return { ok: false, error: 'not_authenticated' }
 
   const name = String(input.name || '').trim()
   if (!name) {
@@ -102,9 +160,9 @@ export async function createProduct (input: CreateProductInput) {
   return { ok: true as const, product: mapRowToProduct(data) }
 }
 
-export async function updateProduct (id: string, input: UpdateProductInput) {
+export async function updateProduct (id: string, input: UpdateProductInput): Promise<UpdateProductResult> {
   const auth = await requireAuth()
-  if (!auth.ok) return auth
+  if (!auth.ok) return { ok: false, error: 'not_authenticated' }
 
   const patch: Record<string, unknown> = {}
 
@@ -144,9 +202,9 @@ export async function updateProduct (id: string, input: UpdateProductInput) {
   return { ok: true as const, product: mapRowToProduct(data) }
 }
 
-export async function deleteProduct (id: string) {
+export async function deleteProduct (id: string): Promise<DeleteProductResult> {
   const auth = await requireAuth()
-  if (!auth.ok) return auth
+  if (!auth.ok) return { ok: false, error: 'not_authenticated' }
 
   const { error } = await auth.supabase
     .from('products')
@@ -160,9 +218,9 @@ export async function deleteProduct (id: string) {
   return { ok: true as const }
 }
 
-export async function getProductById (id: string) {
+export async function getProductById (id: string): Promise<GetProductResult> {
   const auth = await requireAuth()
-  if (!auth.ok) return auth
+  if (!auth.ok) return { ok: false, error: 'not_authenticated' }
 
   const { data, error } = await auth.supabase
     .from('products')
@@ -177,9 +235,9 @@ export async function getProductById (id: string) {
   return { ok: true as const, product: mapRowToProduct(data) }
 }
 
-export async function listProducts (params: { search?: string; active?: boolean | null; limit?: number; offset?: number } = {}) {
+export async function listProducts (params: { search?: string; active?: boolean | null; limit?: number; offset?: number } = {}): Promise<ListProductsResult> {
   const auth = await requireAuth()
-  if (!auth.ok) return auth
+  if (!auth.ok) return { ok: false, error: 'not_authenticated' }
 
   let query = auth.supabase
     .from('products')
@@ -213,9 +271,9 @@ export async function listProducts (params: { search?: string; active?: boolean 
   }
 }
 
-export async function addStockMovement (productId: string, input: AddStockMovementInput) {
+export async function addStockMovement (productId: string, input: AddStockMovementInput): Promise<AddStockMovementResult> {
   const auth = await requireAuth()
-  if (!auth.ok) return auth
+  if (!auth.ok) return { ok: false, error: 'not_authenticated' }
 
   const quantity = Number(input.quantity)
   if (!Number.isFinite(quantity) || quantity <= 0) {
@@ -255,13 +313,13 @@ export async function addStockMovement (productId: string, input: AddStockMoveme
   return {
     ok: true as const,
     movement,
-    currentStock: currentStock.ok ? currentStock.currentStock : null,
+    currentStock: currentStock.ok && 'currentStock' in currentStock ? currentStock.currentStock : null,
   }
 }
 
-export async function listStockMovements (productId: string) {
+export async function listStockMovements (productId: string): Promise<ListStockMovementsResult> {
   const auth = await requireAuth()
-  if (!auth.ok) return auth
+  if (!auth.ok) return { ok: false, error: 'not_authenticated' }
 
   const { data, error } = await auth.supabase
     .from('product_stock_movements')
@@ -279,9 +337,9 @@ export async function listStockMovements (productId: string) {
   }
 }
 
-export async function getProductCurrentStock (productId: string) {
+export async function getProductCurrentStock (productId: string): Promise<GetProductCurrentStockResult> {
   const auth = await requireAuth()
-  if (!auth.ok) return auth
+  if (!auth.ok) return { ok: false, error: 'not_authenticated' }
 
   const { data, error } = await auth.supabase
     .from('product_stock_movements')
@@ -304,10 +362,14 @@ export async function getProductCurrentStock (productId: string) {
   return { ok: true as const, currentStock: balance }
 }
 
-export async function getProductWithStock (id: string) {
+export async function getProductWithStock (id: string): Promise<GetProductWithStockResult> {
   const [productRes, stockRes] = await Promise.all([getProductById(id), getProductCurrentStock(id)])
-  if (!productRes.ok) return productRes
-  if (!stockRes.ok) return stockRes
+  if (!productRes.ok) {
+    return { ok: false, error: 'error' in productRes ? productRes.error : 'not_found' }
+  }
+  if (!stockRes.ok) {
+    return { ok: false, error: 'error' in stockRes ? stockRes.error : 'db_error' }
+  }
 
   return {
     ok: true as const,
@@ -316,7 +378,12 @@ export async function getProductWithStock (id: string) {
   }
 }
 
-function mapRowToProduct (row: any): Product {
+function mapRowToProduct (row: Record<string, unknown>): Product {
+  const createdAt = typeof row.created_at === 'string' ? row.created_at : ''
+  const updatedAt = typeof row.updated_at === 'string'
+    ? row.updated_at
+    : createdAt
+
   return {
     id: String(row.id),
     blingId: row.bling_id ? String(row.bling_id) : null,
@@ -329,22 +396,27 @@ function mapRowToProduct (row: any): Product {
     salePriceCents: typeof row.sale_price_cents === 'number' ? row.sale_price_cents : null,
     costPriceCents: typeof row.cost_price_cents === 'number' ? row.cost_price_cents : null,
     isActive: Boolean(row.is_active ?? true),
-    createdAt: row.created_at || '',
-    updatedAt: row.updated_at || row.created_at || '',
+    createdAt,
+    updatedAt,
   }
 }
 
-function mapRowToMovement (row: any): StockMovement {
+function mapRowToMovement (row: Record<string, unknown>): StockMovement {
+  const source = row.source === 'bling' || row.source === 'system' || row.source === 'manual'
+    ? row.source
+    : 'manual'
+  const createdAt = typeof row.created_at === 'string' ? row.created_at : ''
+
   return {
     id: String(row.id),
     productId: String(row.product_id),
-    type: row.type,
+    type: row.type as StockMovementType,
     quantity: Number(row.quantity) || 0,
     unitValueCents: Number(row.unit_value_cents) || 0,
     totalValueCents: Number(row.total_value_cents) || 0,
-    source: row.source || 'manual',
+    source,
     externalReference: row.external_reference ? String(row.external_reference) : null,
-    createdAt: row.created_at || '',
+    createdAt,
   }
 }
 

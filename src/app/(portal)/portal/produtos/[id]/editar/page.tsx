@@ -15,7 +15,7 @@ export default async function EditarProdutoPage ({ params }: { params: Params })
   if (normalizedRole === 'user' || !normalizedRole) redirect('/portal/minhas-ordens')
 
   const current = await getProductById(id)
-  if (!current.ok || !current.product) notFound()
+  if (!current.ok || !('product' in current)) notFound()
 
   async function handleUpdate (formData: FormData) {
     'use server'

@@ -103,14 +103,16 @@ export function mapLocalProductToBling (product: LocalProduct): Record<string, u
   const payload: Record<string, unknown> = {}
 
   if (product.name) payload.nome = product.name
-  if (product.sku) payload.codigo = product.sku
-  if (product.barcode) payload.gtin = product.barcode
-  if (product.description) payload.descricao = product.description
+  if (product.sku !== undefined) payload.codigo = product.sku ?? ''
+  if (product.barcode !== undefined) payload.gtin = product.barcode ?? ''
+  if (product.description !== undefined) payload.descricao = product.description ?? ''
   if (typeof product.salePriceCents === 'number') payload.preco = product.salePriceCents / 100
   if (typeof product.costPriceCents === 'number') payload.custo = product.costPriceCents / 100
   if (typeof product.isActive === 'boolean') {
     payload.situacao = product.isActive ? 'Ativo' : 'Inativo'
   }
+  if (product.kind === 'product') payload.tipo = 'P'
+  if (product.kind === 'service') payload.tipo = 'S'
 
   return payload
 }

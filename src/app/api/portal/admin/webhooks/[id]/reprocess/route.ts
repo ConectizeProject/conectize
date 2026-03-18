@@ -41,6 +41,6 @@ export async function POST (
   return NextResponse.json({
     ok: false,
     status: result.status,
-    error_message: result.error_message,
+    error_message: 'error_message' in result ? result.error_message : 'unknown_error',
   }, { status: 200 })
 }

@@ -33,7 +33,7 @@ export default async function NovoProdutoPage () {
       isActive,
     })
 
-    if (!created.ok || !created.product) {
+    if (!created.ok || !('product' in created)) {
       redirect('/portal/produtos')
     }
 

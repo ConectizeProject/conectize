@@ -16,13 +16,8 @@ import {
 import { formatCurrency } from '@/lib/utils'
 import { useToast } from '@/hooks/use-toast'
 import { StockManagementModal } from './StockManagementModal'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
+import { ProductEditDialog } from './ProductEditDialog'
 
 type ProductRow = {
   id: string
@@ -67,7 +62,7 @@ export function ProductsListClient ({ products }: Props) {
   const [editingPriceId, setEditingPriceId] = useState<string | null>(null)
   const [editingPriceValue, setEditingPriceValue] = useState<string>('')
   const [savingPrice, setSavingPrice] = useState(false)
-  const [editProduct, setEditProduct] = useState<ProductRow | null>(null)
+  const [editingProduct, setEditingProduct] = useState<Pick<ProductRow, 'id' | 'name'> | null>(null)
   const [syncingId, setSyncingId] = useState<string | null>(null)
   const isProductTab = filterType === 'product'
 
@@ -233,7 +228,7 @@ export function ProductsListClient ({ products }: Props) {
                     <tr
                       key={product.id}
                       className={`border-b last:border-0 cursor-pointer hover:bg-muted/40 ${product.is_variation ? 'bg-muted/40' : ''}`}
-                      onClick={() => setEditProduct(product)}
+                      onClick={() => setEditingProduct({ id: product.id, name: product.name })}
                     >
                       <td className="py-2 pr-2 align-top">
                         <div className={`flex items-start gap-3 ${product.is_variation ? 'pl-6 relative' : ''}`}>
@@ -491,46 +486,15 @@ export function ProductsListClient ({ products }: Props) {
         />
       )}
 
-      {editProduct && (
-        <Dialog open={!!editProduct} onOpenChange={(open) => !open && setEditProduct(null)}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Editar produto/serviço</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-3 text-sm">
-              <div>
-                <div className="text-xs text-muted-foreground mb-1">Nome</div>
-                <div className="font-medium">{editProduct.name}</div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground mb-1">Preço venda</div>
-                <div className="font-medium">
-                  {typeof editProduct.sale_price_cents === 'number'
-                    ? formatCurrency(editProduct.sale_price_cents / 100)
-                    : '-'}
-                </div>
-              </div>
-              <div className="pt-2 flex justify-end gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setEditProduct(null)}
-                >
-                  Fechar
-                </Button>
-                <Button
-                  type="button"
-                  onClick={() => {
-                    router.push(`/portal/produtos/${editProduct.id}/editar`)
-                  }}
-                >
-                  Abrir edição completa
-                </Button>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
+      <ProductEditDialog
+        open={Boolean(editingProduct)}
+        productId={editingProduct?.id ?? null}
+        initialName={editingProduct?.name}
+        onOpenChange={(open) => {
+          if (!open) setEditingProduct(null)
+        }}
+        onSuccess={() => router.refresh()}
+      />
     </>
   )
 }

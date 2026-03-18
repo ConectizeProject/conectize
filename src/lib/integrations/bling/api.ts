@@ -34,6 +34,83 @@ type BlingClient = {
   request: <T = unknown>(options: BlingRequestOptions) => Promise<T>
 }
 
+type BlingConnectionCurrentResult =
+  | { ok: true, connection: HubConnection }
+  | { ok: false, error: 'not_authenticated' | 'bling_not_connected' }
+
+type BlingConnectionByIdResult =
+  | { ok: true, connection: HubConnection }
+  | { ok: false, error: 'bling_connection_not_found' }
+
+type BlingClientCurrentResult =
+  | { ok: true, client: BlingClient, connection: HubConnection }
+  | { ok: false, error: 'not_authenticated' | 'bling_not_connected' }
+
+type BlingClientByIdResult =
+  | { ok: true, client: BlingClient, connection: HubConnection }
+  | { ok: false, error: 'bling_connection_not_found' }
+
+function stringifyBlingErrorValue (value: unknown): string | null {
+  if (typeof value === 'string') {
+    const normalizedValue = value.trim()
+    return normalizedValue || null
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value)
+  }
+
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  if (Array.isArray(value)) {
+    const items = value
+      .map((item) => stringifyBlingErrorValue(item))
+      .filter((item): item is string => Boolean(item))
+
+    return items.length > 0 ? items.join(', ') : null
+  }
+
+  const objectValue = value as Record<string, unknown>
+  const preferredKeys = [
+    'message',
+    'mensagem',
+    'descricao',
+    'detail',
+    'error',
+    'error_description',
+  ]
+
+  for (const key of preferredKeys) {
+    const parsedValue = stringifyBlingErrorValue(objectValue[key])
+    if (parsedValue) return parsedValue
+  }
+
+  const entries = Object.entries(objectValue)
+    .map(([key, itemValue]) => {
+      const parsedValue = stringifyBlingErrorValue(itemValue)
+      if (!parsedValue) return null
+      return `${key}: ${parsedValue}`
+    })
+    .filter((item): item is string => Boolean(item))
+
+  if (entries.length > 0) {
+    return entries.join(' | ')
+  }
+
+  try {
+    return JSON.stringify(objectValue)
+  } catch {
+    return null
+  }
+}
+
+function getBlingErrorMessage (data: unknown, status: number) {
+  const parsedMessage = stringifyBlingErrorValue(data)
+  return parsedMessage || `bling_request_failed_${status}`
+}
+
 function isTokenExpired (expiresAt: string | null): boolean {
   if (!expiresAt) return true
   const expiry = Date.parse(expiresAt)
@@ -43,7 +120,7 @@ function isTokenExpired (expiresAt: string | null): boolean {
   return expiry <= nowWithMargin
 }
 
-export async function getBlingConnectionForCurrentUser () {
+export async function getBlingConnectionForCurrentUser (): Promise<BlingConnectionCurrentResult> {
   const supabase = await createSupabaseServerClient()
   const { data: authClaims } = await supabase.auth.getUser()
   const userId = authClaims.user?.id
@@ -65,7 +142,7 @@ export async function getBlingConnectionForCurrentUser () {
   return { ok: true as const, connection: data as HubConnection }
 }
 
-export async function getBlingConnectionById (id: string) {
+export async function getBlingConnectionById (id: string): Promise<BlingConnectionByIdResult> {
   const supabase = await createSupabaseServerClient()
   const { data, error } = await supabase
     .from('hub_connections')
@@ -171,10 +248,7 @@ export async function createBlingClientFromConnection (rawConnection: HubConnect
     const data = await res.json().catch(() => null)
 
     if (!res.ok) {
-      const message =
-        (data && (data.error_description || data.error || data.message)) ||
-        `bling_request_failed_${res.status}`
-      throw new Error(String(message))
+      throw new Error(getBlingErrorMessage(data, res.status))
     }
 
     return data as T
@@ -183,16 +257,20 @@ export async function createBlingClientFromConnection (rawConnection: HubConnect
   return { request }
 }
 
-export async function getBlingClientForCurrentUser () {
+export async function getBlingClientForCurrentUser (): Promise<BlingClientCurrentResult> {
   const result = await getBlingConnectionForCurrentUser()
-  if (!result.ok) return result
+  if (!result.ok) {
+    return { ok: false, error: 'error' in result ? result.error : 'bling_not_connected' }
+  }
   const client = await createBlingClientFromConnection(result.connection)
   return { ok: true as const, client, connection: result.connection }
 }
 
-export async function getBlingClientByConnectionId (connectionId: string) {
+export async function getBlingClientByConnectionId (connectionId: string): Promise<BlingClientByIdResult> {
   const result = await getBlingConnectionById(connectionId)
-  if (!result.ok) return result
+  if (!result.ok) {
+    return { ok: false, error: 'error' in result ? result.error : 'bling_connection_not_found' }
+  }
   const client = await createBlingClientFromConnection(result.connection)
   return { ok: true as const, client, connection: result.connection }
 }

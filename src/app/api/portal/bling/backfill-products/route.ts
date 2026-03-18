@@ -6,7 +6,7 @@ import { updateProduct } from '@/lib/products/service'
 
 export const maxDuration = 60
 
-export async function POST () {
+export async function POST (request: Request) {
   const { user, role } = await getPortalAuth()
   if (!user) {
     return NextResponse.json({ ok: false, error: 'not_authenticated' }, { status: 401 })
@@ -40,8 +40,9 @@ export async function POST () {
   }
 
   const clientRes = await getBlingClientForCurrentUser()
-  if (!clientRes.ok) {
-    return NextResponse.json({ ok: false, error: clientRes.error }, { status: 400 })
+  if (!clientRes.ok || !('client' in clientRes)) {
+    const error = 'error' in clientRes ? clientRes.error : 'bling_client_unavailable'
+    return NextResponse.json({ ok: false, error }, { status: 400 })
   }
 
   let processed = 0
@@ -53,7 +54,9 @@ export async function POST () {
     if (!blingId) continue
 
     try {
-      const data = await clientRes.client.request<any>({
+      const data = await clientRes.client.request<{
+        data?: Record<string, unknown>
+      } | Record<string, unknown>>({
         method: 'GET',
         path: `/produtos/${blingId}`,
       })
@@ -79,7 +82,7 @@ export async function POST () {
         failures.push({
           productId: row.id,
           blingId,
-          error: result.error || 'update_failed',
+          error: 'error' in result ? result.error : 'update_failed',
         })
       }
 
