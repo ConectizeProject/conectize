@@ -9,14 +9,10 @@ import { getSupabaseEnv } from '@/lib/supabase/env'
  * redirect (Next.js pode não mesclar cookies de cookies() em redirect).
  */
 export async function GET(request: Request) {
-  console.log(`REQUEST: `, request)
-
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')
   const redirectTo = requestUrl.searchParams.get('redirectTo') || '/portal'
   const safeRedirect = redirectTo.startsWith('/portal') ? redirectTo : '/portal'
-
-  console.log(`CODE: `, code, redirectTo, safeRedirect)
 
   if (!code) {
     return NextResponse.redirect(
