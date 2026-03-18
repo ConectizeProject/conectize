@@ -1,0 +1,265 @@
+import Link from 'next/link'
+import { redirect } from 'next/navigation'
+import { getPortalAuth, createSupabaseServerClient } from '@/lib/supabase/server'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { ProductsListClient } from './ProductsListClient'
+import { ImportFromBlingButton } from './ImportFromBlingButton'
+import { BackfillFromBlingButton } from './BackfillFromBlingButton'
+
+export const dynamic = 'force-dynamic'
+
+type SearchParams = Promise<{ q?: string; active?: string; page?: string }>
+
+export default async function ProdutosPage ({ searchParams }: { searchParams: SearchParams }) {
+  const { q, active, page } = await searchParams
+  const query = String(q || '').trim()
+  const activeFilter = String(active || '').trim()
+  const pageNumber = Math.max(1, Number(page) || 1)
+  const pageSize = 100
+  const offset = (pageNumber - 1) * pageSize
+
+  const { user, role } = await getPortalAuth()
+  if (!user) redirect('/portal/login')
+
+  const normalizedRole = role === 'customer' ? 'user' : role
+  if (normalizedRole === 'user' || !normalizedRole) redirect('/portal/minhas-ordens')
+
+  const supabase = await createSupabaseServerClient()
+
+  // 1) Pais paginados
+  let parentsQuery = supabase
+    .from('products')
+    .select('id, bling_id, kind, name, sku, barcode, image_url, sale_price_cents, cost_price_cents, is_active, created_at', { count: 'exact' })
+    .is('parent_bling_id', null)
+    .order('created_at', { ascending: false })
+
+  if (query) {
+    const escaped = query.replaceAll(',', ' ')
+    parentsQuery = parentsQuery.or(`name.ilike.%${escaped}%,sku.ilike.%${escaped}%,barcode.ilike.%${escaped}%`)
+  }
+
+  if (activeFilter === 'active') {
+    parentsQuery = parentsQuery.eq('is_active', true)
+  } else if (activeFilter === 'inactive') {
+    parentsQuery = parentsQuery.eq('is_active', false)
+  }
+
+  const { data: parentProducts } = await parentsQuery
+    .range(offset, offset + pageSize - 1)
+
+  const parents = parentProducts ?? []
+
+  // 2) Filhos (variações) de todos os pais desta página
+  const parentBlingIds = parents
+    .map((p: { bling_id?: string | null }) => p.bling_id)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+
+  let children: any[] = []
+  if (parentBlingIds.length > 0) {
+    let childrenQuery = supabase
+      .from('products')
+      .select('id, bling_id, parent_bling_id, name, sku, barcode, image_url, sale_price_cents, cost_price_cents, is_active, created_at')
+      .in('parent_bling_id', parentBlingIds)
+
+    if (activeFilter === 'active') {
+      childrenQuery = childrenQuery.eq('is_active', true)
+    } else if (activeFilter === 'inactive') {
+      childrenQuery = childrenQuery.eq('is_active', false)
+    }
+
+    const { data: childrenData } = await childrenQuery
+    children = childrenData ?? []
+  }
+
+  // 3) Estoque para pais + filhos
+  const allProducts = [...parents, ...children]
+
+  const stockByProductId: Record<string, number> = {}
+  const lastEntryCostByProductId: Record<string, number> = {}
+  const hasStockMovementsByProductId: Record<string, boolean> = {}
+
+  if (allProducts.length > 0) {
+    const ids = allProducts.map((p: { id: string }) => p.id)
+    const { data: movements, error: movementsError } = await supabase
+      .from('product_stock_movements')
+      .select('product_id, type, quantity, unit_value_cents, created_at')
+      .in('product_id', ids)
+      .limit(10000)
+
+    if (!movementsError && movements && Array.isArray(movements)) {
+      for (const m of movements) {
+        const pid = (m as { product_id: string }).product_id
+        const type = String((m as { type: string }).type ?? '').toLowerCase()
+        const qty = Number((m as { quantity: number }).quantity) || 0
+        const valueCents = Number((m as { unit_value_cents?: number }).unit_value_cents) || 0
+        const createdAt = (m as { created_at?: string }).created_at
+
+        hasStockMovementsByProductId[pid] = true
+
+        if (!stockByProductId[pid]) stockByProductId[pid] = 0
+        if (type === 'entry') stockByProductId[pid] += qty
+        else if (type === 'exit' || type === 'loss') stockByProductId[pid] -= qty
+
+        if (type === 'entry' && valueCents > 0 && createdAt) {
+          const currentDate = new Date(createdAt).getTime()
+          const existingDate = lastEntryCostByProductId[pid] != null
+            ? new Date(
+                (movements as any[])
+                  .find((x) => (x as any).product_id === pid && (x as any).type === 'entry' && (x as any).unit_value_cents === lastEntryCostByProductId[pid])
+                  ?.created_at || 0,
+              ).getTime()
+            : 0
+
+          if (!lastEntryCostByProductId[pid] || currentDate >= existingDate) {
+            lastEntryCostByProductId[pid] = valueCents
+          }
+        }
+      }
+    }
+  }
+
+  type Raw = {
+    id: string
+    bling_id?: string | null
+    parent_bling_id?: string | null
+    kind?: 'product' | 'service' | null
+    name: string
+    sku?: string | null
+    barcode?: string | null
+    image_url?: string | null
+    sale_price_cents?: number | null
+    cost_price_cents?: number | null
+    is_active?: boolean
+    created_at?: string
+  }
+
+  const normalize = (p: Raw) => ({
+    id: p.id,
+    bling_id: p.bling_id ?? null,
+    parent_bling_id: p.parent_bling_id ?? null,
+    kind: p.kind ?? null,
+    name: p.name,
+    sku: p.sku ?? null,
+    barcode: p.barcode ?? null,
+    image_url: p.image_url ?? null,
+    sale_price_cents: p.sale_price_cents ?? null,
+    cost_price_cents: lastEntryCostByProductId[p.id] ?? p.cost_price_cents ?? null,
+    is_active: p.is_active ?? true,
+    created_at: p.created_at,
+    current_stock: stockByProductId[p.id] ?? 0,
+    has_stock_movements: hasStockMovementsByProductId[p.id] ?? false,
+  })
+
+  const parentRows = parents.map((p: Raw) => normalize(p))
+  const childRows = children.map((p: Raw) => normalize(p))
+
+  const byParentBlingId = new Map<string, typeof parentRows[0]>()
+  for (const p of parentRows) {
+    if (p.bling_id) {
+      byParentBlingId.set(p.bling_id, p)
+    }
+  }
+
+  const childrenByParentId = new Map<string, typeof childRows>()
+  for (const child of childRows) {
+    const parentBlingId = child.parent_bling_id
+    if (!parentBlingId) continue
+    const parent = byParentBlingId.get(parentBlingId)
+    if (!parent) continue
+    const arr = childrenByParentId.get(parent.id) ?? []
+    arr.push(child)
+    childrenByParentId.set(parent.id, arr)
+  }
+
+  const productsWithStock = parentRows.flatMap((parent) => {
+    const parentRow = {
+      ...parent,
+      is_variation: false,
+      parent_name: null as string | null,
+    }
+    const vars = (childrenByParentId.get(parent.id) ?? [])
+      .sort((a, b) => {
+        const an = (a.name || '').toLowerCase()
+        const bn = (b.name || '').toLowerCase()
+        if (an < bn) return -1
+        if (an > bn) return 1
+        return 0
+      })
+      .map((child) => ({
+        ...child,
+        is_variation: true,
+        parent_name: parent.name,
+      }))
+    return [parentRow, ...vars]
+  })
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-end justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold">Produtos e serviços</h1>
+          <p className="text-sm text-muted-foreground">
+            Catálogo central de itens utilizados nas ordens de serviço e integrações com o Bling.
+          </p>
+        </div>
+        <div className="flex items-center gap-4 flex-wrap justify-end">
+          <div className="flex items-center gap-2">
+            <ImportFromBlingButton />
+            <Button variant="outline" asChild>
+              <Link href="/portal/produtos/novo">Novo produto/serviço</Link>
+            </Button>
+          </div>
+          <BackfillFromBlingButton />
+        </div>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Buscar</CardTitle>
+          <CardDescription>Filtre por nome, SKU ou código de barras.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form action="/portal/produtos" method="get" className="grid gap-4 md:grid-cols-3">
+            <div className="space-y-2 md:col-span-2">
+              <label htmlFor="q" className="text-sm font-medium">
+                Nome / SKU / código
+              </label>
+              <input
+                id="q"
+                name="q"
+                defaultValue={query}
+                placeholder="Ex: Tela iPhone, SKU-123"
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="active" className="text-sm font-medium">
+                Status
+              </label>
+              <select
+                id="active"
+                name="active"
+                defaultValue={activeFilter}
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <option value="">Todos</option>
+                <option value="active">Ativos</option>
+                <option value="inactive">Inativos</option>
+              </select>
+            </div>
+            <div className="md:col-span-3 flex items-center gap-3 flex-wrap">
+              <Button type="submit">Buscar</Button>
+              <Button variant="outline" asChild>
+                <Link href="/portal/produtos">Limpar</Link>
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      <ProductsListClient products={productsWithStock as any} />
+    </div>
+  )
+}
+
