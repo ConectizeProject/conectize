@@ -1,7 +1,8 @@
 import { notFound, redirect } from 'next/navigation'
 import { getPortalAuth } from '@/lib/supabase/server'
 import { ProductForm } from '../../ProductForm'
-import { getProductById, updateProduct } from '@/lib/products/service'
+import { getProductById } from '@/lib/products/service'
+import { updateProductAndSyncBling } from '@/lib/products/update-product-with-bling'
 
 export const dynamic = 'force-dynamic'
 
@@ -28,7 +29,7 @@ export default async function EditarProdutoPage ({ params }: { params: Params })
     const costPrice = Number(String(formData.get('costPrice') || '').replace(',', '.')) || 0
     const isActive = formData.get('isActive') === 'on'
 
-    await updateProduct(id, {
+    await updateProductAndSyncBling(id, {
       name,
       sku,
       barcode,

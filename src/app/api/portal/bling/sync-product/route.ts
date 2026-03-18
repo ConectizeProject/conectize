@@ -3,6 +3,7 @@ import { getPortalAuth } from '@/lib/supabase/server'
 import { getProductById, updateProduct } from '@/lib/products/service'
 import { getBlingClientForCurrentUser } from '@/lib/integrations/bling/api'
 import { mapBlingProductToLocal } from '@/lib/integrations/bling/mappers'
+import { createProductSyncSnapshot } from '@/lib/products/bling-sync'
 
 export async function POST (request: Request) {
   const { user, role } = await getPortalAuth()
@@ -54,6 +55,8 @@ export async function POST (request: Request) {
       costPriceCents: local.costPriceCents ?? undefined,
       isActive: local.isActive ?? undefined,
       blingId: local.blingId ?? undefined,
+      blingSyncPending: false,
+      blingSyncSnapshot: createProductSyncSnapshot(local),
       kind: local.kind ?? undefined,
     })
 

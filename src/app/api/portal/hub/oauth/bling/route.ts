@@ -1,16 +1,37 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 
 const BLING_AUTHORIZE_URL = 'https://www.bling.com.br/Api/v3/oauth/authorize'
 
-function getBaseUrl() {
-  const url = process.env.NEXT_PUBLIC_SITE_URL || process.env.VERCEL_URL
-  if (url) return url.startsWith('http') ? url : `https://${url}`
-  return 'http://localhost:3000'
+function normalizeUrl (value: string) {
+  return value.trim().replace(/\/$/, '')
 }
 
-async function requireAdmin() {
+function getRequestOrigin (request: NextRequest) {
+  const forwardedHost = request.headers.get('x-forwarded-host')
+  if (forwardedHost) {
+    const forwardedProto = request.headers.get('x-forwarded-proto') || 'https'
+    return `${forwardedProto}://${forwardedHost}`.replace(/\/$/, '')
+  }
+
+  return request.nextUrl.origin.replace(/\/$/, '')
+}
+
+function getAppBaseUrl (request: NextRequest) {
+  return getRequestOrigin(request)
+}
+
+function getBlingRedirectUri (request: NextRequest) {
+  const configuredRedirectUri = process.env.BLING_REDIRECT_URI
+  if (configuredRedirectUri) {
+    return normalizeUrl(configuredRedirectUri)
+  }
+
+  return `${getRequestOrigin(request)}/api/portal/hub/oauth/bling/callback`
+}
+
+async function requireAdmin () {
   const supabase = await createSupabaseServerClient()
   const { user } = await getAuthUser()
   if (!user) return { ok: false as const, status: 401, error: 'not_authenticated' }
@@ -28,10 +49,10 @@ async function requireAdmin() {
   return { ok: true as const }
 }
 
-export async function GET() {
+export async function GET (request: NextRequest) {
   const auth = await requireAdmin()
   if (!auth.ok) {
-    return NextResponse.redirect(new URL('/portal/login', getBaseUrl()))
+    return NextResponse.redirect(new URL('/portal/login', getAppBaseUrl(request)))
   }
 
   const clientId = process.env.BLING_CLIENT_ID
@@ -43,7 +64,7 @@ export async function GET() {
   }
 
   const state = crypto.randomUUID()
-  const redirectUri = `${getBaseUrl()}/api/portal/hub/oauth/bling/callback`
+  const redirectUri = getBlingRedirectUri(request)
 
   const params = new URLSearchParams({
     response_type: 'code',

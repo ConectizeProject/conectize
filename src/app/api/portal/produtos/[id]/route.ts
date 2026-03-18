@@ -182,6 +182,7 @@ export async function PATCH (
     ok: true,
     product: result.product,
     syncedToBling: result.syncedToBling,
+    pendingSyncToBling: result.product.blingSyncPending,
   })
 }
 

@@ -22,6 +22,7 @@ type ProductKind = 'product' | 'service'
 type ProductDetails = {
   id: string
   blingId: string | null
+  blingSyncPending: boolean
   kind: ProductKind | null
   name: string
   sku: string | null
@@ -93,6 +94,7 @@ export function ProductEditDialog ({
   const [form, setForm] = useState<FormState | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [isSyncing, setIsSyncing] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
 
@@ -145,6 +147,7 @@ export function ProductEditDialog ({
     setForm(null)
     setIsLoading(false)
     setIsSaving(false)
+    setIsSyncing(false)
     setLoadError(null)
   }, [open])
 
@@ -199,12 +202,17 @@ export function ProductEditDialog ({
         return
       }
 
+      const nextProduct = (data.product || null) as ProductDetails | null
+      if (nextProduct) {
+        setProduct(nextProduct)
+        setForm(createFormState(nextProduct))
+      }
+
       toast({
         variant: 'success',
-        title: data?.syncedToBling ? 'Item salvo e sincronizado com o Bling.' : 'Item salvo com sucesso.',
+        title: data?.pendingSyncToBling ? 'Item salvo e marcado para sincronização.' : 'Item salvo com sucesso.',
       })
 
-      onOpenChange(false)
       onSuccess?.()
     } catch {
       toast({
@@ -214,6 +222,49 @@ export function ProductEditDialog ({
       })
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  async function handleSyncToBling () {
+    if (!productId) return
+
+    setIsSyncing(true)
+
+    try {
+      const response = await fetch(`/api/portal/produtos/${productId}/sync-bling`, {
+        method: 'POST',
+      })
+      const data = await response.json().catch(() => null)
+
+      if (!response.ok || !data?.ok) {
+        toast({
+          title: 'Erro ao sincronizar',
+          description: data?.message || data?.error || 'Não foi possível enviar as alterações ao Bling.',
+          variant: 'destructive',
+        })
+        return
+      }
+
+      const nextProduct = (data.product || null) as ProductDetails | null
+      if (nextProduct) {
+        setProduct(nextProduct)
+        setForm(createFormState(nextProduct))
+      }
+
+      toast({
+        variant: 'success',
+        title: 'Alterações enviadas ao Bling.',
+      })
+
+      onSuccess?.()
+    } catch {
+      toast({
+        title: 'Erro ao sincronizar',
+        description: 'Não foi possível enviar as alterações ao Bling.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsSyncing(false)
     }
   }
 
@@ -230,7 +281,7 @@ export function ProductEditDialog ({
           <DialogTitle>Editar produto/serviço</DialogTitle>
           <DialogDescription>
             {product?.blingId
-              ? 'As alterações serão salvas no portal e sincronizadas com o Bling.'
+              ? 'As alterações serão salvas primeiro no portal. Depois você pode enviar manualmente para o Bling.'
               : 'As alterações serão salvas apenas no portal.'}
           </DialogDescription>
         </DialogHeader>
@@ -259,6 +310,14 @@ export function ProductEditDialog ({
 
         {!isLoading && !loadError && form && (
           <form onSubmit={handleSubmit} className="space-y-4">
+            {product?.blingId && (
+              <div className={`rounded-md border p-3 text-sm ${product.blingSyncPending ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'}`}>
+                {product.blingSyncPending
+                  ? 'Este item possui alterações locais pendentes de envio ao Bling.'
+                  : 'Este item está sincronizado com o Bling.'}
+              </div>
+            )}
+
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="product-kind">Tipo</Label>
@@ -367,16 +426,26 @@ export function ProductEditDialog ({
             </div>
 
             <DialogFooter>
+              {product?.blingId && product.blingSyncPending && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={handleSyncToBling}
+                  disabled={isSaving || isSyncing}
+                >
+                  {isSyncing ? 'Enviando...' : 'Enviar atualizações para o Bling'}
+                </Button>
+              )}
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => onOpenChange(false)}
-                disabled={isSaving}
+                disabled={isSaving || isSyncing}
               >
                 Cancelar
               </Button>
-              <Button type="submit" disabled={isSaving}>
-                {isSaving ? 'Salvando...' : 'Salvar alterações'}
+              <Button type="submit" disabled={isSaving || isSyncing}>
+                {isSaving ? 'Salvando...' : 'Salvar'}
               </Button>
             </DialogFooter>
           </form>

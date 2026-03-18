@@ -5,6 +5,8 @@ type SupabaseServerClient = Awaited<ReturnType<typeof createSupabaseServerClient
 export type Product = {
   id: string
   blingId: string | null
+  blingSyncPending: boolean
+  blingSyncSnapshot: ProductSyncSnapshot | null
   kind?: 'product' | 'service' | null
   name: string
   sku: string | null
@@ -18,8 +20,21 @@ export type Product = {
   updatedAt: string
 }
 
+export type ProductSyncSnapshot = {
+  name: string
+  sku: string | null
+  barcode: string | null
+  description: string | null
+  salePriceCents: number | null
+  costPriceCents: number | null
+  isActive: boolean
+  kind: 'product' | 'service' | null
+}
+
 export type CreateProductInput = {
   blingId?: string | null
+  blingSyncPending?: boolean
+  blingSyncSnapshot?: ProductSyncSnapshot | null
   kind?: 'product' | 'service' | null
   name: string
   sku?: string | null
@@ -137,6 +152,8 @@ export async function createProduct (input: CreateProductInput): Promise<CreateP
 
   const payload = {
     bling_id: input.blingId ?? null,
+    bling_sync_pending: input.blingSyncPending ?? false,
+    bling_sync_snapshot: input.blingSyncSnapshot ?? null,
     name,
     sku: input.sku ? String(input.sku).trim() : null,
     barcode: input.barcode ? String(input.barcode).trim() : null,
@@ -167,6 +184,8 @@ export async function updateProduct (id: string, input: UpdateProductInput): Pro
   const patch: Record<string, unknown> = {}
 
   if (input.blingId !== undefined) patch.bling_id = input.blingId
+  if (input.blingSyncPending !== undefined) patch.bling_sync_pending = Boolean(input.blingSyncPending)
+  if (input.blingSyncSnapshot !== undefined) patch.bling_sync_snapshot = input.blingSyncSnapshot
   if (input.kind !== undefined) patch.kind = input.kind
   if (input.name !== undefined) patch.name = String(input.name || '').trim()
   if (input.sku !== undefined) patch.sku = input.sku ? String(input.sku).trim() : null
@@ -387,6 +406,8 @@ function mapRowToProduct (row: Record<string, unknown>): Product {
   return {
     id: String(row.id),
     blingId: row.bling_id ? String(row.bling_id) : null,
+    blingSyncPending: Boolean(row.bling_sync_pending ?? false),
+    blingSyncSnapshot: mapRowToProductSyncSnapshot(row.bling_sync_snapshot),
     kind: row.kind === 'product' || row.kind === 'service' ? row.kind : null,
     name: String(row.name || '').trim(),
     sku: row.sku ? String(row.sku).trim() : null,
@@ -398,6 +419,24 @@ function mapRowToProduct (row: Record<string, unknown>): Product {
     isActive: Boolean(row.is_active ?? true),
     createdAt,
     updatedAt,
+  }
+}
+
+function mapRowToProductSyncSnapshot (value: unknown): ProductSyncSnapshot | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+
+  const snapshot = value as Record<string, unknown>
+  const kind = snapshot.kind === 'product' || snapshot.kind === 'service' ? snapshot.kind : null
+
+  return {
+    name: String(snapshot.name || '').trim(),
+    sku: snapshot.sku ? String(snapshot.sku).trim() : null,
+    barcode: snapshot.barcode ? String(snapshot.barcode).trim() : null,
+    description: snapshot.description ? String(snapshot.description).trim() : null,
+    salePriceCents: typeof snapshot.salePriceCents === 'number' ? snapshot.salePriceCents : null,
+    costPriceCents: typeof snapshot.costPriceCents === 'number' ? snapshot.costPriceCents : null,
+    isActive: Boolean(snapshot.isActive ?? true),
+    kind,
   }
 }
 

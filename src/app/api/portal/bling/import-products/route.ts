@@ -2,9 +2,14 @@ import { NextResponse } from 'next/server'
 import { getPortalAuth } from '@/lib/supabase/server'
 import { getBlingClientForCurrentUser } from '@/lib/integrations/bling/api'
 import { mapBlingProductToLocal } from '@/lib/integrations/bling/mappers'
+import { createProductSyncSnapshot } from '@/lib/products/bling-sync'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 
 type SupabaseClient = Awaited<ReturnType<typeof createSupabaseServerClient>>
+type BlingProductsListResponse = {
+  data?: Array<{ produto?: Record<string, unknown> } | Record<string, unknown>>
+  itens?: Array<{ produto?: Record<string, unknown> } | Record<string, unknown>>
+}
 
 async function getCurrentStock (supabase: SupabaseClient, productId: string): Promise<number> {
   const { data } = await supabase
@@ -66,13 +71,13 @@ export async function POST (request: Request) {
   const { client } = clientRes
 
   try {
-    const data = await client.request<any>({
+    const data = await client.request<BlingProductsListResponse>({
       method: 'GET',
       path: '/produtos',
       query: { pagina: page, tamanhoPagina: limit },
     })
 
-    const items: any[] = data?.data ?? data?.itens ?? []
+    const items = data?.data ?? data?.itens ?? []
     if (!Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ ok: true, imported: 0, updated: 0 })
     }
@@ -94,6 +99,8 @@ export async function POST (request: Request) {
 
       const payload = {
         bling_id: blingId,
+        bling_sync_pending: false,
+        bling_sync_snapshot: createProductSyncSnapshot(local),
         parent_bling_id: local.parentBlingId ?? null,
         name: local.name,
         sku: local.sku,
@@ -117,6 +124,7 @@ export async function POST (request: Request) {
       if (existing) {
         const updatePayload: Record<string, unknown> = {
           bling_id: payload.bling_id,
+          bling_sync_pending: payload.bling_sync_pending,
           parent_bling_id: payload.parent_bling_id,
           name: payload.name,
           sku: payload.sku,

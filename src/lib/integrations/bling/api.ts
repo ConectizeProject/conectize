@@ -24,7 +24,7 @@ type BlingTokenResponse = {
 }
 
 type BlingRequestOptions = {
-  method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   path: string
   query?: Record<string, string | number | boolean | undefined | null>
   body?: unknown
@@ -49,6 +49,27 @@ type BlingClientCurrentResult =
 type BlingClientByIdResult =
   | { ok: true, client: BlingClient, connection: HubConnection }
   | { ok: false, error: 'bling_connection_not_found' }
+
+function stringifyBlingValidationFields (value: unknown): string | null {
+  if (!Array.isArray(value) || value.length === 0) return null
+
+  const items = value
+    .map((item) => {
+      if (!item || typeof item !== 'object') {
+        return stringifyBlingErrorValue(item)
+      }
+
+      const field = item as Record<string, unknown>
+      const fieldName = stringifyBlingErrorValue(field.field ?? field.name ?? field.campo)
+      const fieldMessage = stringifyBlingErrorValue(field.message ?? field.mensagem ?? field.description ?? field.descricao)
+
+      if (fieldName && fieldMessage) return `${fieldName}: ${fieldMessage}`
+      return fieldMessage ?? fieldName
+    })
+    .filter((item): item is string => Boolean(item))
+
+  return items.length > 0 ? items.join(', ') : null
+}
 
 function stringifyBlingErrorValue (value: unknown): string | null {
   if (typeof value === 'string') {
@@ -82,9 +103,16 @@ function stringifyBlingErrorValue (value: unknown): string | null {
     'error_description',
   ]
 
-  for (const key of preferredKeys) {
-    const parsedValue = stringifyBlingErrorValue(objectValue[key])
-    if (parsedValue) return parsedValue
+  const preferredParts = preferredKeys
+    .map((key) => stringifyBlingErrorValue(objectValue[key]))
+    .filter((item): item is string => Boolean(item))
+
+  const fieldsMessage = stringifyBlingValidationFields(objectValue.fields)
+
+  if (preferredParts.length > 0 || fieldsMessage) {
+    const message = preferredParts.join(' | ')
+    if (message && fieldsMessage) return `${message} | Campos: ${fieldsMessage}`
+    return message || fieldsMessage
   }
 
   const entries = Object.entries(objectValue)
