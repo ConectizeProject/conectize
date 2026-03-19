@@ -2,6 +2,7 @@ import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { parseBlingWebhook, mapWebhookToLocalEffect } from '@/lib/integrations/bling/webhooks'
 import { mapBlingProductToLocal } from '@/lib/integrations/bling/mappers'
 import { createBlingClientFromConnection } from '@/lib/integrations/bling/api'
+import { createProductSyncSnapshot } from '@/lib/products/bling-sync'
 
 const PLATFORM_ID = 'bling'
 
@@ -32,6 +33,43 @@ async function getWebhookActorUserId (supabase: ServiceClient): Promise<string |
     .limit(1)
     .maybeSingle()
   return staff?.id ? String(staff.id) : null
+}
+
+/** Quem “cria” produto via webhook: staff/admin do tenant ou quem conectou o Bling. */
+async function getCreatedByForProductWebhook (supabase: ServiceClient, actorUserId: string | null): Promise<string | null> {
+  if (actorUserId) return actorUserId
+  const { data: conn } = await supabase
+    .from('hub_connections')
+    .select('created_by')
+    .eq('platform_id', PLATFORM_ID)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const cb = (conn as { created_by?: string | null } | null)?.created_by
+  return cb ? String(cb) : null
+}
+
+async function insertInitialStockFromBlingWebhook (
+  supabase: ServiceClient,
+  productId: string,
+  quantity: number,
+  unitCents: number,
+  createdBy: string | null,
+  externalReference: string,
+): Promise<void> {
+  if (!Number.isFinite(quantity) || quantity <= 0) return
+  const row: Record<string, unknown> = {
+    product_id: productId,
+    type: 'entry',
+    quantity: Math.round(quantity),
+    unit_value_cents: unitCents,
+    total_value_cents: Math.round(quantity) * unitCents,
+    source: 'bling',
+    external_reference: externalReference,
+  }
+  if (createdBy) row.created_by = createdBy
+  const { error } = await supabase.from('product_stock_movements').insert(row)
+  if (error) throw error
 }
 
 async function getProductIdByBlingId (supabase: ServiceClient, blingId: string): Promise<string | null> {
@@ -130,30 +168,94 @@ export async function processBlingWebhook (id: string): Promise<{ ok: true; stat
 
   try {
     if (effect.action === 'updateProduct') {
-      const productId = await getProductIdByBlingId(supabase, effect.blingId)
-      if (!productId) {
-        throw new Error('product_not_found')
+      const blingId = String(effect.blingId || '').trim()
+      if (!blingId) {
+        throw new Error('bling_product_id_missing')
       }
-      const latest = await fetchBlingProductLatest(supabase, effect.blingId)
-      const local = mapBlingProductToLocal((latest ?? effect.payload) as Record<string, unknown>)
-      const updatePayload: Record<string, unknown> = {
-        updated_at: new Date().toISOString(),
+
+      const latest = await fetchBlingProductLatest(supabase, blingId)
+      const payloadPartial =
+        effect.payload && typeof effect.payload === 'object'
+          ? (effect.payload as Record<string, unknown>)
+          : {}
+      const mergedDto: Record<string, unknown> = {
+        id: blingId,
+        ...payloadPartial,
+        ...(latest ?? {}),
       }
-      if (local.name) updatePayload.name = local.name
-      if (local.sku !== undefined) updatePayload.sku = local.sku
-      if (local.barcode !== undefined) updatePayload.barcode = local.barcode
-      if (local.description !== undefined) updatePayload.description = local.description
-      if (local.kind === 'product' || local.kind === 'service') updatePayload.kind = local.kind
-      if (typeof local.salePriceCents === 'number') updatePayload.sale_price_cents = local.salePriceCents
-      if (typeof local.costPriceCents === 'number') updatePayload.cost_price_cents = local.costPriceCents
-      if (typeof local.isActive === 'boolean') updatePayload.is_active = local.isActive
+      const local = mapBlingProductToLocal(mergedDto)
+      const resolvedBlingId = local.blingId ? String(local.blingId) : blingId
+      const name = String(local.name || '').trim()
+      if (!name) {
+        throw new Error('bling_product_fetch_or_name_missing')
+      }
 
-      const { error: updateError } = await supabase
-        .from('products')
-        .update(updatePayload)
-        .eq('id', productId)
+      const estoqueAtual =
+        typeof local.estoqueAtual === 'number' && local.estoqueAtual >= 0 ? local.estoqueAtual : 0
+      const unitCents = local.costPriceCents ?? local.salePriceCents ?? 0
 
-      if (updateError) throw updateError
+      const parentBlingKey = local.parentBlingId ? String(local.parentBlingId).trim() : ''
+      const parentProductUuid = parentBlingKey
+        ? await getProductIdByBlingId(supabase, parentBlingKey)
+        : null
+
+      const syncBase: Record<string, unknown> = {
+        bling_id: resolvedBlingId,
+        bling_sync_pending: false,
+        bling_sync_snapshot: createProductSyncSnapshot(local),
+        parent_bling_id: parentBlingKey || null,
+        parent_product_id: parentProductUuid,
+        name,
+        sku: local.sku,
+        barcode: local.barcode,
+        description: local.description,
+        image_url: local.imageUrl ?? null,
+        sale_price_cents: local.salePriceCents,
+        cost_price_cents: local.costPriceCents,
+        is_active: local.isActive ?? true,
+        kind: local.kind ?? null,
+      }
+
+      const productId = await getProductIdByBlingId(supabase, resolvedBlingId)
+
+      if (productId) {
+        const updatePayload: Record<string, unknown> = {
+          ...syncBase,
+          updated_at: new Date().toISOString(),
+        }
+        const { error: updateError } = await supabase
+          .from('products')
+          .update(updatePayload)
+          .eq('id', productId)
+
+        if (updateError) throw updateError
+      } else {
+        const createdBy = await getCreatedByForProductWebhook(supabase, actorUserId)
+        const insertPayload: Record<string, unknown> = {
+          ...syncBase,
+          created_by: createdBy,
+        }
+        const { data: inserted, error: insertError } = await supabase
+          .from('products')
+          .insert(insertPayload)
+          .select('id')
+          .single()
+
+        if (insertError) throw insertError
+        const newId = inserted && typeof (inserted as { id?: string }).id === 'string'
+          ? (inserted as { id: string }).id
+          : null
+        if (newId && estoqueAtual > 0) {
+          await insertInitialStockFromBlingWebhook(
+            supabase,
+            newId,
+            estoqueAtual,
+            unitCents,
+            actorUserId,
+            `bling:webhook:${id}:product_initial_stock`,
+          )
+        }
+      }
     }
 
     if (effect.action === 'insertStockMovementFromBling') {

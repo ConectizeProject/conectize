@@ -210,6 +210,7 @@ export function OrderEntryPhotos({
 				return prev.filter((u) => !toRemove.includes(u.key));
 			});
 			toast({
+				variant: "success",
 				title: "Fotos salvas",
 				description: "As fotos foram adicionadas à OS e já estão salvas.",
 			});
@@ -255,6 +256,7 @@ export function OrderEntryPhotos({
 				if (res.ok) {
 					await fetchPhotos();
 					toast({
+						variant: "success",
 						title: "Foto excluída",
 						description: "A foto foi removida da OS e a alteração já está salva.",
 					});

@@ -414,11 +414,7 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 						</div>
 					))}
 				</div>
-			) : (
-				<div className="text-sm text-muted-foreground">
-					Nenhum item adicionado ainda.
-				</div>
-			)}
+			) : null}
 
 			{isPickerVisible ? (
 				<div className="grid gap-3 md:grid-cols-12 items-end rounded-md border border-dashed p-3">
