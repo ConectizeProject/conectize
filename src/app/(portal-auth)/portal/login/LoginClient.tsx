@@ -41,13 +41,13 @@ export function LoginClient() {
       const supabase = createSupabaseBrowserClient()
       supabase.auth.getSession()
         .then(({ data }) => {
-          if (data?.session) router.replace('/portal')
+          if (data?.session) router.replace(redirectTo)
         })
         .catch(() => { })
     } catch (err) {
       // Sem env do Supabase: mantém a tela de login renderizando
     }
-  }, [router])
+  }, [router, redirectTo])
 
   useEffect(() => {
     if (!isRedirecting) return
