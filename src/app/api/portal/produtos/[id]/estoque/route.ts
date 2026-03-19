@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server'
 import { getPortalAuth } from '@/lib/supabase/server'
 import {
+  getProductById,
   getProductCurrentStock,
   listStockMovements,
   addStockMovement,
   type StockMovementType,
 } from '@/lib/products/service'
+import { pushStockMovementToBling } from '@/lib/integrations/bling/push-stock-movement'
 
 type Params = Promise<{ id: string }>
 
@@ -60,23 +62,98 @@ export async function POST (
     quantity?: number
     unitValueCents?: number
   }
-  const type = (String(body.type || 'entry').trim() || 'entry') as StockMovementType
-  if (!['entry', 'exit', 'loss'].includes(type)) {
+  const type = (String(body.type || 'entry').trim() || 'entry') as StockMovementType | 'balance'
+  if (!['entry', 'exit', 'loss', 'balance'].includes(type)) {
     return NextResponse.json({ error: 'invalid_type' }, { status: 400 })
   }
   const quantity = Number(body.quantity)
-  if (!Number.isFinite(quantity) || quantity <= 0) {
+  if (!Number.isFinite(quantity) || (type !== 'balance' && quantity <= 0) || (type === 'balance' && quantity < 0)) {
     return NextResponse.json({ error: 'invalid_quantity' }, { status: 400 })
   }
   const unitValueCents = typeof body.unitValueCents === 'number' && body.unitValueCents >= 0
     ? Math.round(body.unitValueCents)
     : undefined
 
+  const productRes = await getProductById(id)
+  if (!productRes.ok || !('product' in productRes)) {
+    return NextResponse.json({ error: 'product_not_found' }, { status: 404 })
+  }
+
+  const product = productRes.product
+  const source = product.blingId ? 'bling' : 'manual'
+
+  let blingPushError: string | null = null
+  if (type === 'balance') {
+    const localBalanceRes = await getProductCurrentStock(id)
+    const localBalance = localBalanceRes.ok ? localBalanceRes.currentStock : 0
+    const target = quantity
+    const diff = target - localBalance
+
+    if (product.blingId) {
+      try {
+        await pushStockMovementToBling({
+          productBlingId: product.blingId,
+          type,
+          quantity: target,
+          unitValueCents: unitValueCents ?? null,
+          observacoes: 'Balanço (portal)',
+        })
+      } catch (err) {
+        blingPushError = err instanceof Error ? err.message : 'error'
+      }
+    }
+
+    if (diff === 0) {
+      return NextResponse.json({
+        ok: true,
+        currentStock: target,
+        movement: null,
+        blingPushError,
+      })
+    }
+
+    const movementType: StockMovementType = diff > 0 ? 'entry' : 'exit'
+    const qtyToInsert = Math.abs(diff)
+
+    const result = await addStockMovement(id, {
+      type: movementType,
+      quantity: qtyToInsert,
+      unitValueCents: unitValueCents ?? null,
+      source,
+    })
+
+    if (!result.ok) {
+      return NextResponse.json({ error: 'error' in result ? result.error : 'db_error' }, { status: 400 })
+    }
+
+    return NextResponse.json({
+      ok: true,
+      currentStock: result.currentStock ?? null,
+      movement: result.movement,
+      blingPushError,
+    })
+  }
+
+  if (product.blingId) {
+    try {
+      const pushType = type === 'loss' ? 'exit' : type
+      await pushStockMovementToBling({
+        productBlingId: product.blingId,
+        type: pushType,
+        quantity,
+        unitValueCents: unitValueCents ?? null,
+        observacoes: type === 'loss' ? 'Perda (portal)' : undefined,
+      })
+    } catch (err) {
+      blingPushError = err instanceof Error ? err.message : 'error'
+    }
+  }
+
   const result = await addStockMovement(id, {
     type,
     quantity,
     unitValueCents: unitValueCents ?? null,
-    source: 'manual',
+    source,
   })
 
   if (!result.ok) {
@@ -87,5 +164,6 @@ export async function POST (
     ok: true,
     currentStock: result.currentStock ?? null,
     movement: result.movement,
+    blingPushError,
   })
 }

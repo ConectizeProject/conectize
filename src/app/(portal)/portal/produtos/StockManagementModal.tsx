@@ -12,6 +12,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { formatCurrency } from '@/lib/utils'
+import { useToast } from '@/hooks/use-toast'
 
 type Movement = {
   id: string
@@ -49,10 +50,11 @@ export function StockManagementModal ({
   initialStock = 0,
   onSuccess,
 }: Props) {
+  const { toast } = useToast()
   const [data, setData] = useState<StockData | null>(null)
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [type, setType] = useState<'entry' | 'exit' | 'loss'>('entry')
+  const [type, setType] = useState<'entry' | 'exit' | 'loss' | 'balance'>('entry')
   const [quantity, setQuantity] = useState('1')
   const [unitValue, setUnitValue] = useState('')
 
@@ -90,7 +92,9 @@ export function StockManagementModal ({
   async function handleSubmit (e: React.FormEvent) {
     e.preventDefault()
     const qty = Number(quantity.replace(',', '.'))
-    if (!Number.isFinite(qty) || qty <= 0) return
+    if (!Number.isFinite(qty)) return
+    if (type !== 'balance' && qty <= 0) return
+    if (type === 'balance' && qty < 0) return
     const uv = Number(String(unitValue || '0').replace(',', '.'))
     const unitValueCents = uv > 0 ? Math.round(uv * 100) : 0
 
@@ -103,6 +107,13 @@ export function StockManagementModal ({
       })
       if (res.ok) {
         const json = await res.json()
+        if (json?.blingPushError) {
+          toast({
+            variant: 'destructive',
+            title: 'Erro ao atualizar estoque no Bling',
+            description: json.blingPushError,
+          })
+        }
         setData((prev) => ({
           currentStock: json.currentStock ?? prev?.currentStock ?? 0,
           movements: prev?.movements ?? [],
@@ -143,19 +154,20 @@ export function StockManagementModal ({
                   id="modal-type"
                   className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   value={type}
-                  onChange={(e) => setType(e.target.value as 'entry' | 'exit' | 'loss')}
+                    onChange={(e) => setType(e.target.value as 'entry' | 'exit' | 'loss' | 'balance')}
                 >
                   <option value="entry">Entrada</option>
                   <option value="exit">Saída</option>
                   <option value="loss">Perda</option>
+                    <option value="balance">Balanço</option>
                 </select>
               </div>
               <div className="space-y-1">
-                <Label htmlFor="modal-quantity">Quantidade</Label>
+                  <Label htmlFor="modal-quantity">{type === 'balance' ? 'Saldo final' : 'Quantidade'}</Label>
                 <Input
                   id="modal-quantity"
                   type="number"
-                  min={1}
+                    min={type === 'balance' ? 0 : 1}
                   value={quantity}
                   onChange={(e) => setQuantity(e.target.value)}
                   required

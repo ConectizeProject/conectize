@@ -2,10 +2,13 @@ import { redirect, notFound } from 'next/navigation'
 import { getPortalAuth } from '@/lib/supabase/server'
 import {
   getProductWithStock,
+  getProductById,
+  getProductCurrentStock,
   listStockMovements,
   addStockMovement,
   type StockMovementType,
 } from '@/lib/products/service'
+import { pushStockMovementToBling } from '@/lib/integrations/bling/push-stock-movement'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -33,16 +36,67 @@ export default async function ProdutoDetalhePage ({ params }: { params: Params }
   async function registerMovement (formData: FormData) {
     'use server'
 
-    const type = String(formData.get('type') || '').trim() as StockMovementType
+    const type = String(formData.get('type') || '').trim() as StockMovementType | 'balance'
     const quantity = Number(String(formData.get('quantity') || '0').replace(',', '.')) || 0
     const unitValue = Number(String(formData.get('unitValue') || '0').replace(',', '.')) || 0
 
-    await addStockMovement(id, {
-      type,
-      quantity,
-      unitValueCents: unitValue > 0 ? Math.round(unitValue * 100) : 0,
-      source: 'manual',
-    })
+    const unitValueCents = unitValue > 0 ? Math.round(unitValue * 100) : 0
+    const productSource = product.blingId ? 'bling' : 'manual'
+
+    if (type === 'balance') {
+      const localBalanceRes = await getProductCurrentStock(id)
+      const localBalance = localBalanceRes.ok && 'currentStock' in localBalanceRes ? localBalanceRes.currentStock : 0
+      const target = quantity
+      const diff = target - localBalance
+
+      if (diff !== 0) {
+        const movementType: StockMovementType = diff > 0 ? 'entry' : 'exit'
+        await addStockMovement(id, {
+          type: movementType,
+          quantity: Math.abs(diff),
+          unitValueCents,
+          source: productSource,
+        })
+      }
+
+      try {
+        const productRes = await getProductById(id)
+        if (productRes.ok && 'product' in productRes && productRes.product.blingId) {
+          await pushStockMovementToBling({
+            productBlingId: productRes.product.blingId,
+            type,
+            quantity: target,
+            unitValueCents,
+            observacoes: 'Balanço (portal)',
+          })
+        }
+      } catch {
+        // Melhor esforço
+      }
+    } else {
+      await addStockMovement(id, {
+        type,
+        quantity,
+        unitValueCents,
+        source: productSource,
+      })
+
+      try {
+        const productRes = await getProductById(id)
+        if (productRes.ok && 'product' in productRes && productRes.product.blingId) {
+          const pushType = type === 'loss' ? 'exit' : type
+          await pushStockMovementToBling({
+            productBlingId: productRes.product.blingId,
+            type: pushType,
+            quantity,
+            unitValueCents,
+            observacoes: type === 'loss' ? 'Perda (portal)' : undefined,
+          })
+        }
+      } catch {
+        // Melhor esforço: o estoque local já foi registrado
+      }
+    }
 
     redirect(`/portal/produtos/${id}`)
   }
@@ -125,6 +179,7 @@ export default async function ProdutoDetalhePage ({ params }: { params: Params }
                   <option value="entry">Entrada</option>
                   <option value="exit">Saída</option>
                   <option value="loss">Perda</option>
+                  <option value="balance">Balanço</option>
                 </select>
               </div>
               <div className="space-y-1">
@@ -133,7 +188,7 @@ export default async function ProdutoDetalhePage ({ params }: { params: Params }
                   id="quantity"
                   name="quantity"
                   type="number"
-                  min="1"
+                  min="0"
                   defaultValue="1"
                   required
                 />
