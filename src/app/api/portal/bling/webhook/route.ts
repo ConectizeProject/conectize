@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { parseBlingWebhook, getBlingResourceKeyFromWebhook } from '@/lib/integrations/bling/webhooks'
 import crypto from 'crypto'
 
@@ -42,7 +42,7 @@ export async function POST (request: Request) {
   const eventType = parsed.kind === 'unknown' ? parsed.eventType : (parsed.eventType || 'unknown')
   const externalId = getBlingResourceKeyFromWebhook(parsed)
 
-  const supabase = await createSupabaseServerClient()
+  const supabase = createSupabaseServiceClient()
   const { data: row, error } = await supabase
     .from('integration_webhooks')
     .insert({
@@ -56,13 +56,23 @@ export async function POST (request: Request) {
     .single()
 
   if (error || !row) {
+    console.error('[bling webhook] insert error', {
+      platformId: PLATFORM_ID,
+      eventType,
+      externalId,
+      message: error?.message ?? null,
+      details: error?.details ?? null,
+      code: error?.code ?? null,
+    })
     return NextResponse.json({ error: 'db_error' }, { status: 500 })
   }
 
   try {
     const { processBlingWebhook } = await import('@/lib/integrations/bling/webhook-service')
     await processBlingWebhook(String(row.id))
-  } catch {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'unknown_error'
+    console.error('[bling webhook] process error', { id: row.id, message })
   }
 
   return NextResponse.json({ ok: true, id: row.id }, { status: 200 })

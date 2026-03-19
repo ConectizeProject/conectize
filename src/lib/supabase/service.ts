@@ -10,6 +10,14 @@ export function createSupabaseServiceClient() {
   if (!url || !serviceKey) {
     throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY for service client')
   }
+
+  const normalizedKey = serviceKey.trim()
+  const looksLikeAnonKey = normalizedKey.startsWith('sb_publishable') || normalizedKey.startsWith('sb_public')
+  if (looksLikeAnonKey) {
+    // Ajuda a diagnosticar o cenário onde a env foi configurada incorretamente em produção.
+    console.error('[supabase] SUPABASE_SERVICE_ROLE_KEY parece ser publishable/anon, não service role')
+  }
+
   return createClient(url, serviceKey, {
     auth: {
       persistSession: false,

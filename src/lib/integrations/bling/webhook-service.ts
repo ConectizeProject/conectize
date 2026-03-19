@@ -1,10 +1,12 @@
-import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { parseBlingWebhook, mapWebhookToLocalEffect } from '@/lib/integrations/bling/webhooks'
 import { mapBlingProductToLocal } from '@/lib/integrations/bling/mappers'
 
 const PLATFORM_ID = 'bling'
 
-async function getSystemUserId (supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>): Promise<string | null> {
+type ServiceClient = ReturnType<typeof createSupabaseServiceClient>
+
+async function getSystemUserId (supabase: ServiceClient): Promise<string | null> {
   const { data } = await supabase
     .from('users')
     .select('id')
@@ -14,7 +16,7 @@ async function getSystemUserId (supabase: Awaited<ReturnType<typeof createSupaba
   return data?.id ? String(data.id) : null
 }
 
-async function getProductIdByBlingId (supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, blingId: string): Promise<string | null> {
+async function getProductIdByBlingId (supabase: ServiceClient, blingId: string): Promise<string | null> {
   const { data } = await supabase
     .from('products')
     .select('id')
@@ -24,7 +26,7 @@ async function getProductIdByBlingId (supabase: Awaited<ReturnType<typeof create
   return data?.id ? String(data.id) : null
 }
 
-async function getProductCurrentStockLocal (supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, productId: string): Promise<number> {
+async function getProductCurrentStockLocal (supabase: ServiceClient, productId: string): Promise<number> {
   const { data } = await supabase
     .from('product_stock_movements')
     .select('type, quantity')
@@ -41,7 +43,7 @@ async function getProductCurrentStockLocal (supabase: Awaited<ReturnType<typeof 
 }
 
 export async function processBlingWebhook (id: string): Promise<{ ok: true; status: 'processed' } | { ok: false; status: 'error'; error_message: string }> {
-  const supabase = await createSupabaseServerClient()
+  const supabase = createSupabaseServiceClient()
 
   const { data: row, error: fetchError } = await supabase
     .from('integration_webhooks')
@@ -166,7 +168,7 @@ export async function processBlingWebhook (id: string): Promise<{ ok: true; stat
 }
 
 export async function processPendingBlingWebhooks (limit: number): Promise<number> {
-  const supabase = await createSupabaseServerClient()
+  const supabase = createSupabaseServiceClient()
   const { data: rows } = await supabase
     .from('integration_webhooks')
     .select('id')
