@@ -24,6 +24,7 @@ import { PrevisaoInput } from '@/components/previsao-input'
 import { getMinPrevisaoForEdit, previsaoToISO, toDateTimeLocalInBrazil } from '@/lib/utils/previsao-ordem'
 import { UpdateOrderSubmitButton } from './UpdateOrderSubmitButton'
 import { fetchDeviceModelsForSelector } from '@/lib/portal/device-models-server'
+import { applyOrderStatusStockTransition } from '@/lib/orders/stock-by-status'
 
 export const dynamic = 'force-dynamic'
 
@@ -159,6 +160,7 @@ function parseServicesJson(raw: unknown): {
 				)
 				const valueCents = unitValueCents * quantity
 				const costCents = unitCostCents * quantity
+				const sourceProductIdRaw = String(i.sourceProductId ?? '').trim()
 				return {
 					kind,
 					description,
@@ -167,6 +169,7 @@ function parseServicesJson(raw: unknown): {
 					unitCostCents,
 					valueCents,
 					costCents,
+					sourceProductId: sourceProductIdRaw || null,
 				}
 			})
 			.filter((s) => s.description || s.valueCents > 0 || s.costCents > 0)
@@ -322,7 +325,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 		const supabase = await createSupabaseServerClient()
 		const { data: existing } = await supabase
 			.from('service_orders')
-			.select('status')
+			.select('status, services')
 			.eq('id', orderId)
 			.maybeSingle()
 		const isOrderFinalized = existing && FINALIZED_STATUSES.has(existing.status)
@@ -374,6 +377,23 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 			.eq('id', orderId)
 
 		if (error) redirect(`/portal/ordens/${id}?error=nao_foi_possivel_salvar`)
+
+		try {
+			const previousStatus = String(existing?.status || '').trim()
+			const nextStatus = status
+			const servicesForStock =
+				nextStatus === 'cancelada'
+					? (existing?.services ?? [])
+					: services.items
+			await applyOrderStatusStockTransition({
+				supabase,
+				orderId,
+				previousStatus,
+				nextStatus,
+				services: servicesForStock,
+				actorUserId: user.id,
+			})
+		} catch (_) {}
 
 		redirect(`/portal/ordens/${id}?ok=1`)
 	}

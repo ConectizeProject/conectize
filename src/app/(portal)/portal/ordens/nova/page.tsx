@@ -3,6 +3,7 @@ import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server
 import { fetchDeviceModelsForSelector } from '@/lib/portal/device-models-server'
 import { getOrdemErrorMessage } from '@/lib/utils/error-messages'
 import { previsaoToISO } from '@/lib/utils/previsao-ordem'
+import { applyOrderStatusStockTransition } from '@/lib/orders/stock-by-status'
 import { NovaOrdemClient } from './NovaOrdemClient'
 
 function normalizeCpf(value: string) {
@@ -62,6 +63,7 @@ function parseServicesJson(raw: unknown) {
       )
       const valueCents = unitValueCents * quantity
       const costCents = unitCostCents * quantity
+      const sourceProductIdRaw = String(item?.sourceProductId || '').trim()
       return {
         kind,
         description,
@@ -70,6 +72,7 @@ function parseServicesJson(raw: unknown) {
         unitCostCents,
         valueCents,
         costCents,
+        sourceProductId: sourceProductIdRaw || null,
       }
     })
     .filter((s: any) => s.description || s.valueCents > 0 || s.costCents > 0)
@@ -183,6 +186,17 @@ async function createOrderAction(formData: FormData) {
     .single()
 
   if (error) redirect('/portal/ordens?toast=order_error&error=nao_foi_possivel_criar_os')
+
+  try {
+    await applyOrderStatusStockTransition({
+      supabase,
+      orderId: insertedOrder.id,
+      previousStatus: 'orcamento',
+      nextStatus: status,
+      services: services.items,
+      actorUserId: user.id,
+    })
+  } catch (_) {}
 
   const hasDeviceInfo = deviceModelId || brand || model || deviceType
   if (hasDeviceInfo) {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
+import { applyOrderStatusStockTransition } from '@/lib/orders/stock-by-status'
 
 const VALID_STATUSES = new Set([
   'orcamento', 'aguardando_aprovacao', 'aprovado', 'aguardando_pecas', 'em_manutencao',
@@ -49,6 +50,15 @@ export async function PATCH(
     return NextResponse.json({ ok: false, error: 'invalid_status' }, { status: 400 })
   }
 
+  const { data: existing } = await auth.supabase
+    .from('service_orders')
+    .select('status, services')
+    .eq('id', id)
+    .maybeSingle()
+  if (!existing) {
+    return NextResponse.json({ ok: false, error: 'not_found' }, { status: 404 })
+  }
+
   const updatePayload: Record<string, unknown> = { status }
   if (FINALIZED_STATUSES.has(status)) {
     updatePayload.closed_at = new Date().toISOString()
@@ -60,6 +70,25 @@ export async function PATCH(
 
   if (error) {
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+  }
+
+  try {
+    const previousStatus = String(existing.status || '').trim()
+    const nextStatus = status
+    const servicesForStock = nextStatus === 'cancelada'
+      ? (existing.services ?? [])
+      : (existing.services ?? [])
+    const { data: authUser } = await auth.supabase.auth.getUser()
+    await applyOrderStatusStockTransition({
+      supabase: auth.supabase,
+      orderId: id,
+      previousStatus,
+      nextStatus,
+      services: servicesForStock,
+      actorUserId: authUser.user?.id ?? null,
+    })
+  } catch {
+    // Melhor esforço: status da OS já foi atualizado
   }
 
   return NextResponse.json({ ok: true })
