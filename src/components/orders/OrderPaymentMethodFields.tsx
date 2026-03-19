@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/select'
 import { portalFetch } from '@/lib/portal/portal-fetch'
 import { formatCentsBr, formatMoneyInputBr, parseMoneyToCents } from '@/lib/utils/format-money'
+import { SELECT_NONE_VALUE } from '@/lib/utils/optional-uuid'
 
 export type PaymentMethodEntry = {
   payment_method_id: string
@@ -279,7 +280,12 @@ export function OrderPaymentMethodFields({
         <input
           type="hidden"
           name="paymentMethodsJson"
-          value={JSON.stringify(entries.filter((e) => e.payment_method_id))}
+          value={JSON.stringify(
+            entries.filter((e) => {
+              const id = String(e.payment_method_id || '').trim()
+              return Boolean(id) && id !== SELECT_NONE_VALUE
+            }),
+          )}
           {...formAttr}
         />
       )}

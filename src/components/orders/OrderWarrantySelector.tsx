@@ -63,11 +63,18 @@ export function OrderWarrantySelector ({
       <div className="flex items-center justify-between gap-2">
         <Label htmlFor="warrantyTemplateId">Modelo de garantia</Label>
       </div>
+      <input
+        type="hidden"
+        name="warrantyTemplateId"
+        form={formId}
+        value={selectedId === '__none__' ? '' : selectedId}
+        readOnly
+        aria-hidden
+      />
       <Select
         value={selectedId || '__none__'}
         onValueChange={handleTemplateChange}
         disabled={disabled || activeTemplates.length === 0}
-        name="warrantyTemplateId"
       >
         <SelectTrigger form={formId} id="warrantyTemplateId">
           <SelectValue placeholder={activeTemplates.length === 0 ? 'Nenhum modelo cadastrado' : 'Selecione um modelo (opcional)'} />

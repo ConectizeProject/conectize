@@ -28,6 +28,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { NovaOrdemCustomerCard } from './NovaOrdemCustomerCard'
 import { parseMoneyToCents } from '@/lib/utils/format-money'
 import { portalFetch } from '@/lib/portal/portal-fetch'
+import { parseOptionalUuid, SELECT_NONE_VALUE } from '@/lib/utils/optional-uuid'
+import { toast } from '@/hooks/use-toast'
 import { getDefaultPrevisao, getMinPrevisaoNow } from '@/lib/utils/previsao-ordem'
 import { PrevisaoInput } from '@/components/previsao-input'
 import { formatCpf, formatCnpj, formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
@@ -147,6 +149,7 @@ export function NovaOrdemClient(props: Props) {
 	const cpfSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 	const nameSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 	const servicesCardRef = useRef<OrderServicesCardRef>(null)
+	const initialErrorToastShownRef = useRef(false)
 
 	const [selectedCustomer, setSelectedCustomer] = useState<CustomerHit | null>(null)
 
@@ -181,6 +184,23 @@ export function NovaOrdemClient(props: Props) {
 		}),
 		[defaultPrevisao, props.isAdmin, props.currentUserId]
 	)
+
+	useEffect(() => {
+		if (!props.initialError) {
+			initialErrorToastShownRef.current = false
+			return
+		}
+		if (initialErrorToastShownRef.current) return
+		initialErrorToastShownRef.current = true
+		toast({
+			variant: 'destructive',
+			title: 'Não foi possível continuar',
+			description: props.initialError,
+		})
+		const dup = props.duplicateOrderId
+		const qs = dup ? `?duplicate=${encodeURIComponent(dup)}` : ''
+		router.replace(`/portal/ordens/nova${qs}`)
+	}, [props.initialError, props.duplicateOrderId, router])
 
 	useEffect(() => {
 		if (!props.duplicateOrderId) {
@@ -406,6 +426,7 @@ export function NovaOrdemClient(props: Props) {
 				const unitCostCents = parseMoneyToCents(s.cost)
 				const valueCents = unitValueCents * quantity
 				const costCents = unitCostCents * quantity
+				const sourceProductId = parseOptionalUuid(s.sourceProductId)
 				return {
 					kind,
 					description,
@@ -414,6 +435,7 @@ export function NovaOrdemClient(props: Props) {
 					unitCostCents,
 					valueCents,
 					costCents,
+					...(sourceProductId ? { sourceProductId } : {}),
 				}
 			})
 			.filter((s) => s.description || s.valueCents > 0 || s.costCents > 0)
@@ -433,7 +455,15 @@ export function NovaOrdemClient(props: Props) {
 		fd.append('passcodeType', values.passcodeType)
 		fd.append('passcodeText', values.passcodeText)
 		fd.append('passcodePattern', values.passcodePattern)
-		fd.append('paymentMethodsJson', JSON.stringify((values.paymentMethods || []).filter((e) => e.payment_method_id)))
+		fd.append(
+			'paymentMethodsJson',
+			JSON.stringify(
+				(values.paymentMethods || []).filter((e) => {
+					const id = String(e.payment_method_id || '').trim()
+					return Boolean(id) && id !== SELECT_NONE_VALUE
+				}),
+			),
+		)
 		fd.append('title', values.title)
 		fd.append('status', values.status)
 		fd.append('imei', values.imei)
@@ -852,8 +882,6 @@ export function NovaOrdemClient(props: Props) {
 
 									{formik.status && typeof formik.status === 'string' ? (
 										<p className="text-sm text-destructive">{formik.status}</p>
-									) : props.initialError ? (
-										<p className="text-sm text-destructive">{props.initialError}</p>
 									) : null}
 
 									{formik.errors.customerId ? (

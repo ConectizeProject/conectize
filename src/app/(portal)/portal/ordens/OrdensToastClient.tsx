@@ -19,10 +19,32 @@ export function OrdensToastClient() {
 
   useEffect(() => {
     const toastType = searchParams.get('toast')
+    const errorParam = String(searchParams.get('error') || '').trim()
+
+    if (!toastType && errorParam) {
+      const saveEc = searchParams.get('ec')
+      const saveEm = searchParams.get('em')
+      toast({
+        title: 'Não foi possível concluir',
+        description: getOrdemErrorMessage(errorParam, undefined, {
+          saveDbCode: saveEc,
+          saveDbMessage: saveEm,
+        }),
+        variant: 'destructive',
+      })
+      const next = new URLSearchParams(searchParams.toString())
+      next.delete('error')
+      next.delete('ec')
+      next.delete('em')
+      const qs = next.toString()
+      router.replace(qs ? `/portal/ordens?${qs}` : '/portal/ordens')
+      return
+    }
+
     if (!toastType) return
 
     const orderId = String(searchParams.get('id') || '').trim()
-    const error = String(searchParams.get('error') || '').trim()
+    const error = errorParam
 
     if (toastType === 'order_created') {
       toast({
@@ -36,9 +58,14 @@ export function OrdensToastClient() {
         ) : undefined,
       })
     } else if (toastType === 'order_error') {
+      const saveEc = searchParams.get('ec')
+      const saveEm = searchParams.get('em')
       toast({
         title: 'Não foi possível criar',
-        description: getOrdemErrorMessage(error, error || 'Tente novamente.'),
+        description: getOrdemErrorMessage(error, error || 'Tente novamente.', {
+          saveDbCode: saveEc,
+          saveDbMessage: saveEm,
+        }),
         variant: 'destructive',
       })
     }

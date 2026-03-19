@@ -1,4 +1,5 @@
 import { pushStockMovementToBling } from '@/lib/integrations/bling/push-stock-movement'
+import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 
 type OrderServiceItem = {
   kind?: 'service' | 'product' | null
@@ -53,7 +54,7 @@ function getProductLines (services: unknown) {
 
   for (const item of items) {
     if (item.kind !== 'product') continue
-    const productId = String(item.sourceProductId || '').trim()
+    const productId = parseOptionalUuid(item.sourceProductId)
     if (!productId) continue
     const qty = Math.max(0, Number(item.quantity) || 0)
     if (!Number.isFinite(qty) || qty <= 0) continue
