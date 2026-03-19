@@ -162,7 +162,11 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
         toast({ title: 'Erro ao excluir OS', variant: 'destructive' })
         return
       }
-      toast({ title: 'OS excluída', description: `Ordem #${displayNumber} excluída com sucesso.` })
+      toast({
+        variant: 'success',
+        title: 'OS excluída',
+        description: `Ordem #${displayNumber} excluída com sucesso.`,
+      })
       router.refresh()
     } finally {
       setDeleteSubmitting(false)
@@ -208,8 +212,19 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
               className={itemClass}
               onClick={() => {
                 navigator?.clipboard?.writeText(message).then(() => {
-                  toast({ description: 'Dados copiados para a área de transferência', duration: 2000 })
-                }).catch(() => {})
+                  toast({
+                    variant: 'success',
+                    title: 'Copiado',
+                    description: 'Dados copiados para a área de transferência.',
+                    duration: 2000,
+                  })
+                }).catch(() => {
+                  toast({
+                    variant: 'destructive',
+                    title: 'Não foi possível copiar',
+                    description: 'Permita o uso da área de transferência ou copie manualmente.',
+                  })
+                })
               }}
             >
               <Copy className={iconClass} />

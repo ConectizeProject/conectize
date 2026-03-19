@@ -18,6 +18,8 @@ export type BlingWebhookBase = {
 
 export type BlingWebhookProductPayload = {
   id?: number | string
+  idProdutoPai?: number | string
+  produtoPai?: { id?: number | string }
   nome?: string
   codigo?: string
   gtin?: string
@@ -172,9 +174,15 @@ function extractProductId (p: BlingWebhookBase): string {
     const id = (prod as BlingWebhookProductPayload).id
     if (id != null) return String(id)
   }
-  const data = p.data ?? {}
-  const id = (data as Record<string, unknown>).id ?? (data as Record<string, unknown>).produtoId
-  if (id != null) return String(id)
+  const data = (p.data ?? {}) as Record<string, unknown>
+  const id =
+    data.id
+    ?? data.produtoId
+    ?? data.resourceId
+    ?? data.produto_id
+  if (id != null && id !== '') return String(id)
+  const topId = (p as { resourceId?: unknown }).resourceId ?? (p as { id?: unknown }).id
+  if (topId != null && topId !== '') return String(topId)
   return ''
 }
 
@@ -279,6 +287,10 @@ export type WebhookLocalEffect =
  */
 export function mapWebhookToLocalEffect (evt: BlingWebhookParsed): WebhookLocalEffect {
   if (evt.kind === 'product') {
+    const et = String(evt.eventType || '').toLowerCase()
+    if (et.includes('deleted') || et.includes('exclu')) {
+      return { action: 'skip', reason: 'product_deleted_webhook' }
+    }
     return {
       action: 'updateProduct',
       blingId: evt.productId,

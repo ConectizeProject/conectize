@@ -28,7 +28,11 @@ export type LocalStockMovement = {
 /** API Bling v3: listagem retorna estoque em estoque.saldoVirtualTotal, custo em precoCusto; código de barras em gtin ou codigoBarras. */
 type BlingProductDto = {
   id?: number | string
+  /** ID do produto pai (variação) — pode vir flat ou só dentro de produtoPai. */
   idProdutoPai?: number | string
+  produtoPai?: { id?: number | string }
+  produto_pai?: { id?: number | string }
+  pai?: { id?: number | string }
   nome?: string
   codigo?: string
   gtin?: string
@@ -69,9 +73,38 @@ function getStock (dto: BlingProductDto): number | undefined {
   return n !== undefined && Number.isFinite(n) ? Number(n) : undefined
 }
 
+/** idProdutoPai no Bling pode vir como número/string ou só em produtoPai.id / produto_pai.id. */
+function extractParentBlingIdFromDto (raw: Record<string, unknown>): string | null {
+  const asTrimmed = (v: unknown): string | null => {
+    if (v == null || v === '') return null
+    if (typeof v === 'number' && (!Number.isFinite(v) || v === 0)) return null
+    const s = String(v).trim()
+    if (!s || s === '0') return null
+    return s
+  }
+
+  const flat =
+    asTrimmed(raw.idProdutoPai)
+    ?? asTrimmed(raw.id_produto_pai)
+    ?? asTrimmed(raw.produtoPaiId)
+  if (flat) return flat
+
+  const fromNestedObject = (obj: unknown): string | null => {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null
+    return asTrimmed((obj as Record<string, unknown>).id)
+  }
+
+  return (
+    fromNestedObject(raw.produtoPai)
+    ?? fromNestedObject(raw.produto_pai)
+    ?? fromNestedObject(raw.pai)
+    ?? null
+  )
+}
+
 export function mapBlingProductToLocal (dto: BlingProductDto): LocalProduct {
   const id = dto.id != null ? String(dto.id) : null
-  const parentId = dto.idProdutoPai != null ? String(dto.idProdutoPai) : null
+  const parentId = extractParentBlingIdFromDto(dto as Record<string, unknown>)
   const name = String(dto.nome || '').trim()
   const barcode = getBarcode(dto)
   const costCents = getCostCents(dto)

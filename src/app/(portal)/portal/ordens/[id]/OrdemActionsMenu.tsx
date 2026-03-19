@@ -130,7 +130,11 @@ export function OrdemActionsMenu({
         toast({ title: 'Erro ao atualizar status', variant: 'destructive' })
         return
       }
-      toast({ title: 'Status atualizado', description: STATUS_LABELS[newStatus] ?? newStatus })
+      toast({
+        variant: 'success',
+        title: 'Status atualizado',
+        description: STATUS_LABELS[newStatus] ?? newStatus,
+      })
       router.refresh()
     } finally {
       setStatusUpdating(false)
@@ -169,8 +173,19 @@ export function OrdemActionsMenu({
             <DropdownMenuItem
               onClick={() => {
                 navigator?.clipboard?.writeText(message).then(() => {
-                  toast({ description: 'Dados copiados para a área de transferência', duration: 2000 })
-                }).catch(() => {})
+                  toast({
+                    variant: 'success',
+                    title: 'Copiado',
+                    description: 'Dados copiados para a área de transferência.',
+                    duration: 2000,
+                  })
+                }).catch(() => {
+                  toast({
+                    variant: 'destructive',
+                    title: 'Não foi possível copiar',
+                    description: 'Permita o uso da área de transferência ou copie manualmente.',
+                  })
+                })
               }}
             >
               <Copy className="h-4 w-4 mr-2" />
