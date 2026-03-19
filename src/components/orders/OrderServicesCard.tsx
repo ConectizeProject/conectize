@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { useOrderServicesTotal } from './OrderServicesTotalContext'
-import { Plus, Settings } from 'lucide-react'
+import { Check, ChevronsUpDown, Loader2, Plus, Settings, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -11,6 +11,9 @@ import {
 	formatCentsBr,
 	formatMoneyInputBr,
 } from '@/lib/utils/format-money'
+import { cn } from '@/lib/utils'
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
 	Dialog,
 	DialogContent,
@@ -28,6 +31,7 @@ export type ServiceItemDb = {
 	quantity?: number | null
 	unitValueCents?: number | null
 	unitCostCents?: number | null
+	sourceProductId?: string | null
 }
 
 export type ServiceLine = {
@@ -37,6 +41,17 @@ export type ServiceLine = {
 	quantity: string
 	value: string
 	cost: string
+	sourceProductId?: string | null
+}
+
+type CatalogItem = {
+	id: string
+	kind: 'service' | 'product'
+	name: string
+	sku?: string | null
+	barcode?: string | null
+	salePriceCents: number
+	costPriceCents: number
 }
 
 export function makeServiceId(): string {
@@ -82,6 +97,7 @@ function dbToLine(item: ServiceItemDb, index: number): ServiceLine {
 		quantity,
 		value: unitValueCents ? formatMoneyInputBr(String(unitValueCents)) : '',
 		cost: unitCostCents ? formatMoneyInputBr(String(unitCostCents)) : '',
+		sourceProductId: item?.sourceProductId ? String(item.sourceProductId).trim() : null,
 	}
 }
 
@@ -129,34 +145,36 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 		return items.map((it, idx) => dbToLine(it, idx))
 	})
 	const [isAdvancedOpen, setIsAdvancedOpen] = useState(advancedInitiallyOpen)
+	const [isPickerVisible, setIsPickerVisible] = useState(false)
+	const [isPickerOpen, setIsPickerOpen] = useState(false)
+	const [catalogQuery, setCatalogQuery] = useState('')
+	const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([])
+	const [isCatalogLoading, setIsCatalogLoading] = useState(false)
+	const [catalogError, setCatalogError] = useState<string | null>(null)
 
 	const services = internalServices
 
-	const addInternalService = useCallback(() => {
-		setInternalServices((prev) =>
-			prev.concat({
-				id: makeServiceId(),
-				kind: 'service',
-				description: '',
-				quantity: '1',
-				value: '',
-				cost: '',
-			}),
-		)
-	}, [])
+	const appendLine = useCallback((line: ServiceLine) => {
+		if (formik) formik.onAdd(line)
+		setInternalServices((prev) => prev.concat(line))
+	}, [formik])
 
-	const addInternalProduct = useCallback(() => {
-		setInternalServices((prev) =>
-			prev.concat({
-				id: makeServiceId(),
-				kind: 'product',
-				description: '',
-				quantity: '1',
-				value: '',
-				cost: '',
-			}),
-		)
-	}, [])
+	const addCatalogItem = useCallback((item: CatalogItem) => {
+		appendLine({
+			id: makeServiceId(),
+			kind: item.kind,
+			description: item.name,
+			quantity: '1',
+			value: item.salePriceCents > 0 ? formatMoneyInputBr(String(item.salePriceCents)) : '',
+			cost: item.costPriceCents > 0 ? formatMoneyInputBr(String(item.costPriceCents)) : '',
+			sourceProductId: item.id,
+		})
+		setIsPickerVisible(false)
+		setIsPickerOpen(false)
+		setCatalogQuery('')
+		setCatalogItems([])
+		setCatalogError(null)
+	}, [appendLine])
 
 	const removeInternal = useCallback((idx: number) => {
 		setInternalServices((prev) => prev.filter((_, i) => i !== idx))
@@ -172,36 +190,6 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 		},
 		[],
 	)
-
-	const handleAddService = formik
-		? () => {
-			const item: ServiceLine = {
-				id: makeServiceId(),
-				kind: 'service',
-				description: '',
-				quantity: '1',
-				value: '',
-				cost: '',
-			}
-			formik.onAdd(item)
-			setInternalServices((prev) => prev.concat(item))
-		}
-		: addInternalService
-
-	const handleAddProduct = formik
-		? () => {
-			const item: ServiceLine = {
-				id: makeServiceId(),
-				kind: 'product',
-				description: '',
-				quantity: '1',
-				value: '',
-				cost: '',
-			}
-			formik.onAdd(item)
-			setInternalServices((prev) => prev.concat(item))
-		}
-		: addInternalProduct
 
 	const handleRemove = formik
 		? (idx: number) => {
@@ -234,6 +222,7 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 				unitCostCents,
 				valueCents,
 				costCents,
+				sourceProductId: s.sourceProductId ? String(s.sourceProductId).trim() : null,
 			}
 		})
 		.filter((s) => s.description || s.valueCents > 0 || s.costCents > 0)
@@ -277,6 +266,56 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 		}
 	}, [services.length, servicesTotalCtx])
 
+	useEffect(() => {
+		const trimmed = catalogQuery.trim()
+		if (!isPickerVisible) {
+			setCatalogItems([])
+			setCatalogError(null)
+			setIsCatalogLoading(false)
+			return
+		}
+		if (trimmed.length < 3) {
+			setCatalogItems([])
+			setCatalogError(null)
+			setIsCatalogLoading(false)
+			return
+		}
+
+		let cancelled = false
+		const controller = new AbortController()
+		const timeoutId = setTimeout(async () => {
+			setIsCatalogLoading(true)
+			setCatalogError(null)
+			try {
+				const qs = new URLSearchParams()
+				qs.set('q', trimmed)
+				const response = await fetch(`/api/portal/produtos/search?${qs.toString()}`, {
+					signal: controller.signal,
+				})
+				const data = await response.json().catch(() => null)
+				if (cancelled) return
+				if (!response.ok || !data?.ok || !Array.isArray(data?.items)) {
+					setCatalogError(data?.error || 'Não foi possível carregar os itens cadastrados.')
+					setCatalogItems([])
+					return
+				}
+				setCatalogItems(data.items as CatalogItem[])
+			} catch (err: any) {
+				if (cancelled || err?.name === 'AbortError') return
+				setCatalogError('Não foi possível carregar os itens cadastrados.')
+				setCatalogItems([])
+			} finally {
+				if (!cancelled) setIsCatalogLoading(false)
+			}
+		}, 250)
+
+		return () => {
+			cancelled = true
+			controller.abort()
+			clearTimeout(timeoutId)
+		}
+	}, [catalogQuery, isPickerVisible])
+
 	const servicesJson = JSON.stringify({
 		items: servicesNormalized,
 		totals: { totalValueCents, totalCostCents },
@@ -288,7 +327,7 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 				<div>
 					<div className="text-sm font-medium">Serviços a realizar</div>
 					<div className="text-xs text-muted-foreground">
-						Adicione serviços e produtos com os valores de venda.
+						Selecione itens cadastrados e ajuste quantidade/valores.
 					</div>
 				</div>
 				<Button
@@ -307,25 +346,31 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 
 			{services.length > 0 ? (
 				<div className="space-y-3 mt-3">
+					<div className="hidden md:grid md:grid-cols-12 md:gap-3 text-xs font-medium text-muted-foreground px-1">
+						<div className="md:col-span-7">Descrição</div>
+						<div className="md:col-span-2">Qtd.</div>
+						<div className="md:col-span-2">Valor</div>
+						<div className="md:col-span-1 text-right">Ações</div>
+					</div>
 					{services.map((s, idx) => (
 						<div key={s.id} className="grid gap-3 md:grid-cols-12 items-end">
-							<div className="md:col-span-6 space-y-1">
-								<Label htmlFor={`service-description-${s.id}`}>Descrição</Label>
+							<div className={cn('space-y-1', s.kind === 'product' ? 'md:col-span-7' : 'md:col-span-9')}>
+								<Label htmlFor={`service-description-${s.id}`} className="md:hidden">Descrição</Label>
 								<Input
 									id={`service-description-${s.id}`}
 									value={s.description}
-									onChange={(e) => handleUpdate(idx, 'description', e.target.value)}
+									readOnly
 									placeholder={
 										s.kind === 'product'
 											? 'Ex: Tela iPhone 13 original...'
 											: 'Ex: Troca de tela, diagnóstico, limpeza...'
 									}
-									disabled={disabled}
+									disabled
 								/>
 							</div>
 							{s.kind === 'product' ? (
 								<div className="md:col-span-2 space-y-1">
-									<Label htmlFor={`service-qty-${s.id}`}>Qtd.</Label>
+									<Label htmlFor={`service-qty-${s.id}`} className="md:hidden">Qtd.</Label>
 									<Input
 										id={`service-qty-${s.id}`}
 										value={s.quantity}
@@ -336,11 +381,9 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 										disabled={disabled}
 									/>
 								</div>
-							) : (
-								<div className="md:col-span-2" />
-							)}
+							) : null}
 							<div className="md:col-span-2 space-y-1">
-								<Label htmlFor={`service-value-${s.id}`}>Valor</Label>
+								<Label htmlFor={`service-value-${s.id}`} className="md:hidden">Valor</Label>
 								<Input
 									id={`service-value-${s.id}`}
 									value={s.value}
@@ -351,53 +394,150 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 									disabled={disabled}
 								/>
 							</div>
-							<div className="md:col-span-2 flex justify-end">
-								<Button
-									type="button"
-									variant="outline"
-									size="sm"
-									onClick={() => handleRemove(idx)}
-									disabled={disabled}
-								>
-									Remover
-								</Button>
+							<div className="md:col-span-1 flex justify-end">
+								<div className="flex items-center gap-1">
+									<Button
+										type="button"
+										variant="ghost"
+										size="icon"
+										onClick={() => handleRemove(idx)}
+										disabled={disabled}
+										title="Remover item"
+										aria-label="Remover item"
+										className="text-red-600 hover:text-red-700 hover:bg-red-500/10"
+									>
+										<Trash2 className="h-4 w-4" />
+									</Button>
+								</div>
 							</div>
 							{idx !== services.length - 1 ? <div className="md:col-span-12 border-t" /> : null}
 						</div>
 					))}
-					<div className="flex justify-end border-t pt-3 mt-3 text-sm">
-						<span className="text-muted-foreground">Valor total: </span>
-						<span className="font-medium ml-1">{formatCentsBr(totalValueCents)}</span>
-					</div>
 				</div>
 			) : (
 				<div className="text-sm text-muted-foreground">
-					Nenhum serviço adicionado ainda.
+					Nenhum item adicionado ainda.
 				</div>
 			)}
 
-			<div className="flex justify-end gap-2 pt-3 border-t mt-3">
-				<Button
-					type="button"
-					variant="outline"
-					size="sm"
-					onClick={handleAddService}
-					disabled={disabled}
-				>
-					<Plus className="h-4 w-4 mr-2" />
-					Serviço
-				</Button>
-				<Button
-					type="button"
-					variant="outline"
-					size="sm"
-					onClick={handleAddProduct}
-					disabled={disabled}
-				>
-					<Plus className="h-4 w-4 mr-2" />
-					Produto
-				</Button>
-			</div>
+			{isPickerVisible ? (
+				<div className="grid gap-3 md:grid-cols-12 items-end rounded-md border border-dashed p-3">
+					<div className="md:col-span-10 space-y-1">
+						<Label htmlFor="service-picker-trigger">Produto ou serviço</Label>
+						<Popover open={isPickerOpen} onOpenChange={setIsPickerOpen}>
+							<PopoverTrigger asChild>
+								<button
+									id="service-picker-trigger"
+									type="button"
+									disabled={disabled}
+									className={cn(
+										'w-full flex items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm text-left',
+										'hover:bg-accent/30 transition-colors disabled:cursor-not-allowed disabled:opacity-60',
+									)}
+								>
+									<span className={cn(!catalogQuery ? 'text-muted-foreground' : '')}>
+										{catalogQuery || 'Buscar produto/serviço (mín. 3 caracteres)'}
+									</span>
+									<ChevronsUpDown className="h-4 w-4 opacity-50 shrink-0" />
+								</button>
+							</PopoverTrigger>
+							<PopoverContent className="p-0 w-[min(640px,calc(100vw-2rem))]" align="start">
+								<Command shouldFilter={false}>
+									<CommandInput
+										placeholder="Digite nome, SKU ou código..."
+										value={catalogQuery}
+										onValueChange={setCatalogQuery}
+									/>
+									<CommandList>
+										{catalogQuery.trim().length < 3 ? (
+											<CommandEmpty>Digite ao menos 3 caracteres para buscar.</CommandEmpty>
+										) : isCatalogLoading ? (
+											<div className="p-3 text-sm text-muted-foreground flex items-center gap-2">
+												<Loader2 className="h-4 w-4 animate-spin" />
+												Carregando itens...
+											</div>
+										) : catalogError ? (
+											<CommandEmpty>{catalogError}</CommandEmpty>
+										) : catalogItems.length === 0 ? (
+											<CommandEmpty>Nenhum item encontrado.</CommandEmpty>
+										) : (
+											<CommandGroup heading="Produtos e serviços">
+												{catalogItems.map((item) => (
+													<CommandItem
+														key={item.id}
+														value={`${item.name} ${item.sku || ''} ${item.barcode || ''}`}
+														onSelect={() => addCatalogItem(item)}
+													>
+														<Check className="mr-2 h-4 w-4 opacity-0" />
+														<div className="flex flex-col min-w-0">
+															<span className="font-medium truncate">{item.name}</span>
+															<span className="text-xs text-muted-foreground flex items-center gap-2">
+																<span
+																	className={cn(
+																		'inline-flex rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide',
+																		item.kind === 'product'
+																			? 'bg-blue-500/10 text-blue-700 dark:text-blue-300'
+																			: 'bg-violet-500/10 text-violet-700 dark:text-violet-300',
+																	)}
+																>
+																	{item.kind === 'product' ? 'Produto' : 'Serviço'}
+																</span>
+																<span>SKU: {item.sku || '-'}</span>
+															</span>
+														</div>
+													</CommandItem>
+												))}
+											</CommandGroup>
+										)}
+									</CommandList>
+								</Command>
+							</PopoverContent>
+						</Popover>
+					</div>
+					<div className="md:col-span-2 flex justify-end">
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon"
+							onClick={() => {
+								setIsPickerVisible(false)
+								setIsPickerOpen(false)
+								setCatalogQuery('')
+								setCatalogItems([])
+								setCatalogError(null)
+							}}
+							disabled={disabled}
+							title="Remover inclusão"
+							aria-label="Remover inclusão"
+							className="text-red-600 hover:text-red-700 hover:bg-red-500/10"
+						>
+							<Trash2 className="h-4 w-4" />
+						</Button>
+					</div>
+				</div>
+			) : null}
+
+			{services.length > 0 ? (
+				<div className="flex justify-end border-t pt-3 text-sm">
+					<span className="text-muted-foreground">Valor total: </span>
+					<span className="font-medium ml-1">{formatCentsBr(totalValueCents)}</span>
+				</div>
+			) : null}
+
+			<Button
+				type="button"
+				variant="outline"
+				size="sm"
+				onClick={() => {
+					setIsPickerVisible(true)
+					setIsPickerOpen(true)
+				}}
+				disabled={disabled || isPickerVisible}
+				className="w-full border-dashed border-green-600 bg-green-600/5 text-green-700 hover:bg-green-600/10 hover:text-green-800"
+			>
+				<Plus className="h-4 w-4 mr-2" />
+				Incluir serviço ou produto
+			</Button>
 
 			{inputName ? (
 				<input
@@ -436,11 +576,9 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 												<Input
 													id={`adv-desc-${s.id}`}
 													value={s.description}
-													onChange={(e) =>
-														handleUpdate(idx, 'description', e.target.value)
-													}
+													readOnly
 													placeholder="Descrição"
-													disabled={disabled}
+													disabled
 												/>
 											</div>
 											{isProduct ? (
@@ -543,6 +681,7 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
+
 		</div>
 	)
 })
