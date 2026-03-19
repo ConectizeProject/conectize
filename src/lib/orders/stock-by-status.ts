@@ -1,3 +1,5 @@
+import { pushStockMovementToBling } from '@/lib/integrations/bling/push-stock-movement'
+
 type OrderServiceItem = {
   kind?: 'service' | 'product' | null
   description?: string | null
@@ -97,6 +99,19 @@ export async function applyOrderStatusStockTransition (input: ApplyOrderStatusSt
   if (lines.length === 0) return
 
   const type = enterConsuming ? 'exit' : 'entry'
+  const productIds = lines.map((line) => line.productId)
+  const { data: productRows } = await input.supabase
+    .from('products')
+    .select('id, bling_id')
+    .in('id', productIds)
+
+  const blingByProductId = new Map<string, string>()
+  for (const row of productRows ?? []) {
+    const productId = String((row as any)?.id || '').trim()
+    const blingId = String((row as any)?.bling_id || '').trim()
+    if (!productId || !blingId) continue
+    blingByProductId.set(productId, blingId)
+  }
 
   for (const line of lines) {
     const quantity = Math.abs(Number(line.quantity) || 0)
@@ -120,6 +135,32 @@ export async function applyOrderStatusStockTransition (input: ApplyOrderStatusSt
       .insert(payload)
 
     if (error) throw error
+
+    const productBlingId = blingByProductId.get(line.productId)
+    if (!productBlingId) continue
+
+    try {
+      await pushStockMovementToBling({
+        productBlingId,
+        type,
+        quantity,
+        unitValueCents: unit,
+        observacoes: `OS ${input.orderId}: ${previousStatus} -> ${nextStatus}`,
+      })
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'unknown_error'
+      console.error('[order-stock-transition][bling-push-failed]', {
+        orderId: input.orderId,
+        previousStatus,
+        nextStatus,
+        productId: line.productId,
+        productBlingId,
+        movementType: type,
+        quantity,
+        unitValueCents: unit,
+        error: errorMessage,
+      })
+    }
   }
 }
 
