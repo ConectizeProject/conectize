@@ -9,7 +9,6 @@ import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { OrderStatusBadge, OsAssistAiIconButton } from '@/components/orders'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
-import { getOrdemErrorMessage } from '@/lib/utils/error-messages'
 import { formatDateBr, formatDateTimeBr } from '@/lib/utils/format-date'
 import { OrderDeviceSelector, OrderPaymentMethodFields, OrderServicesCard, OrderServicesTotalProvider, OrderWarrantySelector } from '@/components/orders'
 import { OrderCustomerCard } from './OrderCustomerCard'
@@ -25,6 +24,7 @@ import { getMinPrevisaoForEdit, previsaoToISO, toDateTimeLocalInBrazil } from '@
 import { UpdateOrderSubmitButton } from './UpdateOrderSubmitButton'
 import { fetchDeviceModelsForSelector } from '@/lib/portal/device-models-server'
 import { applyOrderStatusStockTransition } from '@/lib/orders/stock-by-status'
+import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 
 export const dynamic = 'force-dynamic'
 
@@ -85,14 +85,18 @@ function parseOrderPaymentMethods(order: any): Array<{ payment_method_id: string
 	}
 	if (Array.isArray(pm) && pm.length > 0) {
 		return pm
-			.filter((e: any) => e?.payment_method_id)
-			.map((e: any) => ({
-				payment_method_id: String(e.payment_method_id),
-				installments: e.installments != null ? Number(e.installments) : undefined,
-				value_cents: e.value_cents != null ? Math.max(0, Number(e.value_cents) || 0) : null,
-			}))
+			.map((e: any) => {
+				const id = parseOptionalUuid(e?.payment_method_id)
+				if (!id) return null
+				return {
+					payment_method_id: id,
+					installments: e.installments != null ? Number(e.installments) : undefined,
+					value_cents: e.value_cents != null ? Math.max(0, Number(e.value_cents) || 0) : null,
+				}
+			})
+			.filter(Boolean) as Array<{ payment_method_id: string; installments?: number; value_cents?: number | null }>
 	}
-	const legacyId = order?.payment_method_id
+	const legacyId = parseOptionalUuid(order?.payment_method_id)
 	if (legacyId) {
 		return [{ payment_method_id: legacyId, installments: order?.installments ?? 1, value_cents: null }]
 	}
@@ -106,12 +110,16 @@ function parsePaymentMethodsJson(raw: unknown): Array<{ payment_method_id: strin
 		if (!Array.isArray(parsed)) return []
 		return parsed
 			.filter((item: unknown) => item && typeof item === 'object' && (item as any).payment_method_id)
-			.map((item: any) => ({
-				payment_method_id: String(item.payment_method_id).trim(),
-				installments: item.installments != null ? Math.max(1, Math.min(24, Number(item.installments) || 1)) : undefined,
-				value_cents: item.value_cents != null ? Math.max(0, Number(item.value_cents) || 0) : null,
-			}))
-			.filter((item) => item.payment_method_id)
+			.map((item: any) => {
+				const id = parseOptionalUuid(item.payment_method_id)
+				if (!id) return null
+				return {
+					payment_method_id: id,
+					installments: item.installments != null ? Math.max(1, Math.min(24, Number(item.installments) || 1)) : undefined,
+					value_cents: item.value_cents != null ? Math.max(0, Number(item.value_cents) || 0) : null,
+				}
+			})
+			.filter(Boolean) as Array<{ payment_method_id: string; installments?: number; value_cents?: number | null }>
 	} catch {
 		return []
 	}
@@ -160,7 +168,7 @@ function parseServicesJson(raw: unknown): {
 				)
 				const valueCents = unitValueCents * quantity
 				const costCents = unitCostCents * quantity
-				const sourceProductIdRaw = String(i.sourceProductId ?? '').trim()
+				const sourceProductId = parseOptionalUuid(i.sourceProductId)
 				return {
 					kind,
 					description,
@@ -169,7 +177,7 @@ function parseServicesJson(raw: unknown): {
 					unitCostCents,
 					valueCents,
 					costCents,
-					sourceProductId: sourceProductIdRaw || null,
+					sourceProductId,
 				}
 			})
 			.filter((s) => s.description || s.valueCents > 0 || s.costCents > 0)
@@ -195,7 +203,7 @@ type PageProps = {
 
 export default async function OrdemDetalhePage({ params, searchParams }: PageProps) {
 	const { id } = await params
-	const { error, servicesModal } = await searchParams
+	const { servicesModal } = await searchParams
 
 	const { user, role } = await getPortalAuth()
 	if (!user) redirect('/portal/login')
@@ -287,10 +295,10 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 		const assistanceInfo = String(formData.get('assistanceInfo') || '').trim()
 		const deviceEntryChecksRaw = formData.get('deviceEntryChecksJson')
 		const deviceEntryChecksJson = typeof deviceEntryChecksRaw === 'string' ? deviceEntryChecksRaw.trim() : ''
-		const deviceModelId = String(formData.get('deviceModelId') || '').trim()
+		const deviceModelId = parseOptionalUuid(formData.get('deviceModelId'))
 		const brand = String(formData.get('brand') || '').trim() || null
 		const model = String(formData.get('model') || '').trim() || null
-		const warrantyTemplateId = String(formData.get('warrantyTemplateId') || '').trim() || null
+		const warrantyTemplateId = parseOptionalUuid(formData.get('warrantyTemplateId'))
 		const warrantyTextRaw = String(formData.get('warrantyText') || '').trim()
 		const formSellerUserId = String(formData.get('seller_user_id') || '').trim()
 		const servicesJson = formData.get('servicesJson')
@@ -347,9 +355,9 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 			internal_description: internalDescription || null,
 			receiving_notes: receivingNotes || null,
 			assistance_info: assistanceInfo || null,
-			warranty_template_id: warrantyTemplateId || null,
+			warranty_template_id: warrantyTemplateId,
 			warranty_text: warrantyTextRaw || null,
-			device_model_id: deviceModelId || null,
+			device_model_id: deviceModelId,
 			brand: brand ?? null,
 			model: model ?? null,
 			services: services.items,
@@ -376,7 +384,22 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 			.update(updatePayload)
 			.eq('id', orderId)
 
-		if (error) redirect(`/portal/ordens/${id}?error=nao_foi_possivel_salvar`)
+		if (error) {
+			const saveQs = new URLSearchParams()
+			saveQs.set('error', 'nao_foi_possivel_salvar')
+			const ec = String(error.code || '').trim().slice(0, 48)
+			const emRaw = [error.message, error.details, error.hint]
+				.filter(Boolean)
+				.join(' — ')
+			const em = String(emRaw || '')
+				.replace(/\s+/g, ' ')
+				.trim()
+				.slice(0, 320)
+			if (ec) saveQs.set('ec', ec)
+			if (em) saveQs.set('em', em)
+			console.error('[order-save]', { orderId, code: error.code, message: error.message, details: error.details, hint: error.hint })
+			redirect(`/portal/ordens/${id}?${saveQs.toString()}`)
+		}
 
 		try {
 			const previousStatus = String(existing?.status || '').trim()
@@ -468,12 +491,6 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 			</div>
 
 			<OrderCustomerCard customer={customer} />
-
-			{error ? (
-				<p className="text-sm text-destructive">
-					{getOrdemErrorMessage(error)}
-				</p>
-			) : null}
 
 			<Card>
 				<CardHeader>

@@ -5,6 +5,7 @@ import { getOrdemErrorMessage } from '@/lib/utils/error-messages'
 import { previsaoToISO } from '@/lib/utils/previsao-ordem'
 import { applyOrderStatusStockTransition } from '@/lib/orders/stock-by-status'
 import { NovaOrdemClient } from './NovaOrdemClient'
+import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 
 function normalizeCpf(value: string) {
   return value.replace(/\D/g, '').trim()
@@ -21,12 +22,16 @@ function parsePaymentMethodsJson(raw: unknown): Array<{ payment_method_id: strin
     if (!Array.isArray(parsed)) return []
     return parsed
       .filter((item: unknown) => item && typeof item === 'object' && (item as any).payment_method_id)
-      .map((item: any) => ({
-        payment_method_id: String(item.payment_method_id).trim(),
-        installments: item.installments != null ? Math.max(1, Math.min(24, Number(item.installments) || 1)) : undefined,
-        value_cents: item.value_cents != null ? Math.max(0, Number(item.value_cents) || 0) : null,
-      }))
-      .filter((item) => item.payment_method_id)
+      .map((item: any) => {
+        const id = parseOptionalUuid(item.payment_method_id)
+        if (!id) return null
+        return {
+          payment_method_id: id,
+          installments: item.installments != null ? Math.max(1, Math.min(24, Number(item.installments) || 1)) : undefined,
+          value_cents: item.value_cents != null ? Math.max(0, Number(item.value_cents) || 0) : null,
+        }
+      })
+      .filter(Boolean) as Array<{ payment_method_id: string; installments?: number; value_cents?: number | null }>
   } catch {
     return []
   }
@@ -91,7 +96,7 @@ async function createOrderAction(formData: FormData) {
 
   const title = String(formData.get('title') || '').trim()
   const status = String(formData.get('status') || 'orcamento').trim()
-  const deviceModelId = String(formData.get('deviceModelId') || '').trim()
+  const deviceModelId = parseOptionalUuid(formData.get('deviceModelId'))
   const imei = String(formData.get('imei') || '').trim()
   const color = String(formData.get('color') || '').trim()
   const customerDescription = String(formData.get('customerDescription') || '').trim()
@@ -165,7 +170,7 @@ async function createOrderAction(formData: FormData) {
       service: service || null,
       created_by: user.id,
       seller_user_id: sellerUserId,
-      device_model_id: deviceModelId || null,
+      device_model_id: deviceModelId,
       imei: imei || null,
       color: color || null,
       is_warranty: isWarranty,
@@ -185,7 +190,23 @@ async function createOrderAction(formData: FormData) {
     .select('id')
     .single()
 
-  if (error) redirect('/portal/ordens?toast=order_error&error=nao_foi_possivel_criar_os')
+  if (error) {
+    const saveQs = new URLSearchParams()
+    saveQs.set('toast', 'order_error')
+    saveQs.set('error', 'nao_foi_possivel_criar_os')
+    const ec = String(error.code || '').trim().slice(0, 48)
+    const emRaw = [error.message, error.details, error.hint]
+      .filter(Boolean)
+      .join(' — ')
+    const em = String(emRaw || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 320)
+    if (ec) saveQs.set('ec', ec)
+    if (em) saveQs.set('em', em)
+    console.error('[order-create]', { code: error.code, message: error.message, details: error.details, hint: error.hint })
+    redirect(`/portal/ordens?${saveQs.toString()}`)
+  }
 
   try {
     await applyOrderStatusStockTransition({
@@ -247,7 +268,7 @@ async function createOrderAction(formData: FormData) {
       } else {
         await supabase.from('customer_devices').insert({
           customer_id: customerId,
-          device_model_id: deviceModelId || null,
+          device_model_id: deviceModelId,
           brand: brand || null,
           model: model || null,
           device_type: deviceType || null,

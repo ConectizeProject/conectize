@@ -40,6 +40,60 @@ export const ORDEM_ERROR_MESSAGES: Record<string, string> = {
   previsao_invalida: 'A previsão deve ser igual ou posterior à data de abertura.',
 }
 
+/** Códigos PostgreSQL / PostgREST comuns ao salvar OS → mensagem em português */
+const ORDEM_SAVE_DB_CODES: Record<string, string> = {
+  '23505': 'Conflito no banco: registro duplicado ou valor único já existente.',
+  '23503': 'Referência inválida: algum vínculo (ex.: modelo ou cliente) não foi encontrado.',
+  '23514': 'Algum valor não atende às regras do cadastro (validação no banco).',
+  '22P02': 'Formato de dado inválido enviado ao banco.',
+  '42501': 'Sem permissão para salvar (política de segurança / RLS).',
+  'PGRST116': 'A ordem não foi encontrada ou você não tem permissão para vê-la.',
+  'PGRST204': 'Nenhuma linha foi atualizada. Recarregue a página e tente de novo.',
+}
+
+const MAX_SAVE_DETAIL_LEN = 320
+
+/**
+ * Sanitiza trecho de mensagem técnica para exibir na URL / toast (sem quebras de linha excessivas).
+ */
+function sanitizeSaveDetailMessage (raw: string): string {
+  const s = raw
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, MAX_SAVE_DETAIL_LEN)
+  return s || ''
+}
+
+type OrderPersistMode = 'save' | 'create'
+
+/**
+ * Monta descrição amigável para falha ao salvar/criar OS (código DB + mensagem opcional).
+ */
+export function getOrderSaveErrorDescription (
+  dbCode?: string | null,
+  dbMessage?: string | null,
+  mode: OrderPersistMode = 'save',
+): string {
+  const generic =
+    mode === 'create'
+      ? ORDEM_ERROR_MESSAGES.nao_foi_possivel_criar_os
+      : ORDEM_ERROR_MESSAGES.nao_foi_possivel_salvar
+  const code = String(dbCode || '').trim()
+  const mapped = code ? ORDEM_SAVE_DB_CODES[code] : null
+  const detail = sanitizeSaveDetailMessage(String(dbMessage || ''))
+
+  if (mapped && detail) {
+    return `${mapped} Detalhe: ${detail}`
+  }
+  if (mapped) return mapped
+  if (detail) {
+    return mode === 'create'
+      ? `Não foi possível criar a ordem. Detalhe: ${detail}`
+      : `Não foi possível salvar. Detalhe: ${detail}`
+  }
+  return generic
+}
+
 /** Códigos de erro da busca de OS -> mensagem em português */
 export const OS_SEARCH_ERROR_MESSAGES: Record<string, string> = {
   cpf_invalido: 'CPF inválido. Confira e tente novamente.',
@@ -82,9 +136,22 @@ export function getAuthErrorMessage(
  */
 export function getOrdemErrorMessage(
   errorCode?: string | null,
-  fallback = 'Não foi possível concluir. Tente novamente.'
+  fallback = 'Não foi possível concluir. Tente novamente.',
+  options?: { saveDbCode?: string | null; saveDbMessage?: string | null }
 ): string {
   if (!errorCode) return fallback
+  if (
+    errorCode === 'nao_foi_possivel_salvar'
+    && (options?.saveDbCode || options?.saveDbMessage)
+  ) {
+    return getOrderSaveErrorDescription(options.saveDbCode, options.saveDbMessage, 'save')
+  }
+  if (
+    errorCode === 'nao_foi_possivel_criar_os'
+    && (options?.saveDbCode || options?.saveDbMessage)
+  ) {
+    return getOrderSaveErrorDescription(options.saveDbCode, options.saveDbMessage, 'create')
+  }
   return ORDEM_ERROR_MESSAGES[errorCode] ?? fallback
 }
 
