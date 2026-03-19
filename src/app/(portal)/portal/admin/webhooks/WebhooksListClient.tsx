@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { Loader2, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -36,7 +37,10 @@ export function WebhooksListClient ({ webhooks }: Props) {
   async function handleReprocess (id: string) {
     setReprocessingId(id)
     try {
-      const res = await fetch(`/api/portal/admin/webhooks/${id}/reprocess`, { method: 'POST' })
+      const res = await fetch(`/api/portal/admin/webhooks/${id}/reprocess`, {
+        method: 'POST',
+        credentials: 'include',
+      })
       const data = await res.json().catch(() => null)
       if (data?.ok) {
         toast({ title: 'Reprocessado', description: 'Evento processado novamente.', variant: 'default' })
@@ -49,6 +53,13 @@ export function WebhooksListClient ({ webhooks }: Props) {
         })
         router.refresh()
       }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Falha de rede ao reprocessar.'
+      toast({
+        title: 'Erro ao reprocessar',
+        description: message || 'Tente novamente.',
+        variant: 'destructive',
+      })
     } finally {
       setReprocessingId(null)
     }
@@ -103,16 +114,18 @@ export function WebhooksListClient ({ webhooks }: Props) {
                     >
                       Ver detalhes
                     </Button>
-                    {row.status !== 'processed' && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={reprocessingId === row.id}
-                        onClick={() => handleReprocess(row.id)}
-                      >
-                        {reprocessingId === row.id ? 'Processando…' : 'Reprocessar'}
-                      </Button>
-                    )}
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      disabled={reprocessingId === row.id}
+                      onClick={() => handleReprocess(row.id)}
+                      title="Reprocessar webhook"
+                      aria-label="Reprocessar webhook"
+                    >
+                      {reprocessingId === row.id
+                        ? <Loader2 className="h-4 w-4 animate-spin" />
+                        : <RotateCcw className="h-4 w-4" />}
+                    </Button>
                   </div>
                 </td>
               </tr>
