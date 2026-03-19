@@ -13,15 +13,31 @@ type AuthClaims = { sub?: string; email?: string }
 export async function getAuthUser () {
   const supabase = await createSupabaseServerClient()
   const { data, error } = await supabase.auth.getClaims()
-  if (error || !data?.claims) return { user: null }
-  const claims = data.claims as AuthClaims
-  if (!claims.sub) return { user: null }
-  return {
-    user: {
-      id: claims.sub,
-      email: claims.email ?? '',
-    },
+
+  if (!error && data?.claims) {
+    const claims = data.claims as AuthClaims
+    if (claims.sub) {
+      return {
+        user: {
+          id: claims.sub,
+          email: claims.email ?? '',
+        },
+      }
+    }
   }
+
+  // Fallback para sessões válidas que exigem refresh no servidor.
+  const userResult = await supabase.auth.getUser()
+  if (!userResult.error && userResult.data.user) {
+    return {
+      user: {
+        id: userResult.data.user.id,
+        email: userResult.data.user.email ?? '',
+      },
+    }
+  }
+
+  return { user: null }
 }
 
 /** Auth + role do portal. Cacheado por request para evitar fetches duplicados (layout + page). */
