@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { getPortalAuth } from '@/lib/supabase/server'
-import { getProductById, listStockMovements, addStockMovement } from '@/lib/products/service'
+import { getProductById, getProductCurrentStock, addStockMovement } from '@/lib/products/service'
 import { getBlingClientForCurrentUser } from '@/lib/integrations/bling/api'
+import { getVirtualStockFromEstoqueApiResponse } from '@/lib/integrations/bling/stock-reconcile'
 
 export async function POST (request: Request) {
   const { user, role } = await getPortalAuth()
@@ -34,34 +35,38 @@ export async function POST (request: Request) {
   }
 
   try {
-    const data = await clientRes.client.request<{
-      data?: { estoqueAtual?: number }
-      estoqueAtual?: number
-    }>({
+    if (current.product.kind === 'service') {
+      return NextResponse.json({ ok: true, adjustedBy: 0, skipped: 'service' as const })
+    }
+
+    const data = await clientRes.client.request<unknown>({
       method: 'GET',
       path: `/produtos/${current.product.blingId}/estoque`,
     })
 
-    const remoteStock = Number(data?.data?.estoqueAtual ?? data?.estoqueAtual ?? 0) || 0
-
-    const localRes = await listStockMovements(productId)
-    let localBalance = 0
-    if (localRes.ok && 'items' in localRes) {
-      for (const row of localRes.items) {
-        const q = Number(row.quantity) || 0
-        if (row.type === 'entry') localBalance += q
-        else if (row.type === 'exit' || row.type === 'loss') localBalance -= q
-      }
+    const targetVirtual = getVirtualStockFromEstoqueApiResponse(data)
+    if (targetVirtual === null) {
+      return NextResponse.json({ ok: false, error: 'bling_stock_payload_unrecognized' }, { status: 502 })
     }
 
-    const diff = remoteStock - localBalance
+    const localRes = await getProductCurrentStock(productId)
+    const localBalance = localRes.ok && 'currentStock' in localRes ? localRes.currentStock : 0
+
+    const diff = targetVirtual - localBalance
     if (diff !== 0) {
-      await addStockMovement(productId, {
+      const movRes = await addStockMovement(productId, {
         type: diff > 0 ? 'entry' : 'exit',
         quantity: Math.abs(diff),
         unitValueCents: current.product.costPriceCents ?? current.product.salePriceCents ?? 0,
         source: 'bling',
+        externalReference: `bling:sync-estoque:${productId}`,
       })
+      if (!movRes.ok) {
+        return NextResponse.json(
+          { ok: false, error: 'error' in movRes ? movRes.error : 'db_error' },
+          { status: 500 },
+        )
+      }
     }
 
     return NextResponse.json({ ok: true, adjustedBy: diff })

@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { memo, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
-import { Copy, Loader2, MoreHorizontal, Pencil } from 'lucide-react'
+import { Barcode, Copy, Loader2, MoreHorizontal, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import {
@@ -217,6 +217,8 @@ export function ProductsListClient ({ products }: Props) {
   const [filterType, setFilterType] = useState<'product' | 'service'>('product')
   const [editingProduct, setEditingProduct] = useState<Pick<ProductRow, 'id' | 'name'> | null>(null)
   const [syncingId, setSyncingId] = useState<string | null>(null)
+  const [barcodeGeneratingId, setBarcodeGeneratingId] = useState<string | null>(null)
+  const [barcodeGeneratingStage, setBarcodeGeneratingStage] = useState<'updating' | 'syncing' | null>(null)
   const isProductTab = filterType === 'product'
 
   const rows = useMemo(
@@ -296,6 +298,73 @@ export function ProductsListClient ({ products }: Props) {
       })
     } finally {
       setSyncingId(null)
+    }
+  }
+
+  async function handleGenerateBarcodeFromBling (productId: string) {
+    if (barcodeGeneratingId) return
+    setBarcodeGeneratingId(productId)
+    setBarcodeGeneratingStage('updating')
+    try {
+      toast({
+        variant: 'default',
+        title: 'Atualizando',
+        description: 'Gerando código de barras e salvando no portal...',
+      })
+
+      const res = await fetch(`/api/portal/produtos/${productId}/barcode-generate`, {
+        method: 'POST',
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        toast({
+          variant: 'destructive',
+          title: 'Erro ao gerar código de barras',
+          description: data?.message || data?.error || 'Tente novamente.',
+        })
+        return
+      }
+
+      if (data?.shouldSyncToBling) {
+        setBarcodeGeneratingStage('syncing')
+        toast({
+          variant: 'default',
+          title: 'Sincronizando',
+          description: 'Enviando alteração ao Bling...',
+        })
+
+        const syncRes = await fetch('/api/portal/bling/sync-product', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ productId }),
+        })
+
+        const syncData = await syncRes.json().catch(() => null)
+        if (!syncRes.ok || !syncData?.ok) {
+          toast({
+            variant: 'destructive',
+            title: 'Erro ao sincronizar',
+            description: syncData?.message || syncData?.error || 'Tente novamente.',
+          })
+          return
+        }
+      }
+
+      toast({
+        variant: 'success',
+        title: 'Finalizado',
+        description: 'Código de barras gerado e sincronizado.',
+      })
+      router.refresh()
+    } catch {
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao gerar código de barras',
+        description: 'Tente novamente.',
+      })
+    } finally {
+      setBarcodeGeneratingId(null)
+      setBarcodeGeneratingStage(null)
     }
   }
 
@@ -456,7 +525,32 @@ export function ProductsListClient ({ products }: Props) {
                             <Copy className="h-3 w-3 shrink-0 text-muted-foreground" />
                           </button>
                         ) : (
-                          '-'
+                          product.bling_id
+                            ? (
+                              <button
+                                type="button"
+                                disabled={barcodeGeneratingId === product.id}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleGenerateBarcodeFromBling(product.id)
+                                }}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-left font-mono bg-muted/70 hover:bg-muted border border-border/60 cursor-pointer transition-colors max-w-full min-w-0 disabled:opacity-60 disabled:cursor-not-allowed"
+                                aria-label="Gerar código de barras"
+                                title="Gerar código de barras"
+                              >
+                                {barcodeGeneratingId === product.id
+                                  ? <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                                  : <Barcode className="h-3 w-3 text-muted-foreground" />}
+                                <span className="truncate">
+                                  {barcodeGeneratingId === product.id
+                                    ? barcodeGeneratingStage === 'syncing'
+                                      ? 'Sincronizando...'
+                                      : 'Atualizando...'
+                                    : 'Gerar'}
+                                </span>
+                              </button>
+                              )
+                            : '-'
                         )}
                       </td>
                       {isProductTab && (
@@ -515,7 +609,7 @@ export function ProductsListClient ({ products }: Props) {
                         )}
                       </td>
                       <td className="py-2 pl-2 align-top text-right" onClick={(e) => e.stopPropagation()}>
-                        <DropdownMenu>
+                        <DropdownMenu modal={false}>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="icon" className="h-8 w-8">
                               <MoreHorizontal className="h-4 w-4" />

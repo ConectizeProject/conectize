@@ -6,14 +6,22 @@ const PLATFORM_ID = 'bling'
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceClient>
 
-async function getSystemUserId (supabase: ServiceClient): Promise<string | null> {
-  const { data } = await supabase
+/** Usuário “ator” para created_by em movimentos gerados por webhook (admin ou staff). */
+async function getWebhookActorUserId (supabase: ServiceClient): Promise<string | null> {
+  const { data: admin } = await supabase
     .from('users')
     .select('id')
     .eq('role', 'admin')
     .limit(1)
     .maybeSingle()
-  return data?.id ? String(data.id) : null
+  if (admin?.id) return String(admin.id)
+  const { data: staff } = await supabase
+    .from('users')
+    .select('id')
+    .eq('role', 'staff')
+    .limit(1)
+    .maybeSingle()
+  return staff?.id ? String(staff.id) : null
 }
 
 async function getProductIdByBlingId (supabase: ServiceClient, blingId: string): Promise<string | null> {
@@ -83,7 +91,7 @@ export async function processBlingWebhook (id: string): Promise<{ ok: true; stat
     return { ok: true, status: 'processed' }
   }
 
-  const systemUserId = await getSystemUserId(supabase)
+  const actorUserId = await getWebhookActorUserId(supabase)
 
   try {
     if (effect.action === 'updateProduct') {
@@ -111,6 +119,71 @@ export async function processBlingWebhook (id: string): Promise<{ ok: true; stat
       if (updateError) throw updateError
     }
 
+    if (effect.action === 'insertStockMovementFromBling') {
+      const productId = await getProductIdByBlingId(supabase, effect.blingId)
+      if (!productId) {
+        throw new Error('product_not_found')
+      }
+
+      const { data: existingMov } = await supabase
+        .from('product_stock_movements')
+        .select('id')
+        .eq('external_reference', effect.externalReference)
+        .limit(1)
+        .maybeSingle()
+
+      if (existingMov?.id) {
+        // Idempotente: mesmo eventId do Bling já foi aplicado
+      } else {
+        const currentLocal = await getProductCurrentStockLocal(supabase, productId)
+        let diff: number
+        if (effect.targetVirtualStock != null) {
+          // Alinha com o saldo virtual informado pelo Bling (total ou depósito)
+          diff = effect.targetVirtualStock - currentLocal
+        } else {
+          // Sem saldo virtual no payload: aplica só o delta E/S + quantidade
+          diff = effect.blingOperacao === 'E'
+            ? effect.blingQuantidade
+            : -effect.blingQuantidade
+        }
+
+        if (diff === 0) {
+          // Já bate com o virtual do Bling; nada a lançar
+        } else {
+          const movementType = diff > 0 ? 'entry' : 'exit'
+          const qty = Math.abs(diff)
+          const { data: prod } = await supabase
+            .from('products')
+            .select('cost_price_cents, sale_price_cents')
+            .eq('id', productId)
+            .maybeSingle()
+          const unitCents = (prod as { cost_price_cents?: number })?.cost_price_cents
+            ?? (prod as { sale_price_cents?: number })?.sale_price_cents
+            ?? 0
+          const insertRow: Record<string, unknown> = {
+            product_id: productId,
+            type: movementType,
+            quantity: qty,
+            unit_value_cents: unitCents,
+            total_value_cents: qty * unitCents,
+            source: 'bling',
+            external_reference: effect.externalReference,
+          }
+          if (actorUserId) insertRow.created_by = actorUserId
+          if (effect.occurredAtIso) {
+            const parsedDate = new Date(effect.occurredAtIso)
+            if (!Number.isNaN(parsedDate.getTime())) {
+              insertRow.created_at = parsedDate.toISOString()
+            }
+          }
+          const { error: movError } = await supabase
+            .from('product_stock_movements')
+            .insert(insertRow)
+          if (movError) throw movError
+        }
+      }
+    }
+
     if (effect.action === 'syncStock') {
       const productId = await getProductIdByBlingId(supabase, effect.blingId)
       if (!productId) {
@@ -118,7 +191,7 @@ export async function processBlingWebhook (id: string): Promise<{ ok: true; stat
       }
       const currentStock = await getProductCurrentStockLocal(supabase, productId)
       const diff = effect.estoqueAtual - currentStock
-      if (diff !== 0 && systemUserId) {
+      if (diff !== 0 && actorUserId) {
         const { data: prod } = await supabase
           .from('products')
           .select('cost_price_cents, sale_price_cents')
@@ -135,7 +208,7 @@ export async function processBlingWebhook (id: string): Promise<{ ok: true; stat
             total_value_cents: Math.abs(diff) * unitCents,
             source: 'bling',
             external_reference: `webhook_${id}`,
-            created_by: systemUserId,
+            created_by: actorUserId,
           })
         if (movError) throw movError
       }
