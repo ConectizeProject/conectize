@@ -1,10 +1,20 @@
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { parseBlingWebhook, mapWebhookToLocalEffect } from '@/lib/integrations/bling/webhooks'
 import { mapBlingProductToLocal } from '@/lib/integrations/bling/mappers'
+import { createBlingClientFromConnection } from '@/lib/integrations/bling/api'
 
 const PLATFORM_ID = 'bling'
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceClient>
+type HubConnectionRow = {
+  id: string
+  platform_id: string
+  access_token: string | null
+  refresh_token: string | null
+  token_expires_at: string | null
+  metadata: Record<string, unknown> | null
+  created_by: string | null
+}
 
 /** Usuário “ator” para created_by em movimentos gerados por webhook (admin ou staff). */
 async function getWebhookActorUserId (supabase: ServiceClient): Promise<string | null> {
@@ -48,6 +58,31 @@ async function getProductCurrentStockLocal (supabase: ServiceClient, productId: 
     else if (type === 'exit' || type === 'loss') balance -= q
   }
   return balance
+}
+
+async function fetchBlingProductLatest (supabase: ServiceClient, blingId: string): Promise<Record<string, unknown> | null> {
+  const { data: conn } = await supabase
+    .from('hub_connections')
+    .select('id, platform_id, access_token, refresh_token, token_expires_at, metadata, created_by')
+    .eq('platform_id', PLATFORM_ID)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (!conn) return null
+
+  try {
+    const client = await createBlingClientFromConnection(conn as HubConnectionRow)
+    const response = await client.request<{ data?: Record<string, unknown> }>({
+      method: 'GET',
+      path: `/produtos/${blingId}`,
+    })
+    const data = response?.data
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return null
+    return data
+  } catch {
+    return null
+  }
 }
 
 export async function processBlingWebhook (id: string): Promise<{ ok: true; status: 'processed' } | { ok: false; status: 'error'; error_message: string }> {
@@ -99,7 +134,8 @@ export async function processBlingWebhook (id: string): Promise<{ ok: true; stat
       if (!productId) {
         throw new Error('product_not_found')
       }
-      const local = mapBlingProductToLocal(effect.payload)
+      const latest = await fetchBlingProductLatest(supabase, effect.blingId)
+      const local = mapBlingProductToLocal((latest ?? effect.payload) as Record<string, unknown>)
       const updatePayload: Record<string, unknown> = {
         updated_at: new Date().toISOString(),
       }
@@ -107,6 +143,7 @@ export async function processBlingWebhook (id: string): Promise<{ ok: true; stat
       if (local.sku !== undefined) updatePayload.sku = local.sku
       if (local.barcode !== undefined) updatePayload.barcode = local.barcode
       if (local.description !== undefined) updatePayload.description = local.description
+      if (local.kind === 'product' || local.kind === 'service') updatePayload.kind = local.kind
       if (typeof local.salePriceCents === 'number') updatePayload.sale_price_cents = local.salePriceCents
       if (typeof local.costPriceCents === 'number') updatePayload.cost_price_cents = local.costPriceCents
       if (typeof local.isActive === 'boolean') updatePayload.is_active = local.isActive
