@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { Loader2 } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { Barcode, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -82,6 +82,24 @@ function parseMoneyValue (value: string) {
   return numericValue
 }
 
+function calculateEAN13Checksum (code12: string) {
+  let sum = 0
+  for (let i = 0; i < 12; i += 1) {
+    const digit = Number(code12[i])
+    sum += i % 2 === 0 ? digit : digit * 3
+  }
+
+  return (10 - (sum % 10)) % 10
+}
+
+function generateEAN13 () {
+  const prefix = '761'
+  const randomNineDigits = Math.floor(100000000 + Math.random() * 900000000)
+  const baseCode = `${prefix}${randomNineDigits.toString()}`
+  const checksum = calculateEAN13Checksum(baseCode)
+  return `${baseCode}${checksum}`
+}
+
 export function ProductEditDialog ({
   open,
   productId,
@@ -97,6 +115,8 @@ export function ProductEditDialog ({
   const [isSyncing, setIsSyncing] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
+  const [skuDirty, setSkuDirty] = useState(false)
+  const [barcodeDirty, setBarcodeDirty] = useState(false)
 
   useEffect(() => {
     if (!open || !productId) return
@@ -119,6 +139,8 @@ export function ProductEditDialog ({
 
         setProduct(data.product as ProductDetails)
         setForm(createFormState(data.product as ProductDetails))
+        setSkuDirty(false)
+        setBarcodeDirty(false)
       } catch (err) {
         if (!isMounted) return
 
@@ -149,6 +171,8 @@ export function ProductEditDialog ({
     setIsSaving(false)
     setIsSyncing(false)
     setLoadError(null)
+    setSkuDirty(false)
+    setBarcodeDirty(false)
   }, [open])
 
   async function handleSubmit (event: React.FormEvent<HTMLFormElement>) {
@@ -182,8 +206,8 @@ export function ProductEditDialog ({
         body: JSON.stringify({
           kind: form.kind,
           name: normalizedName,
-          sku: form.sku.trim() || null,
-          barcode: form.barcode.trim() || null,
+          sku: skuDirty ? (form.sku.trim() || null) : undefined,
+          barcode: barcodeDirty ? (form.barcode.trim() || null) : undefined,
           description: form.description.trim() || null,
           salePrice,
           costPrice,
@@ -267,6 +291,16 @@ export function ProductEditDialog ({
       setIsSyncing(false)
     }
   }
+
+  const handleGenerateBarcode = useCallback(() => {
+    setForm((currentForm) => {
+      if (!currentForm) return currentForm
+      return { ...currentForm, barcode: generateEAN13() }
+    })
+
+    setBarcodeDirty(true)
+    toast({ description: 'Código de barras gerado.' })
+  }, [toast])
 
   return (
     <Dialog
@@ -355,6 +389,7 @@ export function ProductEditDialog ({
                   id="product-sku"
                   value={form.sku}
                   onChange={(event) => {
+                    setSkuDirty(true)
                     setForm((currentForm) => currentForm ? { ...currentForm, sku: event.target.value } : currentForm)
                   }}
                 />
@@ -362,13 +397,27 @@ export function ProductEditDialog ({
 
               <div className="space-y-2">
                 <Label htmlFor="product-barcode">Código de barras</Label>
-                <Input
-                  id="product-barcode"
-                  value={form.barcode}
-                  onChange={(event) => {
-                    setForm((currentForm) => currentForm ? { ...currentForm, barcode: event.target.value } : currentForm)
-                  }}
-                />
+                <div className="relative">
+                  <Input
+                    id="product-barcode"
+                    className="pr-10"
+                    value={form.barcode}
+                    onChange={(event) => {
+                      setBarcodeDirty(true)
+                      setForm((currentForm) => currentForm ? { ...currentForm, barcode: event.target.value } : currentForm)
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2"
+                    onClick={handleGenerateBarcode}
+                    aria-label="Gerar código de barras (EAN-13)"
+                  >
+                    <Barcode className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             </div>
 

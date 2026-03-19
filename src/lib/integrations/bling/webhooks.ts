@@ -54,6 +54,25 @@ export type BlingWebhookParsedStock = {
   raw: Record<string, unknown>
 }
 
+/** Webhook `stock.created`: movimento no Bling + saldo virtual atualizado (referência para o portal). */
+export type BlingWebhookParsedStockMovement = {
+  kind: 'stockMovement'
+  eventType: string
+  externalId: string
+  productId: string
+  operacao: 'E' | 'S'
+  quantidade: number
+  /** Saldo virtual total após o movimento (prioridade para alinhar estoque local). */
+  saldoVirtualTotal: number | null
+  /** Saldo virtual só do depósito do evento (fallback se não vier total). */
+  saldoVirtualDeposito: number | null
+  saldoFisicoTotal: number | null
+  depositoId: string | null
+  eventId: string | null
+  occurredAt: string | null
+  raw: Record<string, unknown>
+}
+
 export type BlingWebhookParsedUnknown = {
   kind: 'unknown'
   eventType: string
@@ -64,12 +83,62 @@ export type BlingWebhookParsedUnknown = {
 export type BlingWebhookParsed =
   | BlingWebhookParsedProduct
   | BlingWebhookParsedStock
+  | BlingWebhookParsedStockMovement
   | BlingWebhookParsedUnknown
 
 /** Extrai external_id (id do recurso no Bling) a partir do evento parseado. */
 export function getBlingResourceKeyFromWebhook (evt: BlingWebhookParsed): string | null {
   if (evt.kind === 'unknown') return evt.externalId
   return evt.externalId || null
+}
+
+const STOCK_CREATED_EVENT = 'stock.created'
+
+function parseStockCreatedPayload (payload: Record<string, unknown>): BlingWebhookParsedStockMovement | null {
+  const eventId = payload.eventId != null ? String(payload.eventId).trim() : null
+  const data = payload.data
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null
+  const d = data as Record<string, unknown>
+  const prod = d.produto
+  if (!prod || typeof prod !== 'object' || Array.isArray(prod)) return null
+  const blingProductId = (prod as { id?: unknown }).id
+  if (blingProductId == null || blingProductId === '') return null
+  const operacaoRaw = String(d.operacao ?? '').trim().toUpperCase()
+  if (operacaoRaw !== 'E' && operacaoRaw !== 'S') return null
+  const quantidade = Number(d.quantidade)
+  if (!Number.isFinite(quantidade) || quantidade <= 0) return null
+  const deposito = d.deposito
+  const depositoId = deposito && typeof deposito === 'object' && !Array.isArray(deposito) && (deposito as { id?: unknown }).id != null
+    ? String((deposito as { id: unknown }).id)
+    : null
+  const saldoFisicoTotal = typeof d.saldoFisicoTotal === 'number' && Number.isFinite(d.saldoFisicoTotal)
+    ? d.saldoFisicoTotal
+    : null
+  const saldoVirtualTotal = typeof d.saldoVirtualTotal === 'number' && Number.isFinite(d.saldoVirtualTotal)
+    ? d.saldoVirtualTotal
+    : null
+  let saldoVirtualDeposito: number | null = null
+  if (deposito && typeof deposito === 'object' && !Array.isArray(deposito)) {
+    const sv = (deposito as { saldoVirtual?: unknown }).saldoVirtual
+    if (typeof sv === 'number' && Number.isFinite(sv)) saldoVirtualDeposito = sv
+  }
+  const occurredAt = typeof payload.date === 'string' && payload.date.trim() !== '' ? payload.date.trim() : null
+
+  return {
+    kind: 'stockMovement',
+    eventType: STOCK_CREATED_EVENT,
+    externalId: String(blingProductId),
+    productId: String(blingProductId),
+    operacao: operacaoRaw,
+    quantidade,
+    saldoVirtualTotal,
+    saldoVirtualDeposito,
+    saldoFisicoTotal,
+    depositoId,
+    eventId,
+    occurredAt,
+    raw: payload,
+  }
 }
 
 /** Eventos de produto conhecidos (ajustar conforme doc Bling). */
@@ -82,7 +151,7 @@ const PRODUCT_EVENTS = new Set([
   'product.deleted',
 ])
 
-/** Eventos de estoque conhecidos. */
+/** Eventos de estoque conhecidos (sincronização por saldo total / legado). */
 const STOCK_EVENTS = new Set([
   'produto.estoque',
   'estoque.updated',
@@ -128,13 +197,18 @@ function extractStockValue (p: BlingWebhookBase): number {
 
 /**
  * Parse do payload bruto do webhook Bling.
- * Retorna união discriminada por kind: product | stock | unknown.
+ * Retorna união discriminada por kind: product | stock | stockMovement | unknown.
  */
 export function parseBlingWebhook (raw: unknown): BlingWebhookParsed {
   const payload = safePayload(raw)
   const eventType = String(payload.event ?? payload.type ?? payload.evento ?? '').trim() || 'unknown'
   const productId = extractProductId(payload as BlingWebhookBase)
   const externalId = productId || String(payload.id ?? payload.resourceId ?? '').trim() || null
+
+  if (eventType === STOCK_CREATED_EVENT) {
+    const movement = parseStockCreatedPayload(payload)
+    if (movement) return movement
+  }
 
   if (PRODUCT_EVENTS.has(eventType) || (eventType.includes('produto') || eventType.includes('product'))) {
     const prod = (payload.produto ?? (payload.data as Record<string, unknown>)?.produto ?? payload) as BlingWebhookProductPayload
@@ -148,7 +222,18 @@ export function parseBlingWebhook (raw: unknown): BlingWebhookParsed {
     }
   }
 
-  if (STOCK_EVENTS.has(eventType) || eventType.includes('estoque') || eventType.includes('stock')) {
+  if (
+    STOCK_EVENTS.has(eventType)
+    || (eventType.includes('estoque') || eventType.includes('stock'))
+  ) {
+    if (eventType === STOCK_CREATED_EVENT) {
+      return {
+        kind: 'unknown',
+        eventType,
+        externalId,
+        raw: payload,
+      }
+    }
     const estoqueAtual = extractStockValue(payload as BlingWebhookBase)
     const prod = (payload.produto ?? (payload.data as Record<string, unknown>)?.produto ?? payload.estoque ?? payload) as BlingWebhookStockPayload | BlingWebhookProductPayload
     return {
@@ -174,6 +259,19 @@ export function parseBlingWebhook (raw: unknown): BlingWebhookParsed {
 export type WebhookLocalEffect =
   | { action: 'updateProduct'; blingId: string; payload: BlingWebhookProductPayload }
   | { action: 'syncStock'; blingId: string; estoqueAtual: number }
+  | {
+      action: 'insertStockMovementFromBling'
+      blingId: string
+      /** Saldo virtual alvo no portal (Bling). Se null, usa só operacao + quantidade como delta. */
+      targetVirtualStock: number | null
+      blingOperacao: 'E' | 'S'
+      blingQuantidade: number
+      externalReference: string
+      occurredAtIso: string | null
+      saldoVirtualTotal: number | null
+      saldoFisicoTotal: number | null
+      depositoId: string | null
+    }
   | { action: 'skip'; reason: string }
 
 /**
@@ -185,6 +283,25 @@ export function mapWebhookToLocalEffect (evt: BlingWebhookParsed): WebhookLocalE
       action: 'updateProduct',
       blingId: evt.productId,
       payload: evt.payload,
+    }
+  }
+  if (evt.kind === 'stockMovement') {
+    const externalReference = evt.eventId
+      ? `bling:stock.created:${evt.eventId}`
+      : `bling:stock.created:${evt.productId}:${evt.occurredAt ?? 'nodate'}:${evt.operacao}:${evt.quantidade}`
+    const targetVirtualStock = evt.saldoVirtualTotal ?? evt.saldoVirtualDeposito
+    const targetOk = targetVirtualStock != null && Number.isFinite(targetVirtualStock)
+    return {
+      action: 'insertStockMovementFromBling',
+      blingId: evt.productId,
+      targetVirtualStock: targetOk ? Math.round(Number(targetVirtualStock)) : null,
+      blingOperacao: evt.operacao,
+      blingQuantidade: evt.quantidade,
+      externalReference,
+      occurredAtIso: evt.occurredAt,
+      saldoVirtualTotal: evt.saldoVirtualTotal,
+      saldoFisicoTotal: evt.saldoFisicoTotal,
+      depositoId: evt.depositoId,
     }
   }
   if (evt.kind === 'stock') {

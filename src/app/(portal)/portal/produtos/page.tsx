@@ -2,20 +2,21 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { getPortalAuth, createSupabaseServerClient } from '@/lib/supabase/server'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { ProductsListClient } from './ProductsListClient'
+import { ProdutosFilterForm } from './ProdutosFilterForm'
 import type { ProductRow } from './ProductsListClient'
 import { ImportFromBlingButton } from './ImportFromBlingButton'
 import { BackfillFromBlingButton } from './BackfillFromBlingButton'
+import { effectiveSearchTokens } from '@/lib/products/product-search'
 
 export const dynamic = 'force-dynamic'
 
-type SearchParams = Promise<{ q?: string; active?: string; page?: string }>
+type SearchParams = Promise<{ q?: string; page?: string }>
 
 export default async function ProdutosPage ({ searchParams }: { searchParams: SearchParams }) {
-  const { q, active, page } = await searchParams
+  const { q, page } = await searchParams
   const query = String(q || '').trim()
-  const activeFilter = String(active || '').trim()
   const pageNumber = Math.max(1, Number(page) || 1)
   const pageSize = 100
   const offset = (pageNumber - 1) * pageSize
@@ -59,15 +60,62 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
     .is('parent_bling_id', null)
     .order('created_at', { ascending: false })
 
-  if (query) {
-    const escaped = query.replaceAll(',', ' ')
-    parentsQuery = parentsQuery.or(`name.ilike.%${escaped}%,sku.ilike.%${escaped}%,barcode.ilike.%${escaped}%`)
-  }
+  // Para o filtro `q`, buscar também por variações:
+  // Várias palavras: cada uma deve aparecer (AND), em qualquer ordem, em nome OU sku OU barcode.
+  // PostgREST: vários `.or()` na URL viram (or1) AND (or2) AND ...
+  const searchTokens = effectiveSearchTokens(query)
+  const hasSearchButNoValidTokens = Boolean(query.trim()) && searchTokens.length === 0
 
-  if (activeFilter === 'active') {
-    parentsQuery = parentsQuery.eq('is_active', true)
-  } else if (activeFilter === 'inactive') {
-    parentsQuery = parentsQuery.eq('is_active', false)
+  if (hasSearchButNoValidTokens) {
+    parentsQuery = parentsQuery.in('id', ['__no_matches__'])
+  } else if (searchTokens.length > 0) {
+    let directParentsQuery = supabase
+      .from('products')
+      .select('id, bling_id')
+      .is('parent_bling_id', null)
+    for (const token of searchTokens) {
+      directParentsQuery = directParentsQuery.or(
+        `name.ilike.%${token}%,sku.ilike.%${token}%,barcode.ilike.%${token}%`,
+      )
+    }
+
+    let variationsQuery = supabase
+      .from('products')
+      .select('parent_bling_id')
+      .not('parent_bling_id', 'is', null)
+    for (const token of searchTokens) {
+      variationsQuery = variationsQuery.or(
+        `name.ilike.%${token}%,sku.ilike.%${token}%,barcode.ilike.%${token}%`,
+      )
+    }
+
+    const { data: directParentsData } = await directParentsQuery
+    const { data: variationsData } = await variationsQuery
+
+    const parentBlingIdsFromVariations = (variationsData ?? [])
+      .map((row: { parent_bling_id?: string | null }) => row.parent_bling_id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0)
+
+    let variationParentsIds: string[] = []
+    if (parentBlingIdsFromVariations.length > 0) {
+      const { data: variationParentsData } = await supabase
+        .from('products')
+        .select('id')
+        .is('parent_bling_id', null)
+        .in('bling_id', parentBlingIdsFromVariations)
+
+      variationParentsIds = (variationParentsData ?? []).map((row: { id?: string }) => String(row.id))
+    }
+
+    const directParentsIds = (directParentsData ?? []).map((row: { id?: string }) => String(row.id))
+    const matchingParentIds = new Set<string>([...directParentsIds, ...variationParentsIds])
+    const matchingIdsArray = Array.from(matchingParentIds)
+
+    if (matchingIdsArray.length > 0) {
+      parentsQuery = parentsQuery.in('id', matchingIdsArray)
+    } else {
+      parentsQuery = parentsQuery.in('id', ['__no_matches__'])
+    }
   }
 
   const { data: parentProducts } = await parentsQuery
@@ -87,10 +135,12 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
       .select('id, bling_id, bling_sync_pending, parent_bling_id, name, sku, barcode, image_url, sale_price_cents, cost_price_cents, is_active, created_at')
       .in('parent_bling_id', parentBlingIds)
 
-    if (activeFilter === 'active') {
-      childrenQuery = childrenQuery.eq('is_active', true)
-    } else if (activeFilter === 'inactive') {
-      childrenQuery = childrenQuery.eq('is_active', false)
+    if (searchTokens.length > 0) {
+      for (const token of searchTokens) {
+        childrenQuery = childrenQuery.or(
+          `name.ilike.%${token}%,sku.ilike.%${token}%,barcode.ilike.%${token}%`,
+        )
+      }
     }
 
     const { data: childrenData } = await childrenQuery
@@ -222,50 +272,13 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Buscar</CardTitle>
-          <CardDescription>Filtre por nome, SKU ou código de barras.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form action="/portal/produtos" method="get" className="grid gap-4 md:grid-cols-3">
-            <div className="space-y-2 md:col-span-2">
-              <label htmlFor="q" className="text-sm font-medium">
-                Nome / SKU / código
-              </label>
-              <input
-                id="q"
-                name="q"
-                defaultValue={query}
-                placeholder="Ex: Tela iPhone, SKU-123"
-                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-              />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="active" className="text-sm font-medium">
-                Status
-              </label>
-              <select
-                id="active"
-                name="active"
-                defaultValue={activeFilter}
-                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <option value="">Todos</option>
-                <option value="active">Ativos</option>
-                <option value="inactive">Inativos</option>
-              </select>
-            </div>
-            <div className="md:col-span-3 flex items-center gap-3 flex-wrap">
-              <Button type="submit">Buscar</Button>
-              <Button variant="outline" asChild>
-                <Link href="/portal/produtos">Limpar</Link>
-              </Button>
-            </div>
-          </form>
+        <CardContent className="pt-6">
+          <ProdutosFilterForm key={query} initialQ={query} />
         </CardContent>
       </Card>
 
-      <ProductsListClient products={productsWithStock} />
+      {/* key: remonta a lista ao mudar busca/página — evita menu Radix/modais presos bloqueando cliques */}
+      <ProductsListClient key={`${query}::${pageNumber}`} products={productsWithStock} />
     </div>
   )
 }

@@ -7,6 +7,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -123,9 +124,9 @@ export function StockManagementModal ({
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Gestão de estoque</DialogTitle>
-          <p className="text-sm text-muted-foreground font-normal">
+          <DialogDescription className="text-sm text-muted-foreground font-normal">
             {productName}
-          </p>
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
@@ -191,7 +192,8 @@ export function StockManagementModal ({
                       <th className="py-2 pr-2 text-left font-medium">Data</th>
                       <th className="py-2 px-2 text-left font-medium">Tipo</th>
                       <th className="py-2 px-2 text-right font-medium">Qtd</th>
-                      <th className="py-2 pl-2 text-right font-medium">Total</th>
+                      <th className="py-2 px-2 text-right font-medium">Total</th>
+                      <th className="py-2 pl-2 text-left font-medium">Origem</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -206,8 +208,15 @@ export function StockManagementModal ({
                           {m.type === 'entry' ? 'Entrada' : m.type === 'exit' ? 'Saída' : 'Perda'}
                         </td>
                         <td className="py-2 px-2 text-right">{m.quantity}</td>
-                        <td className="py-2 pl-2 text-right">
+                        <td className="py-2 px-2 text-right">
                           {m.totalValueCents ? formatCurrency(m.totalValueCents / 100) : '-'}
+                        </td>
+                        <td className="py-2 pl-2 text-muted-foreground">
+                          {m.source === 'bling'
+                            ? 'Bling'
+                            : m.source === 'system'
+                              ? 'Sistema'
+                              : 'Portal'}
                         </td>
                       </tr>
                     ))}
