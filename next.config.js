@@ -20,6 +20,15 @@ const nextConfig = {
 				protocol: 'https',
 				hostname: 'nacionalsmart.com.br',
 			},
+			/** Imagens externas do Bling / lojas (ex.: Tray — images.tcdn.com.br) */
+			{
+				protocol: 'https',
+				hostname: '**.tcdn.com.br',
+			},
+			{
+				protocol: 'https',
+				hostname: '**.bling.com.br',
+			},
 		],
 	},
 	// Turbopack: cache em disco para dev mais rápido entre reinícios (Next.js 16)

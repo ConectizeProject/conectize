@@ -106,13 +106,32 @@ export function StockManagementModal ({
         body: JSON.stringify({ type, quantity: qty, unitValueCents }),
       })
       if (res.ok) {
-        const json = await res.json()
+        const json = await res.json().catch(() => ({})) as {
+          currentStock?: number
+          movement?: unknown
+          blingPushError?: string
+        }
         if (json?.blingPushError) {
           toast({
             variant: 'destructive',
-            title: 'Erro ao atualizar estoque no Bling',
-            description: json.blingPushError,
+            title: 'Estoque atualizado no portal',
+            description: `Não foi possível enviar ao Bling: ${json.blingPushError}`,
           })
+        } else if (type === 'balance' && json?.movement === null) {
+          toast({
+            title: 'Balanço concluído',
+            description: 'O saldo informado já era o estoque atual; nenhuma movimentação foi criada.',
+          })
+        } else {
+          const successTitle =
+            type === 'balance'
+              ? 'Balanço registrado'
+              : type === 'entry'
+                ? 'Entrada registrada'
+                : type === 'exit'
+                  ? 'Saída registrada'
+                  : 'Perda registrada'
+          toast({ title: successTitle })
         }
         setData((prev) => ({
           currentStock: json.currentStock ?? prev?.currentStock ?? 0,
@@ -121,7 +140,32 @@ export function StockManagementModal ({
         setQuantity('1')
         await fetchStock()
         onSuccess?.()
+      } else {
+        let description = 'Não foi possível salvar o movimento.'
+        try {
+          const errJson = await res.json() as { error?: string }
+          const code = errJson?.error
+          if (code === 'invalid_quantity') description = 'Quantidade inválida.'
+          else if (code === 'invalid_type') description = 'Tipo de movimento inválido.'
+          else if (code === 'product_not_found') description = 'Produto não encontrado.'
+          else if (code === 'not_authenticated') description = 'Sessão expirada. Entre novamente.'
+          else if (code === 'forbidden') description = 'Sem permissão para esta ação.'
+          else if (typeof code === 'string') description = code
+        } catch {
+          // mantém mensagem padrão
+        }
+        toast({
+          variant: 'destructive',
+          title: 'Erro ao salvar',
+          description,
+        })
       }
+    } catch {
+      toast({
+        variant: 'destructive',
+        title: 'Erro de rede',
+        description: 'Não foi possível conectar ao servidor.',
+      })
     } finally {
       setSubmitting(false)
     }

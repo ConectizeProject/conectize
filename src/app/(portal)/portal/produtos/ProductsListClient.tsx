@@ -50,6 +50,14 @@ const allowedImageHosts = new Set<string>([
   'nacionalsmart.com.br',
 ])
 
+function isAllowedProductImageHost (hostname: string): boolean {
+  const h = hostname.toLowerCase()
+  if (allowedImageHosts.has(h)) return true
+  if (h === 'bling.com.br' || h.endsWith('.bling.com.br')) return true
+  if (h === 'tcdn.com.br' || h.endsWith('.tcdn.com.br')) return true
+  return false
+}
+
 type QuickSalePriceCellProps = {
   productId: string
   blingId?: string | null
@@ -291,10 +299,11 @@ export function ProductsListClient ({ products }: Props) {
       })
       router.refresh()
     } catch (err) {
+      const message = err instanceof Error ? err.message : ''
       toast({
         variant: 'destructive',
         title: 'Erro na sincronização',
-        description: 'Tente novamente.',
+        description: message || 'Falha de rede ou resposta inválida. Tente novamente.',
       })
     } finally {
       setSyncingId(null)
@@ -437,8 +446,11 @@ export function ProductsListClient ({ products }: Props) {
                                 return null
                               }
                               try {
-                                const hostname = new URL(url).hostname
-                                if (!allowedImageHosts.has(hostname)) {
+                                const parsed = new URL(url)
+                                if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+                                  return null
+                                }
+                                if (!isAllowedProductImageHost(parsed.hostname)) {
                                   return null
                                 }
                               } catch {
@@ -464,11 +476,6 @@ export function ProductsListClient ({ products }: Props) {
                               <span className={`truncate ${product.is_active ? '' : 'line-through text-muted-foreground'}`}>
                                 {product.name}
                               </span>
-                              {product.is_variation && (
-                                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                                  Variação
-                                </span>
-                              )}
                               {!product.is_active && (
                                 <span className="rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
                                   Inativo

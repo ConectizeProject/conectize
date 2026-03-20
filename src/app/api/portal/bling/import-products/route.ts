@@ -95,7 +95,11 @@ export async function POST (request: Request) {
       if (!blingId) continue
 
       const estoqueAtual = typeof local.estoqueAtual === 'number' && local.estoqueAtual >= 0 ? local.estoqueAtual : 0
-      const unitCents = local.costPriceCents ?? local.salePriceCents ?? 0
+      /** CMV: custo real; se zero no Bling, usa preço de venda como valor unitário da entrada (evita confundir com listagem). */
+      const unitCents =
+        local.costPriceCents != null && local.costPriceCents > 0
+          ? local.costPriceCents
+          : (local.salePriceCents ?? 0)
 
       const payload = {
         bling_id: blingId,
