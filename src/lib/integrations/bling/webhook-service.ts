@@ -1,7 +1,7 @@
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { parseBlingWebhook, mapWebhookToLocalEffect } from '@/lib/integrations/bling/webhooks'
 import { mapBlingProductToLocal } from '@/lib/integrations/bling/mappers'
-import { createBlingClientFromConnection } from '@/lib/integrations/bling/api'
+import { blingProdutoApiPath, createBlingClientFromConnection } from '@/lib/integrations/bling/api'
 import { createProductSyncSnapshot } from '@/lib/products/bling-sync'
 
 const PLATFORM_ID = 'bling'
@@ -82,6 +82,20 @@ async function getProductIdByBlingId (supabase: ServiceClient, blingId: string):
   return data?.id ? String(data.id) : null
 }
 
+async function countProductsWithParentBlingId (
+  supabase: ServiceClient,
+  parentBlingId: string,
+): Promise<number> {
+  const key = String(parentBlingId || '').trim()
+  if (!key) return 0
+  const { count, error } = await supabase
+    .from('products')
+    .select('id', { count: 'exact', head: true })
+    .eq('parent_bling_id', key)
+  if (error) return 0
+  return count ?? 0
+}
+
 async function getProductCurrentStockLocal (supabase: ServiceClient, productId: string): Promise<number> {
   const { data } = await supabase
     .from('product_stock_movements')
@@ -113,7 +127,7 @@ async function fetchBlingProductLatest (supabase: ServiceClient, blingId: string
     const client = await createBlingClientFromConnection(conn as HubConnectionRow)
     const response = await client.request<{ data?: Record<string, unknown> }>({
       method: 'GET',
-      path: `/produtos/${blingId}`,
+      path: blingProdutoApiPath(blingId),
     })
     const data = response?.data
     if (!data || typeof data !== 'object' || Array.isArray(data)) return null
@@ -180,10 +194,10 @@ export async function processBlingWebhook (id: string): Promise<{ ok: true; stat
           : {}
       const mergedDto: Record<string, unknown> = {
         id: blingId,
-        ...payloadPartial,
         ...(latest ?? {}),
+        ...payloadPartial,
       }
-      const local = mapBlingProductToLocal(mergedDto)
+      const local = mapBlingProductToLocal(mergedDto, blingId)
       const resolvedBlingId = local.blingId ? String(local.blingId) : blingId
       const name = String(local.name || '').trim()
       if (!name) {
@@ -192,7 +206,7 @@ export async function processBlingWebhook (id: string): Promise<{ ok: true; stat
 
       const estoqueAtual =
         typeof local.estoqueAtual === 'number' && local.estoqueAtual >= 0 ? local.estoqueAtual : 0
-      const unitCents = local.costPriceCents ?? local.salePriceCents ?? 0
+      const unitCents = local.costPriceCents ?? 0
 
       const parentBlingKey = local.parentBlingId ? String(local.parentBlingId).trim() : ''
       const parentProductUuid = parentBlingKey
@@ -216,11 +230,83 @@ export async function processBlingWebhook (id: string): Promise<{ ok: true; stat
         kind: local.kind ?? null,
       }
 
-      const productId = await getProductIdByBlingId(supabase, resolvedBlingId)
+      const { data: existingRow } = await supabase
+        .from('products')
+        .select(
+          'id, parent_bling_id, parent_product_id, image_url, cost_price_cents, cost_price_manual_edited_at, bling_id',
+        )
+        .eq('bling_id', resolvedBlingId)
+        .maybeSingle()
+
+      type ExistingProductRow = {
+        id?: string
+        parent_bling_id?: string | null
+        parent_product_id?: string | null
+        image_url?: string | null
+        cost_price_cents?: number | string | null
+        cost_price_manual_edited_at?: string | null
+        bling_id?: string | null
+      }
+
+      const existing = existingRow as ExistingProductRow | null
+      const productId = existing?.id ? String(existing.id) : null
 
       if (productId) {
+        const existingBlingKey = existing?.bling_id
+          ? String(existing.bling_id).trim()
+          : resolvedBlingId
+        const variationRowsCount = await countProductsWithParentBlingId(
+          supabase,
+          existingBlingKey,
+        )
+
+        let parent_bling_id = (syncBase.parent_bling_id ?? null) as string | null
+        let parent_product_id = (syncBase.parent_product_id ?? null) as string | null
+        if (variationRowsCount > 0) {
+          parent_bling_id = null
+          parent_product_id = null
+        } else {
+          const hadParentInPortal =
+            existing?.parent_bling_id != null &&
+            String(existing.parent_bling_id).trim() !== ''
+          const incomingParentEmpty =
+            !parent_bling_id || String(parent_bling_id).trim() === ''
+          if (hadParentInPortal && incomingParentEmpty && existing.parent_bling_id) {
+            parent_bling_id = String(existing.parent_bling_id).trim()
+            parent_product_id = existing.parent_product_id
+              ? String(existing.parent_product_id)
+              : await getProductIdByBlingId(supabase, parent_bling_id)
+          }
+        }
+
+        let image_url = syncBase.image_url as string | null | undefined
+        if (image_url != null) image_url = String(image_url).trim() || null
+        else image_url = null
+
+        const existingImg =
+          existing?.image_url != null ? String(existing.image_url).trim() : ''
+        if ((!image_url || image_url === '') && existingImg) {
+          image_url = existingImg
+        }
+
+        let cost_price_cents = syncBase.cost_price_cents as number | null | undefined
+        if (existing?.cost_price_manual_edited_at) {
+          const keep = existing.cost_price_cents
+          if (keep != null && keep !== '') {
+            const n =
+              typeof keep === 'number' ? keep : Number(String(keep).replace(',', '.'))
+            cost_price_cents = Number.isFinite(n) ? Math.round(n) : null
+          } else {
+            cost_price_cents = null
+          }
+        }
+
         const updatePayload: Record<string, unknown> = {
           ...syncBase,
+          parent_bling_id,
+          parent_product_id,
+          image_url,
+          cost_price_cents,
           updated_at: new Date().toISOString(),
         }
         const { error: updateError } = await supabase

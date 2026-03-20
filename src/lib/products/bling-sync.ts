@@ -1,6 +1,15 @@
 import { mapLocalProductToBling, type LocalProduct } from '@/lib/integrations/bling/mappers'
 import type { Product, ProductSyncSnapshot } from '@/lib/products/service'
 
+/** Campos do portal que podem ser refletidos no PATCH do Bling (custo fica só no Conectize). */
+export type PortalFieldForBling =
+  | 'name'
+  | 'description'
+  | 'sku'
+  | 'barcode'
+  | 'salePriceCents'
+  | 'isActive'
+
 type SyncComparableProduct = {
   name: string
   sku?: string | null
@@ -62,9 +71,7 @@ export function buildBlingPayloadFromSnapshotDiff (
     localPatch.salePriceCents = currentSnapshot.salePriceCents
   }
 
-  if (!baseSnapshot || baseSnapshot.costPriceCents !== currentSnapshot.costPriceCents) {
-    localPatch.costPriceCents = currentSnapshot.costPriceCents
-  }
+  /** Custo é só do portal (CMV / última entrada); não enviamos `custo`/`precoCusto` no PATCH do Bling. */
 
   if (!baseSnapshot || baseSnapshot.isActive !== currentSnapshot.isActive) {
     localPatch.isActive = currentSnapshot.isActive
@@ -80,4 +87,50 @@ export function buildBlingPayloadFromSnapshotDiff (
     currentSnapshot,
     hasChanges: Object.keys(payload).length > 0,
   }
+}
+
+/**
+ * Monta o PATCH do Bling só com o que já foi persistido no portal nesta edição.
+ * `name` no tipo LocalProduct é obrigatório: usamos string vazia quando o nome não vai no PATCH.
+ */
+export function buildBlingPayloadFromPortalFieldsMask (
+  product: Pick<
+    Product,
+    'name' | 'sku' | 'barcode' | 'description' | 'salePriceCents' | 'isActive' | 'kind'
+  >,
+  fields: PortalFieldForBling[],
+): { payload: Record<string, unknown>; currentSnapshot: ProductSyncSnapshot } {
+  const set = new Set(fields)
+  const localPatch: LocalProduct = {
+    name: set.has('name') ? product.name : '',
+  }
+
+  if (set.has('sku')) localPatch.sku = product.sku
+  if (set.has('barcode')) localPatch.barcode = product.barcode
+  if (set.has('description')) localPatch.description = product.description
+  if (set.has('salePriceCents')) {
+    localPatch.salePriceCents = product.salePriceCents
+  }
+  if (set.has('isActive')) localPatch.isActive = product.isActive
+
+  const payload = mapLocalProductToBling(localPatch)
+  delete payload.tipo
+
+  const currentSnapshot = createProductSyncSnapshot(product)
+
+  return {
+    payload,
+    currentSnapshot,
+  }
+}
+
+export function isPortalFieldForBling (value: unknown): value is PortalFieldForBling {
+  return (
+    value === 'name' ||
+    value === 'description' ||
+    value === 'sku' ||
+    value === 'barcode' ||
+    value === 'salePriceCents' ||
+    value === 'isActive'
+  )
 }
