@@ -263,7 +263,34 @@ export default async function OrdemPublicaPage({
 	const servicesItems = servicesData.items
 	const paymentMethodsDisplay = parsePaymentMethodsForDisplay(order.payment_methods, paymentMethodsCatalog ?? null)
 	const hasServices = servicesItems.length > 0
-	const hasAssistanceInfo = Boolean(order.assistance_info?.trim())
+	let assistanceComments: Array<{ content: string; created_at: string; author_display_name: string }> = []
+	if (order?.id) {
+		const { data: rows } = await supabase
+			.from('service_order_assistance_comments')
+			.select('content, created_at, author_display_name')
+			.eq('service_order_id', order.id)
+			.order('created_at', { ascending: true })
+
+		if (Array.isArray(rows)) {
+			assistanceComments = rows
+		}
+	}
+
+	const legacyAssistanceInfo = String(order.assistance_info || '').trim()
+	const legacyUpdatedAtText = order.updated_at ? formatDateTimeBr(order.updated_at) : null
+	const assistanceInfoTextParts: string[] = []
+	if (legacyAssistanceInfo) {
+		assistanceInfoTextParts.push(
+			`Histórico anterior${legacyUpdatedAtText ? ` (última atualização: ${legacyUpdatedAtText})` : ''}\n${legacyAssistanceInfo}`,
+		)
+	}
+	if (assistanceComments.length > 0) {
+		assistanceInfoTextParts.push(
+			...assistanceComments.map((c) => `${formatDateTimeBr(c.created_at)} • ${String(c.author_display_name || '').trim() || '(Sem nome)'}\n${c.content}`),
+		)
+	}
+	const assistanceInfoText = assistanceInfoTextParts.join('\n\n')
+	const hasAssistanceInfo = Boolean(assistanceInfoText.trim())
 	const hasWarrantyText = Boolean(order.warranty_text?.trim())
 	const hasPaymentMethods = paymentMethodsDisplay.length > 0
 	const entryChecksData = parseEntryChecks(order.device_entry_checks)
@@ -411,7 +438,7 @@ export default async function OrdemPublicaPage({
 									<div>
 										<h3 className="text-sm font-medium mb-1">Informações sobre a assistência</h3>
 										<p className="text-sm text-muted-foreground whitespace-pre-wrap">
-											{order.assistance_info}
+											{assistanceInfoText}
 										</p>
 									</div>
 								)}

@@ -694,8 +694,8 @@ export function NovaOrdemClient(props: Props) {
 
 							<Card>
 								<CardHeader>
-									<CardTitle>Dados da ordem</CardTitle>
-									<CardDescription>Dispositivo, status, serviços e demais informações.</CardDescription>
+									<CardTitle>Informações da assistência</CardTitle>
+									<CardDescription>Do título até a situação de entrada do aparelho.</CardDescription>
 								</CardHeader>
 								<CardContent className="relative space-y-6">
 									<div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -845,22 +845,45 @@ export function NovaOrdemClient(props: Props) {
 											</div>
 										</div>
 									</div>
+								</CardContent>
+							</Card>
 
-									<FieldArray name="services">
-										{({ push, remove }) => (
-											<OrderServicesCard
-												ref={servicesCardRef}
-												formik={{
-													services: formik.values.services ?? [],
-													onAdd: (item) => push(item),
-													onRemove: remove,
-													onUpdate: (idx, field, value) => formik.setFieldValue(`services.${idx}.${field}`, value),
-													onBlurSync: (services) => formik.setFieldValue('services', services),
-												}}
-											/>
-										)}
-									</FieldArray>
+							<FieldArray name="services">
+								{({ push, remove }) => (
+									<OrderServicesCard
+										ref={servicesCardRef}
+										formik={{
+											services: formik.values.services ?? [],
+											onAdd: (item) => push(item),
+											onRemove: remove,
+											onUpdate: (idx, field, value) => formik.setFieldValue(`services.${idx}.${field}`, value),
+											onBlurSync: (services) => formik.setFieldValue('services', services),
+										}}
+									/>
+								)}
+							</FieldArray>
 
+							<Card>
+								<CardHeader>
+									<CardTitle>Formas de pagamento</CardTitle>
+									<CardDescription>Defina como o cliente pagará a OS.</CardDescription>
+								</CardHeader>
+								<CardContent className="relative space-y-6">
+									<OrderPaymentMethodFields
+										formik={{
+											values: { paymentMethods: formik.values.paymentMethods ?? [] },
+											setFieldValue: formik.setFieldValue,
+										}}
+									/>
+								</CardContent>
+							</Card>
+
+							<Card>
+								<CardHeader>
+									<CardTitle>Descrição interna</CardTitle>
+									<CardDescription>Informações internas que não aparecem para o cliente.</CardDescription>
+								</CardHeader>
+								<CardContent className="relative space-y-6">
 									<div className="space-y-2">
 										<div className="flex items-center justify-between gap-2">
 											<Label htmlFor="internalDescription">Descrição interna</Label>
@@ -872,13 +895,6 @@ export function NovaOrdemClient(props: Props) {
 										</div>
 										<Field as={Textarea} id="internalDescription" name="internalDescription" placeholder="" />
 									</div>
-
-									<OrderPaymentMethodFields
-										formik={{
-											values: { paymentMethods: formik.values.paymentMethods ?? [] },
-											setFieldValue: formik.setFieldValue,
-										}}
-									/>
 
 									{formik.status && typeof formik.status === 'string' ? (
 										<p className="text-sm text-destructive">{formik.status}</p>

@@ -5,6 +5,7 @@ import {
   type CompanyPrintData,
   type OrdemPrintData,
 } from '@/lib/ordem-print'
+import { formatDateTimeBr } from '@/lib/utils/format-date'
 
 async function requireStaffOrAdmin() {
   const supabase = await createSupabaseServerClient()
@@ -24,7 +25,7 @@ async function requireStaffOrAdmin() {
   return { ok: true as const, supabase }
 }
 
-function orderToPrintData(order: any): OrdemPrintData {
+function orderToPrintData(order: any, assistanceInfo: string | null): OrdemPrintData {
   const cust = Array.isArray(order.customers) ? order.customers[0] : order.customers
   const dm = Array.isArray(order.device_models) ? order.device_models[0] : order.device_models
   const dt = dm?.device_types || null
@@ -65,7 +66,7 @@ function orderToPrintData(order: any): OrdemPrintData {
     customerDescription: order.customer_description ?? null,
     internalDescription: order.internal_description ?? null,
     receivingNotes: order.receiving_notes ?? null,
-    assistanceInfo: order.assistance_info ?? null,
+    assistanceInfo,
     warrantyText: order.warranty_text ?? null,
     deviceEntryChecks: order.device_entry_checks ?? null,
     services:
@@ -99,7 +100,7 @@ export async function GET(
   const { id } = await params
   if (!id) return new NextResponse('Not Found', { status: 404 })
 
-  const [{ data: order }, { data: company }] = await Promise.all([
+  const [{ data: order }, { data: company }, { data: comments }] = await Promise.all([
     auth.supabase
       .from('service_orders')
       .select(
@@ -112,11 +113,30 @@ export async function GET(
       .select('name, cnpj, address, complement, zip_code, city, state, phone, email, logo_url')
       .eq('id', 1)
       .maybeSingle(),
+    auth.supabase
+      .from('service_order_assistance_comments')
+      .select('content, created_at, author_display_name')
+      .eq('service_order_id', id)
+      .order('created_at', { ascending: true }),
   ])
 
   if (!order) return new NextResponse('Ordem não encontrada', { status: 404 })
 
-  const data = orderToPrintData(order)
+  const legacyAssistanceInfo = String(order.assistance_info || '').trim()
+  const legacyUpdatedAt = order.updated_at ? formatDateTimeBr(order.updated_at) : null
+  const parts: string[] = []
+  if (legacyAssistanceInfo) {
+    parts.push(`Histórico anterior${legacyUpdatedAt ? ` (última atualização: ${legacyUpdatedAt})` : ''}\n${legacyAssistanceInfo}`)
+  }
+  if (Array.isArray(comments)) {
+    parts.push(
+      ...comments.map((c: any) => `${formatDateTimeBr(c.created_at)} • ${String(c.author_display_name || '').trim() || '(Sem nome)'}\n${c.content}`),
+    )
+  }
+
+  const assistanceInfo = parts.length ? parts.join('\n\n') : null
+
+  const data = orderToPrintData(order, assistanceInfo)
   const companyData = company ? companyToPrintData(company) : null
 
   const siteUrl =

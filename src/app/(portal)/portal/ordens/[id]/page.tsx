@@ -15,6 +15,7 @@ import { OrderCustomerCard } from './OrderCustomerCard'
 import { OrderPasscodeFields } from './OrderPasscodeFields'
 import { OrderDeviceEntryChecksEditor } from './OrderDeviceEntryChecksEditor'
 import { OrderEntryPhotos } from './OrderEntryPhotos'
+import { OrderAssistanceChat } from './OrderAssistanceChat'
 import { OrdemDetalheToastClient } from './OrdemDetalheToastClient'
 import { OrdemLabelPrintButton } from './OrdemLabelPrintButton'
 import { OrdemPrintButton } from './OrdemPrintButton'
@@ -292,7 +293,6 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 		const customerDescription = String(formData.get('customerDescription') || '').trim()
 		const internalDescription = String(formData.get('internalDescription') || '').trim()
 		const receivingNotes = String(formData.get('receivingNotes') || '').trim()
-		const assistanceInfo = String(formData.get('assistanceInfo') || '').trim()
 		const deviceEntryChecksRaw = formData.get('deviceEntryChecksJson')
 		const deviceEntryChecksJson = typeof deviceEntryChecksRaw === 'string' ? deviceEntryChecksRaw.trim() : ''
 		const deviceModelId = parseOptionalUuid(formData.get('deviceModelId'))
@@ -354,7 +354,6 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 			customer_description: customerDescription || null,
 			internal_description: internalDescription || null,
 			receiving_notes: receivingNotes || null,
-			assistance_info: assistanceInfo || null,
 			warranty_template_id: warrantyTemplateId,
 			warranty_text: warrantyTextRaw || null,
 			device_model_id: deviceModelId,
@@ -528,117 +527,131 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 				</CardContent>
 			</Card>
 
-			<Card>
-				<CardContent>
-					<OrderServicesTotalProvider initialTotal={order.services_total_cents ?? 0}>
-					<form id="order-edit-form" action={updateOrderAction} className="space-y-6" key={`${order.id}-${order.updated_at ?? order.status}`}>
-						<input type="hidden" name="orderId" value={order.id} />
-						<input type="hidden" name="status" value={order.status} />
+			<OrderServicesTotalProvider initialTotal={order.services_total_cents ?? 0}>
+				<form
+					id="order-edit-form"
+					action={updateOrderAction}
+					className="space-y-6"
+					key={`${order.id}-${order.updated_at ?? order.status}`}
+				>
+					<input type="hidden" name="orderId" value={order.id} />
+					<input type="hidden" name="status" value={order.status} />
 
-						<div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
-							<div className="space-y-2 md:col-span-2">
-								<Label htmlFor="title">Título</Label>
-								<Input id="title" name="title" defaultValue={order.title} placeholder="Título" disabled={formDisabled} />
-							</div>
-							<div className="space-y-2">
-								<Label htmlFor={isAdmin ? 'seller_user_id' : 'sellerDisplayName'}>Vendedor</Label>
-								{isAdmin ? (
-									<select
-										id="seller_user_id"
-										name="seller_user_id"
-										defaultValue={sellerUserId || sellerOptions[0]?.id || ''}
-										className="w-full h-10 rounded-md border border-input px-3 py-2 text-sm"
+					<Card>
+						<CardHeader>
+							<CardTitle>Informações da assistência</CardTitle>
+							<CardDescription>Do título até as fotos de entrada do aparelho.</CardDescription>
+						</CardHeader>
+						<CardContent className="space-y-6">
+							<div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+								<div className="space-y-2 md:col-span-2">
+									<Label htmlFor="title">Título</Label>
+									<Input id="title" name="title" defaultValue={order.title} placeholder="Título" disabled={formDisabled} />
+								</div>
+								<div className="space-y-2">
+									<Label htmlFor={isAdmin ? 'seller_user_id' : 'sellerDisplayName'}>Vendedor</Label>
+									{isAdmin ? (
+										<select
+											id="seller_user_id"
+											name="seller_user_id"
+											defaultValue={sellerUserId || sellerOptions[0]?.id || ''}
+											className="w-full h-10 rounded-md border border-input px-3 py-2 text-sm"
+											disabled={formDisabled}
+										>
+											{sellerOptions.map((u) => (
+												<option key={u.id} value={u.id}>
+													{String(u.full_name || u.email || u.id).trim() || '(Sem nome)'}
+												</option>
+											))}
+										</select>
+									) : (
+										<Input id="sellerDisplayName" value={sellerDisplayName} readOnly disabled={formDisabled} />
+									)}
+								</div>
+								<div className="space-y-2">
+									<Label htmlFor="estimatedReadyAt">Previsão (data e hora)</Label>
+									<PrevisaoInput
+										id="estimatedReadyAt"
+										name="estimatedReadyAt"
+										min={getMinPrevisaoForEdit(order.created_at)}
+										defaultValue={formatDateTimeLocal(order.estimated_ready_at)}
 										disabled={formDisabled}
-									>
-										{sellerOptions.map((u) => (
-											<option key={u.id} value={u.id}>
-												{String(u.full_name || u.email || u.id).trim() || '(Sem nome)'}
-											</option>
-										))}
-									</select>
-								) : (
-									<Input id="sellerDisplayName" value={sellerDisplayName} readOnly disabled={formDisabled} />
-								)}
+									/>
+								</div>
+								<div className="flex items-center gap-2 rounded-md border p-3">
+									<input
+										id="isWarranty"
+										name="isWarranty"
+										type="checkbox"
+										defaultChecked={Boolean(order.is_warranty)}
+										disabled={formDisabled}
+									/>
+									<Label htmlFor="isWarranty" className="cursor-pointer">Serviço em garantia</Label>
+								</div>
 							</div>
+
 							<div className="space-y-2">
-								<Label htmlFor="estimatedReadyAt">Previsão (data e hora)</Label>
-								<PrevisaoInput
-									id="estimatedReadyAt"
-									name="estimatedReadyAt"
-									min={getMinPrevisaoForEdit(order.created_at)}
-									defaultValue={formatDateTimeLocal(order.estimated_ready_at)}
-									disabled={formDisabled}
-								/>
+								<div className="flex items-center justify-between gap-2">
+									<Label htmlFor="customerDescription">Descrição</Label>
+									<OsAssistAiIconButton fieldId="customerDescription" device={deviceString} disabled={formDisabled} />
+								</div>
+								<Textarea id="customerDescription" name="customerDescription" defaultValue={order.customer_description || ''} placeholder="Texto que o cliente vê" disabled={formDisabled} />
 							</div>
-							<div className="flex items-center gap-2 rounded-md border p-3">
-								<input
-									id="isWarranty"
-									name="isWarranty"
-									type="checkbox"
-									defaultChecked={Boolean(order.is_warranty)}
-									disabled={formDisabled}
-								/>
-								<Label htmlFor="isWarranty" className="cursor-pointer">Serviço em garantia</Label>
+
+							<div className="space-y-2">
+								<div className="flex items-center justify-between gap-2">
+									<Label htmlFor="receivingNotes">Observações do recebimento</Label>
+									<OsAssistAiIconButton fieldId="receivingNotes" device={deviceString} disabled={formDisabled} />
+								</div>
+								<Textarea id="receivingNotes" name="receivingNotes" defaultValue={order.receiving_notes || ''} placeholder="Checklist, avarias, acessórios, etc." disabled={formDisabled} />
 							</div>
-						</div>
 
-						<div className="space-y-2">
-							<div className="flex items-center justify-between gap-2">
-								<Label htmlFor="customerDescription">Descrição</Label>
-								<OsAssistAiIconButton fieldId="customerDescription" device={deviceString} disabled={formDisabled} />
-							</div>
-							<Textarea id="customerDescription" name="customerDescription" defaultValue={order.customer_description || ''} placeholder="Texto que o cliente vê" disabled={formDisabled} />
-						</div>
+							<OrderDeviceEntryChecksEditor
+								initialValue={order.device_entry_checks ?? null}
+								disabled={formDisabled}
+								formId="order-edit-form"
+							/>
 
-						<div className="space-y-2">
-							<div className="flex items-center justify-between gap-2">
-								<Label htmlFor="receivingNotes">Observações do recebimento</Label>
-								<OsAssistAiIconButton fieldId="receivingNotes" device={deviceString} disabled={formDisabled} />
-							</div>
-							<Textarea id="receivingNotes" name="receivingNotes" defaultValue={order.receiving_notes || ''} placeholder="Checklist, avarias, acessórios, etc." disabled={formDisabled} />
-						</div>
+							<OrderEntryPhotos orderId={order.id} initialPhotoCount={entryPhotoCount} disabled={formDisabled} />
+						</CardContent>
+					</Card>
 
-						<OrderDeviceEntryChecksEditor
-							initialValue={order.device_entry_checks ?? null}
-							disabled={formDisabled}
-							formId="order-edit-form"
-						/>
+					<OrderServicesCard
+						initialServices={(order.services as Array<{ description?: string; valueCents?: number; costCents?: number }>) ?? []}
+						inputName="servicesJson"
+						formId="order-edit-form"
+						disabled={formDisabled}
+						advancedInitiallyOpen={openServicesModalInitially}
+					/>
 
-						<OrderEntryPhotos orderId={order.id} initialPhotoCount={entryPhotoCount} disabled={formDisabled} />
+					<Card>
+						<CardHeader>
+							<CardTitle>Informações sobre a assistência</CardTitle>
+						</CardHeader>
+						<CardContent>
+							<OrderAssistanceChat
+								orderId={order.id}
+								legacyAssistanceInfo={order.assistance_info || null}
+								legacyUpdatedAt={order.updated_at}
+								disabled={formDisabled}
+							/>
+						</CardContent>
+					</Card>
 
-						<OrderServicesCard
-							initialServices={(order.services as Array<{ description?: string; valueCents?: number; costCents?: number }>) ?? []}
-							inputName="servicesJson"
-							formId="order-edit-form"
-							disabled={formDisabled}
-							advancedInitiallyOpen={openServicesModalInitially}
-						/>
-
-						<div className="space-y-2">
-							<div className="flex items-center justify-between gap-2">
-								<Label htmlFor="internalDescription">Descrição interna</Label>
-								<OsAssistAiIconButton fieldId="internalDescription" device={deviceString} disabled={formDisabled} />
-							</div>
-							<Textarea id="internalDescription" name="internalDescription" defaultValue={order.internal_description || ''} placeholder="" disabled={formDisabled} />
-						</div>
-
-						<div className="space-y-2">
-							<div className="flex items-center justify-between gap-2">
-								<Label htmlFor="assistanceInfo">Informações sobre a assistência</Label>
-								<OsAssistAiIconButton fieldId="assistanceInfo" device={deviceString} disabled={formDisabled} />
-							</div>
-							<Textarea id="assistanceInfo" name="assistanceInfo" defaultValue={order.assistance_info || ''} placeholder="" disabled={formDisabled} />
-						</div>
-
-						{Array.isArray(warrantyTemplates) && warrantyTemplates.length > 0 && (
-							<Card>
-								<CardHeader>
-									<CardTitle>Garantia</CardTitle>
-									<CardDescription>
-										Modelo e texto de garantia exibidos na impressão e na visão pública da OS.
-									</CardDescription>
-								</CardHeader>
-								<CardContent>
+					<Card>
+						<CardHeader>
+							<CardTitle>Garantia e pagamento</CardTitle>
+							<CardDescription>Modelo de garantia e formas de pagamento.</CardDescription>
+						</CardHeader>
+						<CardContent className="space-y-6">
+							{Array.isArray(warrantyTemplates) && warrantyTemplates.length > 0 && (
+								<div className="rounded-md border p-4 space-y-3">
+									<div>
+										<div className="text-sm font-medium">Garantia</div>
+										<div className="text-sm text-muted-foreground">
+											Modelo e texto de garantia exibidos na impressão e na visão pública da OS.
+										</div>
+									</div>
 									<OrderWarrantySelector
 										templates={warrantyTemplates as Array<{ id: string; name: string; body: string; is_active?: boolean; is_default?: boolean }>}
 										initialTemplateId={(order.warranty_template_id as string | null) ?? null}
@@ -646,28 +659,42 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 										formId="order-edit-form"
 										disabled={formDisabled}
 									/>
-								</CardContent>
-							</Card>
-						)}
+								</div>
+							)}
 
-						<OrderPaymentMethodFields
-							defaultValue={parseOrderPaymentMethods(order)}
-							formId="order-edit-form"
-							disabled={formDisabled}
-						/>
+							<OrderPaymentMethodFields
+								defaultValue={parseOrderPaymentMethods(order)}
+								formId="order-edit-form"
+								disabled={formDisabled}
+							/>
+						</CardContent>
+					</Card>
 
-						<div className="fixed bottom-0 left-0 right-0 z-50 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-4 py-3">
-							<div className="max-w-4xl mx-auto flex justify-between items-center gap-3">
-								<Button variant="outline" asChild>
-									<Link href="/portal/ordens">{isFinalized ? 'Voltar à lista' : 'Voltar'}</Link>
-								</Button>
-								{!formDisabled && <UpdateOrderSubmitButton />}
+					<Card>
+						<CardHeader>
+							<CardTitle>Descrição interna</CardTitle>
+						</CardHeader>
+						<CardContent className="space-y-2">
+							<div className="space-y-2">
+								<div className="flex items-center justify-between gap-2">
+									<Label htmlFor="internalDescription">Descrição interna</Label>
+									<OsAssistAiIconButton fieldId="internalDescription" device={deviceString} disabled={formDisabled} />
+								</div>
+								<Textarea id="internalDescription" name="internalDescription" defaultValue={order.internal_description || ''} placeholder="" disabled={formDisabled} />
 							</div>
+						</CardContent>
+					</Card>
+
+					<div className="fixed bottom-0 left-0 right-0 z-50 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-4 py-3">
+						<div className="max-w-4xl mx-auto flex justify-between items-center gap-3">
+							<Button variant="outline" asChild>
+								<Link href="/portal/ordens">{isFinalized ? 'Voltar à lista' : 'Voltar'}</Link>
+							</Button>
+							{!formDisabled && <UpdateOrderSubmitButton />}
 						</div>
-					</form>
-					</OrderServicesTotalProvider>
-				</CardContent>
-			</Card>
+					</div>
+				</form>
+			</OrderServicesTotalProvider>
 		</div>
 	)
 }

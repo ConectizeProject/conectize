@@ -14,6 +14,7 @@ import {
 import { cn } from '@/lib/utils'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
 	Dialog,
 	DialogContent,
@@ -322,14 +323,13 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 	})
 
 	return (
-		<div className="rounded-md border p-4 space-y-3">
-			<div className="flex items-center justify-between gap-3 flex-wrap">
-				<div>
-					<div className="text-sm font-medium">Serviços a realizar</div>
-					<div className="text-xs text-muted-foreground">
-						Selecione itens cadastrados e ajuste quantidade/valores.
+		<Card>
+			<CardHeader className="space-y-1 pb-3">
+				<div className="flex items-center justify-between gap-3 flex-wrap">
+					<div className="min-w-0">
+						<CardTitle>Serviços a realizar</CardTitle>
+						<CardDescription>Selecione itens cadastrados e ajuste quantidade/valores.</CardDescription>
 					</div>
-				</div>
 				<Button
 					type="button"
 					variant="ghost"
@@ -342,10 +342,12 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 				>
 					<Settings className="h-4 w-4" />
 				</Button>
-			</div>
+				</div>
+			</CardHeader>
 
+			<CardContent className="space-y-3 pt-0">
 			{services.length > 0 ? (
-				<div className="space-y-3 mt-3">
+				<div className="space-y-3">
 					<div className="hidden md:grid md:grid-cols-12 md:gap-3 text-xs font-medium text-muted-foreground px-1">
 						<div className="md:col-span-7">Descrição</div>
 						<div className="md:col-span-2">Qtd.</div>
@@ -678,6 +680,7 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 				</DialogContent>
 			</Dialog>
 
-		</div>
+			</CardContent>
+		</Card>
 	)
 })
