@@ -83,11 +83,48 @@ export type BlingWebhookParsedUnknown = {
   raw: Record<string, unknown>
 }
 
+/** Webhook `product_supplier.*`: vínculo produto–fornecedor com precoCusto / precoCompra. */
+export type BlingWebhookParsedProductSupplier = {
+  kind: 'productSupplier'
+  eventType: string
+  externalId: string
+  productId: string
+  payload: Record<string, unknown>
+  raw: Record<string, unknown>
+}
+
 export type BlingWebhookParsed =
   | BlingWebhookParsedProduct
   | BlingWebhookParsedStock
   | BlingWebhookParsedStockMovement
+  | BlingWebhookParsedProductSupplier
   | BlingWebhookParsedUnknown
+
+function webhookMoneyToCents (v: unknown): number | null {
+  if (v == null || v === '') return null
+  if (typeof v === 'number' && Number.isFinite(v)) return Math.round(v * 100)
+  if (typeof v === 'string') {
+    const t = v.trim().replace(/\s/g, '').replace(',', '.')
+    if (t === '') return null
+    const n = Number(t)
+    if (!Number.isFinite(n)) return null
+    return Math.round(n * 100)
+  }
+  return null
+}
+
+/** Situação Bling que no portal vira produto inativo (soft delete / fora da listagem). */
+export function blingSituacaoImpliesPortalInactive (situacaoRaw: unknown): boolean {
+  const situacao = String(situacaoRaw ?? '').trim().toUpperCase()
+  if (!situacao) return false
+  return (
+    situacao === 'INATIVO' ||
+    situacao === 'I' ||
+    situacao === 'E' ||
+    situacao === 'EXCLUIDO' ||
+    situacao === 'EXCLUÍDO'
+  )
+}
 
 /** Extrai external_id (id do recurso no Bling) a partir do evento parseado. */
 export function getBlingResourceKeyFromWebhook (evt: BlingWebhookParsed): string | null {
@@ -170,6 +207,46 @@ function safePayload (raw: unknown): Record<string, unknown> {
 }
 
 /**
+ * Extrai ID do produto no Bling e o objeto `data` do webhook `product_supplier.*`.
+ * O payload pode vir só em `data`, ou com `produto` aninhado, ou só com idProduto/produtoId.
+ */
+function extractProductSupplierPayload (payload: Record<string, unknown>): {
+  productId: string
+  data: Record<string, unknown>
+} | null {
+  const blocks: Record<string, unknown>[] = []
+  const inner = payload.data
+  if (inner && typeof inner === 'object' && !Array.isArray(inner)) {
+    blocks.push(inner as Record<string, unknown>)
+  }
+  blocks.push(payload)
+
+  for (const data of blocks) {
+    const prod = data.produto
+    if (prod && typeof prod === 'object' && !Array.isArray(prod)) {
+      const id = (prod as { id?: unknown }).id
+      if (id != null && String(id).trim() !== '') {
+        return { productId: String(id).trim(), data }
+      }
+    }
+    const directKeys = [
+      'idProduto',
+      'produtoId',
+      'productId',
+      'id_produto',
+      'produto_id',
+    ] as const
+    for (const k of directKeys) {
+      const v = data[k]
+      if (v != null && String(v).trim() !== '') {
+        return { productId: String(v).trim(), data }
+      }
+    }
+  }
+  return null
+}
+
+/**
  * Corpo do produto no webhook: pode vir em `produto`, em `data.produto`, ou o próprio `data` plano
  * (ex.: v1 `product.updated` com `data: { id, nome, idProdutoPai, ... }`).
  */
@@ -248,6 +325,32 @@ export function parseBlingWebhook (raw: unknown): BlingWebhookParsed {
     if (movement) return movement
   }
 
+  if (/^product_supplier\./i.test(eventType)) {
+    const extracted = extractProductSupplierPayload(payload)
+    if (extracted) {
+      const { productId: pid, data } = extracted
+      const eventId =
+        payload.eventId != null ? String(payload.eventId).trim() : ''
+      const linkId = data.id != null ? String(data.id) : ''
+      const supplierExternalId =
+        eventId || `${pid}:product_supplier:${linkId || 'noid'}:${eventType}`
+      return {
+        kind: 'productSupplier',
+        eventType,
+        externalId: supplierExternalId,
+        productId: pid,
+        payload: data,
+        raw: payload,
+      }
+    }
+    return {
+      kind: 'unknown',
+      eventType,
+      externalId,
+      raw: payload,
+    }
+  }
+
   if (PRODUCT_EVENTS.has(eventType) || (eventType.includes('produto') || eventType.includes('product'))) {
     const prod = extractWebhookProductPayload(payload)
     return {
@@ -310,16 +413,44 @@ export type WebhookLocalEffect =
       saldoFisicoTotal: number | null
       depositoId: string | null
     }
+  | { action: 'updateProductSupplierCost'; blingProductId: string; costPriceCents: number }
+  | { action: 'deactivateProductByBlingId'; blingId: string }
   | { action: 'skip'; reason: string }
 
 /**
  * Mapeia evento parseado para efeito de alto nível (updateProduct / syncStock / skip).
  */
 export function mapWebhookToLocalEffect (evt: BlingWebhookParsed): WebhookLocalEffect {
+  if (evt.kind === 'productSupplier') {
+    const et = String(evt.eventType || '').toLowerCase()
+    if (et.includes('deleted')) {
+      return { action: 'skip', reason: 'product_supplier_deleted' }
+    }
+    const d = evt.payload
+    const fornecedor =
+      d.fornecedor && typeof d.fornecedor === 'object' && !Array.isArray(d.fornecedor)
+        ? (d.fornecedor as Record<string, unknown>)
+        : null
+    const cents = webhookMoneyToCents(
+      d.precoCusto ?? d.precoCompra ?? fornecedor?.precoCusto ?? fornecedor?.precoCompra,
+    )
+    if (cents == null || !Number.isFinite(cents) || cents < 0) {
+      return { action: 'skip', reason: 'product_supplier_cost_missing' }
+    }
+    return {
+      action: 'updateProductSupplierCost',
+      blingProductId: evt.productId,
+      costPriceCents: cents,
+    }
+  }
   if (evt.kind === 'product') {
     const et = String(evt.eventType || '').toLowerCase()
+    const p = evt.payload as Record<string, unknown>
     if (et.includes('deleted') || et.includes('exclu')) {
-      return { action: 'skip', reason: 'product_deleted_webhook' }
+      return { action: 'deactivateProductByBlingId', blingId: evt.productId }
+    }
+    if (blingSituacaoImpliesPortalInactive(p?.situacao)) {
+      return { action: 'deactivateProductByBlingId', blingId: evt.productId }
     }
     return {
       action: 'updateProduct',

@@ -48,6 +48,8 @@ type BlingProductDto = {
 	quantidadeEstoque?: number;
 	estoque?: { saldoVirtualTotal?: number };
 	fornecedor?: { precoCusto?: unknown; precoCompra?: unknown };
+	/** Lista de vínculos produto–fornecedor (custo de compra costuma vir aqui). */
+	fornecedores?: unknown;
 	imagemURL?: string;
 	imagemUrl?: string;
 	urlImagem?: string;
@@ -238,8 +240,33 @@ function supplierPrecoCustoCents(dto: BlingProductDto): number | null {
 	return null;
 }
 
+/** Custo a partir de `fornecedores[]` — prioriza vínculo com `padrao: true`, senão o primeiro. */
+function supplierCostFromFornecedoresArray(dto: BlingProductDto): number | null {
+	const raw = dto.fornecedores;
+	if (!Array.isArray(raw) || raw.length === 0) return null;
+	const rows = raw.filter(
+		(x): x is Record<string, unknown> =>
+			Boolean(x && typeof x === "object" && !Array.isArray(x)),
+	);
+	if (rows.length === 0) return null;
+	const preferred = rows.find(
+		(x) =>
+			x.padrao === true ||
+			x.padrao === "true" ||
+			String(x.padrao).toLowerCase() === "true",
+	);
+	const ordered = preferred ? [preferred, ...rows.filter((x) => x !== preferred)] : rows;
+	for (const item of ordered) {
+		const c = toMoneyCents(
+			item.precoCusto ?? item.precoCompra ?? item.preco_custo ?? item.preco_compra,
+		);
+		if (c != null && c > 0) return c;
+	}
+	return null;
+}
+
 /**
- * `preco` = venda. Custo: `precoCusto` na raiz ou em `fornecedor`; `custo` costuma espelhar venda.
+ * `preco` = venda. Custo: prioriza `fornecedores[]` / `fornecedor`, depois `precoCusto` na raiz; `custo` costuma espelhar venda.
  */
 function resolveSaleAndCostCents(dto: BlingProductDto): {
 	saleCents: number | null;
@@ -250,16 +277,21 @@ function resolveSaleAndCostCents(dto: BlingProductDto): {
 
 	let costCents: number | null = null;
 
-	if (dto.precoCusto !== undefined && dto.precoCusto !== null) {
-		const pc = toMoneyCents(dto.precoCusto);
-		if (pc != null && pc > 0) {
-			costCents = pc;
-		}
+	const fromFornecedoresList = supplierCostFromFornecedoresArray(dto);
+	if (fromFornecedoresList != null) {
+		costCents = fromFornecedoresList;
 	}
 
 	if (costCents == null) {
 		const sup = supplierPrecoCustoCents(dto);
 		if (sup != null) costCents = sup;
+	}
+
+	if (costCents == null && dto.precoCusto !== undefined && dto.precoCusto !== null) {
+		const pc = toMoneyCents(dto.precoCusto);
+		if (pc != null && pc > 0) {
+			costCents = pc;
+		}
 	}
 
 	if (costCents == null && dto.custo !== undefined && dto.custo !== null) {
@@ -490,7 +522,18 @@ export function mapBlingProductToLocal(
 		tipo === "P" ? "product" : tipo === "S" ? "service" : null;
 
 	const situacao = (dto.situacao || "").toString().trim().toUpperCase();
-	const isActive = situacao ? situacao !== "INATIVO" && situacao !== "I" : true;
+	/** Bling: A/ATIVO ativo; I/INATIVO inativo; E costuma ser excluído (webhook após exclusão). */
+	const isInactiveSituacao = (s: string) => {
+		if (!s) return false;
+		return (
+			s === "INATIVO" ||
+			s === "I" ||
+			s === "E" ||
+			s === "EXCLUIDO" ||
+			s === "EXCLUÍDO"
+		);
+	};
+	const isActive = situacao ? !isInactiveSituacao(situacao) : true;
 
 	return {
 		blingId: id,
@@ -518,7 +561,12 @@ export function mapLocalProductToBling(
 
 	if (product.name) payload.nome = product.name;
 	if (product.sku !== undefined) payload.codigo = product.sku ?? "";
-	if (product.barcode !== undefined) payload.gtin = product.barcode ?? "";
+	if (product.barcode !== undefined) {
+		const barcode = product.barcode ?? "";
+		/** Bling aceita gtin e/ou codigoBarras; a UI costuma espelhar o GTIN em ambos. */
+		payload.gtin = barcode;
+		payload.codigoBarras = barcode;
+	}
 	if (product.description !== undefined)
 		payload.descricao = product.description ?? "";
 	if (typeof product.salePriceCents === "number")

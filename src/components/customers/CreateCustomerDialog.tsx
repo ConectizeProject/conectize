@@ -147,6 +147,15 @@ export function CreateCustomerDialog(props: Props) {
   }, [isEdit, props.customer, props.open, seedDigits])
 
   useEffect(() => {
+    // No cadastro novo, preenche logradouro/bairro/cidade pelo CEP.
+    // Na edição, não consultar ViaCEP: a resposta sobrescreve bairro/rua do cliente
+    // (e muitas vezes vem vazia), fazendo parecer que alterações não persistem.
+    if (isEdit) {
+      setZipCodeLookupError(null)
+      setIsLookingUpZipCode(false)
+      return
+    }
+
     let cancelled = false
     const zip = onlyDigits(zipCode).slice(0, 8)
 
@@ -180,7 +189,7 @@ export function CreateCustomerDialog(props: Props) {
 
     run()
     return () => { cancelled = true }
-  }, [zipCode])
+  }, [isEdit, zipCode])
 
   const documentDigits = useMemo(() => onlyDigits(document).slice(0, 14), [document])
 

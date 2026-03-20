@@ -7,6 +7,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -47,6 +48,8 @@ type Props = {
   open: boolean
   productId: string | null
   initialName?: string
+  /** ID no Bling vindo da lista (exibido já ao abrir, antes do GET). */
+  initialBlingId?: string | null
   onOpenChange: (open: boolean) => void
   onSuccess?: () => void
 }
@@ -107,6 +110,7 @@ export function ProductEditDialog ({
   open,
   productId,
   initialName,
+  initialBlingId,
   onOpenChange,
   onSuccess,
 }: Props) {
@@ -306,6 +310,33 @@ export function ProductEditDialog ({
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Editar produto/serviço</DialogTitle>
+          <DialogDescription className="sr-only">
+            Edite nome, tipo, SKU, código de barras, preços e demais dados do item no portal.
+          </DialogDescription>
+          {productId && (
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              <span className="text-muted-foreground/90">ID portal</span>{' '}
+              <span className="font-mono tabular-nums text-foreground/70 select-all">
+                {product?.id ?? productId}
+              </span>
+              <span className="mx-1.5 text-muted-foreground/40" aria-hidden>
+                ·
+              </span>
+              <span className="text-muted-foreground/90">Bling</span>{' '}
+              <span className="font-mono tabular-nums text-foreground/70 select-all">
+                {(() => {
+                  const fromApi = product?.blingId != null && String(product.blingId).trim()
+                    ? String(product.blingId)
+                    : ''
+                  if (fromApi) return fromApi
+                  const fromRow = initialBlingId != null && String(initialBlingId).trim()
+                    ? String(initialBlingId)
+                    : ''
+                  return fromRow || '—'
+                })()}
+              </span>
+            </p>
+          )}
         </DialogHeader>
 
         {isLoading && (

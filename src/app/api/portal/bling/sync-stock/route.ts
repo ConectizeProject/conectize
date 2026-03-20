@@ -12,6 +12,17 @@ import {
 import { getPortalAuth } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 
+/** Evita CMV espelhando preço de venda. */
+function isPlausibleCostUnit(
+	unitCents: number | null | undefined,
+	saleCents: number | null | undefined,
+): unitCents is number {
+	if (unitCents == null || !Number.isFinite(unitCents) || unitCents < 0)
+		return false;
+	if (saleCents != null && unitCents === saleCents) return false;
+	return true;
+}
+
 export async function POST(request: Request) {
 	const { user, role } = await getPortalAuth();
 	if (!user) {
@@ -119,10 +130,18 @@ export async function POST(request: Request) {
 
 		const diff = targetVirtual - localBalance;
 		if (diff !== 0) {
+			const saleCents = current.product.salePriceCents ?? null;
+			let unitCents = 0;
+			for (const c of [current.product.costPriceCents]) {
+				if (isPlausibleCostUnit(c, saleCents)) {
+					unitCents = c;
+					break;
+				}
+			}
 			const movRes = await addStockMovement(productId, {
 				type: diff > 0 ? "entry" : "exit",
 				quantity: Math.abs(diff),
-				unitValueCents: current.product.costPriceCents ?? 0,
+				unitValueCents: unitCents,
 				source: "bling",
 				externalReference: `bling:sync-estoque:${productId}`,
 			});
