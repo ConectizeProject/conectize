@@ -1,13 +1,12 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Barcode, Loader2 } from 'lucide-react'
+import { Barcode, Check, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -100,6 +99,10 @@ function generateEAN13 () {
   return `${baseCode}${checksum}`
 }
 
+type SavePhase = 'idle' | 'saving' | 'syncing' | 'finished'
+
+const SAVE_FINISHED_MS = 900
+
 export function ProductEditDialog ({
   open,
   productId,
@@ -111,8 +114,7 @@ export function ProductEditDialog ({
   const [product, setProduct] = useState<ProductDetails | null>(null)
   const [form, setForm] = useState<FormState | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
-  const [isSyncing, setIsSyncing] = useState(false)
+  const [savePhase, setSavePhase] = useState<SavePhase>('idle')
   const [loadError, setLoadError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
   const [skuDirty, setSkuDirty] = useState(false)
@@ -168,8 +170,7 @@ export function ProductEditDialog ({
     setProduct(null)
     setForm(null)
     setIsLoading(false)
-    setIsSaving(false)
-    setIsSyncing(false)
+    setSavePhase('idle')
     setLoadError(null)
     setSkuDirty(false)
     setBarcodeDirty(false)
@@ -197,27 +198,30 @@ export function ProductEditDialog ({
       return
     }
 
-    setIsSaving(true)
+    setSavePhase('saving')
 
     try {
+      const payload: Record<string, unknown> = {
+        kind: form.kind,
+        name: normalizedName,
+        description: form.description.trim() || null,
+        salePrice,
+        isActive: form.isActive,
+      }
+      if (skuDirty) payload.sku = form.sku.trim() || null
+      if (barcodeDirty) payload.barcode = form.barcode.trim() || null
+      if (costPrice !== null) payload.costPrice = costPrice
+
       const response = await fetch(`/api/portal/produtos/${productId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          kind: form.kind,
-          name: normalizedName,
-          sku: skuDirty ? (form.sku.trim() || null) : undefined,
-          barcode: barcodeDirty ? (form.barcode.trim() || null) : undefined,
-          description: form.description.trim() || null,
-          salePrice,
-          costPrice,
-          isActive: form.isActive,
-        }),
+        body: JSON.stringify(payload),
       })
 
       const data = await response.json().catch(() => null)
 
       if (!response.ok || !data?.ok) {
+        setSavePhase('idle')
         toast({
           title: 'Erro ao salvar',
           description: data?.message || data?.error || 'Não foi possível salvar o item.',
@@ -232,63 +236,52 @@ export function ProductEditDialog ({
         setForm(createFormState(nextProduct))
       }
 
-      toast({
-        variant: 'success',
-        title: data?.pendingSyncToBling ? 'Item salvo e marcado para sincronização.' : 'Item salvo com sucesso.',
-      })
+      const hasBling = Boolean(nextProduct?.blingId)
 
+      if (hasBling) {
+        setSavePhase('syncing')
+        const syncPayload =
+          Array.isArray(data.blingFieldsChanged)
+            ? JSON.stringify({ portalFieldsChanged: data.blingFieldsChanged })
+            : undefined
+        const syncRes = await fetch(`/api/portal/produtos/${productId}/sync-bling`, {
+          method: 'POST',
+          headers: syncPayload ? { 'Content-Type': 'application/json' } : undefined,
+          body: syncPayload,
+        })
+        const syncData = await syncRes.json().catch(() => null)
+
+        if (!syncRes.ok || !syncData?.ok) {
+          setSavePhase('idle')
+          toast({
+            title: 'Erro ao sincronizar com o Bling',
+            description: syncData?.message || syncData?.error || 'O item foi salvo no portal, mas não foi possível enviar ao Bling.',
+            variant: 'destructive',
+          })
+          onSuccess?.()
+          return
+        }
+
+        const syncedProduct = (syncData.product || null) as ProductDetails | null
+        if (syncedProduct) {
+          setProduct(syncedProduct)
+          setForm(createFormState(syncedProduct))
+        }
+      }
+
+      setSavePhase('finished')
+      await new Promise((resolve) => {
+        setTimeout(resolve, SAVE_FINISHED_MS)
+      })
+      setSavePhase('idle')
       onSuccess?.()
     } catch {
+      setSavePhase('idle')
       toast({
         title: 'Erro ao salvar',
         description: 'Não foi possível salvar o item.',
         variant: 'destructive',
       })
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
-  async function handleSyncToBling () {
-    if (!productId) return
-
-    setIsSyncing(true)
-
-    try {
-      const response = await fetch(`/api/portal/produtos/${productId}/sync-bling`, {
-        method: 'POST',
-      })
-      const data = await response.json().catch(() => null)
-
-      if (!response.ok || !data?.ok) {
-        toast({
-          title: 'Erro ao sincronizar',
-          description: data?.message || data?.error || 'Não foi possível enviar as alterações ao Bling.',
-          variant: 'destructive',
-        })
-        return
-      }
-
-      const nextProduct = (data.product || null) as ProductDetails | null
-      if (nextProduct) {
-        setProduct(nextProduct)
-        setForm(createFormState(nextProduct))
-      }
-
-      toast({
-        variant: 'success',
-        title: 'Alterações enviadas ao Bling.',
-      })
-
-      onSuccess?.()
-    } catch {
-      toast({
-        title: 'Erro ao sincronizar',
-        description: 'Não foi possível enviar as alterações ao Bling.',
-        variant: 'destructive',
-      })
-    } finally {
-      setIsSyncing(false)
     }
   }
 
@@ -306,18 +299,13 @@ export function ProductEditDialog ({
     <Dialog
       open={open}
       onOpenChange={(nextOpen) => {
-        if (isSaving) return
+        if (savePhase !== 'idle') return
         onOpenChange(nextOpen)
       }}
     >
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Editar produto/serviço</DialogTitle>
-          <DialogDescription>
-            {product?.blingId
-              ? 'As alterações serão salvas primeiro no portal. Depois você pode enviar manualmente para o Bling.'
-              : 'As alterações serão salvas apenas no portal.'}
-          </DialogDescription>
         </DialogHeader>
 
         {isLoading && (
@@ -344,11 +332,21 @@ export function ProductEditDialog ({
 
         {!isLoading && !loadError && form && (
           <form onSubmit={handleSubmit} className="space-y-4">
-            {product?.blingId && (
-              <div className={`rounded-md border p-3 text-sm ${product.blingSyncPending ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'}`}>
-                {product.blingSyncPending
-                  ? 'Este item possui alterações locais pendentes de envio ao Bling.'
-                  : 'Este item está sincronizado com o Bling.'}
+            {savePhase !== 'idle' && (
+              <div
+                className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2.5 text-sm text-muted-foreground"
+                aria-live="polite"
+              >
+                {savePhase === 'finished' ? (
+                  <Check className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden />
+                ) : (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                )}
+                <span className="font-medium text-foreground">
+                  {savePhase === 'saving' && 'Salvando…'}
+                  {savePhase === 'syncing' && 'Sincronizando com o Bling…'}
+                  {savePhase === 'finished' && 'Finalizado'}
+                </span>
               </div>
             )}
 
@@ -359,6 +357,7 @@ export function ProductEditDialog ({
                   id="product-kind"
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                   value={form.kind}
+                  disabled={savePhase !== 'idle'}
                   onChange={(event) => {
                     const kind = event.target.value === 'service' ? 'service' : 'product'
                     setForm((currentForm) => currentForm ? { ...currentForm, kind } : currentForm)
@@ -374,6 +373,7 @@ export function ProductEditDialog ({
                 <Input
                   id="product-name"
                   value={form.name}
+                  disabled={savePhase !== 'idle'}
                   onChange={(event) => {
                     setForm((currentForm) => currentForm ? { ...currentForm, name: event.target.value } : currentForm)
                   }}
@@ -388,6 +388,7 @@ export function ProductEditDialog ({
                 <Input
                   id="product-sku"
                   value={form.sku}
+                  disabled={savePhase !== 'idle'}
                   onChange={(event) => {
                     setSkuDirty(true)
                     setForm((currentForm) => currentForm ? { ...currentForm, sku: event.target.value } : currentForm)
@@ -402,6 +403,7 @@ export function ProductEditDialog ({
                     id="product-barcode"
                     className="pr-10"
                     value={form.barcode}
+                    disabled={savePhase !== 'idle'}
                     onChange={(event) => {
                       setBarcodeDirty(true)
                       setForm((currentForm) => currentForm ? { ...currentForm, barcode: event.target.value } : currentForm)
@@ -413,6 +415,7 @@ export function ProductEditDialog ({
                     size="icon"
                     className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2"
                     onClick={handleGenerateBarcode}
+                    disabled={savePhase !== 'idle'}
                     aria-label="Gerar código de barras (EAN-13)"
                   >
                     <Barcode className="h-4 w-4" />
@@ -426,6 +429,7 @@ export function ProductEditDialog ({
               <Textarea
                 id="product-description"
                 value={form.description}
+                disabled={savePhase !== 'idle'}
                 onChange={(event) => {
                   setForm((currentForm) => currentForm ? { ...currentForm, description: event.target.value } : currentForm)
                 }}
@@ -442,6 +446,7 @@ export function ProductEditDialog ({
                   step="0.01"
                   min="0"
                   value={form.salePrice}
+                  disabled={savePhase !== 'idle'}
                   onChange={(event) => {
                     setForm((currentForm) => currentForm ? { ...currentForm, salePrice: event.target.value } : currentForm)
                   }}
@@ -456,6 +461,7 @@ export function ProductEditDialog ({
                   step="0.01"
                   min="0"
                   value={form.costPrice}
+                  disabled={savePhase !== 'idle'}
                   onChange={(event) => {
                     setForm((currentForm) => currentForm ? { ...currentForm, costPrice: event.target.value } : currentForm)
                   }}
@@ -467,6 +473,7 @@ export function ProductEditDialog ({
               <Checkbox
                 id="product-is-active"
                 checked={form.isActive}
+                disabled={savePhase !== 'idle'}
                 onCheckedChange={(checked) => {
                   setForm((currentForm) => currentForm ? { ...currentForm, isActive: checked === true } : currentForm)
                 }}
@@ -475,26 +482,16 @@ export function ProductEditDialog ({
             </div>
 
             <DialogFooter>
-              {product?.blingId && product.blingSyncPending && (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={handleSyncToBling}
-                  disabled={isSaving || isSyncing}
-                >
-                  {isSyncing ? 'Enviando...' : 'Enviar atualizações para o Bling'}
-                </Button>
-              )}
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => onOpenChange(false)}
-                disabled={isSaving || isSyncing}
+                disabled={savePhase !== 'idle'}
               >
                 Cancelar
               </Button>
-              <Button type="submit" disabled={isSaving || isSyncing}>
-                {isSaving ? 'Salvando...' : 'Salvar'}
+              <Button type="submit" disabled={savePhase !== 'idle'}>
+                Salvar
               </Button>
             </DialogFooter>
           </form>

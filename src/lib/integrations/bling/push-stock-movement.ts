@@ -1,4 +1,4 @@
-import { getBlingClientForCurrentUser } from '@/lib/integrations/bling/api'
+import { getBlingClientForCurrentUser, normalizeBlingProductId } from '@/lib/integrations/bling/api'
 import type { StockMovementType } from '@/lib/products/service'
 
 type StockMovementTypeWithBalance = StockMovementType | 'balance'
@@ -30,8 +30,9 @@ function toBlingMoney (unitValueCents: number | null): number | undefined {
 }
 
 export async function pushStockMovementToBling (input: PushStockMovementInput): Promise<void> {
-  const productIdNum = Number(String(input.productBlingId).trim())
-  if (!Number.isFinite(productIdNum) || productIdNum <= 0) {
+  const idStr = normalizeBlingProductId(input.productBlingId)
+  const productIdNum = Number(idStr)
+  if (!idStr || !Number.isFinite(productIdNum) || productIdNum <= 0) {
     throw new Error('bling_product_id_invalid')
   }
 

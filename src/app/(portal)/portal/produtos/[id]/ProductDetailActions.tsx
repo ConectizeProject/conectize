@@ -31,6 +31,15 @@ export function ProductDetailActions ({ productId, hasBling }: Props) {
         })
         return
       }
+      if (data?.skipped === 'bling_no_stock_resource' && typeof data?.message === 'string') {
+        toast({
+          variant: 'default',
+          title: 'Estoque no Bling',
+          description: data.message,
+        })
+        router.refresh()
+        return
+      }
       toast({ variant: 'success', title: successMsg })
       router.refresh()
     } finally {

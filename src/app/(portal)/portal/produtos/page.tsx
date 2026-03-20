@@ -33,6 +33,7 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
     image_url?: string | null
     sale_price_cents?: number | null
     cost_price_cents?: number | null
+    cost_price_manual_edited_at?: string | null
     is_active?: boolean
     created_at?: string
   }
@@ -56,7 +57,7 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
   // 1) Pais paginados
   let parentsQuery = supabase
     .from('products')
-    .select('id, bling_id, bling_sync_pending, kind, name, sku, barcode, image_url, sale_price_cents, cost_price_cents, is_active, created_at', { count: 'exact' })
+    .select('id, bling_id, bling_sync_pending, kind, name, sku, barcode, image_url, sale_price_cents, cost_price_cents, cost_price_manual_edited_at, is_active, created_at', { count: 'exact' })
     .is('parent_bling_id', null)
     .order('created_at', { ascending: false })
 
@@ -132,7 +133,7 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
   if (parentBlingIds.length > 0) {
     let childrenQuery = supabase
       .from('products')
-      .select('id, bling_id, bling_sync_pending, parent_bling_id, name, sku, barcode, image_url, sale_price_cents, cost_price_cents, is_active, created_at')
+      .select('id, bling_id, bling_sync_pending, parent_bling_id, name, sku, barcode, image_url, sale_price_cents, cost_price_cents, cost_price_manual_edited_at, is_active, created_at')
       .in('parent_bling_id', parentBlingIds)
 
     if (searchTokens.length > 0) {
@@ -190,6 +191,27 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
     }
   }
 
+  function listDisplayCostCents (p: Raw): number | null {
+    const rowCost = typeof p.cost_price_cents === 'number' ? p.cost_price_cents : null
+    const manualMs = p.cost_price_manual_edited_at
+      ? new Date(p.cost_price_manual_edited_at).getTime()
+      : 0
+    const entryCents = lastEntryCostByProductId[p.id]
+    const entryMs = lastEntryDateByProductId[p.id] ?? 0
+    const hasEntry =
+      typeof entryCents === 'number' &&
+      entryCents > 0 &&
+      Number.isFinite(entryMs) &&
+      entryMs > 0
+
+    if (hasEntry && entryMs > manualMs) {
+      return entryCents
+    }
+    if (rowCost != null) return rowCost
+    if (typeof entryCents === 'number' && entryCents > 0) return entryCents
+    return null
+  }
+
   const normalize = (p: Raw) => ({
     id: p.id,
     bling_id: p.bling_id ?? null,
@@ -201,7 +223,7 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
     barcode: p.barcode ?? null,
     image_url: p.image_url ?? null,
     sale_price_cents: p.sale_price_cents ?? null,
-    cost_price_cents: lastEntryCostByProductId[p.id] ?? p.cost_price_cents ?? null,
+    cost_price_cents: listDisplayCostCents(p),
     is_active: p.is_active ?? true,
     created_at: p.created_at,
     current_stock: stockByProductId[p.id] ?? 0,

@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server'
 import { getPortalAuth } from '@/lib/supabase/server'
+import { isPortalFieldForBling } from '@/lib/products/bling-sync'
 import { syncProductToBling } from '@/lib/products/update-product-with-bling'
 
 type Params = Promise<{ id: string }>
 
 export async function POST (
-  _request: Request,
+  request: Request,
   { params }: { params: Params },
 ) {
   const { id } = await params
@@ -19,7 +20,19 @@ export async function POST (
     return NextResponse.json({ ok: false, error: 'forbidden' }, { status: 403 })
   }
 
-  const result = await syncProductToBling(id)
+  const body = await request.json().catch(() => ({})) as {
+    portalFieldsChanged?: unknown
+  }
+  const portalFieldsChanged = Array.isArray(body.portalFieldsChanged)
+    ? body.portalFieldsChanged.filter(isPortalFieldForBling)
+    : undefined
+
+  const result = await syncProductToBling(
+    id,
+    portalFieldsChanged !== undefined
+      ? { portalFieldsChanged }
+      : undefined,
+  )
   if (!result.ok && 'error' in result) {
     const status = result.error === 'bling_request_failed' ? 502 : 400
     return NextResponse.json({

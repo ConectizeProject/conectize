@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getPortalAuth, createSupabaseServerClient } from '@/lib/supabase/server'
-import { getBlingClientForCurrentUser } from '@/lib/integrations/bling/api'
+import { blingProdutoApiPath, getBlingClientForCurrentUser } from '@/lib/integrations/bling/api'
 import { mapBlingProductToLocal } from '@/lib/integrations/bling/mappers'
 import { createProductSyncSnapshot } from '@/lib/products/bling-sync'
 import { updateProduct } from '@/lib/products/service'
@@ -59,17 +59,17 @@ export async function POST (request: Request) {
         data?: Record<string, unknown>
       } | Record<string, unknown>>({
         method: 'GET',
-        path: `/produtos/${blingId}`,
+        path: blingProdutoApiPath(blingId),
       })
 
-      const dto = data?.data ?? data ?? {}
-      const local = mapBlingProductToLocal(dto)
+      const local = mapBlingProductToLocal(data, blingId)
 
       const result = await updateProduct(row.id, {
         name: local.name,
         sku: local.sku ?? undefined,
         barcode: local.barcode ?? undefined,
         description: local.description ?? undefined,
+        imageUrl: local.imageUrl ?? null,
         salePriceCents: local.salePriceCents ?? undefined,
         costPriceCents: local.costPriceCents ?? undefined,
         isActive: local.isActive ?? undefined,
@@ -77,6 +77,7 @@ export async function POST (request: Request) {
         blingSyncPending: false,
         blingSyncSnapshot: createProductSyncSnapshot(local),
         kind: local.kind ?? undefined,
+        parentBlingId: local.parentBlingId ?? null,
       })
 
       if (result.ok) {

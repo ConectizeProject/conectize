@@ -139,6 +139,35 @@ function getBlingErrorMessage (data: unknown, status: number) {
   return parsedMessage || `bling_request_failed_${status}`
 }
 
+/**
+ * Normaliza o ID numérico do Bling vindo do banco (trim, espaços invisíveis, "16619319888.0" → inteiro).
+ */
+export function normalizeBlingProductId (raw: string | null | undefined): string {
+  if (raw == null) return ''
+  let s = String(raw).trim()
+  s = s.replace(/[\u200B-\u200D\uFEFF]/g, '')
+  s = s.replace(/\s+/g, '')
+  if (!s) return ''
+  if (/^\d+\.\d+$/.test(s)) {
+    const n = Number(s)
+    if (Number.isFinite(n) && n > 0) return String(Math.trunc(n))
+  }
+  if (/^\d+$/.test(s)) {
+    const n = Number(s)
+    if (Number.isFinite(n)) return String(Math.trunc(n))
+  }
+  return s
+}
+
+/** Caminho API v3: `/produtos/{id}` ou `/produtos/{id}/estoque` etc. */
+export function blingProdutoApiPath (blingId: string, subpath?: string): string {
+  const id = normalizeBlingProductId(blingId)
+  const extra = subpath
+    ? (subpath.startsWith('/') ? subpath : `/${subpath}`)
+    : ''
+  return `/produtos/${encodeURIComponent(id)}${extra}`
+}
+
 function isTokenExpired (expiresAt: string | null): boolean {
   if (!expiresAt) return true
   const expiry = Date.parse(expiresAt)
@@ -276,7 +305,16 @@ export async function createBlingClientFromConnection (rawConnection: HubConnect
     const data = await res.json().catch(() => null)
 
     if (!res.ok) {
-      throw new Error(getBlingErrorMessage(data, res.status))
+      const rawMsg = getBlingErrorMessage(data, res.status) || `Erro HTTP ${res.status}`
+      const notFoundText = rawMsg.toLowerCase().includes('não encontrad') || rawMsg.toLowerCase().includes('nao encontrad')
+      if (res.status === 404 || (res.status === 400 && notFoundText)) {
+        const isProduto = options.path.startsWith('/produtos/')
+        const hint = isProduto
+          ? ' Verifique no Conectize se o campo "ID Bling" é o mesmo do cadastro no Bling (produto ou variação), se o item não foi excluído e se o HUB está conectado à empresa correta.'
+          : ''
+        throw new Error(`${rawMsg}${hint}`)
+      }
+      throw new Error(rawMsg)
     }
 
     return data as T

@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Loader2, RotateCcw } from 'lucide-react'
+import { Copy, Loader2, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -29,10 +29,31 @@ type Props = {
   webhooks: WebhookRow[]
 }
 
+function safeJsonStringify (value: unknown, space?: number): string {
+  try {
+    const seen = new WeakSet<object>()
+    return JSON.stringify(value, (_key, val) => {
+      if (val != null && typeof val === 'object') {
+        const o = val as object
+        if (seen.has(o)) return '[Circular]'
+        seen.add(o)
+      }
+      return val
+    }, space)
+  } catch {
+    try {
+      return String(value)
+    } catch {
+      return '[payload não serializável]'
+    }
+  }
+}
+
 export function WebhooksListClient ({ webhooks }: Props) {
   const router = useRouter()
   const [detail, setDetail] = useState<WebhookRow | null>(null)
   const [reprocessingId, setReprocessingId] = useState<string | null>(null)
+  const [copyingPayload, setCopyingPayload] = useState(false)
 
   async function handleReprocess (id: string) {
     setReprocessingId(id)
@@ -62,6 +83,27 @@ export function WebhooksListClient ({ webhooks }: Props) {
       })
     } finally {
       setReprocessingId(null)
+    }
+  }
+
+  async function copyWebhookPayload () {
+    if (!detail) return
+    setCopyingPayload(true)
+    try {
+      const text = safeJsonStringify(detail.payload ?? {}, 2)
+      await navigator.clipboard.writeText(text)
+      toast({
+        title: 'Copiado',
+        description: 'Payload do webhook copiado para a área de transferência.',
+      })
+    } catch {
+      toast({
+        variant: 'destructive',
+        title: 'Não foi possível copiar',
+        description: 'Verifique permissão do navegador para a área de transferência.',
+      })
+    } finally {
+      setCopyingPayload(false)
     }
   }
 
@@ -154,9 +196,24 @@ export function WebhooksListClient ({ webhooks }: Props) {
                 )}
               </div>
               <div>
-                <div className="text-sm font-medium mb-1">Payload (JSON)</div>
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+                  <div className="text-sm font-medium">Payload (JSON)</div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 gap-1.5"
+                    disabled={copyingPayload}
+                    onClick={() => void copyWebhookPayload()}
+                  >
+                    {copyingPayload
+                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      : <Copy className="h-3.5 w-3.5" />}
+                    Copiar payload
+                  </Button>
+                </div>
                 <pre className="rounded-md border bg-muted/50 p-3 text-xs overflow-auto max-h-[40vh] whitespace-pre-wrap break-all">
-                  {JSON.stringify(detail.payload ?? {}, null, 2)}
+                  {safeJsonStringify(detail.payload ?? {}, 2)}
                 </pre>
               </div>
             </div>

@@ -18,6 +18,7 @@ export type BlingWebhookBase = {
 
 export type BlingWebhookProductPayload = {
   id?: number | string
+  /** Webhook v1 costuma mandar o pai aqui (GET /produtos às vezes só em produtoPai). */
   idProdutoPai?: number | string
   produtoPai?: { id?: number | string }
   nome?: string
@@ -168,6 +169,35 @@ function safePayload (raw: unknown): Record<string, unknown> {
   return {}
 }
 
+/**
+ * Corpo do produto no webhook: pode vir em `produto`, em `data.produto`, ou o próprio `data` plano
+ * (ex.: v1 `product.updated` com `data: { id, nome, idProdutoPai, ... }`).
+ */
+function extractWebhookProductPayload (payload: Record<string, unknown>): BlingWebhookProductPayload {
+  const topProduto = payload.produto
+  if (topProduto && typeof topProduto === 'object' && !Array.isArray(topProduto)) {
+    return topProduto as BlingWebhookProductPayload
+  }
+  const data = payload.data
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    const d = data as Record<string, unknown>
+    const innerProduto = d.produto
+    if (innerProduto && typeof innerProduto === 'object' && !Array.isArray(innerProduto)) {
+      return innerProduto as BlingWebhookProductPayload
+    }
+    if (
+      d.id != null
+      || d.nome != null
+      || d.idProdutoPai != null
+      || d.codigo != null
+      || d.situacao != null
+    ) {
+      return d as BlingWebhookProductPayload
+    }
+  }
+  return payload as BlingWebhookProductPayload
+}
+
 function extractProductId (p: BlingWebhookBase): string {
   const prod = p.produto ?? (p.data as Record<string, unknown>)?.produto
   if (prod && typeof prod === 'object') {
@@ -219,7 +249,7 @@ export function parseBlingWebhook (raw: unknown): BlingWebhookParsed {
   }
 
   if (PRODUCT_EVENTS.has(eventType) || (eventType.includes('produto') || eventType.includes('product'))) {
-    const prod = (payload.produto ?? (payload.data as Record<string, unknown>)?.produto ?? payload) as BlingWebhookProductPayload
+    const prod = extractWebhookProductPayload(payload)
     return {
       kind: 'product',
       eventType,

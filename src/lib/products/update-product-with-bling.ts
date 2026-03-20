@@ -1,8 +1,10 @@
-import { getBlingClientForCurrentUser } from '@/lib/integrations/bling/api'
+import { blingProdutoApiPath, getBlingClientForCurrentUser, normalizeBlingProductId } from '@/lib/integrations/bling/api'
 import { mapBlingProductToLocal } from '@/lib/integrations/bling/mappers'
 import {
+  buildBlingPayloadFromPortalFieldsMask,
   buildBlingPayloadFromSnapshotDiff,
   createProductSyncSnapshot,
+  type PortalFieldForBling,
 } from '@/lib/products/bling-sync'
 import {
   getProductById,
@@ -17,12 +19,32 @@ type ProductMutationResult =
     ok: true
     product: Product
     syncedToBling: boolean
+    /** Presente após PATCH no portal: o que mudou e pode ir ao Bling (custo não entra). */
+    blingFieldsChanged?: PortalFieldForBling[]
   }
   | {
     ok: false
     error: string
     message?: string
   }
+
+function blingRelevantChangedFields (
+  before: Product,
+  after: Product,
+): PortalFieldForBling[] {
+  const out: PortalFieldForBling[] = []
+  if (before.name !== after.name) out.push('name')
+  const descBefore = before.description ?? null
+  const descAfter = after.description ?? null
+  if (descBefore !== descAfter) out.push('description')
+  if ((before.sku ?? null) !== (after.sku ?? null)) out.push('sku')
+  if ((before.barcode ?? null) !== (after.barcode ?? null)) out.push('barcode')
+  if (before.salePriceCents !== after.salePriceCents) {
+    out.push('salePriceCents')
+  }
+  if (before.isActive !== after.isActive) out.push('isActive')
+  return out
+}
 
 type NormalizePatchResult =
   | {
@@ -126,8 +148,17 @@ export async function updateProductAndSyncBling (
   }
 
   const currentProduct = currentResult.product
+  const patch = { ...normalizedPatch.patch }
+  if (patch.costPriceCents !== undefined) {
+    const prev = currentProduct.costPriceCents ?? null
+    const next = patch.costPriceCents ?? null
+    if (prev !== next) {
+      patch.costPriceManuallyEdited = true
+    }
+  }
+
   const updatedResult = await updateProduct(id, {
-    ...normalizedPatch.patch,
+    ...patch,
     blingSyncPending: Boolean(currentProduct.blingId),
   })
 
@@ -139,11 +170,21 @@ export async function updateProductAndSyncBling (
     ok: true,
     product: updatedResult.product,
     syncedToBling: false,
+    blingFieldsChanged: blingRelevantChangedFields(
+      currentProduct,
+      updatedResult.product,
+    ),
   }
+}
+
+export type SyncProductToBlingOptions = {
+  /** Se definido, PATCH no Bling só com estes campos (estado já salvo no portal). Omitir = diff completo (legado). */
+  portalFieldsChanged?: PortalFieldForBling[] | null
 }
 
 export async function syncProductToBling (
   id: string,
+  options?: SyncProductToBlingOptions,
 ): Promise<ProductMutationResult> {
   const currentResult = await getProductById(id)
   if (!currentResult.ok || !('product' in currentResult)) {
@@ -155,9 +196,84 @@ export async function syncProductToBling (
     return { ok: false, error: 'product_not_linked_bling' }
   }
 
+  const blingProductId = normalizeBlingProductId(currentProduct.blingId)
+  if (!blingProductId) {
+    return { ok: false, error: 'bling_id_invalid', message: 'ID do Bling inválido no cadastro.' }
+  }
+
   const clientResult = await getBlingClientForCurrentUser()
   if (!clientResult.ok || !('client' in clientResult)) {
     return { ok: false, error: 'error' in clientResult ? clientResult.error : 'bling_client_unavailable' }
+  }
+
+  const useFieldMask =
+    options?.portalFieldsChanged !== undefined &&
+    options.portalFieldsChanged !== null
+
+  if (useFieldMask && options!.portalFieldsChanged!.length === 0) {
+    const currentSnapshot = createProductSyncSnapshot(currentProduct)
+    const clearedResult = await updateProduct(id, {
+      blingSyncPending: false,
+      blingSyncSnapshot: currentSnapshot,
+    })
+    if (!clearedResult.ok || !('product' in clearedResult)) {
+      return { ok: false, error: 'error' in clearedResult ? clearedResult.error ?? 'db_error' : 'db_error' }
+    }
+    return {
+      ok: true,
+      product: clearedResult.product,
+      syncedToBling: true,
+    }
+  }
+
+  if (useFieldMask && options!.portalFieldsChanged!.length > 0) {
+    const { payload: blingPayload, currentSnapshot } =
+      buildBlingPayloadFromPortalFieldsMask(
+        currentProduct,
+        options!.portalFieldsChanged!,
+      )
+    if (Object.keys(blingPayload).length === 0) {
+      const noPayloadResult = await updateProduct(id, {
+        blingSyncPending: false,
+        blingSyncSnapshot: currentSnapshot,
+      })
+      if (!noPayloadResult.ok || !('product' in noPayloadResult)) {
+        return { ok: false, error: 'error' in noPayloadResult ? noPayloadResult.error ?? 'db_error' : 'db_error' }
+      }
+      return {
+        ok: true,
+        product: noPayloadResult.product,
+        syncedToBling: true,
+      }
+    }
+
+    try {
+      await clientResult.client.request({
+        method: 'PATCH',
+        path: blingProdutoApiPath(blingProductId),
+        body: blingPayload,
+      })
+    } catch (err) {
+      return {
+        ok: false,
+        error: 'bling_request_failed',
+        message: normalizeBlingSyncMessage(err instanceof Error ? err.message : 'unknown_error'),
+      }
+    }
+
+    const afterPatchResult = await updateProduct(id, {
+      blingSyncPending: false,
+      blingSyncSnapshot: currentSnapshot,
+    })
+    if (!afterPatchResult.ok || !('product' in afterPatchResult)) {
+      return { ok: false, error: 'error' in afterPatchResult ? afterPatchResult.error ?? 'db_error' : 'db_error' }
+    }
+
+    return {
+      ok: true,
+      product: afterPatchResult.product,
+      syncedToBling: true,
+    }
   }
 
   let baseSnapshot = currentProduct.blingSyncSnapshot
@@ -168,11 +284,12 @@ export async function syncProductToBling (
         data?: Record<string, unknown>
       } | Record<string, unknown>>({
         method: 'GET',
-        path: `/produtos/${currentProduct.blingId}`,
+        path: blingProdutoApiPath(blingProductId),
       })
 
-      const dto = data?.data ?? data ?? {}
-      baseSnapshot = createProductSyncSnapshot(mapBlingProductToLocal(dto))
+      baseSnapshot = createProductSyncSnapshot(
+        mapBlingProductToLocal(data, blingProductId),
+      )
     } catch (err) {
       return {
         ok: false,
@@ -208,7 +325,7 @@ export async function syncProductToBling (
   try {
     await clientResult.client.request({
       method: 'PATCH',
-      path: `/produtos/${currentProduct.blingId}`,
+      path: blingProdutoApiPath(blingProductId),
       body: blingPayload,
     })
   } catch (err) {
