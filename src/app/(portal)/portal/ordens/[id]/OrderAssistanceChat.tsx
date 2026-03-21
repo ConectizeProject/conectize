@@ -3,8 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { OsAssistanceCommentAiButton, type AssistanceCommentAiContext } from '@/components/orders'
 import { formatDateTimeBr } from '@/lib/utils/format-date'
 import { portalFetch } from '@/lib/portal/portal-fetch'
+
+const ASSISTANCE_COMMENT_MAX_LENGTH = 6000
 
 type AssistanceComment = {
   id: string
@@ -16,12 +19,12 @@ type AssistanceComment = {
 
 type Props = {
   orderId: string
-  legacyAssistanceInfo?: string | null
-  legacyUpdatedAt?: string | null
   disabled?: boolean
+  /** Contexto opcional para a IA (aparelho, descrição do cliente, recebimento). */
+  assistanceAiContext?: AssistanceCommentAiContext | null
 }
 
-export function OrderAssistanceChat({ orderId, legacyAssistanceInfo, legacyUpdatedAt, disabled = false }: Props) {
+export function OrderAssistanceChat({ orderId, disabled = false, assistanceAiContext = null }: Props) {
   const [comments, setComments] = useState<AssistanceComment[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [fetchError, setFetchError] = useState<string | null>(null)
@@ -32,22 +35,23 @@ export function OrderAssistanceChat({ orderId, legacyAssistanceInfo, legacyUpdat
   const [draft, setDraft] = useState('')
   const [isPosting, setIsPosting] = useState(false)
 
-  const legacyText = useMemo(() => String(legacyAssistanceInfo || '').trim(), [legacyAssistanceInfo])
-  const legacyUpdatedAtText = useMemo(() => String(legacyUpdatedAt || '').trim(), [legacyUpdatedAt])
+  const previousCommentsSummary = useMemo(() => {
+    return comments
+      .slice(-6)
+      .map((c) => {
+        const who = String(c.author_display_name || '').trim() || '(Sem nome)'
+        return `${who}: ${c.content}`
+      })
+      .join('\n---\n')
+  }, [comments])
 
-  const messages = useMemo(() => {
-    if (!legacyText) return comments
-    return [
-      {
-        id: 'legacy',
-        content: legacyText,
-        created_at: legacyUpdatedAtText || '',
-        author_display_name: 'Histórico',
-        author_user_id: null,
-      },
-      ...comments,
-    ]
-  }, [comments, legacyText, legacyUpdatedAtText])
+  const aiContextForButton = useMemo((): AssistanceCommentAiContext | null => {
+    if (!assistanceAiContext && !previousCommentsSummary) return null
+    return {
+      ...assistanceAiContext,
+      previousCommentsSummary: previousCommentsSummary || undefined,
+    }
+  }, [assistanceAiContext, previousCommentsSummary])
 
   const fetchComments = useCallback(async () => {
     setIsLoading(true)
@@ -79,7 +83,7 @@ export function OrderAssistanceChat({ orderId, legacyAssistanceInfo, legacyUpdat
 
     const content = draft.trim()
     if (!content) return
-    if (content.length > 6000) return
+    if (content.length > ASSISTANCE_COMMENT_MAX_LENGTH) return
 
     setIsPosting(true)
     try {
@@ -180,14 +184,15 @@ export function OrderAssistanceChat({ orderId, legacyAssistanceInfo, legacyUpdat
       <div className="space-y-2 max-h-80 overflow-auto pr-1">
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Carregando histórico…</p>
-        ) : messages.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nenhum comentário ainda.</p>
+        ) : comments.length === 0 ? (
+          <div className="rounded-md border bg-muted/20 p-3 flex items-center justify-center">
+            <p className="text-sm text-muted-foreground text-center">Nenhum comentário ainda.</p>
+          </div>
         ) : (
-          messages.map((c) => {
+          comments.map((c) => {
             const hasCreated = Boolean(c.created_at)
             const when = hasCreated ? formatDateTimeBr(c.created_at) : '-'
-            const isLegacy = c.id === 'legacy'
-            const canEdit = !isLegacy && canManageComment(c)
+            const canEdit = canManageComment(c)
             const isEditingThis = editingCommentId && editingCommentId === c.id
 
             return (
@@ -222,7 +227,7 @@ export function OrderAssistanceChat({ orderId, legacyAssistanceInfo, legacyUpdat
                   <div className="text-sm text-muted-foreground whitespace-pre-wrap">{c.content}</div>
                 )}
 
-                {!isLegacy && canEdit && !isEditingThis ? (
+                {canEdit && !isEditingThis ? (
                   <div className="flex items-center justify-end gap-2">
                     <Button
                       type="button"
@@ -252,26 +257,24 @@ export function OrderAssistanceChat({ orderId, legacyAssistanceInfo, legacyUpdat
 
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-2">
-          <div className="text-sm font-medium">Adicionar comentário</div>
-          <div className="text-xs text-muted-foreground">{draft.trim().length}/6000</div>
+          <div className="text-sm font-medium min-w-0">Adicionar comentário</div>
+          <OsAssistanceCommentAiButton
+            draft={draft}
+            onResult={(text) => setDraft(text.slice(0, ASSISTANCE_COMMENT_MAX_LENGTH))}
+            context={aiContextForButton}
+            disabled={disabled || isPosting}
+          />
         </div>
         <Textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder={disabled ? 'Este registro está desabilitado.' : 'Descreva o que houve na assistência…'}
           disabled={disabled || isPosting}
+          maxLength={ASSISTANCE_COMMENT_MAX_LENGTH}
           className="min-h-24"
         />
 
-        <div className="flex items-center justify-end gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            disabled={disabled || isPosting || draft.trim().length === 0}
-            onClick={() => setDraft('')}
-          >
-            Limpar
-          </Button>
+        <div className="flex items-center justify-end">
           <Button
             type="button"
             disabled={disabled || isPosting || draft.trim().length === 0}
@@ -284,4 +287,3 @@ export function OrderAssistanceChat({ orderId, legacyAssistanceInfo, legacyUpdat
     </div>
   )
 }
-

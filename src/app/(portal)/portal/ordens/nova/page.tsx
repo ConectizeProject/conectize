@@ -100,7 +100,7 @@ async function createOrderAction(formData: FormData) {
   const imei = String(formData.get('imei') || '').trim()
   const color = String(formData.get('color') || '').trim()
   const customerDescription = String(formData.get('customerDescription') || '').trim()
-  const internalDescription = String(formData.get('internalDescription') || '').trim()
+  const internalInitialComment = String(formData.get('internalInitialComment') || '').trim()
   const receivingNotes = String(formData.get('receivingNotes') || '').trim()
   const deviceEntryChecksJson = String(formData.get('deviceEntryChecksJson') || '').trim()
   const isWarranty = String(formData.get('isWarranty') || '').trim() === '1'
@@ -180,7 +180,6 @@ async function createOrderAction(formData: FormData) {
       passcode_pattern: passcodeType === 'pattern' ? (passcodePattern || null) : null,
       payment_methods: parsePaymentMethodsJson(paymentMethodsJson),
       customer_description: customerDescription || null,
-      internal_description: internalDescription || null,
       receiving_notes: receivingNotes || null,
       device_entry_checks: deviceEntryChecks,
       services: services.items,
@@ -218,6 +217,18 @@ async function createOrderAction(formData: FormData) {
       actorUserId: user.id,
     })
   } catch (_) {}
+
+  if (internalInitialComment) {
+    const { data: me } = await supabase.from('users').select('full_name, email').eq('id', user.id).maybeSingle()
+    const authorDisplayName = String(me?.full_name || me?.email || '').trim() || '(Sem nome)'
+    const content = internalInitialComment.slice(0, 6000)
+    await supabase.from('service_order_internal_comments').insert({
+      service_order_id: insertedOrder.id,
+      author_user_id: user.id,
+      author_display_name: authorDisplayName,
+      content,
+    })
+  }
 
   const hasDeviceInfo = deviceModelId || brand || model || deviceType
   if (hasDeviceInfo) {

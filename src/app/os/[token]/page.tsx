@@ -175,7 +175,7 @@ export default async function OrdemPublicaPage({
 	const [{ data: order }, { data: company }, { data: paymentMethodsCatalog }] = await Promise.all([
 		supabase
 			.from('service_orders')
-			.select('id, display_number, status, title, imei, is_warranty, estimated_ready_at, customer_description, receiving_notes, assistance_info, warranty_text, services, payment_methods, brand, model, device_model_id, created_at, updated_at, closed_at, device_entry_checks, customers ( cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date ), device_models ( id, model, device_types ( name, device_brands ( name ) ) )')
+			.select('id, display_number, status, title, imei, is_warranty, estimated_ready_at, customer_description, receiving_notes, warranty_text, services, payment_methods, brand, model, device_model_id, created_at, updated_at, closed_at, device_entry_checks, customers ( cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date ), device_models ( id, model, device_types ( name, device_brands ( name ) ) )')
 			.eq('share_token', token)
 			.maybeSingle(),
 		supabase
@@ -276,14 +276,7 @@ export default async function OrdemPublicaPage({
 		}
 	}
 
-	const legacyAssistanceInfo = String(order.assistance_info || '').trim()
-	const legacyUpdatedAtText = order.updated_at ? formatDateTimeBr(order.updated_at) : null
 	const assistanceInfoTextParts: string[] = []
-	if (legacyAssistanceInfo) {
-		assistanceInfoTextParts.push(
-			`Histórico anterior${legacyUpdatedAtText ? ` (última atualização: ${legacyUpdatedAtText})` : ''}\n${legacyAssistanceInfo}`,
-		)
-	}
 	if (assistanceComments.length > 0) {
 		assistanceInfoTextParts.push(
 			...assistanceComments.map((c) => `${formatDateTimeBr(c.created_at)} • ${String(c.author_display_name || '').trim() || '(Sem nome)'}\n${c.content}`),

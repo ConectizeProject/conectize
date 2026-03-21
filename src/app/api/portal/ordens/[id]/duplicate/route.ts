@@ -35,17 +35,28 @@ export async function GET(
     return NextResponse.json({ ok: false, error: 'id_required' }, { status: 400 })
   }
 
-  const { data: order, error } = await auth.supabase
-    .from('service_orders')
-    .select(
-      'id, customer_id, title, status, device_model_id, imei, color, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, payment_methods, customer_description, internal_description, receiving_notes, services, brand, model, device_entry_checks, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full ), device_models ( id, model, device_types ( name, device_brands ( name ) ) )'
-    )
-    .eq('id', id)
-    .maybeSingle()
+  const [{ data: order, error }, { data: internalComments }] = await Promise.all([
+    auth.supabase
+      .from('service_orders')
+      .select(
+        'id, customer_id, title, status, device_model_id, imei, color, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, payment_methods, customer_description, receiving_notes, services, brand, model, device_entry_checks, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full ), device_models ( id, model, device_types ( name, device_brands ( name ) ) )'
+      )
+      .eq('id', id)
+      .maybeSingle(),
+    auth.supabase
+      .from('service_order_internal_comments')
+      .select('content')
+      .eq('service_order_id', id)
+      .order('created_at', { ascending: true }),
+  ])
 
   if (error || !order) {
     return NextResponse.json({ ok: false, error: 'order_not_found' }, { status: 404 })
   }
+
+  const internalInitialComment = Array.isArray(internalComments)
+    ? internalComments.map((r: { content?: string }) => String(r?.content || '').trim()).filter(Boolean).join('\n\n')
+    : ''
 
   const cust = Array.isArray(order.customers) ? order.customers[0] : order.customers
   const dm = Array.isArray(order.device_models) ? order.device_models[0] : order.device_models
@@ -104,7 +115,7 @@ export async function GET(
       return []
     })(),
     customerDescription: order.customer_description ?? '',
-    internalDescription: order.internal_description ?? '',
+    internalInitialComment,
     receivingNotes: order.receiving_notes ?? '',
     services: servicesFormatted,
     deviceEntryChecks: (order as { device_entry_checks?: unknown }).device_entry_checks ?? null,

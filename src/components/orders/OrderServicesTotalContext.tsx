@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useRef, useEffect, useState } from 'react'
+import { createContext, useContext, useRef, useEffect, useState, useCallback, useMemo } from 'react'
 
 type Listener = (cents: number) => void
 
@@ -26,27 +26,30 @@ export function OrderServicesTotalProvider({
     totalRef.current = initialTotal
   }, [initialTotal])
 
-  const setTotalValueCents = (cents: number) => {
+  const setTotalValueCents = useCallback((cents: number) => {
     if (totalRef.current === cents) return
     totalRef.current = cents
     listenersRef.current.forEach((listener) => listener(cents))
-  }
+  }, [])
 
-  const subscribe = (listener: Listener) => {
+  const subscribe = useCallback((listener: Listener) => {
     listenersRef.current.add(listener)
     listener(totalRef.current)
     return () => {
       listenersRef.current.delete(listener)
     }
-  }
+  }, [])
 
-  const getTotalValueCents = () => totalRef.current
+  const getTotalValueCents = useCallback(() => totalRef.current, [])
 
-  const value: OrderServicesTotalContextValue = {
-    setTotalValueCents,
-    subscribe,
-    getTotalValueCents,
-  }
+  const value = useMemo<OrderServicesTotalContextValue>(
+    () => ({
+      setTotalValueCents,
+      subscribe,
+      getTotalValueCents,
+    }),
+    [setTotalValueCents, subscribe, getTotalValueCents],
+  )
 
   return (
     <OrderServicesTotalContext.Provider value={value}>
