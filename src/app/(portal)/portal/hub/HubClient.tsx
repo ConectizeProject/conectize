@@ -22,7 +22,9 @@ import {
   Check,
   ExternalLink,
   History,
+  Loader2,
   Package,
+  RefreshCw,
   Settings,
   ShoppingCart,
   Store,
@@ -117,6 +119,25 @@ type BlingConnection = {
   platform_id: string
   metadata?: Record<string, unknown> | null
   created_at?: string
+  token_expires_at?: string | null
+}
+
+function isBlingTokenExpired (expiresAt: string | null | undefined) {
+  if (!expiresAt) return true
+  const expiry = Date.parse(expiresAt)
+  if (Number.isNaN(expiry)) return true
+  return expiry <= Date.now() + 60_000
+}
+
+function formatTokenExpiry (expiresAt: string | null | undefined) {
+  if (!expiresAt) return 'Data de expiração desconhecida'
+  try {
+    const d = new Date(expiresAt)
+    if (Number.isNaN(d.getTime())) return 'Data de expiração desconhecida'
+    return `Token válido até ${d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}`
+  } catch {
+    return 'Data de expiração desconhecida'
+  }
 }
 
 type Props = {
@@ -150,6 +171,8 @@ function IntegrationCard({
   onConfigure,
   blingConnections = [],
   onDisconnectBlingConnection,
+  onRefreshBlingToken,
+  refreshingBlingId,
 }: {
   integration: Integration
   isConnected: boolean
@@ -159,6 +182,8 @@ function IntegrationCard({
   onConfigure?: () => void
   blingConnections?: BlingConnection[]
   onDisconnectBlingConnection?: (connectionId: string) => void
+  onRefreshBlingToken?: (connectionId: string) => void
+  refreshingBlingId?: string | null
 }) {
   const Icon = integration.icon
   const isComingSoon = integration.status === 'coming_soon'
@@ -197,23 +222,49 @@ function IntegrationCard({
         {isBling && blingConnections.length > 0 && (
           <div className="rounded-md border bg-muted/30 p-3 space-y-2">
             <p className="text-xs font-medium text-muted-foreground">Contas conectadas</p>
-            <ul className="space-y-2">
+            <ul className="space-y-3">
               {blingConnections.map((conn, index) => (
                 <li
                   key={conn.id}
-                  className="flex items-center justify-between gap-2 text-sm"
+                  className="flex flex-col gap-2 rounded-md border border-border/60 bg-background/50 p-2 sm:flex-row sm:items-center sm:justify-between"
                 >
-                  <span className="truncate">{formatConnectionLabel(conn, index)}</span>
-                  {onDisconnectBlingConnection && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="shrink-0 h-7 text-destructive hover:text-destructive hover:bg-destructive/10"
-                      onClick={() => onDisconnectBlingConnection(conn.id)}
-                    >
-                      Desconectar
-                    </Button>
-                  )}
+                  <div className="min-w-0 flex-1 space-y-0.5">
+                    <span className="block truncate font-medium">{formatConnectionLabel(conn, index)}</span>
+                    <span className="text-xs text-muted-foreground">{formatTokenExpiry(conn.token_expires_at)}</span>
+                    {isBlingTokenExpired(conn.token_expires_at) && (
+                      <Badge variant="destructive" className="text-[10px]">
+                        Token expirado ou próximo de expirar — use &quot;Renovar token&quot;
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 flex-wrap items-center gap-1 sm:justify-end">
+                    {onRefreshBlingToken && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7"
+                        disabled={refreshingBlingId === conn.id}
+                        onClick={() => onRefreshBlingToken(conn.id)}
+                      >
+                        {refreshingBlingId === conn.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3.5 w-3.5" />
+                        )}
+                        <span className="ml-1">Renovar token</span>
+                      </Button>
+                    )}
+                    {onDisconnectBlingConnection && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => onDisconnectBlingConnection(conn.id)}
+                      >
+                        Desconectar
+                      </Button>
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>
@@ -283,6 +334,7 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
   const [apiKey, setApiKey] = useState('')
   const [selectedModel, setSelectedModel] = useState<string>(chatgptModel)
   const [loading, setLoading] = useState(false)
+  const [refreshingBlingId, setRefreshingBlingId] = useState<string | null>(null)
 
   async function handleConnect() {
     if (!connectDialog) return
@@ -381,6 +433,52 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
     }
   }
 
+  async function handleRefreshBlingToken (connectionId: string) {
+    setRefreshingBlingId(connectionId)
+    try {
+      const res = await fetch(
+        `/api/portal/hub/connections/item/${encodeURIComponent(connectionId)}/refresh-token`,
+        { method: 'POST' }
+      )
+      const data = await res.json().catch(() => null)
+
+      if (!res.ok || !data?.ok) {
+        const code = data?.error as string | undefined
+        const rawErr = typeof data?.error === 'string' ? data.error : ''
+        const isInvalidGrant =
+          rawErr.toLowerCase().includes('invalid_grant') ||
+          rawErr.toLowerCase().includes('token inválido') ||
+          rawErr.toLowerCase().includes('invalid token')
+        const description =
+          code === 'no_refresh_token'
+            ? 'Não há refresh token salvo. Desconecte e conecte o Bling novamente.'
+            : code === 'bling_oauth_not_configured'
+              ? 'OAuth do Bling não configurado no servidor.'
+              : isInvalidGrant
+                ? 'O refresh token expirou ou foi revogado (ex.: após ~30 dias ou nova autorização). Desconecte e conecte o Bling de novo no HUB.'
+                : rawErr || 'Não foi possível renovar o token.'
+        toast({ title: 'Erro ao renovar token', description, variant: 'destructive' })
+        return
+      }
+
+      setBlingConnections((prev) =>
+        prev.map((c) =>
+          c.id === connectionId
+            ? { ...c, token_expires_at: data.token_expires_at ?? c.token_expires_at }
+            : c
+        )
+      )
+      toast({
+        variant: 'success',
+        title: 'Token renovado',
+        description: 'A conexão com o Bling foi atualizada.',
+      })
+      router.refresh()
+    } finally {
+      setRefreshingBlingId(null)
+    }
+  }
+
   async function handleDisconnectBlingConnection(connectionId: string) {
     if (!confirm('Desconectar esta conta do Bling?')) return
 
@@ -447,6 +545,8 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
               onDisconnectBlingConnection={
                 integration.id === 'bling' ? handleDisconnectBlingConnection : undefined
               }
+              onRefreshBlingToken={integration.id === 'bling' && isAdmin ? handleRefreshBlingToken : undefined}
+              refreshingBlingId={integration.id === 'bling' ? refreshingBlingId : undefined}
             />
           ))}
         </div>

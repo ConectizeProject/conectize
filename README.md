@@ -65,6 +65,17 @@ Para conectar com o Bling via OAuth 2.0, configure:
 
 **Importante:** Cadastre a URL de redirecionamento no aplicativo Bling: `{NEXT_PUBLIC_SITE_URL}/api/portal/hub/oauth/bling/callback`
 
+### Renovação automática do token Bling
+
+- Em **cada chamada** à API do Bling, o servidor já renova o access token quando ele está **expirado ou perto de expirar** (margem padrão: 30 minutos; opcional: `BLING_ACCESS_TOKEN_REFRESH_MARGIN_MINUTES`).
+- Para ambientes **sem tráfego constante**, configure um **cron** que chama o endpoint abaixo (ex.: agendado na Vercel via `vercel.json` — a cada 4 horas):
+
+  - **URL:** `GET /api/cron/bling-refresh-tokens`
+  - **Headers:** `Authorization: Bearer <CRON_SECRET>` **ou** `x-cron-secret: <CRON_SECRET>`
+  - **Variáveis:** `CRON_SECRET` (obrigatório), `SUPABASE_SERVICE_ROLE_KEY` (necessário para atualizar `hub_connections` sem sessão de usuário), além de `BLING_CLIENT_ID` / `BLING_CLIENT_SECRET`.
+
+Se o Bling responder `invalid_grant` ao renovar, o **refresh token** expirou ou foi revogado — é preciso **desconectar e autorizar de novo** no HUB.
+
 ## Deploy
 
 Este projeto pode ser deployado em:
