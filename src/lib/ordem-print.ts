@@ -362,8 +362,9 @@ export function buildOrdemPrintHtml(
     <div class="row"><span>${data.device}${data.imei ? ` • IMEI: ${data.imei}` : ''}</span></div>
   </div>
 
-  ${data.customerDescription ? `<div class="section"><h2>Descrição</h2><div class="block">${data.customerDescription}</div></div>` : ''}
-  ${data.receivingNotes ? `<div class="section"><h2>Observações do recebimento</h2><div class="block">${data.receivingNotes}</div></div>` : ''}
+  ${data.customerDescription ? `<div class="section"><h2>Descrição</h2><div class="block">${escapeHtml(data.customerDescription)}</div></div>` : ''}
+  ${data.receivingNotes ? `<div class="section"><h2>Observações do recebimento</h2><div class="block">${escapeHtml(data.receivingNotes)}</div></div>` : ''}
+  ${data.internalDescription ? `<div class="section"><h2>Notas internas</h2><div class="block">${escapeHtml(data.internalDescription)}</div></div>` : ''}
   ${(() => {
       const checks = data.deviceEntryChecks
       if (!checks || typeof checks !== 'object') return ''

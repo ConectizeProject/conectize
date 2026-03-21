@@ -57,8 +57,9 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
   // 1) Pais paginados
   let parentsQuery = supabase
     .from('products')
-    .select('id, bling_id, bling_sync_pending, kind, name, sku, barcode, image_url, sale_price_cents, cost_price_cents, cost_price_manual_edited_at, is_active, created_at', { count: 'exact' })
+    .select('id, bling_id, bling_sync_pending, kind, name, sku, barcode, image_url, sale_price_cents, cost_price_cents, cost_price_manual_edited_at, is_active, created_at')
     .is('parent_bling_id', null)
+    .eq('is_active', true)
     .order('created_at', { ascending: false })
 
   // Para o filtro `q`, buscar também por variações:
@@ -74,6 +75,7 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
       .from('products')
       .select('id, bling_id')
       .is('parent_bling_id', null)
+      .eq('is_active', true)
     for (const token of searchTokens) {
       directParentsQuery = directParentsQuery.or(
         `name.ilike.%${token}%,sku.ilike.%${token}%,barcode.ilike.%${token}%`,
@@ -84,14 +86,17 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
       .from('products')
       .select('parent_bling_id')
       .not('parent_bling_id', 'is', null)
+      .eq('is_active', true)
     for (const token of searchTokens) {
       variationsQuery = variationsQuery.or(
         `name.ilike.%${token}%,sku.ilike.%${token}%,barcode.ilike.%${token}%`,
       )
     }
 
-    const { data: directParentsData } = await directParentsQuery
-    const { data: variationsData } = await variationsQuery
+    const [{ data: directParentsData }, { data: variationsData }] = await Promise.all([
+      directParentsQuery,
+      variationsQuery,
+    ])
 
     const parentBlingIdsFromVariations = (variationsData ?? [])
       .map((row: { parent_bling_id?: string | null }) => row.parent_bling_id)
@@ -103,6 +108,7 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
         .from('products')
         .select('id')
         .is('parent_bling_id', null)
+        .eq('is_active', true)
         .in('bling_id', parentBlingIdsFromVariations)
 
       variationParentsIds = (variationParentsData ?? []).map((row: { id?: string }) => String(row.id))
@@ -135,6 +141,7 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
       .from('products')
       .select('id, bling_id, bling_sync_pending, parent_bling_id, name, sku, barcode, image_url, sale_price_cents, cost_price_cents, cost_price_manual_edited_at, is_active, created_at')
       .in('parent_bling_id', parentBlingIds)
+      .eq('is_active', true)
 
     if (searchTokens.length > 0) {
       for (const token of searchTokens) {
@@ -158,33 +165,63 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
 
   if (allProducts.length > 0) {
     const ids = allProducts.map((p: { id: string }) => p.id)
-    const { data: movements, error: movementsError } = await supabase
-      .from('product_stock_movements')
-      .select('product_id, type, quantity, unit_value_cents, created_at')
-      .in('product_id', ids)
-      .limit(10000)
 
-    if (!movementsError && movements && Array.isArray(movements)) {
-      for (const m of movements as MovementRow[]) {
-        const pid = m.product_id
-        const type = String(m.type ?? '').toLowerCase()
-        const qty = Number(m.quantity) || 0
-        const valueCents = Number(m.unit_value_cents) || 0
-        const createdAt = m.created_at
+    type StockSummaryRpcRow = {
+      product_id: string
+      current_stock: number | string
+      has_movements: boolean
+      last_entry_unit_value_cents: number | null
+      last_entry_created_at: string | null
+    }
 
-        hasStockMovementsByProductId[pid] = true
+    const { data: stockRpcRows, error: stockRpcError } = await supabase.rpc(
+      'portal_products_list_stock_summary',
+      { p_product_ids: ids },
+    )
 
-        if (!stockByProductId[pid]) stockByProductId[pid] = 0
-        if (type === 'entry') stockByProductId[pid] += qty
-        else if (type === 'exit' || type === 'loss') stockByProductId[pid] -= qty
+    if (!stockRpcError && stockRpcRows && Array.isArray(stockRpcRows)) {
+      for (const row of stockRpcRows as StockSummaryRpcRow[]) {
+        const pid = String(row.product_id)
+        const raw = row.current_stock
+        const n = typeof raw === 'number' ? raw : Number(raw)
+        stockByProductId[pid] = Number.isFinite(n) ? n : 0
+        hasStockMovementsByProductId[pid] = Boolean(row.has_movements)
+        const cents = row.last_entry_unit_value_cents
+        const createdAt = row.last_entry_created_at
+        if (cents != null && createdAt) {
+          lastEntryCostByProductId[pid] = Number(cents)
+          lastEntryDateByProductId[pid] = new Date(createdAt).getTime()
+        }
+      }
+    } else {
+      const { data: movements, error: movementsError } = await supabase
+        .from('product_stock_movements')
+        .select('product_id, type, quantity, unit_value_cents, created_at')
+        .in('product_id', ids)
+        .limit(5000)
 
-        if (type === 'entry' && valueCents > 0 && createdAt) {
-          const currentDate = new Date(createdAt).getTime()
-          const existingDate = lastEntryDateByProductId[pid] ?? 0
+      if (!movementsError && movements && Array.isArray(movements)) {
+        for (const m of movements as MovementRow[]) {
+          const pid = m.product_id
+          const type = String(m.type ?? '').toLowerCase()
+          const qty = Number(m.quantity) || 0
+          const valueCents = Number(m.unit_value_cents) || 0
+          const createdAt = m.created_at
 
-          if (!lastEntryCostByProductId[pid] || currentDate >= existingDate) {
-            lastEntryCostByProductId[pid] = valueCents
-            lastEntryDateByProductId[pid] = currentDate
+          hasStockMovementsByProductId[pid] = true
+
+          if (!stockByProductId[pid]) stockByProductId[pid] = 0
+          if (type === 'entry') stockByProductId[pid] += qty
+          else if (type === 'exit' || type === 'loss') stockByProductId[pid] -= qty
+
+          if (type === 'entry' && valueCents > 0 && createdAt) {
+            const currentDate = new Date(createdAt).getTime()
+            const existingDate = lastEntryDateByProductId[pid] ?? 0
+
+            if (!lastEntryCostByProductId[pid] || currentDate >= existingDate) {
+              lastEntryCostByProductId[pid] = valueCents
+              lastEntryDateByProductId[pid] = currentDate
+            }
           }
         }
       }

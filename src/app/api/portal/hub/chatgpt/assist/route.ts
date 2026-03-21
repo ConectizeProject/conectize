@@ -24,9 +24,14 @@ Sua tarefa é ajudar a criar ou editar ordens de serviço (OS).
 Responda sempre em português brasileiro, de forma objetiva e profissional.
 Para "suggest_title": retorne apenas um título curto (máx. ~50 caracteres) para a OS, baseado na descrição do defeito/solicitação. Sem aspas nem explicação.
 Para "improve_description": retorne apenas o texto da descrição melhorado (ortografia, clareza), mantendo o sentido. Nada além do texto.
-Para "suggest_services": retorne uma lista de itens de serviço, um por linha, no formato "Descrição do serviço". Máximo 5 itens. Apenas as linhas, sem numeração nem marcadores.`
+Para "suggest_services": retorne uma lista de itens de serviço, um por linha, no formato "Descrição do serviço". Máximo 5 itens. Apenas as linhas, sem numeração nem marcadores.
+Para "assist_assistance_comment": retorne apenas o texto do comentário para o histórico da assistência (técnico, objetivo, em português brasileiro). Sem título, aspas ou explicações.`
 
-type Action = 'suggest_title' | 'improve_description' | 'suggest_services'
+type Action =
+  | 'suggest_title'
+  | 'improve_description'
+  | 'suggest_services'
+  | 'assist_assistance_comment'
 
 export async function POST(request: Request) {
   const auth = await requireStaffOrAdmin()
@@ -38,7 +43,12 @@ export async function POST(request: Request) {
   const action = String(body?.action || '').trim() as Action
   const context = body?.context || {}
 
-  const validActions: Action[] = ['suggest_title', 'improve_description', 'suggest_services']
+  const validActions: Action[] = [
+    'suggest_title',
+    'improve_description',
+    'suggest_services',
+    'assist_assistance_comment',
+  ]
   if (!validActions.includes(action)) {
     return NextResponse.json({ ok: false, error: 'action_invalid' }, { status: 400 })
   }
@@ -64,6 +74,8 @@ export async function POST(request: Request) {
   const title = String(context.title || '').trim()
   const device = String(context.device || '').trim()
   const receivingNotes = String(context.receivingNotes || '').trim()
+  const assistanceDraft = String(context.draft || context.content || '').trim()
+  const previousCommentsSummary = String(context.previousCommentsSummary || '').trim()
 
   let userContent = ''
   if (action === 'suggest_title') {
@@ -72,6 +84,20 @@ export async function POST(request: Request) {
     userContent = `Melhore o texto abaixo (ortografia e clareza), mantendo o sentido. Retorne apenas o texto melhorado.\n${device ? `Contexto: aparelho/dispositivo da OS: ${device}.\n\n` : '\n'}Texto:\n\n${customerDescription || '(vazio)'}`
   } else if (action === 'suggest_services') {
     userContent = `Com base na descrição abaixo, sugira itens de serviço (ex: "Troca de tela", "Troca de bateria"). Um por linha, máx. 5. Apenas as linhas:\n\n${customerDescription || '(sem descrição)'}\n${device ? `Aparelho: ${device}` : ''}`
+  } else if (action === 'assist_assistance_comment') {
+    const ctxParts: string[] = []
+    if (device) ctxParts.push(`Aparelho / contexto: ${device}`)
+    if (customerDescription) ctxParts.push(`Descrição do cliente na OS:\n${customerDescription}`)
+    if (receivingNotes) ctxParts.push(`Observações do recebimento:\n${receivingNotes}`)
+    if (previousCommentsSummary) {
+      ctxParts.push(`Trecho do histórico já registrado na assistência:\n${previousCommentsSummary}`)
+    }
+    const ctxBlock = ctxParts.length ? `${ctxParts.join('\n\n')}\n\n` : ''
+    if (assistanceDraft) {
+      userContent = `${ctxBlock}Melhore o comentário abaixo para o histórico técnico da assistência (clareza, ortografia, tom profissional). Preserve fatos e não invente o que não consta no texto. Retorne apenas o comentário revisado.\n\nComentário:\n\n${assistanceDraft}`
+    } else {
+      userContent = `${ctxBlock}Redija um comentário breve (2 a 6 frases) para o histórico da assistência técnica desta OS, com base apenas no contexto acima. Seja objetivo. Se não houver informação suficiente, sugira uma frase neutra pedindo detalhes ao técnico. Retorne apenas o comentário.`
+    }
   }
 
   // GPT-5 e modelos o-series usam max_completion_tokens e não suportam temperature customizado.
@@ -84,10 +110,11 @@ export async function POST(request: Request) {
       { role: 'user', content: userContent },
     ],
   }
+  const tokenBudget = action === 'assist_assistance_comment' ? 900 : 500
   if (isNewModel) {
-    apiBody.max_completion_tokens = 500
+    apiBody.max_completion_tokens = tokenBudget
   } else {
-    apiBody.max_tokens = 500
+    apiBody.max_tokens = tokenBudget
     apiBody.temperature = 0.3
   }
 
@@ -135,6 +162,12 @@ export async function POST(request: Request) {
       if (action === 'improve_description') {
         const fallback = customerDescription || ''
         return NextResponse.json({ ok: true, text: fallback })
+      }
+      if (action === 'assist_assistance_comment') {
+        const fallback = assistanceDraft || ''
+        if (fallback) {
+          return NextResponse.json({ ok: true, text: fallback })
+        }
       }
       return NextResponse.json(
         { ok: false, error: 'empty_response', message: 'A IA não retornou texto. Tente novamente ou use outro modelo no HUB.' },

@@ -23,7 +23,20 @@ import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { toast } from '@/hooks/use-toast'
 import { portalFetch } from '@/lib/portal/portal-fetch'
 import { parse3utoolsText } from '@/lib/resale/parse-3utools'
-import { ArrowLeft, DollarSign, FileInput, Plus, Trash2, Undo2 } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { getLabelWindowFeatures } from '@/lib/ordem-print'
+import {
+  buildCopyClienteText,
+  buildCopyLojistaText,
+  buildSeminovoLabelHtml,
+  type SeminovoActionDevice,
+} from '@/lib/seminovos/seminovos-device-actions'
+import { ArrowLeft, DollarSign, FileInput, MoreHorizontal, Plus, Store, Tag, Trash2, Undo2, UserRound } from 'lucide-react'
 import { ResaleDeviceTermsDialog } from './ResaleDeviceTermsDialog'
 
 type CostRow = { id?: string; description: string; value_cents: number }
@@ -581,25 +594,74 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
     }
   }
 
-  async function handleCopyDeviceData() {
-    const lines = [
-      [formDeviceName, formStorageGb ? `${formStorageGb}GB` : '', formColor].filter(Boolean).join(' • '),
-      formBattery ? `Bateria: ${formBattery}` : '',
-      formCondition ? `Estado: ${formCondition}` : '',
-      formInfo ? `Info: ${formInfo}` : '',
-      formImei ? `IMEI: ${formImei}` : '',
-    ].filter(Boolean)
+  function getDeviceSnapshotForActions (): SeminovoActionDevice {
+    return {
+      device_name: formDeviceName.trim() || null,
+      storage_gb: formStorageGb.trim() || null,
+      color: formColor.trim() || null,
+      battery: formBattery.trim() || null,
+      condition: formCondition.trim() || null,
+      info: formInfo.trim() || null,
+      imei: formImei.trim() || null,
+      wholesale_value_cents: moneyToCentsFromMasked(formWholesaleValue) ?? null,
+      sale_value_cents: moneyToCentsFromMasked(formSaleValue) ?? null,
+    }
+  }
 
-    const text = lines.join('\n')
+  async function handleCopyDeviceData () {
+    const text = buildCopyLojistaText(getDeviceSnapshotForActions())
     if (!text) return
 
     try {
       if (navigator?.clipboard?.writeText) {
         await navigator.clipboard.writeText(text)
+        toast({ description: 'Copiado para a área de transferência', duration: 2000 })
       }
     } catch {
       // ignore clipboard errors
     }
+  }
+
+  async function handleHeaderCopyLojista () {
+    const text = buildCopyLojistaText(getDeviceSnapshotForActions())
+    if (!text) {
+      toast({ variant: 'destructive', description: 'Nada para copiar. Preencha os dados do aparelho.' })
+      return
+    }
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text)
+        toast({ variant: 'success', title: 'Copiado', description: 'Texto para lojista na área de transferência.', duration: 2000 })
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  async function handleHeaderCopyCliente () {
+    const text = buildCopyClienteText(getDeviceSnapshotForActions())
+    if (!text) {
+      toast({ variant: 'destructive', description: 'Nada para copiar. Preencha os dados do aparelho.' })
+      return
+    }
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text)
+        toast({ variant: 'success', title: 'Copiado', description: 'Texto para cliente na área de transferência.', duration: 2000 })
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  function handleHeaderPrintLabel () {
+    if (typeof window === 'undefined') return
+    const win = window.open('', '_blank', getLabelWindowFeatures())
+    if (!win) return
+    const html = buildSeminovoLabelHtml(getDeviceSnapshotForActions())
+    win.document.open()
+    win.document.write(html)
+    win.document.close()
   }
 
   if (isLoadingDevice) {
@@ -612,18 +674,44 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" asChild aria-label="Voltar">
-          <Link href="/portal/seminovos">
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-        </Button>
-        <div>
-          <h1 className="text-2xl font-bold">{isCreate ? 'Cadastrar aparelho seminovo' : 'Editar aparelho'}</h1>
-          <p className="text-sm text-muted-foreground">
-            {isCreate ? 'Preencha os dados do aparelho. Valores em reais.' : 'Altere os dados e salve.'}
-          </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-center gap-4 min-w-0">
+          <Button variant="ghost" size="icon" asChild aria-label="Voltar">
+            <Link href="/portal/seminovos">
+              <ArrowLeft className="h-4 w-4" />
+            </Link>
+          </Button>
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold">{isCreate ? 'Cadastrar aparelho seminovo' : 'Editar aparelho'}</h1>
+            <p className="text-sm text-muted-foreground">
+              {isCreate ? 'Preencha os dados do aparelho. Valores em reais.' : 'Altere os dados e salve.'}
+            </p>
+          </div>
         </div>
+        {!isCreate ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="outline" size="sm" className="shrink-0 gap-2">
+                <MoreHorizontal className="h-4 w-4" />
+                Ações
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-52">
+              <DropdownMenuItem onClick={handleHeaderPrintLabel}>
+                <Tag className="h-4 w-4 mr-2" />
+                Imprimir etiqueta
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleHeaderCopyLojista}>
+                <Store className="h-4 w-4 mr-2" />
+                Copiar dados para lojista
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleHeaderCopyCliente}>
+                <UserRound className="h-4 w-4 mr-2" />
+                Copiar dados para cliente
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
       </div>
 
       {errorMessage ? (

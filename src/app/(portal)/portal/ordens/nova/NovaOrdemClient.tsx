@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Formik, Form, Field, FieldArray } from 'formik'
 import * as Yup from 'yup'
-import { Check, Loader2, Minus, X } from 'lucide-react'
+import { Check, Loader2, Minus, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -23,7 +23,17 @@ import {
 } from '@/components/ui/dialog'
 import { PatternLockInput } from '@/components/pattern-lock/PatternLockInput'
 import { CreateCustomerDialog, EditCustomerDialog, type CustomerHit } from '@/components/customers'
-import { OrderDeviceSelector, OrderPaymentMethodFields, OrderServicesCard, OrderServicesTotalProvider, OsAssistAiIconButton, type DeviceModel, type OrderServicesCardRef, type ServiceLine } from '@/components/orders'
+import {
+	OrderDeviceSelector,
+	OrderPaymentMethodFields,
+	OrderServicesCard,
+	OrderServicesTotalProvider,
+	OsAssistAiIconButton,
+	type DeviceModel,
+	type OrderPaymentMethodFieldsRef,
+	type OrderServicesCardRef,
+	type ServiceLine,
+} from '@/components/orders'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { NovaOrdemCustomerCard } from './NovaOrdemCustomerCard'
 import { parseMoneyToCents } from '@/lib/utils/format-money'
@@ -84,7 +94,7 @@ type FormValues = {
 	passcodePattern: string
 	paymentMethods: Array<{ payment_method_id: string; installments?: number; value_cents?: number | null }>
 	customerDescription: string
-	internalDescription: string
+	internalInitialComment: string
 	receivingNotes: string
 	services: ServiceLine[]
 	deviceEntryChecksJson: string
@@ -109,7 +119,7 @@ const initialFormValues: FormValues = {
 	passcodePattern: '',
 	paymentMethods: [],
 	customerDescription: '',
-	internalDescription: '',
+	internalInitialComment: '',
 	receivingNotes: '',
 	services: [],
 	deviceEntryChecksJson: '',
@@ -149,6 +159,8 @@ export function NovaOrdemClient(props: Props) {
 	const cpfSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 	const nameSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 	const servicesCardRef = useRef<OrderServicesCardRef>(null)
+	const paymentMethodsFieldsRef = useRef<OrderPaymentMethodFieldsRef>(null)
+	const [paymentMethodsCatalogLoading, setPaymentMethodsCatalogLoading] = useState(true)
 	const initialErrorToastShownRef = useRef(false)
 
 	const [selectedCustomer, setSelectedCustomer] = useState<CustomerHit | null>(null)
@@ -234,7 +246,7 @@ export function NovaOrdemClient(props: Props) {
 						? o.paymentMethods
 						: (o.paymentMethodId ? [{ payment_method_id: o.paymentMethodId, installments: o.installments ?? 1, value_cents: null }] : []),
 					customerDescription: o.customerDescription ?? '',
-					internalDescription: o.internalDescription ?? '',
+					internalInitialComment: o.internalInitialComment ?? '',
 					receivingNotes: o.receivingNotes ?? '',
 					services: o.services ?? [],
 					deviceEntryChecksJson: typeof o.deviceEntryChecks === 'string' ? o.deviceEntryChecks : (o.deviceEntryChecks ? JSON.stringify(o.deviceEntryChecks) : ''),
@@ -470,7 +482,7 @@ export function NovaOrdemClient(props: Props) {
 		fd.append('color', values.color)
 		fd.append('estimatedReadyAt', values.estimatedReadyAt)
 		fd.append('customerDescription', values.customerDescription)
-		fd.append('internalDescription', values.internalDescription)
+		fd.append('internalInitialComment', values.internalInitialComment)
 		fd.append('receivingNotes', values.receivingNotes)
 		fd.append('servicesJson', servicesJson)
 		fd.append('deviceEntryChecksJson', values.deviceEntryChecksJson || '')
@@ -694,8 +706,8 @@ export function NovaOrdemClient(props: Props) {
 
 							<Card>
 								<CardHeader>
-									<CardTitle>Dados da ordem</CardTitle>
-									<CardDescription>Dispositivo, status, serviços e demais informações.</CardDescription>
+									<CardTitle>Informações da assistência</CardTitle>
+									<CardDescription>Do título até a situação de entrada do aparelho.</CardDescription>
 								</CardHeader>
 								<CardContent className="relative space-y-6">
 									<div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -845,40 +857,72 @@ export function NovaOrdemClient(props: Props) {
 											</div>
 										</div>
 									</div>
+								</CardContent>
+							</Card>
 
-									<FieldArray name="services">
-										{({ push, remove }) => (
-											<OrderServicesCard
-												ref={servicesCardRef}
-												formik={{
-													services: formik.values.services ?? [],
-													onAdd: (item) => push(item),
-													onRemove: remove,
-													onUpdate: (idx, field, value) => formik.setFieldValue(`services.${idx}.${field}`, value),
-													onBlurSync: (services) => formik.setFieldValue('services', services),
-												}}
-											/>
-										)}
-									</FieldArray>
+							<FieldArray name="services">
+								{({ push, remove }) => (
+									<OrderServicesCard
+										ref={servicesCardRef}
+										formik={{
+											services: formik.values.services ?? [],
+											onAdd: (item) => push(item),
+											onRemove: remove,
+											onUpdate: (idx, field, value) => formik.setFieldValue(`services.${idx}.${field}`, value),
+											onBlurSync: (services) => formik.setFieldValue('services', services),
+										}}
+									/>
+								)}
+							</FieldArray>
 
-									<div className="space-y-2">
-										<div className="flex items-center justify-between gap-2">
-											<Label htmlFor="internalDescription">Descrição interna</Label>
-											<OsAssistAiIconButton
-												value={formik.values.internalDescription}
-												onImproved={(text) => formik.setFieldValue('internalDescription', text)}
-												device={[formik.values.brand, formik.values.deviceType, formik.values.model].filter(Boolean).join(' ')}
-											/>
-										</div>
-										<Field as={Textarea} id="internalDescription" name="internalDescription" placeholder="" />
-									</div>
-
+							<Card>
+								<CardHeader>
+									<CardTitle>Formas de pagamento</CardTitle>
+									<CardDescription>Defina como o cliente pagará a OS.</CardDescription>
+								</CardHeader>
+								<CardContent className="relative space-y-3">
 									<OrderPaymentMethodFields
+										ref={paymentMethodsFieldsRef}
 										formik={{
 											values: { paymentMethods: formik.values.paymentMethods ?? [] },
 											setFieldValue: formik.setFieldValue,
 										}}
+										onCatalogLoadingChange={setPaymentMethodsCatalogLoading}
 									/>
+									<Button
+										type="button"
+										variant="outline"
+										size="sm"
+										className="w-full border-dashed border-green-600 bg-green-600/5 text-green-700 hover:bg-green-600/10 hover:text-green-800"
+										onClick={() => paymentMethodsFieldsRef.current?.addEntry()}
+										disabled={paymentMethodsCatalogLoading}
+										aria-label="Incluir forma de pagamento"
+									>
+										<Plus className="h-4 w-4 mr-2" />
+										Incluir forma de pagamento
+									</Button>
+								</CardContent>
+							</Card>
+
+							<Card>
+								<CardHeader>
+									<CardTitle>Descrição interna</CardTitle>
+									<CardDescription>
+										Primeira anotação interna (opcional). Depois de criar a OS, use o histórico na página da ordem para mais comentários.
+									</CardDescription>
+								</CardHeader>
+								<CardContent className="relative space-y-6">
+									<div className="space-y-2">
+										<div className="flex items-center justify-between gap-2">
+											<Label htmlFor="internalInitialComment">Texto inicial</Label>
+											<OsAssistAiIconButton
+												value={formik.values.internalInitialComment}
+												onImproved={(text) => formik.setFieldValue('internalInitialComment', text)}
+												device={[formik.values.brand, formik.values.deviceType, formik.values.model].filter(Boolean).join(' ')}
+											/>
+										</div>
+										<Field as={Textarea} id="internalInitialComment" name="internalInitialComment" placeholder="" maxLength={6000} />
+									</div>
 
 									{formik.status && typeof formik.status === 'string' ? (
 										<p className="text-sm text-destructive">{formik.status}</p>

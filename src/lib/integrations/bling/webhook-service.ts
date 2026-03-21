@@ -277,6 +277,18 @@ export async function processBlingWebhook (id: string): Promise<{ ok: true; stat
               ? String(existing.parent_product_id)
               : await getProductIdByBlingId(supabase, parent_bling_id)
           }
+          /**
+           * Portal listou como produto raiz (`parent_bling_id` null). Após PATCH no Bling (ex.: GTIN),
+           * o GET/webhook pode trazer `produtoPai` ou nós aninhados e o mapper infere pai — o registro
+           * vira “variação” e some da query de pais (paginação). Só confiar em pai vindo do Bling
+           * quando o portal já tinha vínculo ou em sincronização explícita (“Atualizar pelo Bling”).
+           */
+          const incomingHasParent =
+            parent_bling_id != null && String(parent_bling_id).trim() !== ''
+          if (!hadParentInPortal && incomingHasParent) {
+            parent_bling_id = null
+            parent_product_id = null
+          }
         }
 
         let image_url = syncBase.image_url as string | null | undefined
@@ -340,6 +352,52 @@ export async function processBlingWebhook (id: string): Promise<{ ok: true; stat
             actorUserId,
             `bling:webhook:${id}:product_initial_stock`,
           )
+        }
+      }
+    }
+
+    if (effect.action === 'deactivateProductByBlingId') {
+      const blingId = String(effect.blingId || '').trim()
+      if (!blingId) {
+        throw new Error('bling_product_id_missing')
+      }
+      const productUuid = await getProductIdByBlingId(supabase, blingId)
+      if (productUuid) {
+        const { error: deactivateErr } = await supabase
+          .from('products')
+          .update({
+            is_active: false,
+            bling_sync_pending: false,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', productUuid)
+        if (deactivateErr) throw deactivateErr
+      }
+    }
+
+    if (effect.action === 'updateProductSupplierCost') {
+      const blingId = String(effect.blingProductId || '').trim()
+      if (!blingId) {
+        throw new Error('bling_product_id_missing')
+      }
+      const productUuid = await getProductIdByBlingId(supabase, blingId)
+      if (productUuid) {
+        const { data: costRow } = await supabase
+          .from('products')
+          .select('cost_price_manual_edited_at')
+          .eq('id', productUuid)
+          .maybeSingle()
+        const manual = (costRow as { cost_price_manual_edited_at?: string | null } | null)
+          ?.cost_price_manual_edited_at
+        if (!manual) {
+          const { error: costUpErr } = await supabase
+            .from('products')
+            .update({
+              cost_price_cents: effect.costPriceCents,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', productUuid)
+          if (costUpErr) throw costUpErr
         }
       }
     }

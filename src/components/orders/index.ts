@@ -3,7 +3,15 @@ export { CustomerDataGrid } from './CustomerDataGrid'
 export { OrderServicesCard, type ServiceLine, type ServiceItemDb, type OrderServicesCardRef } from './OrderServicesCard'
 export { OrderServicesTotalProvider } from './OrderServicesTotalContext'
 export { OrderDeviceSelector, type DeviceModel } from './OrderDeviceSelector'
-export { OrderPaymentMethodFields } from './OrderPaymentMethodFields'
+export {
+  OrderPaymentMethodFields,
+  type OrderPaymentMethodFieldsRef,
+} from './OrderPaymentMethodFields'
+export { OrderPaymentMethodsCard } from './OrderPaymentMethodsCard'
 export { OrderWarrantySelector } from './OrderWarrantySelector'
 export { OsAssistAiIconButton } from './OsAssistAiIconButton'
+export {
+  OsAssistanceCommentAiButton,
+  type AssistanceCommentAiContext,
+} from './OsAssistanceCommentAiButton'
 export { CustomerOrderHistoryModal } from './CustomerOrderHistoryModal'

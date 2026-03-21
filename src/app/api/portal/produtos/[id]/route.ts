@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getPortalAuth } from '@/lib/supabase/server'
-import { getProductById } from '@/lib/products/service'
-import { updateProductAndSyncBling } from '@/lib/products/update-product-with-bling'
+import { deleteProduct, getProductById } from '@/lib/products/service'
+import { syncProductToBling, updateProductAndSyncBling } from '@/lib/products/update-product-with-bling'
 
 type Params = Promise<{ id: string }>
 
@@ -184,6 +184,58 @@ export async function PATCH (
     syncedToBling: result.syncedToBling,
     pendingSyncToBling: result.product.blingSyncPending,
     blingFieldsChanged: result.blingFieldsChanged,
+  })
+}
+
+export async function DELETE (
+  request: NextRequest,
+  { params }: { params: Params },
+) {
+  const { id } = await params
+  const { user, role } = await getPortalAuth()
+  if (!user) {
+    return NextResponse.json({ ok: false, error: 'not_authenticated' }, { status: 401 })
+  }
+  const normalizedRole = role === 'customer' ? 'user' : role
+  if (normalizedRole === 'user' || !normalizedRole) {
+    return NextResponse.json({ ok: false, error: 'forbidden' }, { status: 403 })
+  }
+
+  const body = await request.json().catch(() => ({})) as { inactivateOnBling?: unknown }
+  const inactivateOnBling = Boolean(body?.inactivateOnBling)
+
+  const current = await getProductById(id)
+  if (!current.ok || !('product' in current)) {
+    return NextResponse.json({ ok: false, error: 'not_found' }, { status: 404 })
+  }
+
+  const hadBling = Boolean(
+    current.product.blingId && String(current.product.blingId).trim(),
+  )
+
+  const del = await deleteProduct(id)
+  if (!del.ok) {
+    const err = 'error' in del ? del.error : 'db_error'
+    const status = err === 'not_authenticated' ? 401 : 500
+    return NextResponse.json({ ok: false, error: err }, { status })
+  }
+
+  let blingInactivated = false
+  let blingError: string | undefined
+
+  if (inactivateOnBling && hadBling) {
+    const sync = await syncProductToBling(id, { portalFieldsChanged: ['isActive'] })
+    if (!sync.ok && 'error' in sync) {
+      blingError = sync.message ?? sync.error
+    } else {
+      blingInactivated = true
+    }
+  }
+
+  return NextResponse.json({
+    ok: true,
+    blingInactivated,
+    ...(blingError ? { blingError } : {}),
   })
 }
 

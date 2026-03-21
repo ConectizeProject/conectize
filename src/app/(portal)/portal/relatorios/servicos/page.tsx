@@ -8,9 +8,11 @@ import { QuickDatePresets } from '@/components/reports/QuickDatePresets'
 import { RelatorioServicosStatusSelect, RelatorioServicosQuickFilter } from '@/components/reports/RelatorioServicosFilters'
 import { RelatorioServicosCustomerSelect } from '@/components/reports/RelatorioServicosCustomerSelect'
 import { RelatorioServicosList } from '@/components/reports/RelatorioServicosList'
+import { RelatorioServicosPdfButton } from '@/components/reports/RelatorioServicosPdfButton'
 import { DateRangePicker } from '@/components/ui/date-range-picker'
 import { RelatorioServicosSituacao } from '@/components/reports/RelatorioServicosSituacao'
 import { maskedFromCents } from '@/lib/utils/money'
+import { formatDateBr } from '@/lib/utils/format-date'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,12 +35,17 @@ const CLOSED_STATUSES = [
 const FINAL_SUCCESS_STATUS = 'finalizada'
 const FINAL_NO_FIX_STATUS = 'finalizada_sem_conserto'
 
+type FaturamentoFiltroKey = 'todos' | 'ambos_zero' | 'custo_zero_com_cobrado'
+
 type SearchParams = Promise<{
   from?: string
   to?: string
   statusGroup?: string
   status?: string | string[]
   customerId?: string
+  /** Legado: use faturamentoFiltro=ambos_zero */
+  semValores?: string
+  faturamentoFiltro?: string
 }>
 
 export default async function RelatorioServicosPage({
@@ -53,7 +60,9 @@ export default async function RelatorioServicosPage({
     redirect('/portal/dashboard')
   }
 
-  const { from, to, statusGroup = '', status, customerId } = await searchParams
+  const sp = await searchParams
+  const { from, to, statusGroup = '', status, customerId } = sp
+  const faturamentoFiltroKey = resolveFaturamentoFiltro(sp)
   const { fromDate, toDate, fromStr, toStr } = getDateRange(from, to, 30)
 
   const statusArray = Array.isArray(status) ? status.filter(Boolean) : status ? [status].filter(Boolean) : []
@@ -180,6 +189,11 @@ export default async function RelatorioServicosPage({
     const { payment_fees_cents, net_received_cents, payment_fees_breakdown } = computePaymentFeesAndNet(o, pmById)
     return { ...o, payment_fees_cents, net_received_cents, payment_fees_breakdown }
   })
+
+  const displayOrders = applyFaturamentoFiltro(allOrders, faturamentoFiltroKey)
+
+  const periodLabelPdf = `${formatDateBr(fromStr)} a ${formatDateBr(toStr)}`
+  const pdfFilterNote = getPdfFilterNote(faturamentoFiltroKey)
 
   const openCount = openList.length
   const openCountPrev = openListPrev.length
@@ -367,6 +381,24 @@ export default async function RelatorioServicosPage({
             <QuickDatePresets />
             <RelatorioServicosQuickFilter />
           </div>
+          <div className="flex flex-col gap-1.5 max-w-xl">
+            <label htmlFor="faturamentoFiltro" className="text-sm font-medium">
+              Filtro por valores (cobrado / custo)
+            </label>
+            <select
+              id="faturamentoFiltro"
+              name="faturamentoFiltro"
+              defaultValue={faturamentoFiltroKey === 'todos' ? '' : faturamentoFiltroKey}
+              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              <option value="">Todos</option>
+              <option value="ambos_zero">Sem cobrado e sem custo (ambos R$ 0)</option>
+              <option value="custo_zero_com_cobrado">Custo R$ 0 com valor cobrado</option>
+            </select>
+            <p className="text-xs text-muted-foreground leading-snug">
+              Reflete apenas na tabela e no PDF; gráficos e totais do período continuam com todas as ordens filtradas por data/status.
+            </p>
+          </div>
         </div>
         <div className="flex gap-2 justify-end">
           <Button type="submit" variant="secondary">
@@ -503,21 +535,82 @@ export default async function RelatorioServicosPage({
 
       {allOrders.length > 0 ? (
         <Card>
-          <CardHeader>
-            <CardTitle>Ordens de serviço</CardTitle>
-            <CardDescription>
-              Filtradas por período e status selecionados.
-            </CardDescription>
+          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between space-y-0">
+            <div className="min-w-0">
+              <CardTitle>Ordens de serviço</CardTitle>
+              <CardDescription>
+                Filtradas por período e status selecionados.
+                {faturamentoFiltroKey === 'ambos_zero' ? (
+                  <span className="block mt-1 text-amber-700 dark:text-amber-400">
+                    Mostrando apenas ordens com cobrado e custo em R$ 0,00.
+                  </span>
+                ) : null}
+                {faturamentoFiltroKey === 'custo_zero_com_cobrado' ? (
+                  <span className="block mt-1 text-amber-700 dark:text-amber-400">
+                    Mostrando apenas ordens com custo R$ 0,00 e valor cobrado maior que zero.
+                  </span>
+                ) : null}
+              </CardDescription>
+            </div>
+            <RelatorioServicosPdfButton
+              orders={displayOrders.map((o: any) => ({
+                id: String(o.id),
+                display_number: o.display_number ?? null,
+                status: String(o.status),
+                title: o.title ?? null,
+                created_at: o.created_at ?? null,
+                closed_at: o.closed_at ?? null,
+                services_total_cents: o.services_total_cents ?? null,
+                services_cost_total_cents: o.services_cost_total_cents ?? null,
+                payment_fees_cents: o.payment_fees_cents ?? 0,
+              }))}
+              periodLabel={periodLabelPdf}
+              filterNote={pdfFilterNote}
+            />
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
-              <RelatorioServicosList orders={allOrders} />
+              {displayOrders.length > 0 ? (
+                <RelatorioServicosList orders={displayOrders} />
+              ) : (
+                <p className="text-sm text-muted-foreground py-6">
+                  Nenhuma ordem neste filtro. Ajuste o período, status ou o filtro por valores (cobrado/custo).
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>
       ) : null}
     </div>
   )
+}
+
+function resolveFaturamentoFiltro (sp: { faturamentoFiltro?: string; semValores?: string }): FaturamentoFiltroKey {
+  const raw = String(sp.faturamentoFiltro || '').trim()
+  if (raw === 'ambos_zero' || raw === 'custo_zero_com_cobrado') return raw
+  if (sp.semValores === '1' || sp.semValores === 'true') return 'ambos_zero'
+  return 'todos'
+}
+
+function applyFaturamentoFiltro (orders: any[], key: FaturamentoFiltroKey): any[] {
+  if (key === 'todos') return orders
+  return orders.filter((o) => {
+    const gross = Number(o.services_total_cents) || 0
+    const cost = Number(o.services_cost_total_cents) || 0
+    if (key === 'ambos_zero') return gross === 0 && cost === 0
+    if (key === 'custo_zero_com_cobrado') return cost === 0 && gross > 0
+    return true
+  })
+}
+
+function getPdfFilterNote (key: FaturamentoFiltroKey): string | null {
+  if (key === 'ambos_zero') {
+    return 'Filtro ativo: somente ordens sem valor cobrado e sem custo (R$ 0,00).'
+  }
+  if (key === 'custo_zero_com_cobrado') {
+    return 'Filtro ativo: custo R$ 0,00 com valor cobrado (> R$ 0,00).'
+  }
+  return null
 }
 
 type FeeBreakdownItem = { type: string; feePercent: number; valueCents: number; feeCents: number }

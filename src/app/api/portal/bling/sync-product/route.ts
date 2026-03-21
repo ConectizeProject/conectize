@@ -19,6 +19,7 @@ import {
 } from "@/lib/products/service";
 import { getPortalAuth } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
+import { inspect } from "node:util";
 
 /** Evita gravar CMV igual ao preço de venda (espelho Bling ou entrada antiga errada). */
 function isPlausibleCostUnit(
@@ -102,6 +103,20 @@ export async function POST(request: Request) {
 			path: blingProdutoApiPath(blingProductId),
 		});
 
+		console.log(
+			"[bling sync-product] objeto recebido do Bling (GET produto)\n" +
+				inspect(
+					{ blingProductId, data },
+					{
+						depth: null,
+						maxArrayLength: null,
+						maxStringLength: null,
+						colors: false,
+						breakLength: 100,
+					},
+				),
+		);
+
 		const local = mapBlingProductToLocal(data, blingProductId);
 		const saleCentsFromBling = local.salePriceCents ?? null;
 
@@ -154,8 +169,8 @@ export async function POST(request: Request) {
 				if (Number.isFinite(diff) && diff !== 0) {
 					let unitCents = 0;
 					for (const c of [
-						lastEntryUnitBefore,
 						local.costPriceCents,
+						lastEntryUnitBefore,
 						current.product.costPriceCents,
 					]) {
 						if (isPlausibleCostUnit(c, saleCentsFromBling)) {
@@ -200,6 +215,8 @@ export async function POST(request: Request) {
 		let costPriceCentsToSave: number | null | undefined;
 		if (current.product.costPriceManualEditedAt) {
 			costPriceCentsToSave = undefined;
+		} else if (isPlausibleCostUnit(local.costPriceCents, saleCentsFromBling)) {
+			costPriceCentsToSave = local.costPriceCents ?? undefined;
 		} else if (costFromLastEntry != null) {
 			costPriceCentsToSave = costFromLastEntry;
 		} else if (isPlausibleCostUnit(local.costPriceCents, saleCentsFromBling)) {
