@@ -157,7 +157,7 @@ export function PortalShell(props: PortalShellProps) {
 				<SidebarRail />
 			</Sidebar>
 
-			<SidebarInset>
+			<SidebarInset className="min-w-0">
 				<header className="sticky top-0 z-40 flex h-14 items-center justify-between gap-3 border-b bg-background/80 px-4 backdrop-blur">
 					<div className="flex items-center gap-2">
 						<SidebarTrigger />
@@ -234,7 +234,7 @@ export function PortalShell(props: PortalShellProps) {
 					</div>
 				</header>
 
-				<div className="p-4 md:p-6">
+				<div className="min-w-0 max-w-full p-4 md:p-6">
 					{props.children}
 				</div>
 			</SidebarInset>

@@ -24,7 +24,7 @@ export default async function HubPage() {
 
   const { data: connections } = await supabase
     .from('hub_connections')
-    .select('id, platform_id, metadata, created_at')
+    .select('id, platform_id, metadata, created_at, token_expires_at')
     .order('created_at', { ascending: false })
 
   const connectedPlatforms = new Set((connections || []).map((c: { platform_id: string }) => c.platform_id))
@@ -32,7 +32,13 @@ export default async function HubPage() {
   const chatgptModel = (chatgptConnection?.metadata as { model?: string } | null)?.model || 'gpt-5-mini'
   const blingConnections = (connections || []).filter(
     (c: { platform_id: string }) => c.platform_id === 'bling'
-  ) as Array<{ id: string; platform_id: string; metadata?: Record<string, unknown> | null; created_at?: string }>
+  ) as Array<{
+    id: string
+    platform_id: string
+    metadata?: Record<string, unknown> | null
+    created_at?: string
+    token_expires_at?: string | null
+  }>
 
   return (
     <div className="space-y-6">

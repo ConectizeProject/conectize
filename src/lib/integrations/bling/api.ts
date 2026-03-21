@@ -1,9 +1,10 @@
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 
 const BLING_API_BASE_URL = 'https://www.bling.com.br/Api/v3'
 const BLING_PLATFORM_ID = 'bling'
 
-type HubConnection = {
+export type HubConnection = {
   id: string
   platform_id: string
   access_token: string | null
@@ -168,13 +169,28 @@ export function blingProdutoApiPath (blingId: string, subpath?: string): string 
   return `/produtos/${encodeURIComponent(id)}${extra}`
 }
 
-function isTokenExpired (expiresAt: string | null): boolean {
+/**
+ * Margem para renovar o access token **antes** de expirar (evita 401 em chamadas e webhooks).
+ * Padrão: 30 minutos. Pode sobrescrever com `BLING_ACCESS_TOKEN_REFRESH_MARGIN_MINUTES` (env).
+ */
+function getProactiveRefreshMarginMs (): number {
+  const raw = process.env.BLING_ACCESS_TOKEN_REFRESH_MARGIN_MINUTES
+  if (raw != null && raw !== '') {
+    const n = Number(raw)
+    if (Number.isFinite(n) && n >= 0) return Math.round(n * 60_000)
+  }
+  return 30 * 60_000
+}
+
+/**
+ * Retorna true se o access token já expirou ou se expira dentro da margem proativa (renovar agora).
+ */
+export function shouldRefreshBlingAccessToken (expiresAt: string | null, marginMs?: number): boolean {
+  const margin = marginMs ?? getProactiveRefreshMarginMs()
   if (!expiresAt) return true
   const expiry = Date.parse(expiresAt)
   if (Number.isNaN(expiry)) return true
-  // margem de segurança de 60s
-  const nowWithMargin = Date.now() + 60_000
-  return expiry <= nowWithMargin
+  return expiry <= Date.now() + margin
 }
 
 export async function getBlingConnectionForCurrentUser (): Promise<BlingConnectionCurrentResult> {
@@ -215,15 +231,30 @@ export async function getBlingConnectionById (id: string): Promise<BlingConnecti
   return { ok: true as const, connection: data as HubConnection }
 }
 
-export async function refreshBlingTokenIfNeeded (connection: HubConnection) {
-  if (!connection.refresh_token || !isTokenExpired(connection.token_expires_at)) {
-    return connection
+type BlingTokenRefreshResult =
+  | { ok: true, connection: HubConnection }
+  | { ok: false, error: string }
+
+type PerformBlingTokenRefreshOptions = {
+  /** Para cron/rotinas sem cookie de usuário — use service role para passar RLS no `hub_connections`. */
+  supabase?: SupabaseClient
+}
+
+/**
+ * Renova o access token no Bling usando o refresh_token e persiste no banco.
+ */
+export async function performBlingTokenRefresh (
+  connection: HubConnection,
+  options?: PerformBlingTokenRefreshOptions
+): Promise<BlingTokenRefreshResult> {
+  if (!connection.refresh_token) {
+    return { ok: false, error: 'no_refresh_token' }
   }
 
   const clientId = process.env.BLING_CLIENT_ID
   const clientSecret = process.env.BLING_CLIENT_SECRET
   if (!clientId || !clientSecret) {
-    return connection
+    return { ok: false, error: 'bling_oauth_not_configured' }
   }
 
   const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
@@ -244,13 +275,14 @@ export async function refreshBlingTokenIfNeeded (connection: HubConnection) {
   const data = (await res.json().catch(() => null)) as BlingTokenResponse | null
 
   if (!res.ok || !data?.access_token) {
-    return connection
+    const errMsg = data?.error_description || data?.error || 'refresh_failed'
+    return { ok: false, error: String(errMsg) }
   }
 
   const expiresIn = Number(data.expires_in) || 3600
   const tokenExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString()
 
-  const supabase = await createSupabaseServerClient()
+  const supabase = options?.supabase ?? await createSupabaseServerClient()
   const { data: updated } = await supabase
     .from('hub_connections')
     .update({
@@ -268,10 +300,30 @@ export async function refreshBlingTokenIfNeeded (connection: HubConnection) {
     .maybeSingle()
 
   if (!updated) {
+    return { ok: false, error: 'db_update_failed' }
+  }
+
+  return { ok: true, connection: updated as HubConnection }
+}
+
+export async function refreshBlingTokenIfNeeded (
+  connection: HubConnection,
+  options?: PerformBlingTokenRefreshOptions
+) {
+  if (!connection.refresh_token || !shouldRefreshBlingAccessToken(connection.token_expires_at)) {
     return connection
   }
 
-  return updated as HubConnection
+  const result = await performBlingTokenRefresh(connection, options)
+  return result.ok ? result.connection : connection
+}
+
+/** Força renovação (ex.: botão na tela de integração), mesmo se o token ainda não estiver expirado. */
+export async function forceRefreshBlingToken (
+  connection: HubConnection,
+  options?: PerformBlingTokenRefreshOptions
+): Promise<BlingTokenRefreshResult> {
+  return performBlingTokenRefresh(connection, options)
 }
 
 export async function createBlingClientFromConnection (rawConnection: HubConnection): Promise<BlingClient> {

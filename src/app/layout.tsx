@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { Outfit } from 'next/font/google'
 import { Providers } from '@/providers/providers'
 import { NuqsAdapter } from 'nuqs/adapters/next/app'
@@ -59,6 +59,12 @@ export const metadata: Metadata = {
     'geo.position': '-19.9297;-43.9325',
     ICBM: '-19.9297, -43.9325',
   },
+}
+
+/** Sem isso, muitos mobile browsers usam viewport lógico ~980px e breakpoints (md/lg) tratam como desktop. */
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
 }
 
 const structuredData = {

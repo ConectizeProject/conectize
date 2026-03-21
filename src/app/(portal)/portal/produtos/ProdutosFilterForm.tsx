@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -13,18 +13,25 @@ export function ProdutosFilterForm ({ initialQ }: ProdutosFilterFormProps) {
   const router = useRouter()
   const [value, setValue] = useState(initialQ)
 
+  useEffect(() => {
+    setValue(initialQ)
+  }, [initialQ])
+
   function handleSubmit (e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const q = value.trim()
     const params = new URLSearchParams()
     if (q) params.set('q', q)
     const qs = params.toString()
-    router.push(qs ? `/portal/produtos?${qs}` : '/portal/produtos')
+    const href = qs ? `/portal/produtos?${qs}` : '/portal/produtos'
+    router.replace(href)
+    router.refresh()
   }
 
   function handleClear () {
     setValue('')
-    router.push('/portal/produtos')
+    router.replace('/portal/produtos')
+    router.refresh()
   }
 
   const hasValue = value.trim().length > 0
