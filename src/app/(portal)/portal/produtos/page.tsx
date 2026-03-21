@@ -6,8 +6,6 @@ import { Card, CardContent } from '@/components/ui/card'
 import { ProductsListClient } from './ProductsListClient'
 import { ProdutosFilterForm } from './ProdutosFilterForm'
 import type { ProductRow } from './ProductsListClient'
-import { ImportFromBlingButton } from './ImportFromBlingButton'
-import { BackfillFromBlingButton } from './BackfillFromBlingButton'
 import { effectiveSearchTokens } from '@/lib/products/product-search'
 
 export const dynamic = 'force-dynamic'
@@ -311,27 +309,21 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
   })
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-end justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold">Produtos e serviços</h1>
+    <div className="min-w-0 max-w-full space-y-4 sm:space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+        <div className="min-w-0 space-y-1">
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Produtos e serviços</h1>
           <p className="text-sm text-muted-foreground">
             Catálogo central de itens utilizados nas ordens de serviço e integrações com o Bling.
           </p>
         </div>
-        <div className="flex items-center gap-4 flex-wrap justify-end">
-          <div className="flex items-center gap-2">
-            <ImportFromBlingButton />
-            <Button variant="outline" asChild>
-              <Link href="/portal/produtos/novo">Novo produto/serviço</Link>
-            </Button>
-          </div>
-          <BackfillFromBlingButton />
-        </div>
+        <Button variant="outline" asChild className="w-full shrink-0 sm:w-auto">
+          <Link href="/portal/produtos/novo">Novo produto/serviço</Link>
+        </Button>
       </div>
 
-      <Card>
-        <CardContent className="pt-6">
+      <Card className="min-w-0 max-w-full">
+        <CardContent className="min-w-0 pt-4 sm:pt-6">
           <ProdutosFilterForm key={query} initialQ={query} />
         </CardContent>
       </Card>

@@ -1,10 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { memo, useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import Image from 'next/image'
-import { Barcode, Copy, Loader2, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
+import { Barcode, Loader2, MoreHorizontal, RefreshCw, Tag, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -18,216 +17,22 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuSeparator,
-	DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { formatCurrency } from '@/lib/utils'
-import { useToast } from '@/hooks/use-toast'
+import { toast } from '@/hooks/use-toast'
 import { StockManagementModal } from './StockManagementModal'
 import { cn } from '@/lib/utils'
 import { ProductEditDialog } from './ProductEditDialog'
+import { ProductListCard } from './ProductListCard'
+import { ProductListTableRow } from './ProductListTableRow'
+import { productTableCheckboxClass, type ProductRow } from './product-list-shared'
 
-export type ProductRow = {
-	id: string
-	bling_id?: string | null
-	bling_sync_pending?: boolean
-	parent_bling_id?: string | null
-	kind?: 'product' | 'service' | null
-	name: string
-	sku?: string | null
-	barcode?: string | null
-	image_url?: string | null
-	sale_price_cents?: number | null
-	cost_price_cents?: number | null
-	is_active?: boolean
-	created_at?: string
-	current_stock?: number
-	has_stock_movements?: boolean
-	is_variation?: boolean
-	parent_name?: string | null
-}
+export type { ProductRow }
 
 type Props = {
 	products: ProductRow[]
 }
 
-const allowedImageHosts = new Set<string>([
-	'm.media-amazon.com',
-	'http2.mlstatic.com',
-	'elastobor.vtexassets.com',
-	'nacionalsmart.com.br',
-])
-
-function isAllowedProductImageHost(hostname: string): boolean {
-	const h = hostname.toLowerCase()
-	if (allowedImageHosts.has(h)) return true
-	if (h === 'bling.com.br' || h.endsWith('.bling.com.br')) return true
-	if (h === 'tcdn.com.br' || h.endsWith('.tcdn.com.br')) return true
-	return false
-}
-
-type QuickSalePriceCellProps = {
-	productId: string
-	blingId?: string | null
-	salePriceCents?: number | null
-}
-
-const QuickSalePriceCell = memo(function QuickSalePriceCell({
-	productId,
-	blingId,
-	salePriceCents,
-}: QuickSalePriceCellProps) {
-	const router = useRouter()
-	const { toast } = useToast()
-	const [isEditing, setIsEditing] = useState(false)
-	const [value, setValue] = useState('')
-	const [isSaving, setIsSaving] = useState(false)
-
-	async function handleSavePrice() {
-		const numericValue = Number(String(value).replace(',', '.'))
-		if (!Number.isFinite(numericValue) || numericValue < 0) {
-			toast({ description: 'Informe um valor válido', variant: 'destructive' })
-			return
-		}
-
-		setIsSaving(true)
-
-		try {
-			const response = await fetch(`/api/portal/produtos/${productId}`, {
-				method: 'PATCH',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ salePrice: numericValue }),
-			})
-
-			const data = await response.json().catch(() => null)
-			if (!response.ok) {
-				toast({
-					description: data?.message || data?.error || 'Erro ao salvar preço',
-					variant: 'destructive',
-				})
-				return
-			}
-
-			if (blingId) {
-				const syncResponse = await fetch(`/api/portal/produtos/${productId}/sync-bling`, {
-					method: 'POST',
-				})
-				const syncData = await syncResponse.json().catch(() => null)
-
-				if (!syncResponse.ok || !syncData?.ok) {
-					toast({
-						title: 'Preço salvo no portal',
-						description: syncData?.message || syncData?.error || 'Falha ao sincronizar com o Bling. O item ficou pendente de sincronização.',
-						variant: 'destructive',
-					})
-					setIsEditing(false)
-					setValue('')
-					router.refresh()
-					return
-				}
-
-				toast({
-					title: 'Preço salvo e sincronizado com o Bling.',
-					variant: 'success',
-				})
-			} else {
-				toast({
-					title: 'Preço salvo com sucesso.',
-					variant: 'success',
-				})
-			}
-
-			setIsEditing(false)
-			setValue('')
-			router.refresh()
-		} catch {
-			toast({ description: 'Erro ao salvar preço', variant: 'destructive' })
-		} finally {
-			setIsSaving(false)
-		}
-	}
-
-	if (isEditing) {
-		return (
-			<div
-				className="flex items-center justify-end gap-1"
-				onClick={(event) => event.stopPropagation()}
-			>
-				<input
-					type="number"
-					step="0.01"
-					min="0"
-					className="h-8 w-24 rounded border border-input bg-background px-2 text-right text-xs"
-					value={value}
-					onChange={(event) => setValue(event.target.value)}
-				/>
-				<Button
-					type="button"
-					variant="ghost"
-					className="h-8 px-2 text-xs"
-					disabled={isSaving}
-					onClick={handleSavePrice}
-				>
-					{isSaving
-						? (
-							<>
-								<Loader2 className="mr-1 h-3 w-3 animate-spin" />
-								Salvando...
-							</>
-						)
-						: 'OK'}
-				</Button>
-				<Button
-					type="button"
-					variant="ghost"
-					className="h-8 px-2 text-xs"
-					disabled={isSaving}
-					onClick={() => {
-						setIsEditing(false)
-						setValue('')
-					}}
-				>
-					X
-				</Button>
-			</div>
-		)
-	}
-
-	return (
-		<div
-			className="flex items-center justify-end gap-1"
-			onClick={(event) => event.stopPropagation()}
-		>
-			<span className="tabular-nums">
-				{typeof salePriceCents === 'number'
-					? formatCurrency(salePriceCents / 100)
-					: '-'}
-			</span>
-			<button
-				type="button"
-				className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted"
-				onClick={() => {
-					setIsEditing(true)
-					setValue(
-						typeof salePriceCents === 'number'
-							? (salePriceCents / 100).toFixed(2)
-							: ''
-					)
-				}}
-			>
-				<Pencil className="h-3 w-3" />
-			</button>
-		</div>
-	)
-})
-
 export function ProductsListClient({ products }: Props) {
 	const router = useRouter()
-	const { toast } = useToast()
 	const [stockModalProduct, setStockModalProduct] = useState<{
 		id: string
 		name: string
@@ -248,7 +53,16 @@ export function ProductsListClient({ products }: Props) {
 	} | null>(null)
 	const [inactivateOnBling, setInactivateOnBling] = useState(true)
 	const [deleteSubmitting, setDeleteSubmitting] = useState(false)
+	const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
+	const [bulkBusy, setBulkBusy] = useState(false)
+	const [bulkAction, setBulkAction] = useState<'sync' | 'barcode' | 'price' | null>(null)
 	const isProductTab = filterType === 'product'
+	const syncInFlightRef = useRef(false)
+	const barcodeInFlightRef = useRef(false)
+
+	useEffect(() => {
+		setSelectedIds(new Set())
+	}, [filterType])
 
 	useEffect(() => {
 		if (!barcodeOptimistic) return
@@ -305,8 +119,9 @@ export function ProductsListClient({ products }: Props) {
 		[rows, filterType]
 	)
 
-	async function handleSyncFromBling(productId: string) {
-		if (syncingId) return
+	const handleSyncFromBling = useCallback(async (productId: string) => {
+		if (syncInFlightRef.current) return
+		syncInFlightRef.current = true
 		setSyncingId(productId)
 		try {
 			const res = await fetch('/api/portal/bling/sync-product', {
@@ -336,22 +151,25 @@ export function ProductsListClient({ products }: Props) {
 				description: message || 'Falha de rede ou resposta inválida. Tente novamente.',
 			})
 		} finally {
+			syncInFlightRef.current = false
 			setSyncingId(null)
 		}
-	}
+	}, [router])
 
-	async function handleGenerateBarcodeFromBling(productId: string) {
-		if (barcodeGeneratingId) return
+	const handleGenerateBarcodeFromBling = useCallback(async (productId: string) => {
+		if (barcodeInFlightRef.current) return
+		barcodeInFlightRef.current = true
 		setBarcodeGeneratingId(productId)
 		setBarcodeGeneratingStage('updating')
 		setBarcodeOptimistic(null)
 
-		function clearBarcodeGenerationOnly() {
+		function clearBarcodeGenerationOnly () {
+			barcodeInFlightRef.current = false
 			setBarcodeGeneratingId(null)
 			setBarcodeGeneratingStage(null)
 		}
 
-		function clearBarcodeGenerationAndOptimistic() {
+		function clearBarcodeGenerationAndOptimistic () {
 			clearBarcodeGenerationOnly()
 			setBarcodeOptimistic(null)
 		}
@@ -428,9 +246,9 @@ export function ProductsListClient({ products }: Props) {
 			})
 			clearBarcodeGenerationAndOptimistic()
 		}
-	}
+	}, [router])
 
-	function openDeleteDialog(product: ProductRow) {
+	const openDeleteDialog = useCallback((product: ProductRow) => {
 		const hasBling = Boolean(product.bling_id)
 		setDeleteDialog({
 			id: product.id,
@@ -438,7 +256,7 @@ export function ProductsListClient({ products }: Props) {
 			hasBling,
 		})
 		setInactivateOnBling(hasBling)
-	}
+	}, [])
 
 	async function handleConfirmDelete() {
 		if (!deleteDialog) return
@@ -488,8 +306,188 @@ export function ProductsListClient({ products }: Props) {
 		}
 	}
 
+	const selectedCount = selectedIds.size
+	const allVisibleIds = useMemo(() => filteredRows.map((r) => r.id), [filteredRows])
+	const allSelected =
+		allVisibleIds.length > 0 && allVisibleIds.every((id) => selectedIds.has(id))
+	const noneSelected = selectedCount === 0
+	const selectAllState: boolean | 'indeterminate' = allSelected
+		? true
+		: noneSelected
+			? false
+			: 'indeterminate'
+
+	const toggleRowSelected = useCallback((id: string, checked: boolean) => {
+		setSelectedIds((prev) => {
+			const next = new Set(prev)
+			if (checked) next.add(id)
+			else next.delete(id)
+			return next
+		})
+	}, [])
+
+	const toggleSelectAll = useCallback((checked: boolean) => {
+		if (!checked) {
+			setSelectedIds(new Set())
+			return
+		}
+		setSelectedIds(new Set(allVisibleIds))
+	}, [allVisibleIds])
+
+	const handleProductRowClick = useCallback((p: ProductRow) => {
+		setEditingProduct({
+			id: p.id,
+			name: p.name,
+			bling_id: p.bling_id ?? null,
+		})
+	}, [])
+
+	async function handleBulkSyncFromBling () {
+		const ids = filteredRows
+			.filter((r) => selectedIds.has(r.id) && r.bling_id)
+			.map((r) => r.id)
+		if (ids.length === 0) {
+			toast({
+				variant: 'destructive',
+				title: 'Nada para sincronizar',
+				description: 'Selecione itens vinculados ao Bling.',
+			})
+			return
+		}
+		setBulkBusy(true)
+		setBulkAction('sync')
+		let ok = 0
+		let fail = 0
+		try {
+			for (const productId of ids) {
+				const res = await fetch('/api/portal/bling/sync-product', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ productId }),
+				})
+				const data = await res.json().catch(() => null)
+				if (res.ok && data?.ok) ok++
+				else fail++
+			}
+			toast({
+				variant: fail > 0 ? 'default' : 'success',
+				title: 'Atualizar pelo Bling',
+				description: `${ok} ok${fail > 0 ? `, ${fail} falha(s)` : ''}.`,
+			})
+			setSelectedIds(new Set())
+			router.refresh()
+		} catch {
+			toast({ variant: 'destructive', title: 'Erro na operação em massa' })
+		} finally {
+			setBulkBusy(false)
+			setBulkAction(null)
+		}
+	}
+
+	async function handleBulkGenerateBarcode () {
+		const ids = filteredRows
+			.filter(
+				(r) =>
+					selectedIds.has(r.id) &&
+					r.bling_id &&
+					!(r.barcode && String(r.barcode).trim())
+			)
+			.map((r) => r.id)
+		if (ids.length === 0) {
+			toast({
+				variant: 'destructive',
+				title: 'Nada para gerar',
+				description: 'Selecione itens com Bling e sem código de barras.',
+			})
+			return
+		}
+		setBulkBusy(true)
+		setBulkAction('barcode')
+		let ok = 0
+		let fail = 0
+		try {
+			for (const productId of ids) {
+				const res = await fetch(`/api/portal/produtos/${productId}/barcode-generate`, {
+					method: 'POST',
+				})
+				const data = await res.json().catch(() => null)
+				if (!res.ok || !data?.ok) {
+					fail++
+					continue
+				}
+				if (data?.shouldSyncToBling) {
+					const syncRes = await fetch(`/api/portal/produtos/${productId}/sync-bling`, {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ portalFieldsChanged: ['barcode'] }),
+					})
+					const syncData = await syncRes.json().catch(() => null)
+					if (!syncRes.ok || !syncData?.ok) {
+						fail++
+						continue
+					}
+				}
+				ok++
+			}
+			toast({
+				variant: fail > 0 ? 'default' : 'success',
+				title: 'Gerar código de barras',
+				description: `${ok} ok${fail > 0 ? `, ${fail} falha(s)` : ''}.`,
+			})
+			setSelectedIds(new Set())
+			router.refresh()
+		} catch {
+			toast({ variant: 'destructive', title: 'Erro na operação em massa' })
+		} finally {
+			setBulkBusy(false)
+			setBulkAction(null)
+		}
+	}
+
+	async function handleBulkPushPriceToBling () {
+		const ids = filteredRows
+			.filter((r) => selectedIds.has(r.id) && r.bling_id)
+			.map((r) => r.id)
+		if (ids.length === 0) {
+			toast({
+				variant: 'destructive',
+				title: 'Nada para enviar',
+				description: 'Selecione itens vinculados ao Bling.',
+			})
+			return
+		}
+		setBulkBusy(true)
+		setBulkAction('price')
+		let ok = 0
+		let fail = 0
+		try {
+			for (const productId of ids) {
+				const res = await fetch(`/api/portal/produtos/${productId}/sync-bling`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ portalFieldsChanged: ['salePriceCents'] }),
+				})
+				const data = await res.json().catch(() => null)
+				if (res.ok && data?.ok) ok++
+				else fail++
+			}
+			toast({
+				variant: fail > 0 ? 'default' : 'success',
+				title: 'Atualizar preço no Bling',
+				description: `${ok} ok${fail > 0 ? `, ${fail} falha(s)` : ''}.`,
+			})
+			setSelectedIds(new Set())
+			router.refresh()
+		} catch {
+			toast({ variant: 'destructive', title: 'Erro na operação em massa' })
+		} finally {
+			setBulkBusy(false)
+			setBulkAction(null)
+		}
+	}
+
 	return (
-		<>
+		<div className="min-w-0 w-full max-w-full">
 			<nav className="mb-4 flex gap-1 border-b">
 				<button
 					type="button"
@@ -507,7 +505,7 @@ export function ProductsListClient({ products }: Props) {
 					type="button"
 					onClick={() => setFilterType('service')}
 					className={cn(
-						'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+						'px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors sm:px-4',
 						filterType === 'service'
 							? 'text-foreground border-primary'
 							: 'text-muted-foreground border-transparent hover:text-foreground hover:border-muted'
@@ -517,304 +515,204 @@ export function ProductsListClient({ products }: Props) {
 				</button>
 			</nav>
 
-			<Card>
-				<CardContent>
-					{filteredRows.length > 0 ? (
-						<div className="overflow-x-auto">
-							<table className="w-full text-sm">
-								<thead>
-									<tr className="border-b text-xs text-muted-foreground">
-										<th className="py-2 pr-2 text-left font-medium">Nome</th>
-										<th className="py-2 px-2 text-left font-medium">SKU</th>
-										<th className="py-2 px-2 text-left font-medium">Código barras</th>
-										{isProductTab && (
-											<th className="py-2 px-2 text-right font-medium">Estoque</th>
-										)}
-										<th className="py-2 px-2 text-right font-medium">Preço venda</th>
-										{isProductTab && (
-											<th className="py-2 px-2 text-right font-medium">Custo</th>
-										)}
-										<th className="py-2 px-2 text-center font-medium">Origem</th>
-										<th className="py-2 pl-2 text-right font-medium">Ações</th>
-									</tr>
-								</thead>
-								<tbody>
-									{filteredRows.map((product) => (
-										<tr
-											key={product.id}
-											className={`border-b last:border-0 cursor-pointer hover:bg-muted/40 ${product.is_variation ? 'bg-muted/40' : ''}`}
-											onClick={() =>
-												setEditingProduct({
-													id: product.id,
-													name: product.name,
-													bling_id: product.bling_id ?? null,
-												})}
-										>
-											<td className="py-2 pr-2 align-top">
-												<div className={`flex items-start gap-3 ${product.is_variation ? 'pl-6 relative' : ''}`}>
-													{product.is_variation && (
-														<span className="absolute left-0 top-4 h-px w-5 bg-border" aria-hidden="true" />
-													)}
-													<div className="h-10 w-10 flex items-center justify-center rounded-md border border-border overflow-hidden bg-muted shrink-0">
-														{(() => {
-															const url = product.image_url
-															if (!url) {
-																return null
-															}
-															try {
-																const parsed = new URL(url)
-																if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-																	return null
-																}
-																if (!isAllowedProductImageHost(parsed.hostname)) {
-																	return null
-																}
-															} catch {
-																return null
-															}
-															return (
-																<Image
-																	src={url}
-																	alt={product.name}
-																	width={40}
-																	height={40}
-																	className="object-cover"
-																/>
-															)
-														})() || (
-																<span className="text-[10px] font-medium text-muted-foreground uppercase">
-																	{product.name?.slice(0, 2) || '?'}
-																</span>
-															)}
-													</div>
-													<div className="flex flex-col gap-0.5 min-w-0">
-														<div className="font-medium flex items-center gap-2">
-															<span className={`truncate ${product.is_active ? '' : 'line-through text-muted-foreground'}`}>
-																{product.name}
-															</span>
-															{!product.is_active && (
-																<span className="rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-																	Inativo
-																</span>
-															)}
-															{product.bling_id && product.bling_sync_pending && (
-																<span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-400">
-																	Desincronizado
-																</span>
-															)}
-														</div>
-														{product.created_at && (
-															<span className="text-[11px] text-muted-foreground">
-																Criado em {new Date(product.created_at).toLocaleDateString('pt-BR')}
-															</span>
-														)}
-													</div>
+			{selectedCount > 0 && (
+				<div
+					className="mb-4 flex min-w-0 max-w-full flex-col gap-3 rounded-lg border border-primary/20 bg-primary/5 p-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
+					role="region"
+					aria-label="Ações em massa"
+				>
+					<div className="flex flex-wrap items-center gap-2 text-sm">
+						<span className="font-medium text-foreground">
+							{selectedCount} selecionado{selectedCount === 1 ? '' : 's'}
+						</span>
+						<Button
+							type="button"
+							variant="ghost"
+							size="sm"
+							className="h-8"
+							disabled={bulkBusy}
+							onClick={() => setSelectedIds(new Set())}
+						>
+							Limpar seleção
+						</Button>
+					</div>
+					<div className="flex flex-wrap items-center gap-2">
+						<Button
+							type="button"
+							variant="secondary"
+							size="sm"
+							className="h-8"
+							disabled={bulkBusy}
+							onClick={() => void handleBulkSyncFromBling()}
+						>
+							{bulkBusy && bulkAction === 'sync'
+								? (
+									<Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+								)
+								: (
+									<RefreshCw className="mr-1 h-3.5 w-3.5" />
+								)}
+							Atualizar pelo Bling
+						</Button>
+						<Button
+							type="button"
+							variant="secondary"
+							size="sm"
+							className="h-8"
+							disabled={bulkBusy}
+							onClick={() => void handleBulkGenerateBarcode()}
+						>
+							{bulkBusy && bulkAction === 'barcode'
+								? (
+									<Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+								)
+								: (
+									<Barcode className="mr-1 h-3.5 w-3.5" />
+								)}
+							Gerar código de barras
+						</Button>
+						<Button
+							type="button"
+							variant="secondary"
+							size="sm"
+							className="h-8"
+							disabled={bulkBusy}
+							onClick={() => void handleBulkPushPriceToBling()}
+						>
+							{bulkBusy && bulkAction === 'price'
+								? (
+									<Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+								)
+								: (
+									<Tag className="mr-1 h-3.5 w-3.5" />
+								)}
+							Atualizar preço no Bling
+						</Button>
+					</div>
+				</div>
+			)}
+
+			{filteredRows.length > 0 ? (
+				<>
+					<div className="flex min-w-0 max-w-full flex-col gap-3 md:hidden" data-product-list="cards">
+						{filteredRows.map((product) => (
+							<ProductListCard
+								key={product.id}
+								product={product}
+								isSelected={selectedIds.has(product.id)}
+								isProductTab={isProductTab}
+								bulkBusy={bulkBusy}
+								isSyncing={syncingId === product.id}
+								isBarcodeGenerating={barcodeGeneratingId === product.id}
+								barcodeGeneratingStage={barcodeGeneratingStage}
+								optimisticBarcode={
+									barcodeOptimistic?.productId === product.id
+										? barcodeOptimistic.barcode.trim()
+										: null
+								}
+								onToggleSelect={toggleRowSelected}
+								onRowClick={handleProductRowClick}
+								onOpenStock={setStockModalProduct}
+								onGenerateBarcode={handleGenerateBarcodeFromBling}
+								onSyncFromBling={handleSyncFromBling}
+								onDelete={openDeleteDialog}
+							/>
+						))}
+					</div>
+
+					<Card className="hidden min-w-0 max-w-full overflow-hidden md:block" data-product-list="table">
+						<CardContent className="min-w-0 p-0 sm:p-6">
+							<div className="min-w-0 w-full max-w-full overflow-x-auto overscroll-x-contain">
+								<table className="w-full min-w-0 table-fixed border-collapse text-sm">
+									{isProductTab ? (
+										<colgroup>
+											<col style={{ width: '2.5rem' }} />
+											<col style={{ width: '26%' }} />
+											<col style={{ width: '9%' }} />
+											<col style={{ width: '12%' }} />
+											<col style={{ width: '7%' }} />
+											<col style={{ width: '11%' }} />
+											<col style={{ width: '9%' }} />
+											<col style={{ width: '11%' }} />
+											<col style={{ width: '3rem' }} />
+										</colgroup>
+									) : (
+										<colgroup>
+											<col style={{ width: '2.5rem' }} />
+											<col style={{ width: '34%' }} />
+											<col style={{ width: '11%' }} />
+											<col style={{ width: '16%' }} />
+											<col style={{ width: '14%' }} />
+											<col style={{ width: '16%' }} />
+											<col style={{ width: '3rem' }} />
+										</colgroup>
+									)}
+									<thead>
+										<tr className="border-b text-xs text-muted-foreground">
+											<th className="w-10 px-0 py-2 align-middle">
+												<div className="flex h-9 items-center justify-center">
+													<Checkbox
+														className={productTableCheckboxClass}
+														checked={selectAllState}
+														onCheckedChange={(checked) => toggleSelectAll(checked === true)}
+														aria-label="Selecionar todos os itens visíveis"
+														disabled={bulkBusy}
+													/>
 												</div>
-											</td>
-											<td className="py-2 px-2 align-top">
-												{product.sku ? (
-													<button
-														type="button"
-														onClick={(e) => {
-															e.stopPropagation()
-															navigator?.clipboard?.writeText(product.sku ?? '').then(() => {
-																toast({ description: 'Copiado para a área de transferência', duration: 2000 })
-															}).catch(() => { })
-														}}
-														className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-left font-mono bg-muted/70 hover:bg-muted border border-border/60 cursor-pointer transition-colors max-w-full min-w-0"
-														title="Clique para copiar"
-													>
-														<span className="truncate">{product.sku}</span>
-														<Copy className="h-3 w-3 shrink-0 text-muted-foreground" />
-													</button>
-												) : (
-													'-'
-												)}
-											</td>
-											<td className="py-2 px-2 align-top">
-												{(() => {
-													const serverBarcode = product.barcode?.trim() || null
-													const optimisticBarcode =
-														barcodeOptimistic?.productId === product.id
-															? barcodeOptimistic.barcode.trim()
-															: null
-													const displayBarcode = serverBarcode || optimisticBarcode
-
-													if (displayBarcode && barcodeGeneratingId !== product.id) {
-														return (
-															<button
-																type="button"
-																onClick={(e) => {
-																	e.stopPropagation()
-																	navigator?.clipboard?.writeText(displayBarcode).then(() => {
-																		toast({ description: 'Copiado para a área de transferência', duration: 2000 })
-																	}).catch(() => { })
-																}}
-																className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-left font-mono bg-muted/70 hover:bg-muted border border-border/60 cursor-pointer transition-colors max-w-full min-w-0"
-																title="Clique para copiar"
-															>
-																<span className="truncate">{displayBarcode}</span>
-																<Copy className="h-3 w-3 shrink-0 text-muted-foreground" />
-															</button>
-														)
-													}
-
-													if (!product.bling_id) {
-														return '-'
-													}
-
-													if (barcodeGeneratingId === product.id) {
-														return (
-															<div
-																className="inline-flex max-w-full min-w-0 items-center gap-2 rounded border border-border/60 bg-muted/70 px-2 py-1"
-																aria-busy="true"
-																title={
-																	barcodeGeneratingStage === 'syncing'
-																		? 'Sincronizando com o Bling…'
-																		: 'Gerando código de barras…'
-																}
-															>
-																<span className="min-w-0 flex-1 truncate font-mono text-sm tabular-nums">
-																	{displayBarcode
-																		? displayBarcode
-																		: (
-																			<span
-																				className="inline-block h-4 w-[7.5rem] max-w-full rounded bg-muted-foreground/15 animate-pulse"
-																				aria-hidden
-																			/>
-																		)}
-																</span>
-																<Loader2
-																	className="h-4 w-4 shrink-0 animate-spin text-muted-foreground"
-																	aria-hidden
-																/>
-															</div>
-														)
-													}
-
-													return (
-														<button
-															type="button"
-															onClick={(e) => {
-																e.stopPropagation()
-																handleGenerateBarcodeFromBling(product.id)
-															}}
-															className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-left font-mono bg-muted/70 hover:bg-muted border border-border/60 cursor-pointer transition-colors max-w-full min-w-0"
-															aria-label="Gerar código de barras"
-															title="Gerar código de barras"
-														>
-															<Barcode className="h-3 w-3 text-muted-foreground" />
-															<span className="truncate">Gerar</span>
-														</button>
-													)
-												})()}
-											</td>
+											</th>
+											<th className="min-w-0 py-2 pr-2 text-left font-medium">Nome</th>
+											<th className="min-w-0 py-2 px-2 text-left font-medium">SKU</th>
+											<th className="min-w-0 py-2 px-2 text-left font-medium">Cód. barras</th>
 											{isProductTab && (
-												<td className="py-2 px-2 align-top text-right">
-													{product.has_stock_movements ? (
-														<button
-															type="button"
-															className="tabular-nums text-primary underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded px-1 -mx-1"
-															onClick={(e) => {
-																e.stopPropagation()
-																setStockModalProduct({
-																	id: product.id,
-																	name: product.name,
-																	costPriceCents: product.cost_price_cents,
-																	currentStock: typeof product.current_stock === 'number' ? product.current_stock : 0,
-																})
-															}}
-														>
-															{typeof product.current_stock === 'number' ? product.current_stock : 0}
-														</button>
-													) : (
-														<span className="tabular-nums text-muted-foreground">-</span>
-													)}
-												</td>
+												<th className="min-w-0 py-2 px-2 text-right font-medium">Estoque</th>
 											)}
-											<td className="py-2 px-2 align-top text-right">
-												<QuickSalePriceCell
-													productId={product.id}
-													blingId={product.bling_id}
-													salePriceCents={product.sale_price_cents}
-												/>
-											</td>
+											<th className="min-w-0 py-2 px-2 text-right font-medium">Preço venda</th>
 											{isProductTab && (
-												<td className="py-2 px-2 align-top text-right">
-													{typeof product.cost_price_cents === 'number'
-														? formatCurrency(product.cost_price_cents / 100)
-														: '-'}
-												</td>
+												<th className="min-w-0 py-2 px-2 text-right font-medium">Custo</th>
 											)}
-											<td className="py-2 px-2 align-top text-center">
-												{product.bling_id ? (
-													<div className="flex items-center justify-center gap-1">
-														<span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-blue-600 dark:text-blue-400">
-															Bling
-														</span>
-														{product.bling_sync_pending && (
-															<span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
-																Pendente
-															</span>
-														)}
-													</div>
-												) : (
-													<span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-														Manual
-													</span>
-												)}
-											</td>
-											<td className="py-2 pl-2 align-top text-right" onClick={(e) => e.stopPropagation()}>
-												<DropdownMenu modal={false}>
-													<DropdownMenuTrigger asChild>
-														<Button variant="ghost" size="icon" className="h-8 w-8">
-															<MoreHorizontal className="h-4 w-4" />
-															<span className="sr-only">Abrir ações</span>
-														</Button>
-													</DropdownMenuTrigger>
-													<DropdownMenuContent align="end">
-														<DropdownMenuItem asChild>
-															<Link href={`/portal/produtos/${product.id}/editar`}>Editar</Link>
-														</DropdownMenuItem>
-														<DropdownMenuItem asChild>
-															<Link href={`/portal/produtos/${product.id}`}>Ver detalhes</Link>
-														</DropdownMenuItem>
-														{product.bling_id && (
-															<DropdownMenuItem
-																onClick={() => handleSyncFromBling(product.id)}
-																disabled={syncingId === product.id}
-															>
-																{syncingId === product.id ? 'Sincronizando...' : 'Atualizar pelo Bling'}
-															</DropdownMenuItem>
-														)}
-														<DropdownMenuSeparator />
-														<DropdownMenuItem
-															className="text-destructive focus:text-destructive"
-															onSelect={(event) => {
-																event.preventDefault()
-																openDeleteDialog(product)
-															}}
-														>
-															<Trash2 className="mr-2 h-4 w-4" />
-															Excluir
-														</DropdownMenuItem>
-													</DropdownMenuContent>
-												</DropdownMenu>
-											</td>
+											<th className="min-w-0 py-2 px-2 text-center font-medium">Origem</th>
+											<th className="min-w-0 py-2 pl-2 text-right font-medium">Ações</th>
 										</tr>
-									))}
-								</tbody>
-							</table>
-						</div>
-					) : (
-						<div className="py-8 text-sm text-muted-foreground">
-							{filterType === 'product'
-								? 'Nenhum produto encontrado.'
-								: 'Nenhum serviço encontrado.'}
-						</div>
-					)}
-				</CardContent>
-			</Card>
+									</thead>
+									<tbody>
+										{filteredRows.map((product) => (
+											<ProductListTableRow
+												key={product.id}
+												product={product}
+												isSelected={selectedIds.has(product.id)}
+												isProductTab={isProductTab}
+												bulkBusy={bulkBusy}
+												isSyncing={syncingId === product.id}
+												isBarcodeGenerating={barcodeGeneratingId === product.id}
+												barcodeGeneratingStage={barcodeGeneratingStage}
+												optimisticBarcode={
+													barcodeOptimistic?.productId === product.id
+														? barcodeOptimistic.barcode.trim()
+														: null
+												}
+												onToggleSelect={toggleRowSelected}
+												onRowClick={handleProductRowClick}
+												onOpenStock={setStockModalProduct}
+												onGenerateBarcode={handleGenerateBarcodeFromBling}
+												onSyncFromBling={handleSyncFromBling}
+												onDelete={openDeleteDialog}
+											/>
+										))}
+									</tbody>
+								</table>
+							</div>
+						</CardContent>
+					</Card>
+				</>
+			) : (
+				<Card className="min-w-0 max-w-full">
+					<CardContent className="min-w-0 py-8 text-sm text-muted-foreground">
+						{filterType === 'product'
+							? 'Nenhum produto encontrado.'
+							: 'Nenhum serviço encontrado.'}
+					</CardContent>
+				</Card>
+			)}
 
 			{stockModalProduct && (
 				<StockManagementModal
@@ -910,7 +808,7 @@ export function ProductsListClient({ products }: Props) {
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>
-		</>
+		</div>
 	)
 }
 
