@@ -12,9 +12,14 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { formatCurrency } from '@/lib/utils'
+import { cn, formatCurrency } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
-import { productTableCheckboxClass, type ProductRow } from './product-list-shared'
+import {
+	productTableCheckboxClass,
+	productTableCheckboxColumnClass,
+	productTableCheckboxColumnWidthPx,
+	type ProductRow,
+} from './product-list-shared'
 import { ProductListNameImageBlock } from './ProductListNameImageBlock'
 import { QuickSalePriceCell } from './QuickSalePriceCell'
 
@@ -147,7 +152,13 @@ export const ProductListCard = memo(function ProductListCard ({
 		>
 			<div className="flex items-center gap-2">
 				<div
-					className="shrink-0"
+					className={cn('flex items-center justify-center', productTableCheckboxColumnClass)}
+					style={{
+						width: productTableCheckboxColumnWidthPx,
+						minWidth: productTableCheckboxColumnWidthPx,
+						maxWidth: productTableCheckboxColumnWidthPx,
+						boxSizing: 'border-box',
+					}}
 					onClick={(e) => e.stopPropagation()}
 					onKeyDown={(e) => e.stopPropagation()}
 				>

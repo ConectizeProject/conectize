@@ -14,7 +14,12 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { formatCurrency } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
-import { productTableCheckboxClass, type ProductRow } from './product-list-shared'
+import {
+	getProductTableCheckboxColumnStyle,
+	productTableCheckboxClass,
+	productTableCheckboxColumnClass,
+	type ProductRow,
+} from './product-list-shared'
 import { ProductListNameImageBlock } from './ProductListNameImageBlock'
 import { QuickSalePriceCell } from './QuickSalePriceCell'
 
@@ -82,10 +87,11 @@ export const ProductListTableRow = memo(function ProductListTableRow ({
 			onClick={handleRowClick}
 		>
 			<td
-				className="w-10 px-0 align-middle"
+				className={productTableCheckboxColumnClass}
+				style={getProductTableCheckboxColumnStyle('body')}
 				onClick={(e) => e.stopPropagation()}
 			>
-				<div className="flex min-h-[2.75rem] items-center justify-center py-2">
+				<div className="flex min-h-[2.75rem] w-full max-w-full min-w-0 items-center justify-center py-2">
 					<Checkbox
 						className={productTableCheckboxClass}
 						checked={isSelected}

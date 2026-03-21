@@ -1,3 +1,5 @@
+import type { CSSProperties } from 'react'
+
 export type ProductRow = {
 	id: string
 	bling_id?: string | null
@@ -32,6 +34,38 @@ export function isAllowedProductImageHost (hostname: string): boolean {
 	if (h === 'tcdn.com.br' || h.endsWith('.tcdn.com.br')) return true
 	return false
 }
+
+/** Largura fixa em px da coluna do checkbox (tabela + card). Repetir no primeiro `<col>` do colgroup. */
+export const productTableCheckboxColumnWidthPx = 32
+
+/** Largura fixa da coluna Ações (última); alinhar ao último `<col>`. */
+export const productTableActionsColumnWidthPx = 48
+
+/**
+ * Estilo inline para travar a 1ª coluna em px (evita sobra de `table-layout: fixed` ir para ela).
+ * `head`: mantém padding vertical do cabeçalho.
+ */
+export function getProductTableCheckboxColumnStyle (variant: 'head' | 'body'): CSSProperties {
+	const w = productTableCheckboxColumnWidthPx
+	const base: CSSProperties = {
+		width: w,
+		maxWidth: w,
+		minWidth: w,
+		paddingLeft: 0,
+		paddingRight: 0,
+		boxSizing: 'border-box',
+		overflow: 'hidden',
+		verticalAlign: 'middle',
+	}
+	if (variant === 'head') {
+		return { ...base, paddingTop: 8, paddingBottom: 8 }
+	}
+	return { ...base, padding: 0 }
+}
+
+/** Classes auxiliares (reforço Tailwind; largura real vem do style inline). */
+export const productTableCheckboxColumnClass =
+	'shrink-0 px-0 box-border overflow-hidden'
 
 /** Checklist na tabela: quadrado, cinza claro; cor primária só quando totalmente marcado. */
 export const productTableCheckboxClass =

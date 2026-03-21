@@ -23,7 +23,14 @@ import { cn } from '@/lib/utils'
 import { ProductEditDialog } from './ProductEditDialog'
 import { ProductListCard } from './ProductListCard'
 import { ProductListTableRow } from './ProductListTableRow'
-import { productTableCheckboxClass, type ProductRow } from './product-list-shared'
+import {
+	productTableCheckboxClass,
+	productTableCheckboxColumnClass,
+	productTableCheckboxColumnWidthPx,
+	productTableActionsColumnWidthPx,
+	getProductTableCheckboxColumnStyle,
+	type ProductRow,
+} from './product-list-shared'
 
 export type { ProductRow }
 
@@ -626,31 +633,35 @@ export function ProductsListClient({ products }: Props) {
 								<table className="w-full min-w-0 table-fixed border-collapse text-sm">
 									{isProductTab ? (
 										<colgroup>
-											<col style={{ width: '2.5rem' }} />
-											<col style={{ width: '26%' }} />
+											<col style={{ width: `${productTableCheckboxColumnWidthPx}px` }} />
+											{/* Soma das % ≈ 100% da tabela para o espaço extra não ir para a 1ª coluna */}
+											<col style={{ width: '34%' }} />
 											<col style={{ width: '9%' }} />
 											<col style={{ width: '12%' }} />
 											<col style={{ width: '7%' }} />
 											<col style={{ width: '11%' }} />
 											<col style={{ width: '9%' }} />
 											<col style={{ width: '11%' }} />
-											<col style={{ width: '3rem' }} />
+											<col style={{ width: `${productTableActionsColumnWidthPx}px` }} />
 										</colgroup>
 									) : (
 										<colgroup>
-											<col style={{ width: '2.5rem' }} />
-											<col style={{ width: '34%' }} />
+											<col style={{ width: `${productTableCheckboxColumnWidthPx}px` }} />
+											<col style={{ width: '42%' }} />
 											<col style={{ width: '11%' }} />
 											<col style={{ width: '16%' }} />
 											<col style={{ width: '14%' }} />
 											<col style={{ width: '16%' }} />
-											<col style={{ width: '3rem' }} />
+											<col style={{ width: `${productTableActionsColumnWidthPx}px` }} />
 										</colgroup>
 									)}
 									<thead>
 										<tr className="border-b text-xs text-muted-foreground">
-											<th className="w-10 px-0 py-2 align-middle">
-												<div className="flex h-9 items-center justify-center">
+											<th
+												className={productTableCheckboxColumnClass}
+												style={getProductTableCheckboxColumnStyle('head')}
+											>
+												<div className="flex h-9 max-w-full min-w-0 items-center justify-center">
 													<Checkbox
 														className={productTableCheckboxClass}
 														checked={selectAllState}
