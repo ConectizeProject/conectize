@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -167,10 +167,54 @@ export function OrdensFilterCollapsible({
     setCustomerSuggestions([])
   }
 
-  const deviceOptions = deviceModels.map((d) => ({
-    value: d.id,
-    label: [d.brand, d.device_type, d.model].filter(Boolean).join(' • ') || d.id,
-  }))
+  const deviceOptions = useMemo(
+    () =>
+      deviceModels
+        .map((d) => ({
+          value: d.id,
+          label: [d.brand, d.device_type, d.model].filter(Boolean).join(' ') || d.id,
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR')),
+    [deviceModels],
+  )
+
+  const initialDeviceLabel = useMemo(() => {
+    if (!initialValues.deviceModelId) return ''
+    const d = deviceModels.find((x) => x.id === initialValues.deviceModelId)
+    if (!d) return ''
+    return [d.brand, d.device_type, d.model].filter(Boolean).join(' ') || d.id
+  }, [deviceModels, initialValues.deviceModelId])
+
+  const [deviceQuery, setDeviceQuery] = useState(initialDeviceLabel)
+  const [selectedDeviceId, setSelectedDeviceId] = useState(initialValues.deviceModelId || '')
+  const [deviceSuggestions, setDeviceSuggestions] = useState<typeof deviceOptions>([])
+  const deviceBlurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    if (selectedDeviceId) {
+      setDeviceSuggestions([])
+      return
+    }
+    const q = deviceQuery.trim().toLowerCase()
+    if (q.length < 2) {
+      setDeviceSuggestions([])
+      return
+    }
+    const next = deviceOptions.filter((o) => o.label.toLowerCase().includes(q)).slice(0, 50)
+    setDeviceSuggestions(next)
+  }, [deviceQuery, deviceOptions, selectedDeviceId])
+
+  function handleSelectDevice(opt: { value: string; label: string }) {
+    setSelectedDeviceId(opt.value)
+    setDeviceQuery(opt.label)
+    setDeviceSuggestions([])
+  }
+
+  function handleClearDevice() {
+    setSelectedDeviceId('')
+    setDeviceQuery('')
+    setDeviceSuggestions([])
+  }
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
@@ -299,21 +343,66 @@ export function OrdensFilterCollapsible({
                 )}
               </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="deviceModelId">Dispositivo</Label>
-              <select
-                id="deviceModelId"
-                name="deviceModelId"
-                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-                defaultValue={initialValues.deviceModelId}
-              >
-                <option value="">Todos</option>
-                {deviceOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+            <div className="space-y-2 relative">
+              {selectedDeviceId ? <input type="hidden" name="deviceModelId" value={selectedDeviceId} /> : null}
+              <Label htmlFor="deviceModelSearch">Dispositivo</Label>
+              <div className="relative">
+                <Input
+                  id="deviceModelSearch"
+                  placeholder="Digite marca, tipo ou modelo (mín. 2 caracteres)…"
+                  value={deviceQuery}
+                  onChange={(e) => {
+                    setDeviceQuery(e.target.value)
+                    setSelectedDeviceId('')
+                  }}
+                  onBlur={() => {
+                    deviceBlurTimeoutRef.current = setTimeout(() => setDeviceSuggestions([]), 150)
+                  }}
+                  onFocus={() => {
+                    if (deviceBlurTimeoutRef.current) {
+                      clearTimeout(deviceBlurTimeoutRef.current)
+                      deviceBlurTimeoutRef.current = null
+                    }
+                  }}
+                  autoComplete="off"
+                />
+                {selectedDeviceId && (
+                  <button
+                    type="button"
+                    onClick={handleClearDevice}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs"
+                  >
+                    Limpar
+                  </button>
+                )}
+                {deviceSuggestions.length > 0 && (
+                  <ul className="absolute z-10 mt-1 w-full rounded-md border bg-popover py-1 shadow-md max-h-52 overflow-auto">
+                    {deviceSuggestions.map((opt) => (
+                      <li key={opt.value}>
+                        <button
+                          type="button"
+                          className="w-full px-3 py-2 text-left text-sm hover:bg-muted"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => handleSelectDevice(opt)}
+                        >
+                          {opt.label}
+                        </button>
+                      </li>
+                    ))}
+                    {deviceSuggestions.length === 50 ? (
+                      <li className="px-3 py-2 text-xs text-muted-foreground border-t border-border">
+                        Lista limitada a 50 itens — refine a busca se não encontrar o modelo.
+                      </li>
+                    ) : null}
+                  </ul>
+                )}
+                {!selectedDeviceId && deviceQuery.trim().length > 0 && deviceQuery.trim().length < 2 && (
+                  <p className="text-xs text-muted-foreground mt-1">Digite ao menos 2 caracteres para buscar.</p>
+                )}
+                {!selectedDeviceId && deviceQuery.trim().length >= 2 && deviceSuggestions.length === 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">Nenhum dispositivo encontrado.</p>
+                )}
+              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="status">Status</Label>
