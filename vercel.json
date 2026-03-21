@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/bling-refresh-tokens",
-      "schedule": "0 */4 * * *"
+      "schedule": "0 5 * * *"
     }
   ]
 }
