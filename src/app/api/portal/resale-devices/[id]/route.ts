@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { normalizeSalePaymentMethodsForPersistence } from '@/lib/resale/sale-payment-methods'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 
 function cleanText(value: unknown): string {
@@ -21,23 +22,6 @@ function toDate(value: unknown): string | null {
   const s = String(value).trim()
   if (!s) return null
   return s
-}
-
-type SalePaymentEntry = { payment_method_id: string; installments?: number; value_cents?: number | null }
-
-function normalizeSalePaymentMethods(
-  raw: unknown
-): Array<SalePaymentEntry> | undefined {
-  if (raw === undefined) return undefined
-  if (!Array.isArray(raw)) return []
-  return raw
-    .filter((e: unknown) => e && typeof e === 'object' && (e as SalePaymentEntry).payment_method_id)
-    .map((e: SalePaymentEntry) => ({
-      payment_method_id: String((e as SalePaymentEntry).payment_method_id).trim(),
-      installments: (e as SalePaymentEntry).installments != null ? Math.max(1, Math.min(24, Number((e as SalePaymentEntry).installments) || 1)) : undefined,
-      value_cents: (e as SalePaymentEntry).value_cents != null ? Math.max(0, Number((e as SalePaymentEntry).value_cents) || 0) : null,
-    }))
-    .filter((e) => e.payment_method_id)
 }
 
 async function requireStaffOrAdmin() {
@@ -111,7 +95,7 @@ export async function PATCH(
 
   const row: Record<string, unknown> = {}
 
-  const salePaymentMethods = normalizeSalePaymentMethods(body.sale_payment_methods)
+  const salePaymentMethods = normalizeSalePaymentMethodsForPersistence(body.sale_payment_methods)
   if (salePaymentMethods !== undefined) {
     row.sale_payment_methods = salePaymentMethods
     const first = Array.isArray(salePaymentMethods) && salePaymentMethods.length > 0 ? salePaymentMethods[0] : null

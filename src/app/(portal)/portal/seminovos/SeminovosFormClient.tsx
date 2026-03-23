@@ -87,7 +87,17 @@ type ResaleDevice = {
   sale_details: string | null
 }
 
-type SalePaymentEntry = { payment_method_id: string; value_cents: number | null; installments: number }
+type SalePaymentEntry = { rowKey: string; payment_method_id: string; value_cents: number | null; installments: number }
+
+function makeSalePaymentRowKey (): string {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `row-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function newEmptySalePaymentRow (): SalePaymentEntry {
+  return { rowKey: makeSalePaymentRowKey(), payment_method_id: '', value_cents: null, installments: 1 }
+}
 
 function centsToReais(cents: number | null | undefined): string {
   if (cents === null || cents === undefined) return ''
@@ -393,7 +403,7 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
     const suggested = formSaleValue || formWholesaleValue || formSoldFor || ''
     setSellModalValue(suggested)
     setSellModalDate(new Date().toISOString().slice(0, 10))
-    setSellPaymentMethods([{ payment_method_id: '', value_cents: null, installments: 1 }])
+    setSellPaymentMethods([newEmptySalePaymentRow()])
     setSellBuyerName('')
     setSellBuyerCpf('')
     setSellSaleDetails(formInfo || '')
@@ -409,7 +419,7 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
   }
 
   function addSellPaymentMethod() {
-    setSellPaymentMethods((prev) => [...prev, { payment_method_id: '', value_cents: null, installments: 1 }])
+    setSellPaymentMethods((prev) => [...prev, newEmptySalePaymentRow()])
   }
 
   function removeSellPaymentMethod(i: number) {
@@ -426,14 +436,15 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
         const salePms = (d as any).sale_payment_methods
         const pms = Array.isArray(salePms) && salePms.length > 0
           ? salePms.map((e: any) => ({
+            rowKey: makeSalePaymentRowKey(),
             payment_method_id: String(e.payment_method_id ?? ''),
             value_cents: e.value_cents != null ? Number(e.value_cents) : null,
             installments: e.installments != null ? Math.max(1, Number(e.installments)) : 1,
           }))
           : (d.payment_method_id
-            ? [{ payment_method_id: d.payment_method_id, value_cents: null, installments: d.payment_installments ?? 1 }]
-            : [{ payment_method_id: '', value_cents: null, installments: 1 }])
-        setSellPaymentMethods(pms.length > 0 ? pms : [{ payment_method_id: '', value_cents: null, installments: 1 }])
+            ? [{ rowKey: makeSalePaymentRowKey(), payment_method_id: d.payment_method_id, value_cents: null, installments: d.payment_installments ?? 1 }]
+            : [newEmptySalePaymentRow()])
+        setSellPaymentMethods(pms.length > 0 ? pms : [newEmptySalePaymentRow()])
         const soldCents = (d as any).sold_for_cents ?? null
         const valueMasked = soldCents != null ? maskedFromCents(soldCents) : ''
         setSellModalValue(valueMasked)
@@ -455,6 +466,17 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
     if (valueCents === null) return
 
     const validMethods = sellPaymentMethods.filter((e) => e.payment_method_id?.trim())
+    if (validMethods.length === 0) {
+      toast({ title: 'Forma de pagamento', description: 'Selecione ao menos uma forma de pagamento.', variant: 'destructive' })
+      return
+    }
+    if (sellPaymentMethods.length > 1) {
+      const anyEmpty = sellPaymentMethods.some((e) => !e.payment_method_id?.trim())
+      if (anyEmpty) {
+        toast({ title: 'Forma de pagamento', description: 'Selecione a forma de pagamento em todas as linhas.', variant: 'destructive' })
+        return
+      }
+    }
     const singleMethod = validMethods.length === 1 && (validMethods[0].value_cents == null || validMethods[0].value_cents === 0)
 
     let paymentFeeCents = 0
@@ -1109,7 +1131,7 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
               </div>
               <div className="space-y-3">
                 {sellPaymentMethods.map((entry, i) => (
-                  <div key={i} className="flex flex-wrap items-end gap-2 rounded border p-2 bg-muted/30">
+                  <div key={entry.rowKey} className="flex flex-wrap items-end gap-2 rounded border p-2 bg-muted/30">
                     <div className="flex-1 min-w-[140px] space-y-1">
                       <Label className="text-xs">Forma</Label>
                       <select

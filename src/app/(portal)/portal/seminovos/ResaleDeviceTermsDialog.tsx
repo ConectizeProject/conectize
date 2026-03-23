@@ -1,10 +1,10 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { portalFetch } from '@/lib/portal/portal-fetch'
-import { useEffect, useState } from 'react'
+import { getSalePaymentListFromDevice } from '@/lib/resale/sale-payment-methods'
 
 type CreditInstallmentFee = { installments: number; fee_percent: number }
 
@@ -68,8 +68,110 @@ function addDays(date: string | null | undefined, days: number): string | null {
   return `${day}/${month}/${year}`
 }
 
+function escapeHtml (raw: string): string {
+  return raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+/** Uma linha por forma de pagamento. */
+function buildSalePaymentLines (
+  device: ResaleDeviceForTerms,
+  paymentMethods: PaymentMethod[]
+): string[] {
+  const list = getSalePaymentListFromDevice(device)
+  if (list.length === 0) return []
+
+  const lines: string[] = []
+  for (const entry of list) {
+    const id = String(entry.payment_method_id ?? '')
+    const pm = paymentMethods.find(
+      (p) => p.id === id || p.id.toLowerCase() === id.toLowerCase()
+    )
+    let label = 'Não informado'
+    if (pm) {
+      if (pm.type === 'dinheiro') label = 'Dinheiro'
+      else if (pm.type === 'pix_direto' || pm.type === 'pix_maquina') label = 'PIX'
+      else if (pm.type === 'debito') label = 'Cartão de débito'
+      else if (pm.type === 'credito') {
+        const installments = entry.installments && entry.installments > 1 ? entry.installments : 1
+        label = installments > 1 ? `Cartão de crédito ${installments}x` : 'Cartão de crédito'
+      } else label = pm.description || 'Não informado'
+    } else if (entry.payment_method_id) {
+      const inst = entry.installments && entry.installments > 1 ? ` (${entry.installments}x)` : ''
+      label = `Forma de pagamento registrada${inst}`
+    }
+    if (entry.value_cents != null && entry.value_cents > 0) {
+      const value = (entry.value_cents / 100).toFixed(2).replace('.', ',')
+      label = `${label} — R$ ${value}`
+    }
+    lines.push(label)
+  }
+  return lines
+}
+
 export function ResaleDeviceTermsDialog({ open, onOpenChange, device }: Props) {
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([])
+  const [serverSnapshot, setServerSnapshot] = useState<ResaleDeviceForTerms | null>(null)
+  const [termsFetchLoading, setTermsFetchLoading] = useState(false)
+  const deviceRef = useRef(device)
+  deviceRef.current = device
+
+  useEffect(() => {
+    if (!open) {
+      setServerSnapshot(null)
+      setTermsFetchLoading(false)
+      return
+    }
+    if (!device?.id) {
+      setServerSnapshot(null)
+      setTermsFetchLoading(false)
+      return
+    }
+    const id = device.id
+    setTermsFetchLoading(true)
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await portalFetch(`/api/portal/resale-devices/${id}`)
+        const data = await res?.json().catch(() => null)
+        if (cancelled || !data?.ok || !data.device) return
+        const base = deviceRef.current
+        if (!base || base.id !== id) return
+        const srv = data.device as Record<string, unknown>
+        const salePmsMerged = Object.prototype.hasOwnProperty.call(srv, 'sale_payment_methods')
+          ? (srv.sale_payment_methods as ResaleDeviceForTerms['sale_payment_methods']) ?? null
+          : base.sale_payment_methods
+        setServerSnapshot({
+          ...base,
+          sale_payment_methods: salePmsMerged,
+          payment_method_id: (srv.payment_method_id as string | null | undefined) ?? base.payment_method_id,
+          payment_installments: (srv.payment_installments as number | null | undefined) ?? base.payment_installments,
+          sold_for_cents: (srv.sold_for_cents as number | null | undefined) ?? base.sold_for_cents,
+          sale_date: (srv.sale_date as string | null | undefined) ?? base.sale_date,
+          buyer_name: (srv.buyer_name as string | null | undefined) ?? base.buyer_name,
+          buyer_cpf: (srv.buyer_cpf as string | null | undefined) ?? base.buyer_cpf,
+          sale_details: (srv.sale_details as string | null | undefined) ?? base.sale_details,
+          device_name: (srv.device_name as string | null | undefined) ?? base.device_name,
+          model: (srv.model as string | null | undefined) ?? base.model,
+          color: (srv.color as string | null | undefined) ?? base.color,
+          storage_gb: (srv.storage_gb as string | null | undefined) ?? base.storage_gb,
+          battery: (srv.battery as string | null | undefined) ?? base.battery,
+          imei: (srv.imei as string | null | undefined) ?? base.imei,
+          serial: (srv.serial as string | null | undefined) ?? base.serial,
+        })
+      } catch {
+        if (!cancelled) setServerSnapshot(null)
+      } finally {
+        if (!cancelled) setTermsFetchLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open, device?.id])
 
   useEffect(() => {
     if (!open) return
@@ -92,51 +194,33 @@ export function ResaleDeviceTermsDialog({ open, onOpenChange, device }: Props) {
     }
   }, [open])
 
-  const paymentSummary = useMemo(() => {
-    if (!device) return 'Não informado'
-    const list = Array.isArray(device.sale_payment_methods) && device.sale_payment_methods.length > 0
-      ? device.sale_payment_methods
-      : (device.payment_method_id
-        ? [{ payment_method_id: device.payment_method_id, installments: device.payment_installments ?? 1, value_cents: null }]
-        : [])
-    if (list.length === 0) return 'Não informado'
+  const effectiveDevice = device ? (serverSnapshot ?? device) : null
+  const salePaymentLines = useMemo(
+    () => (effectiveDevice ? buildSalePaymentLines(effectiveDevice, paymentMethods) : []),
+    [effectiveDevice, paymentMethods]
+  )
 
-    const labels: string[] = []
-    for (const entry of list) {
-      const pm = paymentMethods.find((p) => p.id === entry.payment_method_id)
-      if (!pm) continue
-      let label = 'Não informado'
-      if (pm.type === 'dinheiro') label = 'Dinheiro'
-      else if (pm.type === 'pix_direto' || pm.type === 'pix_maquina') label = 'PIX'
-      else if (pm.type === 'debito') label = 'Cartão de débito'
-      else if (pm.type === 'credito') {
-        const installments = entry.installments && entry.installments > 1 ? entry.installments : 1
-        label = installments > 1 ? `Cartão de crédito ${installments}x` : 'Cartão de crédito'
-      } else label = pm.description || 'Não informado'
-      if (entry.value_cents != null && entry.value_cents > 0) {
-        const value = (entry.value_cents / 100).toFixed(2).replace('.', ',')
-        label = `${label} (R$ ${value})`
-      }
-      labels.push(label)
-    }
-    return labels.length > 0 ? labels.join('; ') : 'Não informado'
-  }, [device, paymentMethods])
+  const saleDateBr = formatDateBrFromIso(effectiveDevice?.sale_date ?? null)
+  const warrantyEndBr = addDays(effectiveDevice?.sale_date ?? null, 90) || 'Não informado'
 
-  const saleDateBr = formatDateBrFromIso(device?.sale_date ?? null)
-  const warrantyEndBr = addDays(device?.sale_date ?? null, 90) || 'Não informado'
+  if (!device || !effectiveDevice) return null
 
-  if (!device) return null
-
-  const deviceName = device.device_name || device.model || 'Aparelho'
-  const storage = device.storage_gb ? `${device.storage_gb}GB` : null
-  const battery = device.battery || null
-  const imei = device.imei || device.serial || null
-  const buyerName = device.buyer_name || 'Não informado'
-  const buyerCpf = device.buyer_cpf || 'Não informado'
-  const details = device.sale_details || device.sale_details === '' ? device.sale_details : null
+  const d = effectiveDevice
+  const deviceName = d.device_name || d.model || 'Aparelho'
+  const storage = d.storage_gb ? `${d.storage_gb}GB` : null
+  const battery = d.battery || null
+  const imei = d.imei || d.serial || null
+  const buyerName = d.buyer_name || 'Não informado'
+  const buyerCpf = d.buyer_cpf || 'Não informado'
+  const details = d.sale_details || d.sale_details === '' ? d.sale_details : null
 
   function handlePrint() {
-    if (typeof window === 'undefined') return
+    if (typeof window === 'undefined' || termsFetchLoading) return
+    const linesForPrint = buildSalePaymentLines(d, paymentMethods)
+    const paymentLinesHtml =
+      linesForPrint.length > 0
+        ? `<ul style="margin:4px 0 8px 18px;padding:0;">${linesForPrint.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>`
+        : '<p>Não informado</p>'
     const title = 'Termo de compra e garantia'
     const html = `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -157,7 +241,6 @@ export function ResaleDeviceTermsDialog({ open, onOpenChange, device }: Props) {
     p, li { margin: 2px 0; }
     .section { margin-bottom: 10px; }
     .label { font-weight: 600; }
-    .small { font-size: 11px; color: #4b5563; margin-top: 10px; }
   </style>
 </head>
 <body>
@@ -179,8 +262,9 @@ export function ResaleDeviceTermsDialog({ open, onOpenChange, device }: Props) {
 
   <div class="section">
     <h2>Dados da venda</h2>
-    <p><span class="label">Valor pago pelo cliente:</span> ${formatCentsBr(device.sold_for_cents)}</p>
-    <p><span class="label">Forma de pagamento:</span> ${paymentSummary}</p>
+    <p><span class="label">Valor pago pelo cliente:</span> ${formatCentsBr(d.sold_for_cents)}</p>
+    <p><span class="label">Formas de pagamento utilizadas:</span></p>
+    ${paymentLinesHtml}
     <p><span class="label">Data da compra:</span> ${saleDateBr}</p>
   </div>
 
@@ -206,12 +290,10 @@ export function ResaleDeviceTermsDialog({ open, onOpenChange, device }: Props) {
     </p>
     <p>
       Ao confirmar esta venda, o comprador declara ter lido e concordado com os termos acima, bem como recebido o aparelho nas condições descritas.
+      Assim como informado no momento da compra do aparelho, o comprador concordou com os termos.
     </p>
   </div>
 
-  <p class="small">
-    Para enviar este documento em PDF por WhatsApp, utilize a opção de impressão do navegador e salve como PDF antes de anexar na conversa.
-  </p>
 </body>
 </html>`
 
@@ -258,8 +340,19 @@ export function ResaleDeviceTermsDialog({ open, onOpenChange, device }: Props) {
 
           <section className="space-y-1">
             <h3 className="font-semibold text-base">Dados da venda</h3>
-            <p><span className="font-semibold">Valor pago pelo cliente:</span> {formatCentsBr(device.sold_for_cents)}</p>
-            <p><span className="font-semibold">Forma de pagamento:</span> {paymentSummary}</p>
+            <p><span className="font-semibold">Valor pago pelo cliente:</span> {formatCentsBr(d.sold_for_cents)}</p>
+            <p className="font-semibold">Formas de pagamento utilizadas:</p>
+            {termsFetchLoading ? (
+              <p className="text-muted-foreground">Carregando formas de pagamento…</p>
+            ) : salePaymentLines.length > 0 ? (
+              <ul className="list-disc pl-5 space-y-1">
+                {salePaymentLines.map((line, i) => (
+                  <li key={i}>{line}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-muted-foreground">Não informado</p>
+            )}
             <p><span className="font-semibold">Data da compra:</span> {saleDateBr}</p>
           </section>
 
@@ -289,12 +382,13 @@ export function ResaleDeviceTermsDialog({ open, onOpenChange, device }: Props) {
           <section className="space-y-1">
             <p>
               Ao confirmar esta venda, o comprador declara ter lido e concordado com os termos acima, bem como recebido o aparelho nas condições descritas.
+              Assim como informado no momento da compra do aparelho, o comprador concordou com os termos.
             </p>
           </section>
         </div>
 
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={handlePrint}>
+          <Button type="button" variant="outline" onClick={handlePrint} disabled={termsFetchLoading}>
             Imprimir / PDF
           </Button>
           <Button type="button" onClick={() => onOpenChange(false)}>
