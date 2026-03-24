@@ -1,174 +1,188 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
+import { estimatedReadyAtForDuplicateForm } from '@/lib/orders/fetch-order-for-print-html'
+import { formatMoneyInputBr } from '@/lib/utils/format-money'
 
-export async function GET(request: NextRequest) {
+function onlyDigits (s: string): string {
+  return String(s || '').replace(/\D/g, '')
+}
+
+function mapServicesForDuplicateForm (raw: unknown): unknown[] {
+  if (!raw) return []
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+    const data = parsed as Record<string, unknown>
+    const items = Array.isArray(data?.items) ? data.items : Array.isArray(parsed) ? parsed : []
+    return (items as Record<string, unknown>[]).map((item, index) => {
+      const kind = item.kind === 'product' ? 'product' : 'service'
+      const quantity =
+        kind === 'product'
+          ? String(Math.min(9999, Math.max(1, Math.trunc(Number(item.quantity) || 1))))
+          : '1'
+      const unitValueCents = Math.max(
+        0,
+        Number(item.unitValueCents ?? item.valueCents ?? 0) || 0,
+      )
+      const unitCostCents = Math.max(
+        0,
+        Number(item.unitCostCents ?? item.costCents ?? 0) || 0,
+      )
+      const desc = String(item.description ?? '').trim()
+      const pid = item.sourceProductId
+      return {
+        id: `dup-${index}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        kind,
+        description: desc,
+        quantity,
+        value: unitValueCents ? formatMoneyInputBr(String(unitValueCents)) : '',
+        cost: unitCostCents ? formatMoneyInputBr(String(unitCostCents)) : '',
+        sourceProductId: pid ? String(pid).trim() : null,
+      }
+    })
+  } catch {
+    return []
+  }
+}
+
+const CUSTOMER_SELECT = `
+  id,
+  cpf, cnpj, is_company, full_name, company_name, trade_name,
+  email, mobile_phone, contact_phone, contact_notes, address_full,
+  zip_code, state, city, neighborhood, street, street_number, street_complement,
+  birth_date, referral_source, referral_source_other
+`
+
+export async function GET (
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
   const auth = await requireStaffOrAdmin()
   if (auth.ok === false) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 
-  const { searchParams } = new URL(request.url)
-  const customerId = searchParams.get('customerId')?.trim()
-  const countOnly = searchParams.get('countOnly') === '1' || searchParams.get('countOnly') === 'true'
-  const statusGroup = searchParams.get('statusGroup')?.trim()
-  const q = searchParams.get('q')?.trim() ?? ''
-  const cpf = (searchParams.get('cpf') ?? '').replace(/\D/g, '').trim()
-  const osNumber = searchParams.get('osNumber')?.trim() ?? ''
-  const statusFilter = searchParams.get('status')?.trim() ?? ''
-  const filterCustomerId = searchParams.get('customerId')?.trim() ?? ''
-  const filterCustomerName = searchParams.get('customerName')?.trim() ?? ''
-  const filterDeviceModelId = searchParams.get('deviceModelId')?.trim() ?? ''
-  const filterCreatedFrom = searchParams.get('createdFrom')?.trim() ?? ''
-  const filterCreatedTo = searchParams.get('createdTo')?.trim() ?? ''
-  const filterReadyFrom = searchParams.get('readyFrom')?.trim() ?? ''
-  const filterReadyTo = searchParams.get('readyTo')?.trim() ?? ''
-
-  const FINAL_STATUSES = ['finalizada', 'finalizada_sem_conserto', 'finalizada_sem_aprovacao', 'cancelada']
-  const isValidDate = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v)
-
-  if (statusGroup === 'final') {
-    let customerIdsFilter: string[] | null = null
-    if (filterCustomerId) {
-      customerIdsFilter = [filterCustomerId]
-    } else if (filterCustomerName && filterCustomerName.length >= 2) {
-      const escaped = filterCustomerName.replace(/%/g, '\\%').replace(/_/g, '\\_')
-      const { data: custList } = await auth.supabase
-        .from('customers')
-        .select('id')
-        .or(`full_name.ilike.%${escaped}%,company_name.ilike.%${escaped}%,trade_name.ilike.%${escaped}%`)
-        .limit(100)
-      customerIdsFilter = custList && custList.length > 0 ? custList.map((c: { id: string }) => c.id) : []
-    } else if (cpf) {
-      const { data: custList } = await auth.supabase
-        .from('customers')
-        .select('id')
-        .or(`cpf.eq.${cpf},cnpj.eq.${cpf}`)
-      customerIdsFilter = (custList || []).map((c: { id: string }) => c.id)
-      if (customerIdsFilter.length === 0) {
-        return NextResponse.json({ ok: true, orders: [] })
-      }
-    }
-
-    const baseQuery = auth.supabase
-      .from('service_orders')
-      .select('id, display_number, status, title, created_at, updated_at, closed_at, estimated_ready_at, share_token, customer_id, device_model_id')
-      .in('status', FINAL_STATUSES)
-      .order('created_at', { ascending: false })
-      .limit(500)
-
-    if (q) {
-      const escaped = q.replaceAll(',', ' ').trim()
-      baseQuery.or(`title.ilike.%${escaped}%,description.ilike.%${escaped}%`)
-    }
-    if (osNumber) {
-      const displayNum = Number.parseInt(osNumber, 10)
-      if (!Number.isNaN(displayNum)) {
-        baseQuery.eq('display_number', displayNum)
-      }
-    }
-    if (statusFilter && FINAL_STATUSES.includes(statusFilter)) {
-      baseQuery.eq('status', statusFilter)
-    }
-    if (customerIdsFilter !== null) {
-      if (customerIdsFilter.length === 0) {
-        baseQuery.eq('customer_id', '00000000-0000-0000-0000-000000000000')
-      } else {
-        baseQuery.in('customer_id', customerIdsFilter)
-      }
-    }
-    if (filterDeviceModelId) baseQuery.eq('device_model_id', filterDeviceModelId)
-    if (filterCreatedFrom && isValidDate(filterCreatedFrom)) {
-      baseQuery.gte('created_at', `${filterCreatedFrom}T00:00:00.000Z`)
-    }
-    if (filterCreatedTo && isValidDate(filterCreatedTo)) {
-      baseQuery.lte('created_at', `${filterCreatedTo}T23:59:59.999Z`)
-    }
-    if (filterReadyFrom && isValidDate(filterReadyFrom)) {
-      baseQuery.gte('estimated_ready_at', `${filterReadyFrom}T00:00:00.000Z`)
-    }
-    if (filterReadyTo && isValidDate(filterReadyTo)) {
-      baseQuery.lte('estimated_ready_at', `${filterReadyTo}T23:59:59.999Z`)
-    }
-
-    const { data: ordersList, error } = await baseQuery
-    if (error) {
-      console.error('[portal/ordens] list final error:', error)
-      return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
-    }
-
-    const list = ordersList ?? []
-    const customerIds = [...new Set(list.map((o: any) => o.customer_id).filter(Boolean))]
-    const deviceModelIds = [...new Set(list.map((o: any) => o.device_model_id).filter(Boolean))]
-
-    let customersMap: Record<string, any> = {}
-    let deviceModelsMap: Record<string, any> = {}
-
-    if (customerIds.length > 0) {
-      const { data: customers } = await auth.supabase
-        .from('customers')
-        .select('id, cpf, cnpj, is_company, full_name, company_name, email, mobile_phone')
-        .in('id', customerIds)
-      customersMap = (customers || []).reduce((acc: Record<string, any>, c: any) => {
-        acc[c.id] = c
-        return acc
-      }, {})
-    }
-    if (deviceModelIds.length > 0) {
-      const { data: deviceModels } = await auth.supabase
-        .from('device_models')
-        .select('id, model, device_types ( name, device_brands ( name ) )')
-        .in('id', deviceModelIds)
-      deviceModelsMap = (deviceModels || []).reduce((acc: Record<string, any>, d: any) => {
-        const dt = (d as any).device_types || null
-        const brandRow = dt?.device_brands || null
-        acc[d.id] = {
-          id: d.id,
-          brand: brandRow?.name ?? null,
-          device_type: dt?.name ?? null,
-          model: d.model ?? null,
-        }
-        return acc
-      }, {})
-    }
-
-    const orders = list.map((o: any) => ({
-      ...o,
-      customers: o.customer_id ? customersMap[o.customer_id] ?? null : null,
-      device_models: o.device_model_id ? deviceModelsMap[o.device_model_id] ?? null : null,
-    }))
-
-    return NextResponse.json({ ok: true, orders })
+  const { id: rawId } = await params
+  const orderId = parseOptionalUuid(rawId)
+  if (!orderId) {
+    return NextResponse.json({ ok: false, error: 'invalid_id' }, { status: 400 })
   }
 
-  if (!customerId) {
-    return NextResponse.json({ ok: false, error: 'customerId_required' }, { status: 400 })
-  }
-
-  if (countOnly) {
-    const { count, error: countError } = await auth.supabase
-      .from('service_orders')
-      .select('*', { count: 'exact', head: true })
-      .eq('customer_id', customerId)
-
-    if (countError) {
-      console.error('[portal/ordens] count by customer error:', countError)
-      return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
-    }
-
-    return NextResponse.json({ ok: true, count: count ?? 0 })
-  }
-
-  const { data: orders, error } = await auth.supabase
+  const { data: order, error } = await auth.supabase
     .from('service_orders')
-    .select('id, display_number, status, title, created_at, updated_at, estimated_ready_at')
-    .eq('customer_id', customerId)
-    .order('created_at', { ascending: false })
-    .limit(100)
+    .select(`
+      id,
+      customer_id,
+      status,
+      title,
+      device_model_id,
+      brand,
+      model,
+      color,
+      imei,
+      is_warranty,
+      estimated_ready_at,
+      passcode_type,
+      passcode_text,
+      passcode_pattern,
+      payment_methods,
+      customer_description,
+      receiving_notes,
+      services,
+      device_entry_checks,
+      customers (${CUSTOMER_SELECT}),
+      device_models (
+        id,
+        model,
+        device_types ( name, device_brands ( name ) )
+      )
+    `)
+    .eq('id', orderId)
+    .maybeSingle()
 
   if (error) {
-    console.error('[portal/ordens] list by customer error:', error)
+    console.error('[duplicate GET]', error)
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
   }
+  if (!order) {
+    return NextResponse.json({ ok: false, error: 'not_found' }, { status: 404 })
+  }
 
-  return NextResponse.json({ ok: true, orders: orders ?? [] })
+  const o = order as Record<string, unknown>
+  const custRaw = o.customers
+  const cust = (Array.isArray(custRaw) ? custRaw[0] : custRaw) as Record<string, unknown> | null
+  const dmRaw = o.device_models
+  const dm = (Array.isArray(dmRaw) ? dmRaw[0] : dmRaw) as Record<string, unknown> | null
+  const dtRaw = dm?.device_types
+  const dt = Array.isArray(dtRaw) ? dtRaw[0] : dtRaw
+  const deviceType = dt && typeof dt === 'object' ? String((dt as { name?: string }).name ?? '') : ''
+
+  let documentDigits = ''
+  if (cust) {
+    documentDigits = cust.is_company
+      ? onlyDigits(String(cust.cnpj || ''))
+      : onlyDigits(String(cust.cpf || ''))
+  }
+
+  const { data: lastInternal } = await auth.supabase
+    .from('service_order_internal_comments')
+    .select('content')
+    .eq('service_order_id', orderId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  const internalInitialComment = lastInternal?.content
+    ? String(lastInternal.content)
+    : ''
+
+  const passcodeTypeRaw = String(o.passcode_type || '')
+  const passcodeType =
+    passcodeTypeRaw === 'text' || passcodeTypeRaw === 'pattern' ? passcodeTypeRaw : 'none'
+
+  let paymentMethods: unknown = o.payment_methods
+  if (typeof paymentMethods === 'string') {
+    try {
+      paymentMethods = JSON.parse(paymentMethods)
+    } catch {
+      paymentMethods = []
+    }
+  }
+  const pmList = Array.isArray(paymentMethods) ? paymentMethods : []
+  const firstPm = pmList[0] as Record<string, unknown> | undefined
+  const paymentMethodId = firstPm?.payment_method_id
+    ? String(firstPm.payment_method_id)
+    : null
+  const installments = firstPm?.installments != null ? Number(firstPm.installments) : null
+
+  const payload = {
+    customerId: o.customer_id ? String(o.customer_id) : '',
+    documentDigits,
+    title: String(o.title ?? ''),
+    status: String(o.status ?? 'orcamento'),
+    deviceModelId: o.device_model_id ? String(o.device_model_id) : '',
+    brand: String(o.brand ?? ''),
+    model: o.device_model_id && dm ? String(dm.model ?? o.model ?? '') : String(o.model ?? ''),
+    deviceType,
+    imei: String(o.imei ?? ''),
+    color: String(o.color ?? ''),
+    isWarranty: Boolean(o.is_warranty),
+    estimatedReadyAt: estimatedReadyAtForDuplicateForm(
+      o.estimated_ready_at ? String(o.estimated_ready_at) : null,
+    ),
+    passcodeType,
+    passcodeText: String(o.passcode_text ?? ''),
+    passcodePattern: String(o.passcode_pattern ?? ''),
+    paymentMethods: pmList.length > 0 ? pmList : null,
+    paymentMethodId,
+    installments,
+    customerDescription: String(o.customer_description ?? ''),
+    internalInitialComment,
+    receivingNotes: String(o.receiving_notes ?? ''),
+    services: mapServicesForDuplicateForm(o.services),
+    deviceEntryChecks: o.device_entry_checks ?? null,
+    customer: cust,
+  }
+
+  return NextResponse.json({ ok: true, order: payload })
 }

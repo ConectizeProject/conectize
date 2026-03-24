@@ -37,6 +37,7 @@ export const ORDEM_ERROR_MESSAGES: Record<string, string> = {
   nao_foi_possivel_excluir: 'Não foi possível excluir agora.',
   sem_permissao: 'Você não tem permissão para excluir ordens.',
   ordem_finalizada: 'Ordem finalizada não pode ser alterada.',
+  ordem_nao_encontrada: 'A ordem não foi encontrada ao salvar. Recarregue a página e tente de novo.',
   previsao_invalida: 'A previsão deve ser igual ou posterior à data de abertura.',
 }
 
