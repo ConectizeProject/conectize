@@ -80,6 +80,7 @@ function serializeServicesForCompare (value: unknown): string {
 
 function serializeScalar (key: string, value: unknown): string {
   if (value === null || value === undefined) return ''
+  if (key === 'status') return String(value).trim()
   if (key === 'is_warranty') return value === true || value === 'true' ? 'true' : 'false'
   if (key === 'estimated_ready_at' || key === 'closed_at') return normalizeIso(value)
   if (key === 'payment_methods') return sortPaymentMethodsJson(value)

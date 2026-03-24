@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffOrAdmin, requireAdmin } from '@/lib/auth/portal-api'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
+import { buildOrderEditDiff } from '@/lib/orders/order-edit-history'
 import { applyOrderStatusStockTransition } from '@/lib/orders/stock-by-status'
 
 const VALID_STATUSES = new Set([
@@ -49,7 +50,7 @@ export async function PATCH (
 
   const { data: existing, error: fetchErr } = await auth.supabase
     .from('service_orders')
-    .select('status, services')
+    .select('status, services, closed_at')
     .eq('id', orderId)
     .maybeSingle()
 
@@ -74,6 +75,26 @@ export async function PATCH (
   if (upErr) {
     console.error('[ordens PATCH]', upErr)
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+  }
+
+  const diffRows = buildOrderEditDiff(existing as Record<string, unknown>, updatePayload)
+  if (diffRows.length > 0) {
+    const editedAt = new Date().toISOString()
+    const { error: histErr } = await auth.supabase
+      .from('service_order_edit_history')
+      .insert(
+        diffRows.map((r) => ({
+          service_order_id: orderId,
+          edited_by: auth.userId,
+          edited_at: editedAt,
+          field_key: r.field_key,
+          old_value: r.old_value,
+          new_value: r.new_value,
+        })),
+      )
+    if (histErr) {
+      console.error('[ordens PATCH edit-history]', histErr)
+    }
   }
 
   try {
