@@ -1,30 +1,13 @@
 'use server'
 
 import Link from 'next/link'
-import { redirect } from 'next/navigation'
-import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
+import { requireAdminPage } from '@/lib/auth/portal-api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { DadosEmpresaSubmenu } from '@/app/(portal)/portal/admin/dados-empresa/DadosEmpresaSubmenu'
 
-async function requireAdmin () {
-  const supabase = await createSupabaseServerClient()
-  const { user } = await getAuthUser()
-  if (!user) redirect('/portal/login')
-
-  const { data: me } = await supabase
-    .from('users')
-    .select('role')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  if (me?.role !== 'admin') redirect('/portal/ordens')
-
-  return supabase
-}
-
 export default async function PresetsPage () {
-  await requireAdmin()
+  await requireAdminPage()
 
   return (
     <div className="space-y-6">

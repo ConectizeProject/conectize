@@ -1,29 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
-
-async function requireStaffOrAdmin() {
-  const supabase = await createSupabaseServerClient()
-  const { user } = await getAuthUser()
-  if (!user) return { ok: false as const, status: 401, error: 'not_authenticated' }
-
-  const { data: appUser } = await supabase
-    .from('users')
-    .select('role')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  const role = appUser?.role || 'user'
-  const normalizedRole = role === 'customer' ? 'user' : role
-  if (normalizedRole === 'user') {
-    return { ok: false as const, status: 403, error: 'forbidden' }
-  }
-
-  return { ok: true as const, supabase }
-}
+import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 
 export async function GET(request: NextRequest) {
   const auth = await requireStaffOrAdmin()
-  if (!auth.ok) {
+  if (auth.ok === false) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 

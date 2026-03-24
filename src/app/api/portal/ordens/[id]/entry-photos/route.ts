@@ -1,149 +1,174 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
-import { createSupabaseServiceClient } from '@/lib/supabase/service'
+import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 
-async function requireStaffOrAdmin() {
-  const supabase = await createSupabaseServerClient()
-  const { user } = await getAuthUser()
-  if (!user) return { ok: false as const, status: 401, error: 'not_authenticated' }
-
-  const { data: appUser } = await supabase
-    .from('users')
-    .select('role')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  const role = appUser?.role || 'user'
-  const normalizedRole = role === 'customer' ? 'user' : role
-  if (normalizedRole === 'user') {
-    return { ok: false as const, status: 403, error: 'forbidden' }
-  }
-
-  return { ok: true as const, supabase }
-}
-
-/** GET: lista fotos (com URLs assinadas) ou só contagem (?countOnly=1) */
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function GET(request: NextRequest) {
   const auth = await requireStaffOrAdmin()
-  if (!auth.ok) {
+  if (auth.ok === false) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
-  }
-
-  const { id } = await params
-  if (!id) {
-    return NextResponse.json({ ok: false, error: 'id_required' }, { status: 400 })
   }
 
   const { searchParams } = new URL(request.url)
-  const countOnly = searchParams.get('countOnly') === '1'
+  const customerId = searchParams.get('customerId')?.trim()
+  const countOnly = searchParams.get('countOnly') === '1' || searchParams.get('countOnly') === 'true'
+  const statusGroup = searchParams.get('statusGroup')?.trim()
+  const q = searchParams.get('q')?.trim() ?? ''
+  const cpf = (searchParams.get('cpf') ?? '').replace(/\D/g, '').trim()
+  const osNumber = searchParams.get('osNumber')?.trim() ?? ''
+  const statusFilter = searchParams.get('status')?.trim() ?? ''
+  const filterCustomerId = searchParams.get('customerId')?.trim() ?? ''
+  const filterCustomerName = searchParams.get('customerName')?.trim() ?? ''
+  const filterDeviceModelId = searchParams.get('deviceModelId')?.trim() ?? ''
+  const filterCreatedFrom = searchParams.get('createdFrom')?.trim() ?? ''
+  const filterCreatedTo = searchParams.get('createdTo')?.trim() ?? ''
+  const filterReadyFrom = searchParams.get('readyFrom')?.trim() ?? ''
+  const filterReadyTo = searchParams.get('readyTo')?.trim() ?? ''
 
-  if (countOnly) {
-    const { count, error } = await auth.supabase
-      .from('service_order_entry_photos')
-      .select('*', { count: 'exact', head: true })
-      .eq('service_order_id', id)
+  const FINAL_STATUSES = ['finalizada', 'finalizada_sem_conserto', 'finalizada_sem_aprovacao', 'cancelada']
+  const isValidDate = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v)
+
+  if (statusGroup === 'final') {
+    let customerIdsFilter: string[] | null = null
+    if (filterCustomerId) {
+      customerIdsFilter = [filterCustomerId]
+    } else if (filterCustomerName && filterCustomerName.length >= 2) {
+      const escaped = filterCustomerName.replace(/%/g, '\\%').replace(/_/g, '\\_')
+      const { data: custList } = await auth.supabase
+        .from('customers')
+        .select('id')
+        .or(`full_name.ilike.%${escaped}%,company_name.ilike.%${escaped}%,trade_name.ilike.%${escaped}%`)
+        .limit(100)
+      customerIdsFilter = custList && custList.length > 0 ? custList.map((c: { id: string }) => c.id) : []
+    } else if (cpf) {
+      const { data: custList } = await auth.supabase
+        .from('customers')
+        .select('id')
+        .or(`cpf.eq.${cpf},cnpj.eq.${cpf}`)
+      customerIdsFilter = (custList || []).map((c: { id: string }) => c.id)
+      if (customerIdsFilter.length === 0) {
+        return NextResponse.json({ ok: true, orders: [] })
+      }
+    }
+
+    const baseQuery = auth.supabase
+      .from('service_orders')
+      .select('id, display_number, status, title, created_at, updated_at, closed_at, estimated_ready_at, share_token, customer_id, device_model_id')
+      .in('status', FINAL_STATUSES)
+      .order('created_at', { ascending: false })
+      .limit(500)
+
+    if (q) {
+      const escaped = q.replaceAll(',', ' ').trim()
+      baseQuery.or(`title.ilike.%${escaped}%,description.ilike.%${escaped}%`)
+    }
+    if (osNumber) {
+      const displayNum = Number.parseInt(osNumber, 10)
+      if (!Number.isNaN(displayNum)) {
+        baseQuery.eq('display_number', displayNum)
+      }
+    }
+    if (statusFilter && FINAL_STATUSES.includes(statusFilter)) {
+      baseQuery.eq('status', statusFilter)
+    }
+    if (customerIdsFilter !== null) {
+      if (customerIdsFilter.length === 0) {
+        baseQuery.eq('customer_id', '00000000-0000-0000-0000-000000000000')
+      } else {
+        baseQuery.in('customer_id', customerIdsFilter)
+      }
+    }
+    if (filterDeviceModelId) baseQuery.eq('device_model_id', filterDeviceModelId)
+    if (filterCreatedFrom && isValidDate(filterCreatedFrom)) {
+      baseQuery.gte('created_at', `${filterCreatedFrom}T00:00:00.000Z`)
+    }
+    if (filterCreatedTo && isValidDate(filterCreatedTo)) {
+      baseQuery.lte('created_at', `${filterCreatedTo}T23:59:59.999Z`)
+    }
+    if (filterReadyFrom && isValidDate(filterReadyFrom)) {
+      baseQuery.gte('estimated_ready_at', `${filterReadyFrom}T00:00:00.000Z`)
+    }
+    if (filterReadyTo && isValidDate(filterReadyTo)) {
+      baseQuery.lte('estimated_ready_at', `${filterReadyTo}T23:59:59.999Z`)
+    }
+
+    const { data: ordersList, error } = await baseQuery
     if (error) {
+      console.error('[portal/ordens] list final error:', error)
       return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
     }
+
+    const list = ordersList ?? []
+    const customerIds = [...new Set(list.map((o: any) => o.customer_id).filter(Boolean))]
+    const deviceModelIds = [...new Set(list.map((o: any) => o.device_model_id).filter(Boolean))]
+
+    let customersMap: Record<string, any> = {}
+    let deviceModelsMap: Record<string, any> = {}
+
+    if (customerIds.length > 0) {
+      const { data: customers } = await auth.supabase
+        .from('customers')
+        .select('id, cpf, cnpj, is_company, full_name, company_name, email, mobile_phone')
+        .in('id', customerIds)
+      customersMap = (customers || []).reduce((acc: Record<string, any>, c: any) => {
+        acc[c.id] = c
+        return acc
+      }, {})
+    }
+    if (deviceModelIds.length > 0) {
+      const { data: deviceModels } = await auth.supabase
+        .from('device_models')
+        .select('id, model, device_types ( name, device_brands ( name ) )')
+        .in('id', deviceModelIds)
+      deviceModelsMap = (deviceModels || []).reduce((acc: Record<string, any>, d: any) => {
+        const dt = (d as any).device_types || null
+        const brandRow = dt?.device_brands || null
+        acc[d.id] = {
+          id: d.id,
+          brand: brandRow?.name ?? null,
+          device_type: dt?.name ?? null,
+          model: d.model ?? null,
+        }
+        return acc
+      }, {})
+    }
+
+    const orders = list.map((o: any) => ({
+      ...o,
+      customers: o.customer_id ? customersMap[o.customer_id] ?? null : null,
+      device_models: o.device_model_id ? deviceModelsMap[o.device_model_id] ?? null : null,
+    }))
+
+    return NextResponse.json({ ok: true, orders })
+  }
+
+  if (!customerId) {
+    return NextResponse.json({ ok: false, error: 'customerId_required' }, { status: 400 })
+  }
+
+  if (countOnly) {
+    const { count, error: countError } = await auth.supabase
+      .from('service_orders')
+      .select('*', { count: 'exact', head: true })
+      .eq('customer_id', customerId)
+
+    if (countError) {
+      console.error('[portal/ordens] count by customer error:', countError)
+      return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+    }
+
     return NextResponse.json({ ok: true, count: count ?? 0 })
   }
 
-  const { data: rows, error } = await auth.supabase
-    .from('service_order_entry_photos')
-    .select('id, storage_path, created_at')
-    .eq('service_order_id', id)
-    .order('created_at', { ascending: true })
+  const { data: orders, error } = await auth.supabase
+    .from('service_orders')
+    .select('id, display_number, status, title, created_at, updated_at, estimated_ready_at')
+    .eq('customer_id', customerId)
+    .order('created_at', { ascending: false })
+    .limit(100)
 
   if (error) {
+    console.error('[portal/ordens] list by customer error:', error)
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
   }
 
-  const serviceClient = createSupabaseServiceClient()
-  const expiresIn = 60 * 60 // 1h
-  const photos = await Promise.all(
-    (rows || []).map(async (row) => {
-      const { data: signed } = await serviceClient.storage
-        .from('order-entry-photos')
-        .createSignedUrl(row.storage_path, expiresIn)
-      return {
-        id: row.id,
-        url: signed?.signedUrl ?? null,
-        created_at: row.created_at,
-      }
-    })
-  )
-
-  return NextResponse.json({ ok: true, photos })
-}
-
-const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic'])
-const MAX_SIZE = 10 * 1024 * 1024 // 10MB
-
-/** POST: upload de uma ou mais fotos (multipart/form-data, campo "files" ou "file") */
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = await requireStaffOrAdmin()
-  if (!auth.ok) {
-    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
-  }
-
-  const { id } = await params
-  if (!id) {
-    return NextResponse.json({ ok: false, error: 'id_required' }, { status: 400 })
-  }
-
-  const formData = await request.formData()
-  const files: File[] = []
-  const filesField = formData.getAll('files')
-  if (filesField.length > 0) {
-    for (const f of filesField) {
-      if (f instanceof File && f.size > 0) files.push(f)
-    }
-  } else {
-    const single = formData.get('file')
-    if (single instanceof File && single.size > 0) files.push(single)
-  }
-
-  if (files.length === 0) {
-    return NextResponse.json({ ok: false, error: 'no_files' }, { status: 400 })
-  }
-
-  const inserted: Array<{ id: string; created_at: string }> = []
-  for (const file of files) {
-    const mime = file.type || 'image/jpeg'
-    if (!ALLOWED_TYPES.has(mime)) continue
-    if (file.size > MAX_SIZE) continue
-
-    const ext = mime === 'image/heic' ? 'heic' : mime.split('/')[1] || 'jpg'
-    const storagePath = `${id}/${crypto.randomUUID()}.${ext}`
-
-    const buf = await file.arrayBuffer()
-    const { error: uploadError } = await auth.supabase.storage
-      .from('order-entry-photos')
-      .upload(storagePath, buf, { contentType: mime, upsert: false })
-
-    if (uploadError) {
-      return NextResponse.json({ ok: false, error: 'upload_error' }, { status: 500 })
-    }
-
-    const { data: insertedRow, error: insertError } = await auth.supabase
-      .from('service_order_entry_photos')
-      .insert({ service_order_id: id, storage_path: storagePath })
-      .select('id, created_at')
-      .single()
-
-    if (insertError) {
-      await auth.supabase.storage.from('order-entry-photos').remove([storagePath])
-      return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
-    }
-
-    if (insertedRow) inserted.push(insertedRow)
-  }
-
-  return NextResponse.json({ ok: true, photos: inserted })
+  return NextResponse.json({ ok: true, orders: orders ?? [] })
 }

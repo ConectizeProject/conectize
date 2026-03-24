@@ -1,27 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
-
-async function requireAdmin() {
-  const supabase = await createSupabaseServerClient()
-  const { user } = await getAuthUser()
-  if (!user) return { ok: false as const, status: 401, error: 'not_authenticated' }
-
-  const { data: appUser } = await supabase
-    .from('users')
-    .select('role')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  if (appUser?.role !== 'admin') {
-    return { ok: false as const, status: 403, error: 'forbidden' }
-  }
-
-  return { ok: true as const, supabase }
-}
+import { requireAdmin } from '@/lib/auth/portal-api'
 
 export async function POST(request: NextRequest) {
   const auth = await requireAdmin()
-  if (!auth.ok) {
+  if (auth.ok === false) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 
@@ -29,7 +11,7 @@ export async function POST(request: NextRequest) {
   const fromContaId = body?.from_conta_id ?? null
   const toContaId = body?.to_conta_id ?? null
   const amountCents = body?.amount_cents != null ? Number(body.amount_cents) : null
-  const description = body?.description != null ? String(body.description).trim() : 'Transferência entre contas'
+  const description = body?.description != null ? String(body.description).trim() : 'TransferÃªncia entre contas'
 
   if (!fromContaId || typeof fromContaId !== 'string') {
     return NextResponse.json({ ok: false, error: 'from_conta_id_required' }, { status: 400 })
@@ -54,7 +36,7 @@ export async function POST(request: NextRequest) {
         conta_id: fromContaId,
         amount_cents: -amountCents,
         type: 'transferencia',
-        description: description || 'Transferência (origem)',
+        description: description || 'TransferÃªncia (origem)',
         occurred_at: today,
         transfer_id: transferId,
       },
@@ -62,7 +44,7 @@ export async function POST(request: NextRequest) {
         conta_id: toContaId,
         amount_cents: amountCents,
         type: 'transferencia',
-        description: description || 'Transferência (destino)',
+        description: description || 'TransferÃªncia (destino)',
         occurred_at: today,
         transfer_id: transferId,
       },

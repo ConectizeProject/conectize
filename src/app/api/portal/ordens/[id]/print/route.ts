@@ -1,164 +1,174 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
-import {
-  buildOrdemPrintHtml,
-  type CompanyPrintData,
-  type OrdemPrintData,
-} from '@/lib/ordem-print'
-import { formatDateTimeBr } from '@/lib/utils/format-date'
+import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 
-async function requireStaffOrAdmin() {
-  const supabase = await createSupabaseServerClient()
-  const { user } = await getAuthUser()
-  if (!user) return { ok: false as const, error: 'not_authenticated' }
-
-  const { data: appUser } = await supabase
-    .from('users')
-    .select('role')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  const role = appUser?.role || 'user'
-  const normalizedRole = role === 'customer' ? 'user' : role
-  if (normalizedRole === 'user') return { ok: false as const, error: 'forbidden' }
-
-  return { ok: true as const, supabase }
-}
-
-function orderToPrintData(
-  order: any,
-  assistanceInfo: string | null,
-  internalNotes: string | null,
-): OrdemPrintData {
-  const cust = Array.isArray(order.customers) ? order.customers[0] : order.customers
-  const dm = Array.isArray(order.device_models) ? order.device_models[0] : order.device_models
-  const dt = dm?.device_types || null
-  const brandRow = dt?.device_brands || null
-  const brandName = brandRow?.name ?? ''
-  const deviceTypeName = dt?.name ?? ''
-  const device = dm
-    ? (brandName.toLowerCase() === 'apple'
-        ? `${deviceTypeName || ''} ${dm.model || ''}`.trim()
-        : `${brandName || ''} ${dm.model || ''}`.trim()) || '-'
-    : order.brand || order.model
-      ? `${order.brand || ''} ${order.model || ''}`.trim()
-      : '-'
-
-  return {
-    displayNumber: order.display_number ?? order.id,
-    status: order.status,
-    title: order.title,
-    createdAt: order.created_at,
-    updatedAt: order.updated_at,
-    closedAt: order.closed_at ?? null,
-    customer: {
-      fullName: cust?.full_name ?? '',
-      companyName: cust?.company_name ?? null,
-      isCompany: Boolean(cust?.is_company),
-      cpf: cust?.cpf ?? null,
-      cnpj: cust?.cnpj ?? null,
-      email: cust?.email ?? null,
-      mobilePhone: cust?.mobile_phone ?? null,
-      contactPhone: cust?.contact_phone ?? null,
-      contactNotes: cust?.contact_notes ?? null,
-      addressFull: cust?.address_full ?? null,
-    },
-    device,
-    imei: order.imei ?? null,
-    isWarranty: Boolean(order.is_warranty),
-    estimatedReadyAt: order.estimated_ready_at ?? null,
-    customerDescription: order.customer_description ?? null,
-    internalDescription: internalNotes,
-    receivingNotes: order.receiving_notes ?? null,
-    assistanceInfo,
-    warrantyText: order.warranty_text ?? null,
-    deviceEntryChecks: order.device_entry_checks ?? null,
-    services:
-      (order.services as Array<{ description?: string; valueCents?: number; costCents?: number }>) ??
-      [],
-  }
-}
-
-function companyToPrintData(company: any): CompanyPrintData {
-  return {
-    name: company?.name ?? null,
-    cnpj: company?.cnpj ?? null,
-    address: company?.address ?? null,
-    complement: company?.complement ?? null,
-    zipCode: company?.zip_code ?? null,
-    city: company?.city ?? null,
-    state: company?.state ?? null,
-    phone: company?.phone ?? null,
-    email: company?.email ?? null,
-    logoUrl: company?.logo_url ?? null,
-  }
-}
-
-export async function GET(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function GET(request: NextRequest) {
   const auth = await requireStaffOrAdmin()
-  if (!auth.ok) return new NextResponse('Unauthorized', { status: 401 })
+  if (auth.ok === false) {
+    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
+  }
 
-  const { id } = await params
-  if (!id) return new NextResponse('Not Found', { status: 404 })
+  const { searchParams } = new URL(request.url)
+  const customerId = searchParams.get('customerId')?.trim()
+  const countOnly = searchParams.get('countOnly') === '1' || searchParams.get('countOnly') === 'true'
+  const statusGroup = searchParams.get('statusGroup')?.trim()
+  const q = searchParams.get('q')?.trim() ?? ''
+  const cpf = (searchParams.get('cpf') ?? '').replace(/\D/g, '').trim()
+  const osNumber = searchParams.get('osNumber')?.trim() ?? ''
+  const statusFilter = searchParams.get('status')?.trim() ?? ''
+  const filterCustomerId = searchParams.get('customerId')?.trim() ?? ''
+  const filterCustomerName = searchParams.get('customerName')?.trim() ?? ''
+  const filterDeviceModelId = searchParams.get('deviceModelId')?.trim() ?? ''
+  const filterCreatedFrom = searchParams.get('createdFrom')?.trim() ?? ''
+  const filterCreatedTo = searchParams.get('createdTo')?.trim() ?? ''
+  const filterReadyFrom = searchParams.get('readyFrom')?.trim() ?? ''
+  const filterReadyTo = searchParams.get('readyTo')?.trim() ?? ''
 
-  const [{ data: order }, { data: company }, { data: comments }, { data: internalRows }] = await Promise.all([
-    auth.supabase
+  const FINAL_STATUSES = ['finalizada', 'finalizada_sem_conserto', 'finalizada_sem_aprovacao', 'cancelada']
+  const isValidDate = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v)
+
+  if (statusGroup === 'final') {
+    let customerIdsFilter: string[] | null = null
+    if (filterCustomerId) {
+      customerIdsFilter = [filterCustomerId]
+    } else if (filterCustomerName && filterCustomerName.length >= 2) {
+      const escaped = filterCustomerName.replace(/%/g, '\\%').replace(/_/g, '\\_')
+      const { data: custList } = await auth.supabase
+        .from('customers')
+        .select('id')
+        .or(`full_name.ilike.%${escaped}%,company_name.ilike.%${escaped}%,trade_name.ilike.%${escaped}%`)
+        .limit(100)
+      customerIdsFilter = custList && custList.length > 0 ? custList.map((c: { id: string }) => c.id) : []
+    } else if (cpf) {
+      const { data: custList } = await auth.supabase
+        .from('customers')
+        .select('id')
+        .or(`cpf.eq.${cpf},cnpj.eq.${cpf}`)
+      customerIdsFilter = (custList || []).map((c: { id: string }) => c.id)
+      if (customerIdsFilter.length === 0) {
+        return NextResponse.json({ ok: true, orders: [] })
+      }
+    }
+
+    const baseQuery = auth.supabase
       .from('service_orders')
-      .select(
-        'id, display_number, status, title, imei, is_warranty, estimated_ready_at, customer_description, receiving_notes, warranty_text, device_entry_checks, services, created_at, updated_at, closed_at, brand, model, customers ( cpf, cnpj, is_company, full_name, company_name, email, mobile_phone, contact_phone, contact_notes, address_full ), device_models ( model, device_types ( name, device_brands ( name ) ) )'
-      )
-      .eq('id', id)
-      .maybeSingle(),
-    auth.supabase
-      .from('company_settings')
-      .select('name, cnpj, address, complement, zip_code, city, state, phone, email, logo_url')
-      .eq('id', 1)
-      .maybeSingle(),
-    auth.supabase
-      .from('service_order_assistance_comments')
-      .select('content, created_at, author_display_name')
-      .eq('service_order_id', id)
-      .order('created_at', { ascending: true }),
-    auth.supabase
-      .from('service_order_internal_comments')
-      .select('content, created_at, author_display_name')
-      .eq('service_order_id', id)
-      .order('created_at', { ascending: true }),
-  ])
+      .select('id, display_number, status, title, created_at, updated_at, closed_at, estimated_ready_at, share_token, customer_id, device_model_id')
+      .in('status', FINAL_STATUSES)
+      .order('created_at', { ascending: false })
+      .limit(500)
 
-  if (!order) return new NextResponse('Ordem não encontrada', { status: 404 })
+    if (q) {
+      const escaped = q.replaceAll(',', ' ').trim()
+      baseQuery.or(`title.ilike.%${escaped}%,description.ilike.%${escaped}%`)
+    }
+    if (osNumber) {
+      const displayNum = Number.parseInt(osNumber, 10)
+      if (!Number.isNaN(displayNum)) {
+        baseQuery.eq('display_number', displayNum)
+      }
+    }
+    if (statusFilter && FINAL_STATUSES.includes(statusFilter)) {
+      baseQuery.eq('status', statusFilter)
+    }
+    if (customerIdsFilter !== null) {
+      if (customerIdsFilter.length === 0) {
+        baseQuery.eq('customer_id', '00000000-0000-0000-0000-000000000000')
+      } else {
+        baseQuery.in('customer_id', customerIdsFilter)
+      }
+    }
+    if (filterDeviceModelId) baseQuery.eq('device_model_id', filterDeviceModelId)
+    if (filterCreatedFrom && isValidDate(filterCreatedFrom)) {
+      baseQuery.gte('created_at', `${filterCreatedFrom}T00:00:00.000Z`)
+    }
+    if (filterCreatedTo && isValidDate(filterCreatedTo)) {
+      baseQuery.lte('created_at', `${filterCreatedTo}T23:59:59.999Z`)
+    }
+    if (filterReadyFrom && isValidDate(filterReadyFrom)) {
+      baseQuery.gte('estimated_ready_at', `${filterReadyFrom}T00:00:00.000Z`)
+    }
+    if (filterReadyTo && isValidDate(filterReadyTo)) {
+      baseQuery.lte('estimated_ready_at', `${filterReadyTo}T23:59:59.999Z`)
+    }
 
-  const parts: string[] = []
-  if (Array.isArray(comments)) {
-    parts.push(
-      ...comments.map((c: any) => `${formatDateTimeBr(c.created_at)} • ${String(c.author_display_name || '').trim() || '(Sem nome)'}\n${c.content}`),
-    )
+    const { data: ordersList, error } = await baseQuery
+    if (error) {
+      console.error('[portal/ordens] list final error:', error)
+      return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+    }
+
+    const list = ordersList ?? []
+    const customerIds = [...new Set(list.map((o: any) => o.customer_id).filter(Boolean))]
+    const deviceModelIds = [...new Set(list.map((o: any) => o.device_model_id).filter(Boolean))]
+
+    let customersMap: Record<string, any> = {}
+    let deviceModelsMap: Record<string, any> = {}
+
+    if (customerIds.length > 0) {
+      const { data: customers } = await auth.supabase
+        .from('customers')
+        .select('id, cpf, cnpj, is_company, full_name, company_name, email, mobile_phone')
+        .in('id', customerIds)
+      customersMap = (customers || []).reduce((acc: Record<string, any>, c: any) => {
+        acc[c.id] = c
+        return acc
+      }, {})
+    }
+    if (deviceModelIds.length > 0) {
+      const { data: deviceModels } = await auth.supabase
+        .from('device_models')
+        .select('id, model, device_types ( name, device_brands ( name ) )')
+        .in('id', deviceModelIds)
+      deviceModelsMap = (deviceModels || []).reduce((acc: Record<string, any>, d: any) => {
+        const dt = (d as any).device_types || null
+        const brandRow = dt?.device_brands || null
+        acc[d.id] = {
+          id: d.id,
+          brand: brandRow?.name ?? null,
+          device_type: dt?.name ?? null,
+          model: d.model ?? null,
+        }
+        return acc
+      }, {})
+    }
+
+    const orders = list.map((o: any) => ({
+      ...o,
+      customers: o.customer_id ? customersMap[o.customer_id] ?? null : null,
+      device_models: o.device_model_id ? deviceModelsMap[o.device_model_id] ?? null : null,
+    }))
+
+    return NextResponse.json({ ok: true, orders })
   }
 
-  const assistanceInfo = parts.length ? parts.join('\n\n') : null
-
-  const internalParts: string[] = []
-  if (Array.isArray(internalRows)) {
-    internalParts.push(
-      ...internalRows.map((c: any) => `${formatDateTimeBr(c.created_at)} • ${String(c.author_display_name || '').trim() || '(Sem nome)'}\n${c.content}`),
-    )
+  if (!customerId) {
+    return NextResponse.json({ ok: false, error: 'customerId_required' }, { status: 400 })
   }
-  const internalNotes = internalParts.length ? internalParts.join('\n\n') : null
 
-  const data = orderToPrintData(order, assistanceInfo, internalNotes)
-  const companyData = company ? companyToPrintData(company) : null
+  if (countOnly) {
+    const { count, error: countError } = await auth.supabase
+      .from('service_orders')
+      .select('*', { count: 'exact', head: true })
+      .eq('customer_id', customerId)
 
-  const siteUrl =
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
-  const baseUrl = siteUrl || 'http://localhost:3000'
+    if (countError) {
+      console.error('[portal/ordens] count by customer error:', countError)
+      return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+    }
 
-  const html = buildOrdemPrintHtml(data, companyData, baseUrl)
+    return NextResponse.json({ ok: true, count: count ?? 0 })
+  }
 
-  return new NextResponse(html, {
-    headers: { 'Content-Type': 'text/html; charset=utf-8' },
-  })
+  const { data: orders, error } = await auth.supabase
+    .from('service_orders')
+    .select('id, display_number, status, title, created_at, updated_at, estimated_ready_at')
+    .eq('customer_id', customerId)
+    .order('created_at', { ascending: false })
+    .limit(100)
+
+  if (error) {
+    console.error('[portal/ordens] list by customer error:', error)
+    return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+  }
+
+  return NextResponse.json({ ok: true, orders: orders ?? [] })
 }
