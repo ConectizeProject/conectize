@@ -27,6 +27,8 @@ import { UpdateOrderSubmitButton } from './UpdateOrderSubmitButton'
 import { fetchDeviceModelsForSelector } from '@/lib/portal/device-models-server'
 import { applyOrderStatusStockTransition } from '@/lib/orders/stock-by-status'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
+import { buildOrderEditDiff } from '@/lib/orders/order-edit-history'
+import { OrderEditHistoryDialog } from './OrderEditHistoryDialog'
 
 export const dynamic = 'force-dynamic'
 
@@ -280,7 +282,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 	async function updateOrderAction(formData: FormData) {
 		'use server'
 
-		const orderId = String(formData.get('orderId') || '').trim()
+		const formOrderId = String(formData.get('orderId') || '').trim()
 		const title = String(formData.get('title') || '').trim()
 		const status = String(formData.get('status') || '').trim()
 		const imei = String(formData.get('imei') || '').trim()
@@ -315,12 +317,8 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 
 		const estimatedReadyAt = previsaoToISO(estimatedReadyAtRaw)
 
-		const minPrevisaoMs = order.created_at ? new Date(order.created_at).getTime() : Date.now()
-		if (estimatedReadyAt && new Date(estimatedReadyAt).getTime() < minPrevisaoMs - 60_000) {
-			redirect(`/portal/ordens/${id}?error=previsao_invalida`)
-		}
-
-		if (!orderId) redirect(`/portal/ordens/${id}?error=dados_invalidos`)
+		if (!formOrderId) redirect(`/portal/ordens/${id}?error=dados_invalidos`)
+		if (formOrderId !== id) redirect(`/portal/ordens/${id}?error=dados_invalidos`)
 		if (!title) redirect(`/portal/ordens/${id}?error=titulo_obrigatorio`)
 		if (!isValidStatus(status)) redirect(`/portal/ordens/${id}?error=status_invalido`)
 
@@ -331,11 +329,53 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 		if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
 
 		const supabase = await createSupabaseServerClient()
-		const { data: existing } = await supabase
+		const { data: existing, error: fetchExistingError } = await supabase
 			.from('service_orders')
-			.select('status, services')
-			.eq('id', orderId)
+			.select(
+				`status, services, title, imei, color, is_warranty, estimated_ready_at,
+				passcode_type, passcode_text, passcode_pattern,
+				payment_methods, customer_description, receiving_notes,
+				warranty_template_id, warranty_text, device_model_id, brand, model,
+				services_total_cents, services_cost_total_cents,
+				device_entry_checks, seller_user_id, closed_at,
+				created_at`,
+			)
+			.eq('id', id)
 			.maybeSingle()
+
+		if (fetchExistingError) {
+			console.error('[order-save-fetch]', {
+				orderId: id,
+				code: fetchExistingError.code,
+				message: fetchExistingError.message,
+				details: fetchExistingError.details,
+				hint: fetchExistingError.hint,
+			})
+			const saveQs = new URLSearchParams()
+			saveQs.set('error', 'nao_foi_possivel_salvar')
+			const ec = String(fetchExistingError.code || '').trim().slice(0, 48)
+			const emRaw = [fetchExistingError.message, fetchExistingError.details, fetchExistingError.hint]
+				.filter(Boolean)
+				.join(' — ')
+			const em = String(emRaw || '')
+				.replace(/\s+/g, ' ')
+				.trim()
+				.slice(0, 320)
+			if (ec) saveQs.set('ec', ec)
+			if (em) saveQs.set('em', em)
+			redirect(`/portal/ordens/${id}?${saveQs.toString()}`)
+		}
+
+		if (!existing) {
+			redirect(`/portal/ordens/${id}?error=ordem_nao_encontrada`)
+		}
+
+		const minPrevisaoMs = existing.created_at
+			? new Date(String(existing.created_at)).getTime()
+			: Date.now()
+		if (estimatedReadyAt && new Date(estimatedReadyAt).getTime() < minPrevisaoMs - 60_000) {
+			redirect(`/portal/ordens/${id}?error=previsao_invalida`)
+		}
 		const isOrderFinalized = existing && FINALIZED_STATUSES.has(existing.status)
 		if (isOrderFinalized && role !== 'admin') {
 			redirect(`/portal/ordens/${id}?error=ordem_finalizada`)
@@ -380,7 +420,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 		const { error } = await supabase
 			.from('service_orders')
 			.update(updatePayload)
-			.eq('id', orderId)
+			.eq('id', id)
 
 		if (error) {
 			const saveQs = new URLSearchParams()
@@ -395,8 +435,28 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 				.slice(0, 320)
 			if (ec) saveQs.set('ec', ec)
 			if (em) saveQs.set('em', em)
-			console.error('[order-save]', { orderId, code: error.code, message: error.message, details: error.details, hint: error.hint })
+			console.error('[order-save]', { orderId: id, code: error.code, message: error.message, details: error.details, hint: error.hint })
 			redirect(`/portal/ordens/${id}?${saveQs.toString()}`)
+		}
+
+		const diffRows = buildOrderEditDiff(existing as Record<string, unknown>, updatePayload)
+		if (diffRows.length > 0) {
+			const editedAt = new Date().toISOString()
+			const { error: histErr } = await supabase
+				.from('service_order_edit_history')
+				.insert(
+					diffRows.map((r) => ({
+						service_order_id: id,
+						edited_by: user.id,
+						edited_at: editedAt,
+						field_key: r.field_key,
+						old_value: r.old_value,
+						new_value: r.new_value,
+					})),
+				)
+			if (histErr) {
+				console.error('[order-edit-history]', histErr)
+			}
 		}
 
 		try {
@@ -408,7 +468,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 					: services.items
 			await applyOrderStatusStockTransition({
 				supabase,
-				orderId,
+				orderId: id,
 				previousStatus,
 				nextStatus,
 				services: servicesForStock,
@@ -468,6 +528,7 @@ export default async function OrdemDetalhePage({ params, searchParams }: PagePro
 				</div>
 
 				<div className="flex items-center gap-2 flex-wrap">
+					<OrderEditHistoryDialog orderId={order.id} isAdmin={isAdmin} />
 					<OrdemPrintButton orderId={order.id} />
 					<OrdemLabelPrintButton orderId={order.id} />
 					<OrdemActionsMenu
