@@ -130,13 +130,14 @@ function isBlingTokenExpired (expiresAt: string | null | undefined) {
 }
 
 function formatTokenExpiry (expiresAt: string | null | undefined) {
-  if (!expiresAt) return 'Data de expiração desconhecida'
+  if (!expiresAt) return 'Expiração do access token desconhecida'
   try {
     const d = new Date(expiresAt)
-    if (Number.isNaN(d.getTime())) return 'Data de expiração desconhecida'
-    return `Token válido até ${d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}`
+    if (Number.isNaN(d.getTime())) return 'Expiração do access token desconhecida'
+    // token_expires_at = fim de vida do **access token** (expires_in, tipicamente ~1h), não do refresh token.
+    return `Access token (API) válido até ${d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}`
   } catch {
-    return 'Data de expiração desconhecida'
+    return 'Expiração do access token desconhecida'
   }
 }
 
@@ -233,7 +234,7 @@ function IntegrationCard({
                     <span className="text-xs text-muted-foreground">{formatTokenExpiry(conn.token_expires_at)}</span>
                     {isBlingTokenExpired(conn.token_expires_at) && (
                       <Badge variant="destructive" className="text-[10px]">
-                        Token expirado ou próximo de expirar — use &quot;Renovar token&quot;
+                        Access token expirado ou próximo — use &quot;Renovar token&quot;
                       </Badge>
                     )}
                   </div>
@@ -453,7 +454,7 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
           code === 'no_refresh_token'
             ? 'Não há refresh token salvo. Desconecte e conecte o Bling novamente.'
             : code === 'bling_oauth_not_configured'
-              ? 'OAuth do Bling não configurado no servidor.'
+              ? 'Defina BLING_CLIENT_ID e BLING_CLIENT_SECRET no ambiente (ex.: Vercel → Settings → Environment Variables) e faça um novo deploy. Mesmos valores do app em developer.bling.com.br.'
               : isInvalidGrant
                 ? 'O refresh token expirou ou foi revogado (ex.: após ~30 dias ou nova autorização). Desconecte e conecte o Bling de novo no HUB.'
                 : rawErr || 'Não foi possível renovar o token.'

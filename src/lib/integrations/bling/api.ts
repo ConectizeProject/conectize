@@ -275,8 +275,7 @@ export async function performBlingTokenRefresh (
   const data = (await res.json().catch(() => null)) as BlingTokenResponse | null
 
   if (!res.ok || !data?.access_token) {
-    const errMsg = data?.error_description || data?.error || 'refresh_failed'
-    return { ok: false, error: String(errMsg) }
+    return { ok: false, error: getBlingErrorMessage(data, res.status) }
   }
 
   const expiresIn = Number(data.expires_in) || 3600
