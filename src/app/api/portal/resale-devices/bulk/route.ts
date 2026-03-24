@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
+import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 
 function cleanText(value: unknown): string {
   return String(value ?? '').trim()
@@ -56,27 +57,9 @@ function buildRowFromBody(body: Record<string, unknown>): Record<string, unknown
   return row
 }
 
-async function requireStaffOrAdmin() {
-  const supabase = await createSupabaseServerClient()
-  const { user } = await getAuthUser()
-  if (!user) {
-    return { ok: false as const, status: 401, error: 'not_authenticated' as const }
-  }
-  const { data: appUser } = await supabase
-    .from('users')
-    .select('role')
-    .eq('id', user.id)
-    .maybeSingle()
-  const role = appUser?.role || 'user'
-  if (role !== 'admin' && role !== 'staff') {
-    return { ok: false as const, status: 403, error: 'forbidden' as const }
-  }
-  return { ok: true as const, supabase }
-}
-
 export async function PATCH(request: Request) {
   const auth = await requireStaffOrAdmin()
-  if (!auth.ok) {
+  if (auth.ok === false) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 

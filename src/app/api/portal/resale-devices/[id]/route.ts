@@ -1,280 +1,42 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
+import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 
-function cleanText(value: unknown): string {
-  return String(value ?? '').trim()
-}
-
-function toCents(value: unknown, alreadyCents = false): number | null {
-  if (value === null || value === undefined || value === '') return null
-  if (typeof value === 'number') {
-    return alreadyCents ? Math.round(value) : Math.round(value * 100)
-  }
-  const s = String(value).trim().replace(/\./g, '').replace(',', '.')
-  const n = Number.parseFloat(s)
-  if (Number.isNaN(n)) return null
-  return Math.round(n * 100)
-}
-
-function toDate(value: unknown): string | null {
-  if (value === null || value === undefined || value === '') return null
-  const s = String(value).trim()
-  if (!s) return null
-  return s
-}
-
-type SalePaymentEntry = { payment_method_id: string; installments?: number; value_cents?: number | null }
-
-function normalizeSalePaymentMethods(
-  raw: unknown
-): Array<SalePaymentEntry> | undefined {
-  if (raw === undefined) return undefined
-  if (!Array.isArray(raw)) return []
-  return raw
-    .filter((e: unknown) => e && typeof e === 'object' && (e as SalePaymentEntry).payment_method_id)
-    .map((e: SalePaymentEntry) => ({
-      payment_method_id: String((e as SalePaymentEntry).payment_method_id).trim(),
-      installments: (e as SalePaymentEntry).installments != null ? Math.max(1, Math.min(24, Number((e as SalePaymentEntry).installments) || 1)) : undefined,
-      value_cents: (e as SalePaymentEntry).value_cents != null ? Math.max(0, Number((e as SalePaymentEntry).value_cents) || 0) : null,
-    }))
-    .filter((e) => e.payment_method_id)
-}
-
-async function requireStaffOrAdmin() {
-  const supabase = await createSupabaseServerClient()
-  const { user } = await getAuthUser()
-  if (!user) {
-    return { ok: false as const, status: 401, error: 'not_authenticated' as const }
-  }
-  const { data: appUser } = await supabase
-    .from('users')
-    .select('role')
-    .eq('id', user.id)
-    .maybeSingle()
-  const role = appUser?.role || 'user'
-  if (role !== 'admin' && role !== 'staff') {
-    return { ok: false as const, status: 403, error: 'forbidden' as const }
-  }
-  return { ok: true as const, supabase }
-}
-
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function GET() {
   const auth = await requireStaffOrAdmin()
-  if (!auth.ok) {
+  if (auth.ok === false) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 
-  const { id } = await params
-  if (!id) {
-    return NextResponse.json({ ok: false, error: 'invalid_id' }, { status: 400 })
-  }
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const startDate = `${year}-${month}-01`
+  const nextMonth = new Date(year, now.getMonth() + 1, 1)
+  const endDate = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}-01`
 
-  const { data: device, error } = await auth.supabase
+  const { data: soldDevices, error } = await auth.supabase
     .from('resale_devices')
-    .select('*')
-    .eq('id', id)
-    .single()
-
-  if (error || !device) {
-    return NextResponse.json({ ok: false, error: 'not_found' }, { status: 404 })
-  }
-
-  const { data: costs } = await auth.supabase
-    .from('resale_device_costs')
-    .select('id, description, value_cents')
-    .eq('resale_device_id', id)
-
-  return NextResponse.json({ ok: true, device: { ...device, costs: costs || [] } })
-}
-
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = await requireStaffOrAdmin()
-  if (!auth.ok) {
-    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
-  }
-
-  const { id } = await params
-  if (!id) {
-    return NextResponse.json({ ok: false, error: 'invalid_id' }, { status: 400 })
-  }
-
-  const body = await request.json().catch(() => null)
-  if (!body || typeof body !== 'object') {
-    return NextResponse.json({ ok: false, error: 'invalid_payload' }, { status: 400 })
-  }
-
-  const row: Record<string, unknown> = {}
-
-  const salePaymentMethods = normalizeSalePaymentMethods(body.sale_payment_methods)
-  if (salePaymentMethods !== undefined) {
-    row.sale_payment_methods = salePaymentMethods
-    const first = Array.isArray(salePaymentMethods) && salePaymentMethods.length > 0 ? salePaymentMethods[0] : null
-    row.payment_method_id = first?.payment_method_id || null
-    row.payment_installments = first?.installments != null ? Number(first.installments) : null
-  } else {
-    if (body.payment_method_id !== undefined) row.payment_method_id = body.payment_method_id || null
-    if (body.payment_installments !== undefined || body.installments !== undefined) {
-      const installments = body.payment_installments ?? body.installments
-      row.payment_installments = installments === null || installments === undefined ? null : Number(installments) || null
-    }
-  }
-  if (body.buyer_name !== undefined) {
-    row.buyer_name = body.buyer_name ? cleanText(body.buyer_name) : null
-  }
-  if (body.buyer_cpf !== undefined) {
-    row.buyer_cpf = body.buyer_cpf ? cleanText(body.buyer_cpf) : null
-  }
-  if (body.sale_details !== undefined) {
-    row.sale_details = body.sale_details ? cleanText(body.sale_details) : null
-  }
-  if (body.device_model_id !== undefined) row.device_model_id = body.device_model_id || null
-  if (body.device_name !== undefined) row.device_name = cleanText(body.device_name) || null
-  if (body.model !== undefined) row.model = cleanText(body.model) || null
-  if (body.color !== undefined) row.color = cleanText(body.color) || null
-  if (body.storage_gb !== undefined) row.storage_gb = cleanText(body.storage_gb) || null
-  if (body.battery !== undefined) row.battery = cleanText(body.battery) || null
-  if (body.condition !== undefined) row.condition = cleanText(body.condition) || null
-  if (body.info !== undefined) row.info = cleanText(body.info) || null
-  if (body.imei !== undefined) row.imei = cleanText(body.imei) || null
-  if (body.imei2 !== undefined) row.imei2 = cleanText(body.imei2) || null
-  if (body.serial !== undefined) row.serial = cleanText(body.serial) || null
-  const isCents = (k: string) => body[k] !== undefined && typeof body[k] === 'number'
-  if (body.purchase_value_cents !== undefined || body.purchase_value !== undefined) row.purchase_value_cents = toCents(body.purchase_value_cents ?? body.purchase_value, isCents('purchase_value_cents'))
-  if (body.wholesale_value_cents !== undefined || body.wholesale_value !== undefined) row.wholesale_value_cents = toCents(body.wholesale_value_cents ?? body.wholesale_value, isCents('wholesale_value_cents'))
-  if (body.expected_profit_wholesale_cents !== undefined || body.expected_profit_wholesale !== undefined) row.expected_profit_wholesale_cents = toCents(body.expected_profit_wholesale_cents ?? body.expected_profit_wholesale, isCents('expected_profit_wholesale_cents'))
-  if (body.sale_value_cents !== undefined || body.sale_value !== undefined) row.sale_value_cents = toCents(body.sale_value_cents ?? body.sale_value, isCents('sale_value_cents'))
-  if (body.expected_profit_sale_cents !== undefined || body.expected_profit_sale !== undefined) row.expected_profit_sale_cents = toCents(body.expected_profit_sale_cents ?? body.expected_profit_sale, isCents('expected_profit_sale_cents'))
-  const soldForCents = body.sold_for_cents !== undefined || body.sold_for !== undefined
-    ? toCents(body.sold_for_cents ?? body.sold_for, isCents('sold_for_cents'))
-    : null
-  if (body.sold === false) {
-    row.sold_for_cents = null
-    row.sale_date = null
-    row.actual_profit_cents = null
-    row.payment_method_id = null
-    row.payment_installments = null
-    row.sale_payment_methods = []
-    row.buyer_name = null
-    row.buyer_cpf = null
-    row.sale_details = null
-  } else if (soldForCents !== null) {
-    row.sold_for_cents = soldForCents
-
-    let purchaseCents = 0
-    if (Object.prototype.hasOwnProperty.call(row, 'purchase_value_cents') && typeof row.purchase_value_cents === 'number') {
-      purchaseCents = (row.purchase_value_cents as number) ?? 0
-    } else {
-      const { data: dev } = await auth.supabase
-        .from('resale_devices')
-        .select('purchase_value_cents')
-        .eq('id', id)
-        .single()
-      purchaseCents = (dev?.purchase_value_cents as number) ?? 0
-    }
-
-    let costsTotal = 0
-    if (Array.isArray(body.costs)) {
-      for (const c of body.costs) {
-        const value_cents =
-          typeof c.value_cents === 'number'
-            ? c.value_cents
-            : toCents(c.value ?? c.value_cents) ?? 0
-        costsTotal += value_cents ?? 0
-      }
-    } else {
-      const { data: costsDb } = await auth.supabase
-        .from('resale_device_costs')
-        .select('value_cents')
-        .eq('resale_device_id', id)
-      costsTotal = (costsDb || []).reduce(
-        (acc: number, c: { value_cents?: number }) => acc + (c.value_cents ?? 0),
-        0
-      )
-    }
-
-    row.actual_profit_cents = soldForCents - purchaseCents - costsTotal
-  }
-  if (body.advertised !== undefined) row.advertised = Boolean(body.advertised)
-  if (body.tested !== undefined) row.tested = Boolean(body.tested)
-  if (body.label !== undefined) row.label = cleanText(body.label) || null
-  if (body.sold !== undefined) row.sold = Boolean(body.sold)
-  if (body.actual_profit_cents !== undefined || body.actual_profit !== undefined) {
-    const val = body.actual_profit_cents ?? body.actual_profit
-    row.actual_profit_cents = typeof val === 'number' ? Math.round(val) : toCents(val, false)
-  }
-  if (body.purchase_date !== undefined) row.purchase_date = toDate(body.purchase_date)
-  if (body.sale_date !== undefined) row.sale_date = toDate(body.sale_date)
-
-  const { data: updated, error } = await auth.supabase
-    .from('resale_devices')
-    .update(row)
-    .eq('id', id)
-    .select()
-    .single()
-
-  if (error) {
-    return NextResponse.json({ ok: false, error: 'db_error', details: error.message }, { status: 500 })
-  }
-  if (!updated) {
-    return NextResponse.json({ ok: false, error: 'not_found' }, { status: 404 })
-  }
-
-  if (Array.isArray(body.costs)) {
-    await auth.supabase.from('resale_device_costs').delete().eq('resale_device_id', id)
-    for (const c of body.costs) {
-      const value_cents = typeof c.value_cents === 'number' ? c.value_cents : toCents(c.value ?? c.value_cents) ?? 0
-      await auth.supabase.from('resale_device_costs').insert({
-        resale_device_id: id,
-        description: cleanText(c.description) || null,
-        value_cents,
-      })
-    }
-  }
-
-  if (body.sold === false) {
-    await auth.supabase
-      .from('resale_device_costs')
-      .delete()
-      .eq('resale_device_id', id)
-      .eq('description', 'Taxa forma de pagamento')
-  }
-
-  const { data: costs } = await auth.supabase
-    .from('resale_device_costs')
-    .select('id, description, value_cents')
-    .eq('resale_device_id', id)
-
-  return NextResponse.json({ ok: true, device: { ...updated, costs: costs || [] } })
-}
-
-export async function DELETE(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = await requireStaffOrAdmin()
-  if (!auth.ok) {
-    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
-  }
-
-  const { id } = await params
-  if (!id) {
-    return NextResponse.json({ ok: false, error: 'invalid_id' }, { status: 400 })
-  }
-
-  const { error } = await auth.supabase
-    .from('resale_devices')
-    .delete()
-    .eq('id', id)
+    .select('sold_for_cents, actual_profit_cents')
+    .eq('sold', true)
+    .gte('sale_date', startDate)
+    .lt('sale_date', endDate)
 
   if (error) {
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
   }
 
-  return NextResponse.json({ ok: true })
+  const list = soldDevices || []
+  const soldThisMonthCount = list.length
+  const soldThisMonthCents = list.reduce((acc, d) => acc + (d.sold_for_cents ?? 0), 0)
+  const profitThisMonthCents = list.reduce((acc, d) => acc + (d.actual_profit_cents ?? 0), 0)
+
+  return NextResponse.json({
+    ok: true,
+    stats: {
+      soldThisMonthCount,
+      soldThisMonthCents,
+      profitThisMonthCents,
+    },
+  })
 }

@@ -94,15 +94,6 @@ export function getOrderSaveErrorDescription (
   return generic
 }
 
-/** Códigos de erro da busca de OS -> mensagem em português */
-export const OS_SEARCH_ERROR_MESSAGES: Record<string, string> = {
-  cpf_invalido: 'CPF inválido. Confira e tente novamente.',
-  nascimento_obrigatorio: 'Informe a data de nascimento.',
-  nascimento_invalido: 'Data de nascimento inválida.',
-  not_found: 'Não encontramos nenhuma OS com estes dados.',
-  missing_service_role: 'Consulta indisponível no momento. Tente novamente mais tarde.',
-}
-
 /**
  * Converte um erro de autenticação em mensagem amigável
  * @param error - Erro do Supabase ou similar
@@ -153,17 +144,4 @@ export function getOrdemErrorMessage(
     return getOrderSaveErrorDescription(options.saveDbCode, options.saveDbMessage, 'create')
   }
   return ORDEM_ERROR_MESSAGES[errorCode] ?? fallback
-}
-
-/**
- * Converte um código de erro da busca de OS em mensagem amigável
- * @param errorCode - Código retornado pela API (ex: 'cpf_invalido')
- * @param fallback - Mensagem padrão quando o código não for conhecido
- */
-export function getOsSearchErrorMessage(
-  errorCode?: string | null,
-  fallback = 'Não foi possível consultar agora. Tente novamente.'
-): string {
-  if (!errorCode) return fallback
-  return OS_SEARCH_ERROR_MESSAGES[errorCode] ?? fallback
 }

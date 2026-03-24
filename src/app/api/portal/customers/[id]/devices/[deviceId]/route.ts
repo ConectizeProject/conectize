@@ -1,78 +1,66 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
+import { formatCpf, formatCnpj } from '@/lib/utils/format-cpf-cnpj'
+import { onlyDigits } from '@/lib/utils/strings'
+import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 
-async function requireStaffOrAdmin() {
-  const supabase = await createSupabaseServerClient()
-  const { user } = await getAuthUser()
-  if (!user) return { ok: false as const, status: 401, error: 'not_authenticated' }
-  const { data: appUser } = await supabase.from('users').select('role').eq('id', user.id).maybeSingle()
-  const role = appUser?.role || 'user'
-  const normalizedRole = role === 'customer' ? 'user' : role
-  if (normalizedRole === 'user') return { ok: false as const, status: 403, error: 'forbidden' }
-  return { ok: true as const, supabase }
-}
-
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string; deviceId: string }> }
-) {
+export async function GET(request: Request) {
   const auth = await requireStaffOrAdmin()
-  if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
-
-  const { id: customerId, deviceId } = await params
-  if (!customerId || !deviceId) return NextResponse.json({ ok: false, error: 'id_required' }, { status: 400 })
-
-  const body = await request.json().catch(() => ({}))
-  const updates: Record<string, unknown> = {}
-  if (body?.device_model_id !== undefined) updates.device_model_id = body.device_model_id ? String(body.device_model_id).trim() : null
-  if (body?.brand !== undefined) updates.brand = body.brand != null ? String(body.brand).trim() : null
-  if (body?.model !== undefined) updates.model = body.model != null ? String(body.model).trim() : null
-  if (body?.device_type !== undefined) updates.device_type = body.device_type != null ? String(body.device_type).trim() : null
-  if (body?.imei !== undefined) updates.imei = body.imei != null ? String(body.imei).trim() : null
-  if (body?.color !== undefined) updates.color = body.color != null ? String(body.color).trim() : null
-  if (body?.notes !== undefined) updates.notes = body.notes != null ? String(body.notes).trim() : null
-
-  if (Object.keys(updates).length === 0) {
-    return NextResponse.json({ ok: false, error: 'no_updates' }, { status: 400 })
+  if (auth.ok === false) {
+    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 
-  const { data: updated, error } = await auth.supabase
-    .from('customer_devices')
-    .update(updates)
-    .eq('id', deviceId)
-    .eq('customer_id', customerId)
-    .select('id, customer_id, device_model_id, brand, model, device_type, imei, color, notes, created_at, updated_at')
-    .single()
+  const url = new URL(request.url)
+  const nameQuery = String(url.searchParams.get('name') || url.searchParams.get('q') || '').trim()
+  const prefixRaw = String(
+    url.searchParams.get('documentPrefix') ||
+    url.searchParams.get('docPrefix') ||
+    url.searchParams.get('cpfPrefix') ||
+    ''
+  )
+  const digits = onlyDigits(prefixRaw).slice(0, 14)
+  const prefix = digits.slice(0, 5)
 
-  if (error) {
-    console.error('[portal/customers/devices] update error:', error)
-    return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+  if (nameQuery.length >= 2) {
+    const escaped = nameQuery.replace(/%/g, '\\%').replace(/_/g, '\\_')
+    const { data: customers, error } = await auth.supabase
+      .from('customers')
+      .select('id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, phone, mobile_phone, contact_phone, contact_notes, address_full, zip_code, state, city, neighborhood, street, street_number, street_complement, birth_date, referral_source, referral_source_other')
+      .or(`full_name.ilike.%${escaped}%,company_name.ilike.%${escaped}%,trade_name.ilike.%${escaped}%`)
+      .order('full_name', { ascending: true, nullsFirst: false })
+      .order('company_name', { ascending: true, nullsFirst: false })
+      .limit(20)
+
+    if (error) {
+      return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+    }
+    return NextResponse.json({ ok: true, customers: customers || [] })
   }
-  if (!updated) return NextResponse.json({ ok: false, error: 'not_found' }, { status: 404 })
 
-  return NextResponse.json({ ok: true, device: updated })
-}
+  if (prefix.length < 5) {
+    return NextResponse.json({ ok: false, error: 'document_prefix_too_short' }, { status: 400 })
+  }
 
-export async function DELETE(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string; deviceId: string }> }
-) {
-  const auth = await requireStaffOrAdmin()
-  if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
+  const cpfPrefixMasked = formatCpf(prefix)
+  const cnpjPrefixMasked = formatCnpj(prefix)
 
-  const { id: customerId, deviceId } = await params
-  if (!customerId || !deviceId) return NextResponse.json({ ok: false, error: 'id_required' }, { status: 400 })
-
-  const { error } = await auth.supabase
-    .from('customer_devices')
-    .delete()
-    .eq('id', deviceId)
-    .eq('customer_id', customerId)
+  const { data: customers, error } = await auth.supabase
+    .from('customers')
+    .select('id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, phone, mobile_phone, contact_phone, contact_notes, address_full, zip_code, state, city, neighborhood, street, street_number, street_complement, birth_date, referral_source, referral_source_other')
+    .or([
+      `cpf.like.${prefix}%`,
+      cpfPrefixMasked ? `cpf.like.${cpfPrefixMasked}%` : null,
+      `cnpj.like.${prefix}%`,
+      cnpjPrefixMasked ? `cnpj.like.${cnpjPrefixMasked}%` : null,
+    ].filter(Boolean).join(','))
+    .order('cpf', { ascending: true, nullsFirst: false })
+    .order('cnpj', { ascending: true, nullsFirst: false })
+    .limit(10)
 
   if (error) {
-    console.error('[portal/customers/devices] delete error:', error)
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
   }
 
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, customers: customers || [] })
 }
+

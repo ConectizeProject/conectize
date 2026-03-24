@@ -1,65 +1,86 @@
 import { NextResponse } from 'next/server'
-import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
-import { forceRefreshBlingToken, type HubConnection } from '@/lib/integrations/bling/api'
+import { requireAdmin } from '@/lib/auth/portal-api'
 
-async function requireAdmin () {
-  const supabase = await createSupabaseServerClient()
-  const { user } = await getAuthUser()
-  if (!user) return { ok: false as const, status: 401, error: 'not_authenticated' }
-
-  const { data: appUser } = await supabase
-    .from('users')
-    .select('role')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  if (appUser?.role !== 'admin') {
-    return { ok: false as const, status: 403, error: 'forbidden' }
-  }
-
-  return { ok: true as const, supabase }
-}
-
-export async function POST (
-  _request: Request,
-  { params }: { params: Promise<{ connectionId: string }> }
-) {
+export async function GET() {
   const auth = await requireAdmin()
-  if (!auth.ok) {
+  if (auth.ok === false) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 
-  const { connectionId } = await params
-  if (!connectionId) {
-    return NextResponse.json({ ok: false, error: 'connection_id_required' }, { status: 400 })
+  const { data, error } = await auth.supabase
+    .from('hub_connections')
+    .select('id, platform_id, metadata, created_at')
+    .order('platform_id')
+
+  if (error) {
+    return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
   }
 
-  const { data: row, error } = await auth.supabase
+  return NextResponse.json({ ok: true, connections: data || [] })
+}
+
+export async function POST(request: Request) {
+  const auth = await requireAdmin()
+  if (auth.ok === false) {
+    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
+  }
+
+  const body = await request.json().catch(() => null)
+  const platformId = String(body?.platform_id || body?.platformId || '').trim()
+  const apiKey = String(body?.api_key || body?.apiKey || '').trim()
+  const model = String(body?.model || '').trim() || null
+
+  const allowedPlatforms = ['chatgpt']
+  if (!platformId || !allowedPlatforms.includes(platformId)) {
+    return NextResponse.json({ ok: false, error: 'platform_invalid' }, { status: 400 })
+  }
+
+  // Se jÃ¡ existe conexÃ£o e sÃ³ estÃ¡ atualizando o modelo, nÃ£o precisa de api_key
+  const { data: existing } = await auth.supabase
     .from('hub_connections')
-    .select('id, platform_id, access_token, refresh_token, token_expires_at, metadata, created_by')
-    .eq('id', connectionId)
-    .eq('platform_id', 'bling')
+    .select('api_key, metadata')
+    .eq('platform_id', platformId)
     .maybeSingle()
 
-  if (error || !row) {
-    return NextResponse.json({ ok: false, error: 'bling_connection_not_found' }, { status: 404 })
+  if (!existing && !apiKey) {
+    return NextResponse.json({ ok: false, error: 'api_key_required' }, { status: 400 })
   }
 
-  const result = await forceRefreshBlingToken(row as HubConnection, { supabase: auth.supabase })
-
-  if (result.ok === false) {
-    const err = result.error
-    const status =
-      err === 'no_refresh_token'
-        ? 400
-        : err === 'bling_oauth_not_configured'
-          ? 500
-          : 502
-    return NextResponse.json({ ok: false, error: err }, { status })
+  // Preserva metadata existente e atualiza apenas o modelo se fornecido
+  const existingMetadata = (existing?.metadata as Record<string, unknown> | null) || {}
+  const metadata: Record<string, unknown> = { ...existingMetadata }
+  if (platformId === 'chatgpt' && model) {
+    metadata.model = model
   }
 
-  return NextResponse.json({
-    ok: true,
-    token_expires_at: result.connection.token_expires_at,
-  })
+  const updateData: Record<string, unknown> = {
+    platform_id: platformId,
+    updated_at: new Date().toISOString(),
+    metadata,
+  }
+
+  if (apiKey) {
+    updateData.api_key = apiKey
+  } else if (existing) {
+    // Mantém a api_key existente se não foi fornecida
+    updateData.api_key = existing.api_key
+  }
+  if (!existing) {
+    updateData.created_by = auth.userId
+    updateData.access_token = null
+    updateData.refresh_token = null
+    updateData.token_expires_at = null
+  }
+
+  const { data, error } = await auth.supabase
+    .from('hub_connections')
+    .upsert(updateData, { onConflict: 'platform_id' })
+    .select('id, platform_id')
+    .single()
+
+  if (error) {
+    return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+  }
+
+  return NextResponse.json({ ok: true, connection: data })
 }

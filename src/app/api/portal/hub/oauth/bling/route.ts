@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
+import { requireAdmin } from '@/lib/auth/portal-api'
 
 const BLING_AUTHORIZE_URL = 'https://www.bling.com.br/Api/v3/oauth/authorize'
 
@@ -31,34 +31,16 @@ function getBlingRedirectUri (request: NextRequest) {
   return `${getRequestOrigin(request)}/api/portal/hub/oauth/bling/callback`
 }
 
-async function requireAdmin () {
-  const supabase = await createSupabaseServerClient()
-  const { user } = await getAuthUser()
-  if (!user) return { ok: false as const, status: 401, error: 'not_authenticated' }
-
-  const { data: appUser } = await supabase
-    .from('users')
-    .select('role')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  if (appUser?.role !== 'admin') {
-    return { ok: false as const, status: 403, error: 'forbidden' }
-  }
-
-  return { ok: true as const }
-}
-
 export async function GET (request: NextRequest) {
   const auth = await requireAdmin()
-  if (!auth.ok) {
+  if (auth.ok === false) {
     return NextResponse.redirect(new URL('/portal/login', getAppBaseUrl(request)))
   }
 
   const clientId = process.env.BLING_CLIENT_ID
   if (!clientId) {
     return NextResponse.json(
-      { error: 'Bling OAuth não configurado. Defina BLING_CLIENT_ID e BLING_CLIENT_SECRET.' },
+      { error: 'Bling OAuth nÃ£o configurado. Defina BLING_CLIENT_ID e BLING_CLIENT_SECRET.' },
       { status: 500 }
     )
   }

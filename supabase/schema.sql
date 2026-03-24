@@ -109,11 +109,12 @@ to authenticated
 using (id = auth.uid());
 
 drop policy if exists users_select_admin on public.users;
-create policy "users_select_admin"
+drop policy if exists users_select_staff_or_admin on public.users;
+create policy "users_select_staff_or_admin"
 on public.users
 for select
 to authenticated
-using (public.is_admin());
+using (public.is_staff_or_admin());
 
 drop policy if exists users_update_own on public.users;
 create policy "users_update_own"

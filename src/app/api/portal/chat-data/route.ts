@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 
 const OPEN_STATUSES = [
   'orcamento', 'aguardando_aprovacao', 'aprovado',
@@ -11,24 +12,6 @@ const FINALIZED_STATUSES = [
 ] as const
 
 const FINANCIAL_KEYWORDS = /faturamento|receita|financeiro|financeiros|lucro|custo total|valor total|vendas em|faturamento do|receita do|resumo financeiro|custos|faturamento do mês|receita do mês/i
-
-async function requireStaffOrAdmin() {
-  const supabase = await createSupabaseServerClient()
-  const { user } = await getAuthUser()
-  if (!user) return { ok: false as const, status: 401, error: 'not_authenticated' }
-
-  const { data: appUser } = await supabase
-    .from('users')
-    .select('role')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  const role = appUser?.role || 'user'
-  const normalized = role === 'customer' ? 'user' : role
-  if (normalized === 'user') return { ok: false as const, status: 403, error: 'forbidden' }
-
-  return { ok: true as const, supabase, role: normalized as 'staff' | 'admin' }
-}
 
 async function fetchOrderStats(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>) {
   const [openRes, closedRes, todayRes] = await Promise.all([
@@ -169,7 +152,7 @@ async function fetchFinancialSummary(supabase: Awaited<ReturnType<typeof createS
 
 export async function POST(request: Request) {
   const auth = await requireStaffOrAdmin()
-  if (!auth.ok) {
+  if (auth.ok === false) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 

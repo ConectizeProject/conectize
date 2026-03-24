@@ -1,23 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
-
-async function requireStaffOrAdmin() {
-  const supabase = await createSupabaseServerClient()
-  const { user } = await getAuthUser()
-  if (!user) return { ok: false as const, status: 401, error: 'not_authenticated' }
-
-  const { data: appUser } = await supabase
-    .from('users')
-    .select('role')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  const role = appUser?.role || 'user'
-  const normalized = role === 'customer' ? 'user' : role
-  if (normalized === 'user') return { ok: false as const, status: 403, error: 'forbidden' }
-
-  return { ok: true as const, supabase }
-}
+import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 
 /**
  * Retorna se o ChatGPT está conectado no HUB (sem expor a API key).
@@ -25,7 +7,7 @@ async function requireStaffOrAdmin() {
  */
 export async function GET() {
   const auth = await requireStaffOrAdmin()
-  if (!auth.ok) {
+  if (auth.ok === false) {
     return NextResponse.json({ ok: false, connected: false, error: auth.error }, { status: auth.status })
   }
 
