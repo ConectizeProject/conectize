@@ -63,7 +63,7 @@ const PAYMENT_TYPE_LABELS: Record<string, string> = {
 
 type OrderRow = {
   id: string
-  display_number: number | null
+  display_number: number | string | null
   status: string
   title: string | null
   created_at: string | null
@@ -86,7 +86,7 @@ function parseServicesItems(raw: unknown): ServiceItem[] {
       : Array.isArray(parsed)
         ? parsed
         : []
-    return items.slice(0, 50).map((i: any) => {
+    return items.slice(0, 50).map((i: Record<string, unknown>) => {
       const qty = Math.max(1, Number(i?.quantity) || 1)
       const unitVal = Number(i?.unitValueCents ?? i?.valueCents ?? 0) || 0
       const unitCost = Number(i?.unitCostCents ?? i?.costCents ?? 0) || 0

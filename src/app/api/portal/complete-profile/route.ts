@@ -5,7 +5,7 @@ function normalizeCpf (value: string) {
   return value.replace(/\D/g, '').trim()
 }
 
-function getRpcErrorCode (error: any) {
+function getRpcErrorCode (error: { message?: string; details?: string; hint?: string; code?: string } | null | undefined) {
   const message = String(error?.message || '')
   const details = String(error?.details || '')
   const hint = String(error?.hint || '')
@@ -64,14 +64,18 @@ export async function POST (request: Request) {
 
   if (error) {
     const code = getRpcErrorCode(error)
-    const payload: any = { ok: false, error: code }
+    const payload: {
+      ok: false
+      error: string
+      debug?: { code: string | null; message: string | null; details: string | null; hint: string | null }
+    } = { ok: false, error: code }
 
     if (process.env.NODE_ENV !== 'production') {
       payload.debug = {
-        code: error?.code || null,
-        message: error?.message || null,
-        details: error?.details || null,
-        hint: error?.hint || null,
+        code: error?.code != null ? String(error.code) : null,
+        message: error?.message != null ? String(error.message) : null,
+        details: error?.details != null ? String(error.details) : null,
+        hint: error?.hint != null ? String(error.hint) : null,
       }
     }
 

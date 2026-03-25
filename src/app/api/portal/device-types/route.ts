@@ -26,12 +26,22 @@ export async function GET(request: Request) {
     const message = process.env.NODE_ENV === 'development' ? error.message : 'db_error'
     return NextResponse.json({ ok: false, error: 'db_error', message }, { status: 500 })
   }
-  const rows = (data || []).map((row: any) => ({
-    id: row.id,
-    brand_id: row.brand_id,
-    name: row.name,
-    brand_name: row.device_brands?.name ?? null,
-  }))
+  type Row = {
+    id: string
+    brand_id?: string | null
+    name?: string | null
+    device_brands?: { name?: string | null } | { name?: string | null }[] | null
+  }
+  const rows = (data || []).map((row: Row) => {
+    const b = row.device_brands
+    const brandName = Array.isArray(b) ? b[0]?.name : b?.name
+    return {
+      id: row.id,
+      brand_id: row.brand_id,
+      name: row.name,
+      brand_name: brandName ?? null,
+    }
+  })
   return NextResponse.json({ ok: true, deviceTypes: rows })
 }
 

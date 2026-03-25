@@ -301,8 +301,8 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 					return
 				}
 				setCatalogItems(data.items as CatalogItem[])
-			} catch (err: any) {
-				if (cancelled || err?.name === 'AbortError') return
+			} catch (err: unknown) {
+				if (cancelled || (err instanceof Error && err.name === 'AbortError')) return
 				setCatalogError('Não foi possível carregar os itens cadastrados.')
 				setCatalogItems([])
 			} finally {

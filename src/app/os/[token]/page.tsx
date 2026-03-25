@@ -22,7 +22,7 @@ export const metadata = {
 	},
 }
 
-function getCustomerFromOrder(order: any) {
+function getCustomerFromOrder(order: { customers?: unknown }) {
 	const customer = order?.customers
 	if (Array.isArray(customer)) return customer[0] || null
 	return customer || null
@@ -43,7 +43,7 @@ function parseServicesForDisplay(raw: unknown): {
 		const data = parsed as Record<string, unknown>
 		let items = Array.isArray(data?.items) ? data.items : Array.isArray(raw) ? raw : []
 		items = items.slice(0, 100)
-		const result = items.map((item: any) => {
+		const result = items.map((item: Record<string, unknown>) => {
 			const kind = item?.kind === 'product' ? 'product' : 'service'
 			const description = String(item?.description ?? '').trim().slice(0, 240)
 			const quantity =
@@ -103,8 +103,8 @@ function parsePaymentMethodsForDisplay(
 	const list = Array.isArray(raw) ? raw : []
 	const byId = new Map((catalog ?? []).map((p) => [p.id, p.type]))
 	return list
-		.filter((e: any) => e?.payment_method_id)
-		.map((e: any) => {
+		.filter((e: Record<string, unknown>) => e?.payment_method_id)
+		.map((e: Record<string, unknown>) => {
 			const type = byId.get(String(e.payment_method_id)) || ''
 			const typeLabel = PAYMENT_TYPE_LABELS[type] || type || 'Forma de pagamento'
 			return {

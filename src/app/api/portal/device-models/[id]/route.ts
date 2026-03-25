@@ -34,9 +34,18 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
   }
 
-  const rows = (data || []).map((row: any) => {
-    const dt = row.device_types
-    const brand = dt?.device_brands
+  type Dt = { name?: string | null; device_brands?: { name?: string | null } | { name?: string | null }[] | null }
+  type ModelRow = {
+    id: string
+    model?: string | null
+    device_type_id?: string
+    device_types?: Dt | Dt[] | null
+  }
+
+  const rows = (data || []).map((row: ModelRow) => {
+    const dt = Array.isArray(row.device_types) ? row.device_types[0] : row.device_types
+    const br = dt?.device_brands
+    const brand = Array.isArray(br) ? br[0] : br
     return {
       id: row.id,
       model: row.model,
@@ -70,8 +79,10 @@ export async function POST(request: Request) {
     .select('id, name, device_brands ( id, name )')
     .eq('id', deviceTypeId)
     .maybeSingle()
-  const brandName = (typeRow as any)?.device_brands?.name ?? ''
-  const deviceTypeName = (typeRow as any)?.name ?? ''
+  const tr = typeRow as { name?: string | null; device_brands?: { name?: string | null } | { name?: string | null }[] | null } | null
+  const db = tr?.device_brands
+  const brandName = (Array.isArray(db) ? db[0]?.name : db?.name) ?? ''
+  const deviceTypeName = tr?.name ?? ''
   if (!brandName || !deviceTypeName) {
     return NextResponse.json({ ok: false, error: 'invalid_device_type' }, { status: 400 })
   }

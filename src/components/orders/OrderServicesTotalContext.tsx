@@ -1,6 +1,14 @@
 'use client'
 
-import { createContext, useContext, useRef, useEffect, useState, useCallback, useMemo } from 'react'
+import {
+  createContext,
+  useContext,
+  useRef,
+  useEffect,
+  useCallback,
+  useMemo,
+  useSyncExternalStore,
+} from 'react'
 
 type Listener = (cents: number) => void
 
@@ -63,18 +71,16 @@ export function useOrderServicesTotal() {
 }
 
 /** Retorna o total em centavos e re-renderiza apenas quando o total muda (subscription). Sem provider retorna 0. */
-export function useOrderServicesTotalSubscription(): number {
+export function useOrderServicesTotalSubscription (): number {
   const ctx = useOrderServicesTotal()
-  const [total, setTotal] = useState(0)
-
-  useEffect(() => {
-    if (!ctx) {
-      setTotal(0)
-      return
-    }
-    setTotal(ctx.getTotalValueCents())
-    return ctx.subscribe(setTotal)
-  }, [ctx])
-
-  return ctx ? total : 0
+  return useSyncExternalStore(
+    (onStoreChange) => {
+      if (!ctx) return () => {}
+      return ctx.subscribe((_cents) => {
+        onStoreChange()
+      })
+    },
+    () => (ctx ? ctx.getTotalValueCents() : 0),
+    () => 0,
+  )
 }

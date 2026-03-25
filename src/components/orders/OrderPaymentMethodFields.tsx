@@ -104,10 +104,13 @@ export const OrderPaymentMethodFields = forwardRef<OrderPaymentMethodFieldsRef, 
 
     // Garante sempre pelo menos uma forma de pagamento exibida
     useEffect(() => {
-      if (entries.length === 0) {
-        setEntries([DEFAULT_EMPTY_ENTRY])
+      if (entries.length !== 0) return
+      if (isFormikMode) {
+        formik!.setFieldValue('paymentMethods', [DEFAULT_EMPTY_ENTRY])
+      } else {
+        setInternalEntries([DEFAULT_EMPTY_ENTRY])
       }
-    }, [entries.length])
+    }, [entries.length, isFormikMode, formik])
 
     // Sincroniza estado interno com defaultValue na montagem/atualização do valor inicial (edição da OS)
     const defaultLength = defaultValue?.length ?? 0
@@ -116,7 +119,7 @@ export const OrderPaymentMethodFields = forwardRef<OrderPaymentMethodFieldsRef, 
       if (defaultLength > 0) {
         setInternalEntries(defaultValue.map((e) => ({ ...e })))
       }
-    }, [isFormikMode, defaultLength])
+    }, [isFormikMode, defaultLength, defaultValue])
 
     const loadPaymentMethods = useCallback(async () => {
       setIsLoading(true)

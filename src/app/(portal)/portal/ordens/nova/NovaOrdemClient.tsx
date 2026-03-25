@@ -230,7 +230,7 @@ export function NovaOrdemClient(props: Props) {
 		return () => {
 			cancelled = true;
 		};
-	}, [props.duplicateOrderId]);
+	}, [props.duplicateOrderId, props.currentUserId, props.isAdmin, setCustomerSearchInput, setCustomersBase, setLastPrefixFetched]);
 
 	useEffect(() => {
 		if (!selectedCustomer?.id) {

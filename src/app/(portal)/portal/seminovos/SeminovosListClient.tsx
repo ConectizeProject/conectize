@@ -314,12 +314,12 @@ export function SeminovosListClient({
 		)
 	}
 
-	function updateMoney(id: string, field: keyof ResaleDevice, raw: string) {
+	function updateMoney<K extends keyof ResaleDevice>(id: string, field: K, raw: string) {
 		const masked = formatMoneyInput(raw)
 		const cents = moneyToCentsFromMasked(masked)
 		setEditedDevices((prev) =>
 			prev.map((d) =>
-				d.id === id ? { ...d, [field]: (cents ?? null) as any } : d
+				d.id === id ? { ...d, [field]: (cents ?? null) as ResaleDevice[K] } : d
 			)
 		)
 	}
@@ -1139,7 +1139,7 @@ Comprando 3 iPhones
 																									<span className="text-muted-foreground shrink-0">-</span>
 																									<Input
 																										value={d.storage_gb || ''}
-																										onChange={(e) => updateRow(d.id, 'storage_gb', (e.target.value || '') as any)}
+																										onChange={(e) => updateRow(d.id, 'storage_gb', e.target.value || '')}
 																										placeholder="GB"
 																										className="h-8 w-14 text-sm"
 																									/>
@@ -1147,7 +1147,7 @@ Comprando 3 iPhones
 																								<div className="flex items-center gap-1">
 																									<Input
 																										value={d.color || ''}
-																										onChange={(e) => updateRow(d.id, 'color', (e.target.value || '') as any)}
+																										onChange={(e) => updateRow(d.id, 'color', e.target.value || '')}
 																										placeholder="Cor"
 																										className="h-8 text-xs"
 																									/>
@@ -1157,11 +1157,11 @@ Comprando 3 iPhones
 																										value={d.battery || ''}
 																										onChange={(e) => {
 																											const digits = e.target.value.replace(/\D/g, '')
-																											if (!digits) { updateRow(d.id, 'battery', '' as any); return }
+																											if (!digits) { updateRow(d.id, 'battery', ''); return }
 																											let n = Number.parseInt(digits, 10)
-																											if (Number.isNaN(n)) { updateRow(d.id, 'battery', '' as any); return }
+																											if (Number.isNaN(n)) { updateRow(d.id, 'battery', ''); return }
 																											if (n > 100) n = 100
-																											updateRow(d.id, 'battery', (`${n}%` as any))
+																											updateRow(d.id, 'battery', `${n}%`)
 																										}}
 																										placeholder="Bateria"
 																										className="h-8 w-16 text-xs"
@@ -1170,7 +1170,7 @@ Comprando 3 iPhones
 																									<select
 																										className="h-8 rounded-md border border-input bg-background px-2 text-xs w-16"
 																										value={d.condition || ''}
-																										onChange={(e) => updateRow(d.id, 'condition', (e.target.value || '') as any)}
+																										onChange={(e) => updateRow(d.id, 'condition', e.target.value || '')}
 																									>
 																										<option value="">Estado</option>
 																										<option value="A+">A+</option>

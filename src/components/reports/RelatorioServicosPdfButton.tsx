@@ -9,7 +9,7 @@ import { getOrderStatusLabel } from '@/lib/orders/order-status'
 
 export type RelatorioServicosPdfOrder = {
   id: string
-  display_number: number | null
+  display_number: number | string | null
   status: string
   title: string | null
   created_at: string | null

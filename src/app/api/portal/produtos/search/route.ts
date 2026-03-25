@@ -48,7 +48,16 @@ export async function GET (request: Request) {
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
   }
 
-  const items = (data ?? []).map((row: any) => ({
+  type ProductRow = {
+    id: string
+    name?: string | null
+    sku?: string | null
+    barcode?: string | null
+    kind?: string | null
+    sale_price_cents?: number | null
+    cost_price_cents?: number | null
+  }
+  const items = (data ?? []).map((row: ProductRow) => ({
     id: String(row.id),
     name: String(row.name || '').trim(),
     sku: row.sku ? String(row.sku) : null,

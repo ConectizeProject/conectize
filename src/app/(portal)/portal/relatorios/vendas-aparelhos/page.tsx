@@ -22,6 +22,23 @@ type DeviceModel = {
   model: string | null
 }
 
+type DtNested = { name?: string | null; device_brands?: { name?: string | null } | { name?: string | null }[] | null }
+type ModelRawRow = {
+  id: string
+  model?: string | null
+  device_types?: DtNested | DtNested[] | null
+}
+
+type ResaleDeviceRow = {
+  id: string
+  sold_for_cents?: number | null
+  actual_profit_cents?: number | null
+  sale_date?: string | null
+  device_model_id?: string | null
+  device_name?: string | null
+  model?: string | null
+}
+
 export default async function RelatorioVendasAparelhosPage ({
   searchParams,
 }: {
@@ -55,10 +72,11 @@ export default async function RelatorioVendasAparelhosPage ({
       .limit(5000),
   ])
 
-  const list = soldDevices || []
-  const models: DeviceModel[] = (modelsRaw || []).map((d: any) => {
-    const dt = d.device_types || null
-    const brandRow = dt?.device_brands || null
+  const list = (soldDevices || []) as ResaleDeviceRow[]
+  const models: DeviceModel[] = (modelsRaw || []).map((d: ModelRawRow) => {
+    const dt = Array.isArray(d.device_types) ? d.device_types[0] : d.device_types
+    const br = dt?.device_brands
+    const brandRow = Array.isArray(br) ? br[0] : br
     return {
       id: d.id,
       brand: brandRow?.name ?? null,
@@ -74,8 +92,8 @@ export default async function RelatorioVendasAparelhosPage ({
   let netCents = 0
 
   for (const d of list) {
-    const gross = (d as any).sold_for_cents ?? 0
-    const net = (d as any).actual_profit_cents ?? 0
+    const gross = d.sold_for_cents ?? 0
+    const net = d.actual_profit_cents ?? 0
     if (Number.isFinite(gross)) grossCents += Number(gross)
     if (Number.isFinite(net)) netCents += Number(net)
   }
@@ -83,7 +101,7 @@ export default async function RelatorioVendasAparelhosPage ({
   const marginPercent = grossCents > 0 ? (netCents / grossCents) * 100 : 0
 
   const revenueSeries = buildRevenueSeries(
-    list.map((d: any) => ({
+    list.map((d: ResaleDeviceRow) => ({
       dateISO: d.sale_date,
       grossCents: d.sold_for_cents ?? 0,
       netCents: d.actual_profit_cents ?? 0,
@@ -314,7 +332,7 @@ function buildModelsMap (models: DeviceModel[]) {
 }
 
 function buildTopModels (
-  devices: any[],
+  devices: ResaleDeviceRow[],
   modelsMap: Record<string, DeviceModel>,
   metric: TopMetric,
   limit: number,
@@ -322,19 +340,19 @@ function buildTopModels (
   const agg = new Map<string, TopItem>()
 
   for (const d of devices) {
-    const modelId = (d as any).device_model_id as string | null
+    const modelId = d.device_model_id ?? null
     const modelRow = modelId ? modelsMap[modelId] : null
     const label = buildModelLabel(
       modelRow,
-      (d as any).device_name as string | null,
-      (d as any).model as string | null,
+      d.device_name ?? null,
+      d.model ?? null,
     )
 
     const key = modelId || label
     if (!key) continue
 
-    const gross = (d as any).sold_for_cents ?? 0
-    const net = (d as any).actual_profit_cents ?? 0
+    const gross = d.sold_for_cents ?? 0
+    const net = d.actual_profit_cents ?? 0
 
     const existing = agg.get(key)
     if (existing) {

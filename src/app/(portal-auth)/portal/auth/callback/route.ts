@@ -64,7 +64,11 @@ export async function GET(request: Request) {
         opts.secure = false
       }
       opts.path = opts.path ?? '/'
-      response.cookies.set(name, value, opts as any)
+      response.cookies.set(
+        name,
+        value,
+        opts as NonNullable<Parameters<typeof response.cookies.set>[2]>,
+      )
     }
     return response
   } catch (err) {
