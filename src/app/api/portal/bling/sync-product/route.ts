@@ -204,8 +204,6 @@ export async function POST(request: Request) {
 			costPriceCentsToSave = local.costPriceCents ?? undefined;
 		} else if (costFromLastEntry != null) {
 			costPriceCentsToSave = costFromLastEntry;
-		} else if (isPlausibleCostUnit(local.costPriceCents, saleCentsFromBling)) {
-			costPriceCentsToSave = local.costPriceCents ?? undefined;
 		} else if (
 			isPlausibleCostUnit(current.product.costPriceCents, saleCentsFromBling)
 		) {

@@ -43,6 +43,7 @@ import {
 	updateOrderAction,
 } from './order-detail-actions'
 import { formatDateTimeLocal, parseOrderPaymentMethods } from './order-detail-helpers'
+import type { ServiceOrderDetail } from './service-order-detail-types'
 
 type WarrantyTemplateRow = {
 	id: string
@@ -59,34 +60,7 @@ type SellerOption = {
 }
 
 type Props = {
-	order: Record<string, unknown> & {
-		id: string
-		display_number?: number | null
-		status: string
-		title: string
-		imei?: string | null
-		color?: string | null
-		is_warranty?: boolean | null
-		estimated_ready_at?: string | null
-		passcode_type?: string | null
-		passcode_text?: string | null
-		passcode_pattern?: string | null
-		customer_description?: string | null
-		receiving_notes?: string | null
-		warranty_template_id?: string | null
-		warranty_text?: string | null
-		device_model_id?: string | null
-		brand?: string | null
-		model?: string | null
-		services?: unknown
-		services_total_cents?: number | null
-		created_at?: string
-		updated_at?: string
-		closed_at?: string | null
-		share_token?: string | null
-		seller_user_id?: string | null
-		device_entry_checks?: unknown
-	}
+	order: ServiceOrderDetail
 	customer: Record<string, unknown> | null
 	deviceModel: Record<string, unknown> | null
 	deviceString: string

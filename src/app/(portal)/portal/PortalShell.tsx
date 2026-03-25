@@ -25,8 +25,8 @@ import {
 	SidebarProvider,
 	SidebarRail,
 	SidebarTrigger,
-	useSidebar,
 } from '@/components/ui/sidebar'
+import { useSidebar } from '@/components/ui/use-sidebar'
 import { useTheme } from 'next-themes'
 import { cn } from '@/lib/utils'
 

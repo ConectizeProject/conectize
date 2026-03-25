@@ -116,7 +116,11 @@ export function OrdensFilterCollapsible({
   }
 
   useEffect(() => {
-    if (hasFilters && !open) setOpen(true)
+    if (hasFilters && !open) {
+      queueMicrotask(() => {
+        setOpen(true)
+      })
+    }
   }, [hasFilters, open])
 
   const searchCustomers = useCallback((term: string) => {
@@ -146,7 +150,9 @@ export function OrdensFilterCollapsible({
     if (customerSearchDebounceRef.current) clearTimeout(customerSearchDebounceRef.current)
     const t = customerQuery.trim()
     if (t.length < 2) {
-      setCustomerSuggestions([])
+      queueMicrotask(() => {
+        setCustomerSuggestions([])
+      })
       return
     }
     customerSearchDebounceRef.current = setTimeout(() => searchCustomers(t), 300)
@@ -192,16 +198,22 @@ export function OrdensFilterCollapsible({
 
   useEffect(() => {
     if (selectedDeviceId) {
-      setDeviceSuggestions([])
+      queueMicrotask(() => {
+        setDeviceSuggestions([])
+      })
       return
     }
     const q = deviceQuery.trim().toLowerCase()
     if (q.length < 2) {
-      setDeviceSuggestions([])
+      queueMicrotask(() => {
+        setDeviceSuggestions([])
+      })
       return
     }
     const next = deviceOptions.filter((o) => o.label.toLowerCase().includes(q)).slice(0, 50)
-    setDeviceSuggestions(next)
+    queueMicrotask(() => {
+      setDeviceSuggestions(next)
+    })
   }, [deviceQuery, deviceOptions, selectedDeviceId])
 
   function handleSelectDevice(opt: { value: string; label: string }) {

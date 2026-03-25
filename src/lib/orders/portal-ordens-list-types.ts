@@ -1,5 +1,5 @@
 /**
- * Tipos compartilhados entre a página de listagem, OrdemCard e clientes filhos.
+ * Tipos compartilhados entre listagem RSC, API e componentes de ordens no portal.
  */
 
 export type PortalOrdensCustomerSummary = {

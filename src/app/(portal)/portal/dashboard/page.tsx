@@ -64,10 +64,10 @@ export default async function DashboardPage() {
   const staffResults = isStaffOrAdmin ? await Promise.all(staffFetches) : []
 
   let seminovosGroups: Array<{ label: string; total: number; byColor: Record<string, { count: number; minCents: number; maxCents: number; hasValue: boolean }>; minCents: number; maxCents: number; hasAnyValue: boolean }> = []
-  let openOrdersList: Array<{ id: string; display_number: string | null; status: string; title: string }> = []
-  let statusCounts: Record<string, number> = {}
-  let ordersNearDeadline: Array<{ id: string; display_number: string | null; title: string; status: string }> = []
-  let ordersOverdueOrOld: Array<{ id: string; display_number: string | null; title: string; status: string }> = []
+  const openOrdersList: Array<{ id: string; display_number: string | null; status: string; title: string }> = []
+  const statusCounts: Record<string, number> = {}
+  const ordersNearDeadline: Array<{ id: string; display_number: string | null; title: string; status: string }> = []
+  const ordersOverdueOrOld: Array<{ id: string; display_number: string | null; title: string; status: string }> = []
   let ordersAguardandoPecas: Array<{ id: string; display_number: string | null; status: string; title: string }> = []
 
   if (isStaffOrAdmin && staffResults.length >= 3) {
@@ -79,14 +79,26 @@ export default async function DashboardPage() {
     const modelsRaw = modelsRes?.data ?? []
     const openOrdersRaw = openOrdersRes?.data ?? []
 
+    type DeviceBrandNested = { name?: string | null } | null
+    type DeviceTypeNested = {
+      name?: string | null
+      device_brands?: DeviceBrandNested | DeviceBrandNested[] | null
+    } | null
+    type ModelRow = {
+      id: string
+      model: string | null
+      device_types?: DeviceTypeNested | DeviceTypeNested[] | null
+    }
     const modelLabels = new Map<string, string>()
-    for (const m of modelsRaw) {
-      const dt = (m as any).device_types ?? null
-      const brand = dt?.device_brands ?? null
+    for (const m of modelsRaw as ModelRow[]) {
+      const rawDt = m.device_types
+      const dt = Array.isArray(rawDt) ? rawDt[0] : rawDt
+      const rawBr = dt?.device_brands
+      const brand = Array.isArray(rawBr) ? rawBr[0] : rawBr
       const brandName = brand?.name ?? ''
-      const modelName = (m as any).model ?? ''
+      const modelName = m.model ?? ''
       const label = [brandName, modelName].filter(Boolean).join(' ') || 'Sem modelo'
-      modelLabels.set((m as any).id, label)
+      modelLabels.set(m.id, label)
     }
 
     const byLabel = new Map<string, Array<{ color: string | null; sale_value_cents: number | null }>>()

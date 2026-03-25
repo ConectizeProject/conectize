@@ -59,16 +59,14 @@ export function useNovaOrdemCustomerSearch ({ selectedCustomer }: Params) {
 		if (!selectedCustomer) return
 		const doc = getCustomerDocumentDigits(selectedCustomer)
 		if (doc && doc !== documentDigits) {
-			setCustomerSearchInput(formatCpfCnpj(doc))
+			queueMicrotask(() => {
+				setCustomerSearchInput(formatCpfCnpj(doc))
+			})
 		}
 	}, [documentDigits, selectedCustomer])
 
 	useEffect(() => {
 		if (!isDocumentMode && !isNameMode) {
-			setDocumentSearchError(null)
-			setCustomersBase([])
-			setLastPrefixFetched(null)
-			setLastNameQueryFetched(null)
 			cpfSearchAbortRef.current?.abort()
 			cpfSearchAbortRef.current = null
 			cpfSearchInFlightPrefixRef.current = null
@@ -81,7 +79,13 @@ export function useNovaOrdemCustomerSearch ({ selectedCustomer }: Params) {
 			}
 			cpfSearchDebounceRef.current = null
 			nameSearchDebounceRef.current = null
-			setIsSearchingDocument(false)
+			queueMicrotask(() => {
+				setDocumentSearchError(null)
+				setCustomersBase([])
+				setLastPrefixFetched(null)
+				setLastNameQueryFetched(null)
+				setIsSearchingDocument(false)
+			})
 			return
 		}
 

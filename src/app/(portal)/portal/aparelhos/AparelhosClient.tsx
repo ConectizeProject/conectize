@@ -61,7 +61,7 @@ type DeviceTypeRow = {
 	brand_name?: string | null;
 	created_at?: string | null;
 };
-type DeviceModelRow = {
+export type DeviceModelRow = {
 	id: string;
 	model: string;
 	device_type_id?: string | null;

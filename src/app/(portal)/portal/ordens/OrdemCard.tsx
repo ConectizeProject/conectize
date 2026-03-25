@@ -6,7 +6,7 @@ import { OrderStatusBadge } from '@/components/orders'
 import { OrdensRowActions } from './OrdensRowActions'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { formatDateTimeBr } from '@/lib/utils/format-date'
-import type { PortalOrdensListRow } from './ordens-list-types'
+import type { PortalOrdensListRow } from '@/lib/orders/portal-ordens-list-types'
 
 type Props = {
   order: PortalOrdensListRow

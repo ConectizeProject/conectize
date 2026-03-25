@@ -31,7 +31,7 @@ import { buildOrderMessage } from '@/lib/ordem-share-message'
 import { ORDER_STATUS_LABELS } from '@/lib/orders/order-status'
 import { formatPhoneForWhatsApp } from '@/lib/utils/format-phone'
 import { updateOrderStatusAction } from './[id]/order-detail-actions'
-import type { PortalOrdensListRow } from './ordens-list-types'
+import type { PortalOrdensListRow } from '@/lib/orders/portal-ordens-list-types'
 
 type Props = {
   order: PortalOrdensListRow

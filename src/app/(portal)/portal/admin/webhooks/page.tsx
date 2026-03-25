@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import { getPortalAuth, createSupabaseServerClient } from '@/lib/supabase/server'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { WebhooksListClient } from './WebhooksListClient'
+import { WebhooksListClient, type WebhookRow } from './WebhooksListClient'
 
 export const dynamic = 'force-dynamic'
 
@@ -106,7 +106,7 @@ export default async function AdminWebhooksPage ({ searchParams }: { searchParam
         </CardHeader>
         <CardContent>
           {webhooks && webhooks.length > 0 ? (
-            <WebhooksListClient webhooks={webhooks as any} />
+            <WebhooksListClient webhooks={(webhooks ?? []) as WebhookRow[]} />
           ) : (
             <div className="text-sm text-muted-foreground">Nenhum registro.</div>
           )}

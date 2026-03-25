@@ -5,7 +5,7 @@ import { ChevronDown, Loader2 } from 'lucide-react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { OrdemCard } from './OrdemCard'
 import { portalFetch } from '@/lib/portal/portal-fetch'
-import type { PortalOrdensListRow } from './ordens-list-types'
+import type { PortalOrdensListRow } from '@/lib/orders/portal-ordens-list-types'
 
 type Props = {
   q?: string
@@ -70,11 +70,12 @@ export function OrdensFinalSection({
   }, [hasFetched, q, cpf, osNumber, status, customerId, customerName, deviceModelId, createdFrom, createdTo, readyFrom, readyTo])
 
   useEffect(() => {
-    if (defaultOpen && !hasFetched && !isLoading) {
-      setOpen(true)
+    if (!defaultOpen || hasFetched) return
+    const t = window.setTimeout(() => {
       fetchFinal()
-    }
-  }, [defaultOpen, hasFetched, isLoading, fetchFinal])
+    }, 0)
+    return () => window.clearTimeout(t)
+  }, [defaultOpen, hasFetched, fetchFinal])
 
   function handleOpenChange(isOpen: boolean) {
     setOpen(isOpen)

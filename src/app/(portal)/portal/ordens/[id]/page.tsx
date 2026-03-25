@@ -11,6 +11,7 @@ import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { OrdemDetalhePageContent } from './OrdemDetalhePageContent'
+import type { ServiceOrderDetail } from './service-order-detail-types'
 import {
 	getCustomerFromOrder,
 	getDeviceModelFromOrder,
@@ -141,7 +142,7 @@ export default async function OrdemDetalhePage ({
 
 	return (
 		<OrdemDetalhePageContent
-			order={order as Record<string, unknown> & { id: string; display_number?: number | null; status: string; title: string }}
+			order={order as ServiceOrderDetail}
 			customer={customer as Record<string, unknown> | null}
 			deviceModel={deviceModel as Record<string, unknown> | null}
 			deviceString={deviceString}

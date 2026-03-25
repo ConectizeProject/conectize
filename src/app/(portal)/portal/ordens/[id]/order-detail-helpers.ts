@@ -1,5 +1,6 @@
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 import { toDateTimeLocalInBrazil } from '@/lib/utils/previsao-ordem'
+import type { ServiceOrderDetail } from './service-order-detail-types'
 
 export function getCustomerFromOrder (order: { customers?: unknown } | null) {
 	const customer = order?.customers
@@ -13,7 +14,9 @@ export function getDeviceModelFromOrder (order: { device_models?: unknown } | nu
 	return deviceModel || null
 }
 
-export function parseOrderPaymentMethods (order: Record<string, unknown>): Array<{
+export function parseOrderPaymentMethods (
+  order: Record<string, unknown> | ServiceOrderDetail,
+): Array<{
 	payment_method_id: string
 	installments?: number
 	value_cents?: number | null

@@ -14,33 +14,9 @@ import type {
   PortalOrdensDeviceModelSummary,
   PortalOrdensListRow,
   PortalServiceOrderListQueryRow,
-} from './ordens-list-types'
-
-function mapDeviceModelJoinToSummary(d: {
-  id: string
-  model: string | null
-  device_types?: unknown
-}): PortalOrdensDeviceModelSummary {
-  const dtRaw = d.device_types
-  const dt = (Array.isArray(dtRaw) ? dtRaw[0] : dtRaw) as
-    | { name?: string | null; device_brands?: unknown }
-    | null
-    | undefined
-  const brRaw = dt?.device_brands
-  const br = Array.isArray(brRaw) ? brRaw[0] : brRaw
-  const brandName =
-    br && typeof br === 'object' && br !== null && 'name' in br
-      ? (br as { name: string | null }).name ?? null
-      : null
-  return {
-    id: d.id,
-    brand: brandName,
-    device_type: dt?.name ?? null,
-    model: d.model ?? null,
-  }
-}
-
-const LIMIT_OPEN = 500
+} from '@/lib/orders/portal-ordens-list-types'
+import { mapDeviceModelJoinToSummary } from '@/lib/portal/list-final-orders-with-relations'
+import { PORTAL_OPEN_ORDERS_LIST_LIMIT } from '@/lib/portal/ordens-list-limits'
 
 function normalizeCpf(value: string) {
   return value.replace(/\D/g, '').trim()
@@ -155,7 +131,7 @@ export default async function OrdensPage({
     )
     .in('status', [...OPEN_ORDER_STATUSES])
     .order('created_at', { ascending: false })
-    .limit(LIMIT_OPEN)
+    .limit(PORTAL_OPEN_ORDERS_LIST_LIMIT)
 
   if (query) {
     const escaped = query.replaceAll(',', ' ').trim()

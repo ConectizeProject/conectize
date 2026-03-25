@@ -9,7 +9,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { getOrderStatusLabel } from '@/lib/orders/order-status'
 import { OrdemCard } from './OrdemCard'
 import { OrdensFinalSection } from './OrdensFinalSection'
-import type { PortalOrdensListRow } from './ordens-list-types'
+import type { PortalOrdensListRow } from '@/lib/orders/portal-ordens-list-types'
 
 const OPEN_STATUS_ORDER = [
   'em_manutencao',

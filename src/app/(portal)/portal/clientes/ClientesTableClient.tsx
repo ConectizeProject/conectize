@@ -9,7 +9,7 @@ import { EditCustomerDialog, type CustomerHit } from '@/components/customers'
 import { CustomerOrderHistoryModal } from '@/components/orders'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 
-type CustomerRow = {
+export type CustomerRow = {
 	id: string
 	cpf?: string | null
 	cnpj?: string | null

@@ -72,7 +72,6 @@ export function OsPublicEntryPhotos ({ photos, className }: OsPublicEntryPhotosP
                 aria-label="Ver foto em tamanho maior"
               >
                 {photo.url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={photo.url}
                     alt=""
@@ -114,7 +113,6 @@ export function OsPublicEntryPhotos ({ photos, className }: OsPublicEntryPhotosP
             )}
             <div className="relative w-full h-[70vh] min-h-[200px] max-w-4xl mx-auto flex items-center justify-center">
               {current?.url ? (
-                // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={current.url}
                   alt={`Foto ${selectedIndex + 1} de ${total}`}
