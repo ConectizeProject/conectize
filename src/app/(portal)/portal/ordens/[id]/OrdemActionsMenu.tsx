@@ -29,6 +29,7 @@ import { toast } from '@/hooks/use-toast'
 import { buildOrderMessage } from '@/lib/ordem-share-message'
 import { ORDER_STATUS_LABELS } from '@/lib/orders/order-status'
 import { formatPhoneForWhatsApp } from '@/lib/utils/format-phone'
+import { updateOrderStatusAction } from './order-detail-actions'
 
 type Props = {
   orderId: string
@@ -113,13 +114,11 @@ export function OrdemActionsMenu({
   async function handleStatusChange(newStatus: string) {
     setStatusUpdating(true)
     try {
-      const res = await fetch(`/api/portal/ordens/${orderId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus }),
-      })
-      const data = await res.json().catch(() => null)
-      if (!res.ok || !data?.ok) {
+      const fd = new FormData()
+      fd.set('orderId', orderId)
+      fd.set('status', newStatus)
+      const result = await updateOrderStatusAction(fd)
+      if (!result.ok) {
         toast({ title: 'Erro ao atualizar status', variant: 'destructive' })
         return
       }

@@ -6,7 +6,6 @@ import {
 	type CustomerHit,
 } from "@/components/customers";
 import {
-	OrderDeviceSelector,
 	OrderPaymentMethodFields,
 	OrderServicesCard,
 	OrderServicesTotalProvider,
@@ -14,9 +13,7 @@ import {
 	type DeviceModel,
 	type OrderPaymentMethodFieldsRef,
 	type OrderServicesCardRef,
-	type ServiceLine,
 } from "@/components/orders";
-import { PatternLockInput } from "@/components/pattern-lock/PatternLockInput";
 import { PrevisaoInput } from "@/components/previsao-input";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,17 +24,8 @@ import {
 	CardTitle,
 } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
 	Select,
 	SelectContent,
@@ -48,7 +36,6 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import { portalFetch } from "@/lib/portal/portal-fetch";
-import { cn } from "@/lib/utils";
 import { formatCpfCnpj } from "@/lib/utils/format-cpf-cnpj";
 import { parseMoneyToCents } from "@/lib/utils/format-money";
 import {
@@ -60,33 +47,27 @@ import {
 	getMinPrevisaoNow,
 } from "@/lib/utils/previsao-ordem";
 import { Field, FieldArray, Form, Formik } from "formik";
-import { Check, Loader2, Minus, Plus, X } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import * as Yup from "yup";
 import { OrderFormActionBar } from "../OrderFormActionBar";
+import {
+	NovaOrdemAparelhoCard,
+	type NovaOrdemCustomerDevice,
+} from "./NovaOrdemAparelhoCard";
 import { NovaOrdemCustomerCard } from "./NovaOrdemCustomerCard";
+import { NovaOrdemEntryChecksDialog } from "./NovaOrdemEntryChecksDialog";
+import {
+	type FormValues,
+	initialFormValues,
+	novaOrdemStatusOptions,
+	orderFormSchema,
+} from "./nova-ordem-form";
 import {
 	getCustomerDocumentDigits,
 	useNovaOrdemCustomerSearch,
 } from "./use-nova-ordem-customer-search";
-
-const statusOptions = [
-	{ value: "orcamento", label: "Orçamento" },
-	{ value: "aguardando_aprovacao", label: "Aguardando aprovação" },
-	{ value: "aprovado", label: "Aprovado" },
-] as const;
-
-function makeId() {
-	if (
-		typeof crypto !== "undefined" &&
-		typeof crypto.randomUUID === "function"
-	) {
-		return crypto.randomUUID();
-	}
-	return String(Date.now()) + String(Math.random()).slice(2);
-}
 
 type SellerOption = {
 	id: string;
@@ -104,76 +85,6 @@ type Props = {
 	currentUserId: string;
 	duplicateOrderId?: string;
 };
-
-type FormValues = {
-	customerId: string;
-	document: string;
-	title: string;
-	status: string;
-	sellerUserId: string;
-	deviceModelId: string;
-	brand: string;
-	model: string;
-	deviceType: string;
-	imei: string;
-	color: string;
-	isWarranty: boolean;
-	estimatedReadyAt: string;
-	passcodeType: string;
-	passcodeText: string;
-	passcodePattern: string;
-	paymentMethods: Array<{
-		payment_method_id: string;
-		installments?: number;
-		value_cents?: number | null;
-	}>;
-	customerDescription: string;
-	internalInitialComment: string;
-	receivingNotes: string;
-	services: ServiceLine[];
-	deviceEntryChecksJson: string;
-};
-
-const initialFormValues: FormValues = {
-	customerId: "",
-	document: "",
-	title: "",
-	status: "orcamento",
-	sellerUserId: "",
-	deviceModelId: "",
-	brand: "",
-	model: "",
-	deviceType: "",
-	imei: "",
-	color: "",
-	isWarranty: false,
-	estimatedReadyAt: "",
-	passcodeType: "none",
-	passcodeText: "",
-	passcodePattern: "",
-	paymentMethods: [],
-	customerDescription: "",
-	internalInitialComment: "",
-	receivingNotes: "",
-	services: [],
-	deviceEntryChecksJson: "",
-};
-
-const orderFormSchema = Yup.object().shape({
-	customerId: Yup.string().required("Selecione um cliente (CPF/CNPJ)"),
-	title: Yup.string()
-		.trim()
-		.required("Título é obrigatório")
-		.min(2, "Título deve ter pelo menos 2 caracteres"),
-	status: Yup.string()
-		.oneOf(["orcamento", "aguardando_aprovacao", "aprovado"], "Status inválido")
-		.required("Status é obrigatório"),
-	estimatedReadyAt: Yup.string().test(
-		"min-date",
-		"A previsão deve ser igual ou posterior à data de abertura.",
-		(value) => !value || new Date(value).getTime() >= Date.now() - 60_000,
-	),
-});
 
 export function NovaOrdemClient(props: Props) {
 	const router = useRouter();
@@ -209,17 +120,9 @@ export function NovaOrdemClient(props: Props) {
 		useState(true);
 	const initialErrorToastShownRef = useRef(false);
 
-	type CustomerDevice = {
-		id: string;
-		device_model_id: string | null;
-		brand: string | null;
-		model: string | null;
-		device_type: string | null;
-		imei: string | null;
-		color: string | null;
-	};
-
-	const [customerDevices, setCustomerDevices] = useState<CustomerDevice[]>([]);
+	const [customerDevices, setCustomerDevices] = useState<
+		NovaOrdemCustomerDevice[]
+	>([]);
 	const [isLoadingCustomerDevices, setIsLoadingCustomerDevices] =
 		useState(false);
 	const [isDevicesDialogOpen, setIsDevicesDialogOpen] = useState(false);
@@ -353,7 +256,7 @@ export function NovaOrdemClient(props: Props) {
 				);
 				const data = await res.json().catch(() => null);
 				if (!cancelled && data?.ok && Array.isArray(data.devices)) {
-					setCustomerDevices(data.devices as CustomerDevice[]);
+					setCustomerDevices(data.devices as NovaOrdemCustomerDevice[]);
 				}
 				if (!cancelled && (!data?.ok || !Array.isArray(data.devices))) {
 					setCustomerDevices([]);
@@ -535,229 +438,13 @@ export function NovaOrdemClient(props: Props) {
 									}}
 								/>
 
-								<Card>
-									<CardHeader>
-										<CardTitle>Informações do Aparelho</CardTitle>
-									</CardHeader>
-									<CardContent className="space-y-6">
-										<OrderDeviceSelector
-											formik={{
-												values: {
-													brand: formik.values.brand,
-													deviceType: formik.values.deviceType,
-													deviceModelId: formik.values.deviceModelId,
-													model: formik.values.model,
-												},
-												setFieldValue: formik.setFieldValue,
-											}}
-											initialDeviceModels={props.deviceModels}
-											hasExistingDevices={customerDevices.length > 0}
-											onOpenExistingDevices={() => setIsDevicesDialogOpen(true)}
-										/>
-
-										<Dialog
-											open={isDevicesDialogOpen}
-											onOpenChange={setIsDevicesDialogOpen}
-										>
-											<DialogContent className="max-w-md">
-												<DialogHeader>
-													<DialogTitle>
-														Selecionar aparelho do cliente
-													</DialogTitle>
-													<DialogDescription>
-														Escolha um aparelho já cadastrado para preencher os
-														dados da OS.
-													</DialogDescription>
-												</DialogHeader>
-												<div className="mt-2 space-y-2 max-h-80 overflow-y-auto">
-													{isLoadingCustomerDevices ? (
-														<p className="text-sm text-muted-foreground">
-															Carregando aparelhos…
-														</p>
-													) : customerDevices.length === 0 ? (
-														<p className="text-sm text-muted-foreground">
-															Este cliente ainda não possui aparelhos
-															cadastrados.
-														</p>
-													) : (
-														customerDevices.map((d) => {
-															const labelParts = [
-																d.device_type,
-																d.brand,
-																d.model,
-															].filter(Boolean);
-															const label = labelParts.length
-																? labelParts.join(" • ")
-																: "Aparelho";
-															const secondaryParts = [d.imei, d.color].filter(
-																Boolean,
-															);
-															const secondary = secondaryParts.length
-																? secondaryParts.join(" • ")
-																: null;
-															return (
-																<button
-																	key={d.id}
-																	type="button"
-																	className="w-full rounded-md border px-3 py-2 text-left text-sm hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring"
-																	onClick={() => {
-																		formik.setFieldValue(
-																			"brand",
-																			d.brand ?? "",
-																		);
-																		formik.setFieldValue(
-																			"deviceType",
-																			d.device_type ?? "",
-																		);
-																		formik.setFieldValue(
-																			"deviceModelId",
-																			d.device_model_id ?? "",
-																		);
-																		formik.setFieldValue(
-																			"model",
-																			d.model ?? "",
-																		);
-																		formik.setFieldValue("imei", d.imei ?? "");
-																		formik.setFieldValue(
-																			"color",
-																			d.color ?? "",
-																		);
-																		setIsDevicesDialogOpen(false);
-																	}}
-																>
-																	<div className="font-medium truncate">
-																		{label}
-																	</div>
-																	{secondary ? (
-																		<div className="text-xs text-muted-foreground truncate">
-																			{secondary}
-																		</div>
-																	) : null}
-																</button>
-															);
-														})
-													)}
-												</div>
-												<DialogFooter>
-													<Button
-														type="button"
-														variant="outline"
-														onClick={() => setIsDevicesDialogOpen(false)}
-													>
-														Fechar
-													</Button>
-												</DialogFooter>
-											</DialogContent>
-										</Dialog>
-
-										<div className="rounded-md border p-4 space-y-3">
-											<div className="flex items-center justify-between gap-3 flex-wrap">
-												<div>
-													<div className="text-sm font-medium">
-														Senha do aparelho
-													</div>
-												</div>
-											</div>
-											<RadioGroup
-												value={formik.values.passcodeType}
-												onValueChange={(v) => {
-													const next =
-														v === "pattern"
-															? "pattern"
-															: v === "text"
-																? "text"
-																: "none";
-													formik.setFieldValue("passcodeType", next);
-													if (next === "none") {
-														formik.setFieldValue("passcodeText", "");
-														formik.setFieldValue("passcodePattern", "");
-													}
-												}}
-												className="flex flex-wrap items-center gap-4"
-											>
-												<div className="flex items-center gap-2">
-													<RadioGroupItem value="text" id="passcode-text" />
-													<Label
-														htmlFor="passcode-text"
-														className="cursor-pointer"
-													>
-														Texto
-													</Label>
-												</div>
-												<div className="flex items-center gap-2">
-													<RadioGroupItem
-														value="pattern"
-														id="passcode-pattern"
-													/>
-													<Label
-														htmlFor="passcode-pattern"
-														className="cursor-pointer"
-													>
-														Padrão
-													</Label>
-												</div>
-												<div className="flex items-center gap-2">
-													<RadioGroupItem value="none" id="passcode-none" />
-													<Label
-														htmlFor="passcode-none"
-														className="cursor-pointer"
-													>
-														Não informar
-													</Label>
-												</div>
-											</RadioGroup>
-											{formik.values.passcodeType === "text" ? (
-												<div className="space-y-2">
-													<Label htmlFor="passcodeText">Senha (texto)</Label>
-													<Field
-														as={Input}
-														id="passcodeText"
-														name="passcodeText"
-														placeholder="Ex: 1234, senha do iCloud, etc."
-													/>
-												</div>
-											) : formik.values.passcodeType === "pattern" ? (
-												<div className="space-y-2">
-													<Label htmlFor="passcodePattern">
-														Senha (padrão)
-													</Label>
-													<PatternLockInput
-														id="passcodePattern"
-														value={formik.values.passcodePattern}
-														onChange={(v: string) =>
-															formik.setFieldValue("passcodePattern", v)
-														}
-													/>
-												</div>
-											) : (
-												<div className="text-sm text-muted-foreground">
-													O cliente optou por não informar a senha.
-												</div>
-											)}
-										</div>
-
-										<div className="grid md:grid-cols-2 gap-4">
-											<div className="space-y-2">
-												<Label htmlFor="imei">Número de série / IMEI</Label>
-												<Field
-													as={Input}
-													id="imei"
-													name="imei"
-													placeholder="Digite o número"
-												/>
-											</div>
-											<div className="space-y-2">
-												<Label htmlFor="color">Cor</Label>
-												<Field
-													as={Input}
-													id="color"
-													name="color"
-													placeholder="Ex: Preto, Prateado"
-												/>
-											</div>
-										</div>
-									</CardContent>
-								</Card>
+								<NovaOrdemAparelhoCard
+									deviceModels={props.deviceModels}
+									customerDevices={customerDevices}
+									isLoadingCustomerDevices={isLoadingCustomerDevices}
+									isDevicesDialogOpen={isDevicesDialogOpen}
+									onDevicesDialogOpenChange={setIsDevicesDialogOpen}
+								/>
 
 								<Card>
 									<CardHeader>
@@ -850,7 +537,7 @@ export function NovaOrdemClient(props: Props) {
 													name="status"
 													className="w-full h-10 rounded-md border border-input px-3 text-sm"
 												>
-													{statusOptions.map((s) => (
+													{novaOrdemStatusOptions.map((s) => (
 														<option key={s.value} value={s.value}>
 															{s.label}
 														</option>
@@ -930,17 +617,17 @@ export function NovaOrdemClient(props: Props) {
 												</span>
 												<div className="flex flex-wrap items-center gap-2">
 													{(() => {
-														let parsed: any = null;
+														let parsed: Record<string, unknown> | null = null;
 														try {
 															parsed = formik.values.deviceEntryChecksJson
-																? JSON.parse(
+																? (JSON.parse(
 																		formik.values.deviceEntryChecksJson,
-																	)
+																	) as Record<string, unknown>)
 																: null;
 														} catch {
 															parsed = null;
 														}
-														const status = parsed?.status || "operante";
+														const status = String(parsed?.status ?? "operante");
 														const rawCh =
 															parsed?.checks &&
 															typeof parsed.checks === "object"
@@ -1150,308 +837,11 @@ export function NovaOrdemClient(props: Props) {
 							</OrderServicesTotalProvider>
 						</Form>
 
-						<Dialog
-							open={isEntryChecksDialogOpen}
-							onOpenChange={setIsEntryChecksDialogOpen}
-						>
-							<DialogContent className="max-w-lg">
-								<DialogHeader>
-									<DialogTitle>Situação de entrada do aparelho</DialogTitle>
-									<DialogDescription>
-										Marque os testes realizados no momento da entrada do
-										aparelho na assistência.
-									</DialogDescription>
-								</DialogHeader>
-								<Field name="deviceEntryChecksJson">
-									{() => {
-										let parsed: any = null;
-										try {
-											parsed = formik.values.deviceEntryChecksJson
-												? JSON.parse(formik.values.deviceEntryChecksJson)
-												: null;
-										} catch {
-											parsed = null;
-										}
-										const status: string = parsed?.status || "operante";
-										const rawChecks =
-											parsed?.checks && typeof parsed.checks === "object"
-												? (parsed.checks as Record<string, unknown>)
-												: {};
-										const checks: Record<string, "ok" | "fail" | "na"> = {};
-										Object.entries(rawChecks).forEach(([k, v]) => {
-											if (v === true) checks[k] = "ok";
-											else if (v === false) checks[k] = "fail";
-											else if (v === "ok" || v === "fail" || v === "na")
-												checks[k] = v;
-										});
-										const setStatus = (next: string) => {
-											const nextChecks =
-												next === "operante" ? { ...checks } : {};
-											formik.setFieldValue(
-												"deviceEntryChecksJson",
-												JSON.stringify({ status: next, checks: nextChecks }),
-											);
-										};
-										const setCheck = (
-											key: string,
-											value: "ok" | "fail" | "na",
-										) => {
-											const nextChecks = { ...checks, [key]: value };
-											formik.setFieldValue(
-												"deviceEntryChecksJson",
-												JSON.stringify({ status, checks: nextChecks }),
-											);
-										};
-										const requiresDeviceOn = status === "operante";
+					<NovaOrdemEntryChecksDialog
+						open={isEntryChecksDialogOpen}
+						onOpenChange={setIsEntryChecksDialogOpen}
+					/>
 
-										const items: {
-											key: string;
-											label: string;
-											requiresOn?: boolean;
-										}[] = [
-											{
-												key: "rear_camera_main",
-												label: "Câmera traseira (1x)",
-												requiresOn: true,
-											},
-											{
-												key: "rear_camera_2x",
-												label: "Câmera traseira (2x)",
-												requiresOn: true,
-											},
-											{
-												key: "rear_camera_3x",
-												label: "Câmera traseira (3x)",
-												requiresOn: true,
-											},
-											{
-												key: "front_camera",
-												label: "Câmera frontal",
-												requiresOn: true,
-											},
-											{
-												key: "microphone",
-												label: "Microfone",
-												requiresOn: true,
-											},
-											{
-												key: "earpiece_speaker",
-												label: "Alto-falante de ouvido",
-												requiresOn: true,
-											},
-											{
-												key: "loudspeaker",
-												label: "Alto-falante principal",
-												requiresOn: true,
-											},
-											{
-												key: "charging_port",
-												label: "Carregamento (cabo)",
-												requiresOn: true,
-											},
-											{
-												key: "wireless_charging",
-												label: "Carregamento por indução",
-												requiresOn: true,
-											},
-											{
-												key: "sim_signal",
-												label: "Sinal de operadora",
-												requiresOn: true,
-											},
-											{ key: "wifi", label: "Wi‑Fi", requiresOn: true },
-											{
-												key: "bluetooth",
-												label: "Bluetooth",
-												requiresOn: true,
-											},
-											{
-												key: "face_touch_id",
-												label: "Face ID / Touch ID",
-												requiresOn: true,
-											},
-											{
-												key: "volume_buttons",
-												label: "Botões de volume",
-												requiresOn: true,
-											},
-											{
-												key: "power_button",
-												label: "Botão power",
-												requiresOn: true,
-											},
-											{ key: "vibration", label: "Vibração", requiresOn: true },
-											{
-												key: "proximity_sensor",
-												label: "Sensor de proximidade",
-												requiresOn: true,
-											},
-											{
-												key: "display_touch",
-												label: "Toque na tela",
-												requiresOn: true,
-											},
-											{
-												key: "display_colors",
-												label: "Cores/brilho da tela",
-												requiresOn: true,
-											},
-										];
-
-										return (
-											<>
-												<div className="space-y-3">
-													<div className="space-y-1">
-														<div className="text-sm font-medium">
-															Estado na entrada
-														</div>
-														<RadioGroup
-															value={status}
-															onValueChange={(v) => setStatus(v)}
-															className="flex flex-col gap-2"
-														>
-															<div className="flex items-center gap-2">
-																<RadioGroupItem
-																	value="operante"
-																	id="entry-operante"
-																/>
-																<Label
-																	htmlFor="entry-operante"
-																	className="cursor-pointer"
-																>
-																	Liga normalmente
-																</Label>
-															</div>
-															<div className="flex items-center gap-2">
-																<RadioGroupItem
-																	value="display_apagado"
-																	id="entry-display-apagado"
-																/>
-																<Label
-																	htmlFor="entry-display-apagado"
-																	className="cursor-pointer"
-																>
-																	Display apagado / danificado
-																</Label>
-															</div>
-															<div className="flex items-center gap-2">
-																<RadioGroupItem
-																	value="nao_liga"
-																	id="entry-nao-liga"
-																/>
-																<Label
-																	htmlFor="entry-nao-liga"
-																	className="cursor-pointer"
-																>
-																	Não liga
-																</Label>
-															</div>
-														</RadioGroup>
-													</div>
-													<div className="space-y-2">
-														<div className="text-sm font-medium">
-															Testes realizados — ✓ funciona · ✗ não funciona ·
-															— não se aplica
-														</div>
-														<div className="grid grid-cols-1 gap-2 max-h-80 overflow-auto pr-1">
-															{items.map((item) => {
-																const disabled =
-																	item.requiresOn && !requiresDeviceOn;
-																const current = checks[item.key];
-																return (
-																	<div
-																		key={item.key}
-																		className={cn(
-																			"flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm",
-																			disabled
-																				? "opacity-50 bg-muted/60 border-muted"
-																				: "bg-background",
-																		)}
-																	>
-																		<span className="min-w-0 truncate">
-																			{item.label}
-																		</span>
-																		<div className="flex items-center gap-1 shrink-0">
-																			<button
-																				type="button"
-																				title="Funciona"
-																				disabled={disabled}
-																				onClick={() =>
-																					!disabled && setCheck(item.key, "ok")
-																				}
-																				className={cn(
-																					"rounded p-1 transition-colors",
-																					disabled
-																						? "cursor-not-allowed text-muted-foreground"
-																						: "hover:bg-emerald-100 dark:hover:bg-emerald-900/50",
-																					current === "ok"
-																						? "bg-emerald-500 text-white hover:bg-emerald-600"
-																						: "text-muted-foreground",
-																				)}
-																			>
-																				<Check className="h-4 w-4" />
-																			</button>
-																			<button
-																				type="button"
-																				title="Não funciona"
-																				disabled={disabled}
-																				onClick={() =>
-																					!disabled &&
-																					setCheck(item.key, "fail")
-																				}
-																				className={cn(
-																					"rounded p-1 transition-colors",
-																					disabled
-																						? "cursor-not-allowed text-muted-foreground"
-																						: "hover:bg-destructive/10",
-																					current === "fail"
-																						? "bg-destructive text-destructive-foreground"
-																						: "text-muted-foreground",
-																				)}
-																			>
-																				<X className="h-4 w-4" />
-																			</button>
-																			<button
-																				type="button"
-																				title="Não se aplica"
-																				disabled={disabled}
-																				onClick={() =>
-																					!disabled && setCheck(item.key, "na")
-																				}
-																				className={cn(
-																					"rounded p-1 transition-colors",
-																					disabled
-																						? "cursor-not-allowed text-muted-foreground"
-																						: "hover:bg-muted",
-																					current === "na"
-																						? "bg-muted text-muted-foreground"
-																						: "text-muted-foreground",
-																				)}
-																			>
-																				<Minus className="h-4 w-4" />
-																			</button>
-																		</div>
-																	</div>
-																);
-															})}
-														</div>
-													</div>
-												</div>
-												<DialogFooter>
-													<Button
-														type="button"
-														variant="outline"
-														onClick={() => setIsEntryChecksDialogOpen(false)}
-													>
-														Fechar
-													</Button>
-												</DialogFooter>
-											</>
-										);
-									}}
-								</Field>
-							</DialogContent>
-						</Dialog>
 
 						{customerToEdit ? (
 							<EditCustomerDialog

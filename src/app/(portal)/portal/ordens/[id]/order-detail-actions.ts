@@ -1,5 +1,7 @@
 'use server'
 
+import { normalizePortalRole } from '@/lib/auth/portal-api'
+import { applyOrderStatusChange } from '@/lib/orders/apply-order-status-change'
 import {
 	buildOrderEditDiff,
 	enrichWarrantyTemplateHistoryValues,
@@ -266,6 +268,53 @@ export async function updateOrderAction (formData: FormData) {
 	}
 
 	redirect(`/portal/ordens/${formOrderId}?ok=1`)
+}
+
+export type UpdateOrderStatusActionResult =
+	| { ok: true }
+	| {
+			ok: false
+			error:
+				| 'not_authenticated'
+				| 'forbidden'
+				| 'invalid_id'
+				| 'invalid_status'
+				| 'not_found'
+				| 'db_error'
+	  }
+
+/**
+ * Alteração rápida de status (menu da OS, lista de ordens).
+ * Mesma regra de negócio que `PATCH /api/portal/ordens/[id]` — ver `applyOrderStatusChange`.
+ */
+export async function updateOrderStatusAction (
+	formData: FormData,
+): Promise<UpdateOrderStatusActionResult> {
+	const orderId = parseOptionalUuid(String(formData.get('orderId') || ''))
+	const status = String(formData.get('status') || '').trim()
+
+	if (!orderId) {
+		return { ok: false, error: 'invalid_id' }
+	}
+	if (!isValidOrderStatus(status)) {
+		return { ok: false, error: 'invalid_status' }
+	}
+
+	const { user, role } = await getPortalAuth()
+	if (!user) {
+		return { ok: false, error: 'not_authenticated' }
+	}
+	const normalized = normalizePortalRole(role)
+	if (normalized !== 'staff' && normalized !== 'admin') {
+		return { ok: false, error: 'forbidden' }
+	}
+
+	const supabase = await createSupabaseServerClient()
+	return applyOrderStatusChange(supabase, {
+		orderId,
+		nextStatus: status,
+		editorUserId: user.id,
+	})
 }
 
 export async function deleteOrderAction (formData: FormData) {
