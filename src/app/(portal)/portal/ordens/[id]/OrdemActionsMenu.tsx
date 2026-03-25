@@ -23,7 +23,8 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { MessageCircle, Mail, MoreVertical, Trash2, Copy } from 'lucide-react'
+import { History, MessageCircle, Mail, MoreVertical, Trash2, Copy } from 'lucide-react'
+import { OrderEditHistoryDialog } from './OrderEditHistoryDialog'
 import { toast } from '@/hooks/use-toast'
 import { buildOrderMessage } from '@/lib/ordem-share-message'
 import { formatPhoneForWhatsApp } from '@/lib/utils/format-phone'
@@ -55,6 +56,8 @@ type Props = {
   isFinalized: boolean
   canDelete: boolean
   deleteOrderAction: (formData: FormData) => Promise<unknown>
+  /** Permite excluir linhas do histórico dentro do diálogo */
+  isAdmin?: boolean
 }
 
 export function OrdemActionsMenu({
@@ -71,8 +74,10 @@ export function OrdemActionsMenu({
   isFinalized,
   canDelete,
   deleteOrderAction,
+  isAdmin = false,
 }: Props) {
   const router = useRouter()
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [publicUrl, setPublicUrl] = useState<string | null>(
     publicOrderPath && typeof window !== 'undefined' ? `${window.location.origin}${publicOrderPath}` : null
   )
@@ -200,6 +205,17 @@ export function OrdemActionsMenu({
               </a>
             </DropdownMenuItem>
           ) : null}
+          {(whatsappHref || message || mailtoHref) ? <DropdownMenuSeparator /> : null}
+          <DropdownMenuItem
+            onSelect={(e) => {
+              e.preventDefault()
+              setHistoryOpen(true)
+            }}
+          >
+            <History className="h-4 w-4 mr-2" />
+            Histórico de edições
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           <DropdownMenuSub>
             <DropdownMenuSubTrigger disabled={statusUpdating}>
               Alterar status
@@ -233,6 +249,13 @@ export function OrdemActionsMenu({
           ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <OrderEditHistoryDialog
+        orderId={orderId}
+        isAdmin={isAdmin}
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+      />
 
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>

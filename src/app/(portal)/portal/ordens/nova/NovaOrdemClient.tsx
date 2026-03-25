@@ -1,28 +1,10 @@
-'use client'
+"use client";
 
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { Formik, Form, Field, FieldArray } from 'formik'
-import * as Yup from 'yup'
-import { Check, Loader2, Minus, Plus, X } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import { cn } from '@/lib/utils'
-import { Checkbox } from '@/components/ui/checkbox'
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-} from '@/components/ui/dialog'
-import { PatternLockInput } from '@/components/pattern-lock/PatternLockInput'
-import { CreateCustomerDialog, EditCustomerDialog, type CustomerHit } from '@/components/customers'
+	CreateCustomerDialog,
+	EditCustomerDialog,
+	type CustomerHit,
+} from "@/components/customers";
 import {
 	OrderDeviceSelector,
 	OrderPaymentMethodFields,
@@ -33,412 +15,558 @@ import {
 	type OrderPaymentMethodFieldsRef,
 	type OrderServicesCardRef,
 	type ServiceLine,
-} from '@/components/orders'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { NovaOrdemCustomerCard } from './NovaOrdemCustomerCard'
-import { parseMoneyToCents } from '@/lib/utils/format-money'
-import { portalFetch } from '@/lib/portal/portal-fetch'
-import { parseOptionalUuid, SELECT_NONE_VALUE } from '@/lib/utils/optional-uuid'
-import { toast } from '@/hooks/use-toast'
-import { getDefaultPrevisao, getMinPrevisaoNow } from '@/lib/utils/previsao-ordem'
-import { PrevisaoInput } from '@/components/previsao-input'
-import { formatCpf, formatCnpj, formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
-import { onlyDigits } from '@/lib/utils/strings'
+} from "@/components/orders";
+import { PatternLockInput } from "@/components/pattern-lock/PatternLockInput";
+import { PrevisaoInput } from "@/components/previsao-input";
+import { Button } from "@/components/ui/button";
+import {
+	Card,
+	CardContent,
+	CardDescription,
+	CardHeader,
+	CardTitle,
+} from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/hooks/use-toast";
+import { portalFetch } from "@/lib/portal/portal-fetch";
+import { cn } from "@/lib/utils";
+import { formatCpfCnpj } from "@/lib/utils/format-cpf-cnpj";
+import { parseMoneyToCents } from "@/lib/utils/format-money";
+import {
+	parseOptionalUuid,
+	SELECT_NONE_VALUE,
+} from "@/lib/utils/optional-uuid";
+import {
+	getDefaultPrevisao,
+	getMinPrevisaoNow,
+} from "@/lib/utils/previsao-ordem";
+import { onlyDigits } from "@/lib/utils/strings";
+import { Field, FieldArray, Form, Formik } from "formik";
+import { Check, Loader2, Minus, Plus, X } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
+import * as Yup from "yup";
+import { OrderFormActionBar } from "../OrderFormActionBar";
+import { NovaOrdemCustomerCard } from "./NovaOrdemCustomerCard";
 
 const statusOptions = [
-	{ value: 'orcamento', label: 'Orçamento' },
-	{ value: 'aguardando_aprovacao', label: 'Aguardando aprovação' },
-	{ value: 'aprovado', label: 'Aprovado' },
-] as const
+	{ value: "orcamento", label: "Orçamento" },
+	{ value: "aguardando_aprovacao", label: "Aguardando aprovação" },
+	{ value: "aprovado", label: "Aprovado" },
+] as const;
 
 function makeId() {
-	if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-		return crypto.randomUUID()
+	if (
+		typeof crypto !== "undefined" &&
+		typeof crypto.randomUUID === "function"
+	) {
+		return crypto.randomUUID();
 	}
-	return String(Date.now()) + String(Math.random()).slice(2)
+	return String(Date.now()) + String(Math.random()).slice(2);
 }
 
 function getCustomerDocumentDigits(customer: CustomerHit) {
-	return onlyDigits(String(customer.cnpj || customer.cpf || '')).slice(0, 14)
+	return onlyDigits(String(customer.cnpj || customer.cpf || "")).slice(0, 14);
 }
 
-type SellerOption = { id: string; full_name: string | null; email: string | null }
+type SellerOption = {
+	id: string;
+	full_name: string | null;
+	email: string | null;
+};
 
 type Props = {
-	action: (formData: FormData) => Promise<{ redirectTo: string } | void>
-	initialError?: string
-	sellerName: string
-	isAdmin: boolean
-	sellerOptions: SellerOption[]
-	deviceModels?: DeviceModel[]
-	currentUserId: string
-	duplicateOrderId?: string
-}
+	action: (formData: FormData) => Promise<{ redirectTo: string } | void>;
+	initialError?: string;
+	sellerName: string;
+	isAdmin: boolean;
+	sellerOptions: SellerOption[];
+	deviceModels?: DeviceModel[];
+	currentUserId: string;
+	duplicateOrderId?: string;
+};
 
 type FormValues = {
-	customerId: string
-	document: string
-	title: string
-	status: string
-	sellerUserId: string
-	deviceModelId: string
-	brand: string
-	model: string
-	deviceType: string
-	imei: string
-	color: string
-	isWarranty: boolean
-	estimatedReadyAt: string
-	passcodeType: string
-	passcodeText: string
-	passcodePattern: string
-	paymentMethods: Array<{ payment_method_id: string; installments?: number; value_cents?: number | null }>
-	customerDescription: string
-	internalInitialComment: string
-	receivingNotes: string
-	services: ServiceLine[]
-	deviceEntryChecksJson: string
-}
+	customerId: string;
+	document: string;
+	title: string;
+	status: string;
+	sellerUserId: string;
+	deviceModelId: string;
+	brand: string;
+	model: string;
+	deviceType: string;
+	imei: string;
+	color: string;
+	isWarranty: boolean;
+	estimatedReadyAt: string;
+	passcodeType: string;
+	passcodeText: string;
+	passcodePattern: string;
+	paymentMethods: Array<{
+		payment_method_id: string;
+		installments?: number;
+		value_cents?: number | null;
+	}>;
+	customerDescription: string;
+	internalInitialComment: string;
+	receivingNotes: string;
+	services: ServiceLine[];
+	deviceEntryChecksJson: string;
+};
 
 const initialFormValues: FormValues = {
-	customerId: '',
-	document: '',
-	title: '',
-	status: 'orcamento',
-	sellerUserId: '',
-	deviceModelId: '',
-	brand: '',
-	model: '',
-	deviceType: '',
-	imei: '',
-	color: '',
+	customerId: "",
+	document: "",
+	title: "",
+	status: "orcamento",
+	sellerUserId: "",
+	deviceModelId: "",
+	brand: "",
+	model: "",
+	deviceType: "",
+	imei: "",
+	color: "",
 	isWarranty: false,
-	estimatedReadyAt: '',
-	passcodeType: 'none',
-	passcodeText: '',
-	passcodePattern: '',
+	estimatedReadyAt: "",
+	passcodeType: "none",
+	passcodeText: "",
+	passcodePattern: "",
 	paymentMethods: [],
-	customerDescription: '',
-	internalInitialComment: '',
-	receivingNotes: '',
+	customerDescription: "",
+	internalInitialComment: "",
+	receivingNotes: "",
 	services: [],
-	deviceEntryChecksJson: '',
-}
+	deviceEntryChecksJson: "",
+};
 
 const orderFormSchema = Yup.object().shape({
-	customerId: Yup.string().required('Selecione um cliente (CPF/CNPJ)'),
-	title: Yup.string().trim().required('Título é obrigatório').min(2, 'Título deve ter pelo menos 2 caracteres'),
-	status: Yup.string().oneOf(['orcamento', 'aguardando_aprovacao', 'aprovado'], 'Status inválido').required('Status é obrigatório'),
+	customerId: Yup.string().required("Selecione um cliente (CPF/CNPJ)"),
+	title: Yup.string()
+		.trim()
+		.required("Título é obrigatório")
+		.min(2, "Título deve ter pelo menos 2 caracteres"),
+	status: Yup.string()
+		.oneOf(["orcamento", "aguardando_aprovacao", "aprovado"], "Status inválido")
+		.required("Status é obrigatório"),
 	estimatedReadyAt: Yup.string().test(
-		'min-date',
-		'A previsão deve ser igual ou posterior à data de abertura.',
-		(value) => !value || new Date(value).getTime() >= Date.now() - 60_000
+		"min-date",
+		"A previsão deve ser igual ou posterior à data de abertura.",
+		(value) => !value || new Date(value).getTime() >= Date.now() - 60_000,
 	),
-})
+});
 
 export function NovaOrdemClient(props: Props) {
-	const router = useRouter()
-	const [customerSearchInput, setCustomerSearchInput] = useState('')
-	const documentDigits = useMemo(() => onlyDigits(customerSearchInput).slice(0, 14), [customerSearchInput])
-	const documentPrefix = useMemo(() => documentDigits.slice(0, 5), [documentDigits])
-	const nameQuery = useMemo(() => customerSearchInput.trim(), [customerSearchInput])
-	const isDocumentMode = documentDigits.length >= 5
-	const isNameMode = nameQuery.length >= 2 && /[a-zA-Z\u00C0-\u024F]/.test(nameQuery)
+	const router = useRouter();
+	const [customerSearchInput, setCustomerSearchInput] = useState("");
+	const documentDigits = useMemo(
+		() => onlyDigits(customerSearchInput).slice(0, 14),
+		[customerSearchInput],
+	);
+	const documentPrefix = useMemo(
+		() => documentDigits.slice(0, 5),
+		[documentDigits],
+	);
+	const nameQuery = useMemo(
+		() => customerSearchInput.trim(),
+		[customerSearchInput],
+	);
+	const isDocumentMode = documentDigits.length >= 5;
+	const isNameMode =
+		nameQuery.length >= 2 && /[a-zA-Z\u00C0-\u024F]/.test(nameQuery);
 
-	const [duplicateFormValues, setDuplicateFormValues] = useState<FormValues | null>(null)
-	const [duplicateLoaded, setDuplicateLoaded] = useState(false)
+	const [duplicateFormValues, setDuplicateFormValues] =
+		useState<FormValues | null>(null);
+	const [duplicateLoaded, setDuplicateLoaded] = useState(false);
 
-	const [customersBase, setCustomersBase] = useState<CustomerHit[]>([])
-	const [isSearchingDocument, setIsSearchingDocument] = useState(false)
-	const [documentSearchError, setDocumentSearchError] = useState<string | null>(null)
-	const [lastPrefixFetched, setLastPrefixFetched] = useState<string | null>(null)
-	const [lastNameQueryFetched, setLastNameQueryFetched] = useState<string | null>(null)
-	const cpfSearchAbortRef = useRef<AbortController | null>(null)
-	const cpfSearchInFlightPrefixRef = useRef<string | null>(null)
-	const nameSearchInFlightRef = useRef<string | null>(null)
-	const cpfSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-	const nameSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-	const servicesCardRef = useRef<OrderServicesCardRef>(null)
-	const paymentMethodsFieldsRef = useRef<OrderPaymentMethodFieldsRef>(null)
-	const [paymentMethodsCatalogLoading, setPaymentMethodsCatalogLoading] = useState(true)
-	const initialErrorToastShownRef = useRef(false)
+	const [customersBase, setCustomersBase] = useState<CustomerHit[]>([]);
+	const [isSearchingDocument, setIsSearchingDocument] = useState(false);
+	const [documentSearchError, setDocumentSearchError] = useState<string | null>(
+		null,
+	);
+	const [lastPrefixFetched, setLastPrefixFetched] = useState<string | null>(
+		null,
+	);
+	const [lastNameQueryFetched, setLastNameQueryFetched] = useState<
+		string | null
+	>(null);
+	const cpfSearchAbortRef = useRef<AbortController | null>(null);
+	const cpfSearchInFlightPrefixRef = useRef<string | null>(null);
+	const nameSearchInFlightRef = useRef<string | null>(null);
+	const cpfSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
+		null,
+	);
+	const nameSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
+		null,
+	);
+	const servicesCardRef = useRef<OrderServicesCardRef>(null);
+	const paymentMethodsFieldsRef = useRef<OrderPaymentMethodFieldsRef>(null);
+	const [paymentMethodsCatalogLoading, setPaymentMethodsCatalogLoading] =
+		useState(true);
+	const initialErrorToastShownRef = useRef(false);
 
-	const [selectedCustomer, setSelectedCustomer] = useState<CustomerHit | null>(null)
+	const [selectedCustomer, setSelectedCustomer] = useState<CustomerHit | null>(
+		null,
+	);
 
 	type CustomerDevice = {
-		id: string
-		device_model_id: string | null
-		brand: string | null
-		model: string | null
-		device_type: string | null
-		imei: string | null
-		color: string | null
-	}
+		id: string;
+		device_model_id: string | null;
+		brand: string | null;
+		model: string | null;
+		device_type: string | null;
+		imei: string | null;
+		color: string | null;
+	};
 
-	const [customerDevices, setCustomerDevices] = useState<CustomerDevice[]>([])
-	const [isLoadingCustomerDevices, setIsLoadingCustomerDevices] = useState(false)
-	const [isDevicesDialogOpen, setIsDevicesDialogOpen] = useState(false)
+	const [customerDevices, setCustomerDevices] = useState<CustomerDevice[]>([]);
+	const [isLoadingCustomerDevices, setIsLoadingCustomerDevices] =
+		useState(false);
+	const [isDevicesDialogOpen, setIsDevicesDialogOpen] = useState(false);
 
-	const [isCreateCustomerOpen, setIsCreateCustomerOpen] = useState(false)
-	const [createCustomerInitialDocumentDigits, setCreateCustomerInitialDocumentDigits] = useState('')
-	const [customerToEdit, setCustomerToEdit] = useState<CustomerHit | null>(null)
+	const [isCreateCustomerOpen, setIsCreateCustomerOpen] = useState(false);
+	const [
+		createCustomerInitialDocumentDigits,
+		setCreateCustomerInitialDocumentDigits,
+	] = useState("");
+	const [customerToEdit, setCustomerToEdit] = useState<CustomerHit | null>(
+		null,
+	);
 
-	const [isCpfPopoverOpen, setIsCpfPopoverOpen] = useState(false)
-	const [isEntryChecksDialogOpen, setIsEntryChecksDialogOpen] = useState(false)
+	const [isCpfPopoverOpen, setIsCpfPopoverOpen] = useState(false);
+	const [isEntryChecksDialogOpen, setIsEntryChecksDialogOpen] = useState(false);
 
-	const defaultPrevisao = useMemo(() => getDefaultPrevisao(), [])
-	const minPrevisao = useMemo(() => getMinPrevisaoNow(), [])
+	const defaultPrevisao = useMemo(() => getDefaultPrevisao(), []);
+	const minPrevisao = useMemo(() => getMinPrevisaoNow(), []);
 	const initialFormValuesWithPrevisao = useMemo(
 		() => ({
 			...initialFormValues,
 			estimatedReadyAt: defaultPrevisao,
-			sellerUserId: props.isAdmin ? props.currentUserId : '',
+			sellerUserId: props.isAdmin ? props.currentUserId : "",
 		}),
-		[defaultPrevisao, props.isAdmin, props.currentUserId]
-	)
+		[defaultPrevisao, props.isAdmin, props.currentUserId],
+	);
 
 	useEffect(() => {
 		if (!props.initialError) {
-			initialErrorToastShownRef.current = false
-			return
+			initialErrorToastShownRef.current = false;
+			return;
 		}
-		if (initialErrorToastShownRef.current) return
-		initialErrorToastShownRef.current = true
+		if (initialErrorToastShownRef.current) return;
+		initialErrorToastShownRef.current = true;
 		toast({
-			variant: 'destructive',
-			title: 'Não foi possível continuar',
+			variant: "destructive",
+			title: "Não foi possível continuar",
 			description: props.initialError,
-		})
-		const dup = props.duplicateOrderId
-		const qs = dup ? `?duplicate=${encodeURIComponent(dup)}` : ''
-		router.replace(`/portal/ordens/nova${qs}`)
-	}, [props.initialError, props.duplicateOrderId, router])
+		});
+		const dup = props.duplicateOrderId;
+		const qs = dup ? `?duplicate=${encodeURIComponent(dup)}` : "";
+		router.replace(`/portal/ordens/nova${qs}`);
+	}, [props.initialError, props.duplicateOrderId, router]);
 
 	useEffect(() => {
 		if (!props.duplicateOrderId) {
-			setDuplicateLoaded(true)
-			return
+			setDuplicateLoaded(true);
+			return;
 		}
-		let cancelled = false
+		let cancelled = false;
 		portalFetch(`/api/portal/ordens/${props.duplicateOrderId}/duplicate`)
 			.then((res) => res.json())
 			.then((data) => {
-				if (cancelled || !data?.ok || !data?.order) return
-				const o = data.order
+				if (cancelled || !data?.ok || !data?.order) return;
+				const o = data.order;
 				setDuplicateFormValues({
-					customerId: o.customerId ?? '',
-					document: o.documentDigits ?? '',
-					title: o.title ?? '',
-					status: o.status ?? 'orcamento',
-					sellerUserId: props.isAdmin ? props.currentUserId : '',
-					deviceModelId: o.deviceModelId ?? '',
-					brand: o.brand ?? '',
-					model: o.model ?? '',
-					deviceType: o.deviceType ?? '',
-					imei: o.imei ?? '',
-					color: o.color ?? '',
+					customerId: o.customerId ?? "",
+					document: o.documentDigits ?? "",
+					title: o.title ?? "",
+					status: o.status ?? "orcamento",
+					sellerUserId: props.isAdmin ? props.currentUserId : "",
+					deviceModelId: o.deviceModelId ?? "",
+					brand: o.brand ?? "",
+					model: o.model ?? "",
+					deviceType: o.deviceType ?? "",
+					imei: o.imei ?? "",
+					color: o.color ?? "",
 					isWarranty: Boolean(o.isWarranty),
-					estimatedReadyAt: o.estimatedReadyAt ?? '',
-					passcodeType: o.passcodeType ?? 'none',
-					passcodeText: o.passcodeText ?? '',
-					passcodePattern: o.passcodePattern ?? '',
-					paymentMethods: Array.isArray(o.paymentMethods) && o.paymentMethods.length > 0
-						? o.paymentMethods
-						: (o.paymentMethodId ? [{ payment_method_id: o.paymentMethodId, installments: o.installments ?? 1, value_cents: null }] : []),
-					customerDescription: o.customerDescription ?? '',
-					internalInitialComment: o.internalInitialComment ?? '',
-					receivingNotes: o.receivingNotes ?? '',
+					estimatedReadyAt: o.estimatedReadyAt ?? "",
+					passcodeType: o.passcodeType ?? "none",
+					passcodeText: o.passcodeText ?? "",
+					passcodePattern: o.passcodePattern ?? "",
+					paymentMethods:
+						Array.isArray(o.paymentMethods) && o.paymentMethods.length > 0
+							? o.paymentMethods
+							: o.paymentMethodId
+								? [
+										{
+											payment_method_id: o.paymentMethodId,
+											installments: o.installments ?? 1,
+											value_cents: null,
+										},
+									]
+								: [],
+					customerDescription: o.customerDescription ?? "",
+					internalInitialComment: o.internalInitialComment ?? "",
+					receivingNotes: o.receivingNotes ?? "",
 					services: o.services ?? [],
-					deviceEntryChecksJson: typeof o.deviceEntryChecks === 'string' ? o.deviceEntryChecks : (o.deviceEntryChecks ? JSON.stringify(o.deviceEntryChecks) : ''),
-				})
+					deviceEntryChecksJson:
+						typeof o.deviceEntryChecks === "string"
+							? o.deviceEntryChecks
+							: o.deviceEntryChecks
+								? JSON.stringify(o.deviceEntryChecks)
+								: "",
+				});
 				if (o.customer) {
-					setSelectedCustomer(o.customer as CustomerHit)
+					setSelectedCustomer(o.customer as CustomerHit);
 					setCustomersBase((prev) => {
-						const exists = prev.some((c) => getCustomerDocumentDigits(c) === (o.documentDigits ?? ''))
-						if (exists) return prev
-						return [o.customer, ...prev].filter(Boolean) as CustomerHit[]
-					})
+						const exists = prev.some(
+							(c) => getCustomerDocumentDigits(c) === (o.documentDigits ?? ""),
+						);
+						if (exists) return prev;
+						return [o.customer, ...prev].filter(Boolean) as CustomerHit[];
+					});
 				}
 				if (o.documentDigits) {
-					setCustomerSearchInput(formatCpfCnpj(o.documentDigits))
-					setLastPrefixFetched(String(o.documentDigits).slice(0, 5))
+					setCustomerSearchInput(formatCpfCnpj(o.documentDigits));
+					setLastPrefixFetched(String(o.documentDigits).slice(0, 5));
 				}
-				setDuplicateLoaded(true)
+				setDuplicateLoaded(true);
 			})
 			.catch(() => {
-				if (!cancelled) setDuplicateLoaded(true)
-			})
-		return () => { cancelled = true }
-	}, [props.duplicateOrderId])
+				if (!cancelled) setDuplicateLoaded(true);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [props.duplicateOrderId]);
 
 	useEffect(() => {
-		if (!selectedCustomer) return
-		const doc = getCustomerDocumentDigits(selectedCustomer)
+		if (!selectedCustomer) return;
+		const doc = getCustomerDocumentDigits(selectedCustomer);
 		if (doc && doc !== documentDigits) {
-			setCustomerSearchInput(formatCpfCnpj(doc))
+			setCustomerSearchInput(formatCpfCnpj(doc));
 		}
-	}, [documentDigits, selectedCustomer])
+	}, [documentDigits, selectedCustomer]);
 
 	useEffect(() => {
 		if (!selectedCustomer?.id) {
-			setCustomerDevices([])
-			setIsDevicesDialogOpen(false)
-			return
+			setCustomerDevices([]);
+			setIsDevicesDialogOpen(false);
+			return;
 		}
-		let cancelled = false
+		let cancelled = false;
 		async function loadCustomerDevices() {
-			setIsLoadingCustomerDevices(true)
+			setIsLoadingCustomerDevices(true);
 			try {
-				const res = await portalFetch(`/api/portal/customers/${selectedCustomer.id}/devices`)
-				const data = await res.json().catch(() => null)
+				const res = await portalFetch(
+					`/api/portal/customers/${selectedCustomer.id}/devices`,
+				);
+				const data = await res.json().catch(() => null);
 				if (!cancelled && data?.ok && Array.isArray(data.devices)) {
-					setCustomerDevices(data.devices as CustomerDevice[])
+					setCustomerDevices(data.devices as CustomerDevice[]);
 				}
 				if (!cancelled && (!data?.ok || !Array.isArray(data.devices))) {
-					setCustomerDevices([])
+					setCustomerDevices([]);
 				}
 			} catch {
-				if (!cancelled) setCustomerDevices([])
+				if (!cancelled) setCustomerDevices([]);
 			} finally {
-				if (!cancelled) setIsLoadingCustomerDevices(false)
+				if (!cancelled) setIsLoadingCustomerDevices(false);
 			}
 		}
-		loadCustomerDevices()
-		return () => { cancelled = true }
-	}, [selectedCustomer])
+		loadCustomerDevices();
+		return () => {
+			cancelled = true;
+		};
+	}, [selectedCustomer]);
 
 	useEffect(() => {
 		if (!isDocumentMode && !isNameMode) {
-			setDocumentSearchError(null)
-			setCustomersBase([])
-			setLastPrefixFetched(null)
-			setLastNameQueryFetched(null)
-			cpfSearchAbortRef.current?.abort()
-			cpfSearchAbortRef.current = null
-			cpfSearchInFlightPrefixRef.current = null
-			nameSearchInFlightRef.current = null
-			if (cpfSearchDebounceRef.current) clearTimeout(cpfSearchDebounceRef.current)
-			if (nameSearchDebounceRef.current) clearTimeout(nameSearchDebounceRef.current)
-			cpfSearchDebounceRef.current = null
-			nameSearchDebounceRef.current = null
-			setIsSearchingDocument(false)
-			return
+			setDocumentSearchError(null);
+			setCustomersBase([]);
+			setLastPrefixFetched(null);
+			setLastNameQueryFetched(null);
+			cpfSearchAbortRef.current?.abort();
+			cpfSearchAbortRef.current = null;
+			cpfSearchInFlightPrefixRef.current = null;
+			nameSearchInFlightRef.current = null;
+			if (cpfSearchDebounceRef.current)
+				clearTimeout(cpfSearchDebounceRef.current);
+			if (nameSearchDebounceRef.current)
+				clearTimeout(nameSearchDebounceRef.current);
+			cpfSearchDebounceRef.current = null;
+			nameSearchDebounceRef.current = null;
+			setIsSearchingDocument(false);
+			return;
 		}
 
-		let cancelled = false
+		let cancelled = false;
 
 		if (isDocumentMode) {
-			if (documentPrefix === lastPrefixFetched || cpfSearchInFlightPrefixRef.current === documentPrefix) return
-			if (cpfSearchDebounceRef.current) clearTimeout(cpfSearchDebounceRef.current)
+			if (
+				documentPrefix === lastPrefixFetched ||
+				cpfSearchInFlightPrefixRef.current === documentPrefix
+			)
+				return;
+			if (cpfSearchDebounceRef.current)
+				clearTimeout(cpfSearchDebounceRef.current);
 			cpfSearchDebounceRef.current = setTimeout(() => {
-				if (cancelled) return
-				cpfSearchAbortRef.current?.abort()
-				const controller = new AbortController()
-				cpfSearchAbortRef.current = controller
-				cpfSearchInFlightPrefixRef.current = documentPrefix
-				setIsSearchingDocument(true)
-				setDocumentSearchError(null)
-				portalFetch(`/api/portal/customers/search?documentPrefix=${documentPrefix}`, { signal: controller.signal })
+				if (cancelled) return;
+				cpfSearchAbortRef.current?.abort();
+				const controller = new AbortController();
+				cpfSearchAbortRef.current = controller;
+				cpfSearchInFlightPrefixRef.current = documentPrefix;
+				setIsSearchingDocument(true);
+				setDocumentSearchError(null);
+				portalFetch(
+					`/api/portal/customers/search?documentPrefix=${documentPrefix}`,
+					{ signal: controller.signal },
+				)
 					.then((res) => res.json())
 					.then((data) => {
-						if (cancelled) return
+						if (cancelled) return;
 						if (!data?.ok) {
-							setDocumentSearchError('Não foi possível buscar clientes agora.')
-							setCustomersBase([])
-							setLastPrefixFetched(documentPrefix)
-							return
+							setDocumentSearchError("Não foi possível buscar clientes agora.");
+							setCustomersBase([]);
+							setLastPrefixFetched(documentPrefix);
+							return;
 						}
-						setCustomersBase(data.customers || [])
-						setLastPrefixFetched(documentPrefix)
+						setCustomersBase(data.customers || []);
+						setLastPrefixFetched(documentPrefix);
 					})
 					.catch((err: any) => {
-						if (err?.name === 'AbortError') return
+						if (err?.name === "AbortError") return;
 						if (!cancelled) {
-							setDocumentSearchError('Não foi possível buscar clientes agora.')
-							setCustomersBase([])
-							setLastPrefixFetched(documentPrefix)
+							setDocumentSearchError("Não foi possível buscar clientes agora.");
+							setCustomersBase([]);
+							setLastPrefixFetched(documentPrefix);
 						}
 					})
 					.finally(() => {
-						if (!cancelled) setIsSearchingDocument(false)
-						if (cpfSearchInFlightPrefixRef.current === documentPrefix) cpfSearchInFlightPrefixRef.current = null
-					})
-			}, 350)
+						if (!cancelled) setIsSearchingDocument(false);
+						if (cpfSearchInFlightPrefixRef.current === documentPrefix)
+							cpfSearchInFlightPrefixRef.current = null;
+					});
+			}, 350);
 		} else if (isNameMode) {
-			if (nameQuery === lastNameQueryFetched || nameSearchInFlightRef.current === nameQuery) return
-			if (nameSearchDebounceRef.current) clearTimeout(nameSearchDebounceRef.current)
+			if (
+				nameQuery === lastNameQueryFetched ||
+				nameSearchInFlightRef.current === nameQuery
+			)
+				return;
+			if (nameSearchDebounceRef.current)
+				clearTimeout(nameSearchDebounceRef.current);
 			nameSearchDebounceRef.current = setTimeout(() => {
-				if (cancelled) return
-				cpfSearchAbortRef.current?.abort()
-				const controller = new AbortController()
-				cpfSearchAbortRef.current = controller
-				nameSearchInFlightRef.current = nameQuery
-				setIsSearchingDocument(true)
-				setDocumentSearchError(null)
-				portalFetch(`/api/portal/customers/search?name=${encodeURIComponent(nameQuery)}`, { signal: controller.signal })
+				if (cancelled) return;
+				cpfSearchAbortRef.current?.abort();
+				const controller = new AbortController();
+				cpfSearchAbortRef.current = controller;
+				nameSearchInFlightRef.current = nameQuery;
+				setIsSearchingDocument(true);
+				setDocumentSearchError(null);
+				portalFetch(
+					`/api/portal/customers/search?name=${encodeURIComponent(nameQuery)}`,
+					{ signal: controller.signal },
+				)
 					.then((res) => res.json())
 					.then((data) => {
-						if (cancelled) return
+						if (cancelled) return;
 						if (!data?.ok) {
-							setDocumentSearchError('Não foi possível buscar clientes agora.')
-							setCustomersBase([])
-							setLastNameQueryFetched(nameQuery)
-							return
+							setDocumentSearchError("Não foi possível buscar clientes agora.");
+							setCustomersBase([]);
+							setLastNameQueryFetched(nameQuery);
+							return;
 						}
-						setCustomersBase(data.customers || [])
-						setLastNameQueryFetched(nameQuery)
+						setCustomersBase(data.customers || []);
+						setLastNameQueryFetched(nameQuery);
 					})
 					.catch((err: any) => {
-						if (err?.name === 'AbortError') return
+						if (err?.name === "AbortError") return;
 						if (!cancelled) {
-							setDocumentSearchError('Não foi possível buscar clientes agora.')
-							setCustomersBase([])
-							setLastNameQueryFetched(nameQuery)
+							setDocumentSearchError("Não foi possível buscar clientes agora.");
+							setCustomersBase([]);
+							setLastNameQueryFetched(nameQuery);
 						}
 					})
 					.finally(() => {
-						if (!cancelled) setIsSearchingDocument(false)
-						if (nameSearchInFlightRef.current === nameQuery) nameSearchInFlightRef.current = null
-					})
-			}, 350)
+						if (!cancelled) setIsSearchingDocument(false);
+						if (nameSearchInFlightRef.current === nameQuery)
+							nameSearchInFlightRef.current = null;
+					});
+			}, 350);
 		}
 
 		return () => {
-			cancelled = true
-			if (cpfSearchDebounceRef.current) clearTimeout(cpfSearchDebounceRef.current)
-			if (nameSearchDebounceRef.current) clearTimeout(nameSearchDebounceRef.current)
-		}
-	}, [isDocumentMode, isNameMode, documentPrefix, lastPrefixFetched, nameQuery, lastNameQueryFetched])
+			cancelled = true;
+			if (cpfSearchDebounceRef.current)
+				clearTimeout(cpfSearchDebounceRef.current);
+			if (nameSearchDebounceRef.current)
+				clearTimeout(nameSearchDebounceRef.current);
+		};
+	}, [
+		isDocumentMode,
+		isNameMode,
+		documentPrefix,
+		lastPrefixFetched,
+		nameQuery,
+		lastNameQueryFetched,
+	]);
 
-	const hasFetchedDocPrefix = isDocumentMode && lastPrefixFetched === documentPrefix
-	const hasFetchedName = isNameMode && lastNameQueryFetched === nameQuery
-	const hasFetched = hasFetchedDocPrefix || hasFetchedName
+	const hasFetchedDocPrefix =
+		isDocumentMode && lastPrefixFetched === documentPrefix;
+	const hasFetchedName = isNameMode && lastNameQueryFetched === nameQuery;
+	const hasFetched = hasFetchedDocPrefix || hasFetchedName;
 
 	const customersFiltered = useMemo(() => {
-		if (!hasFetched) return []
+		if (!hasFetched) return [];
 		if (isDocumentMode) {
-			return customersBase.filter(c => getCustomerDocumentDigits(c).startsWith(documentDigits))
+			return customersBase.filter((c) =>
+				getCustomerDocumentDigits(c).startsWith(documentDigits),
+			);
 		}
-		return customersBase
-	}, [customersBase, hasFetched, isDocumentMode, documentDigits])
+		return customersBase;
+	}, [customersBase, hasFetched, isDocumentMode, documentDigits]);
 
-	function buildFormDataFromValues(values: FormValues, documentDigits: string): FormData {
+	function buildFormDataFromValues(
+		values: FormValues,
+		documentDigits: string,
+	): FormData {
 		const servicesNormalized = (values.services || [])
 			.map((s) => {
-				const kind = s.kind === 'product' ? 'product' : 'service'
-				const description = String(s.description || '').trim()
+				const kind = s.kind === "product" ? "product" : "service";
+				const description = String(s.description || "").trim();
 				const quantityRaw =
-					kind === 'product'
-						? Number.parseInt(String(s.quantity || '1'), 10)
-						: 1
-				const quantity = Number.isFinite(quantityRaw) && quantityRaw > 0
-					? Math.min(9999, Math.max(1, quantityRaw))
-					: 1
-				const unitValueCents = parseMoneyToCents(s.value)
-				const unitCostCents = parseMoneyToCents(s.cost)
-				const valueCents = unitValueCents * quantity
-				const costCents = unitCostCents * quantity
-				const sourceProductId = parseOptionalUuid(s.sourceProductId)
+					kind === "product"
+						? Number.parseInt(String(s.quantity || "1"), 10)
+						: 1;
+				const quantity =
+					Number.isFinite(quantityRaw) && quantityRaw > 0
+						? Math.min(9999, Math.max(1, quantityRaw))
+						: 1;
+				const unitValueCents = parseMoneyToCents(s.value);
+				const unitCostCents = parseMoneyToCents(s.cost);
+				const valueCents = unitValueCents * quantity;
+				const costCents = unitCostCents * quantity;
+				const sourceProductId = parseOptionalUuid(s.sourceProductId);
 				return {
 					kind,
 					description,
@@ -448,46 +576,60 @@ export function NovaOrdemClient(props: Props) {
 					valueCents,
 					costCents,
 					...(sourceProductId ? { sourceProductId } : {}),
-				}
+				};
 			})
-			.filter((s) => s.description || s.valueCents > 0 || s.costCents > 0)
+			.filter((s) => s.description || s.valueCents > 0 || s.costCents > 0);
 
-		const totalValueCents = servicesNormalized.reduce((acc, s) => acc + s.valueCents, 0)
-		const totalCostCents = servicesNormalized.reduce((acc, s) => acc + s.costCents, 0)
-		const servicesJson = JSON.stringify({ items: servicesNormalized, totals: { totalValueCents, totalCostCents } })
+		const totalValueCents = servicesNormalized.reduce(
+			(acc, s) => acc + s.valueCents,
+			0,
+		);
+		const totalCostCents = servicesNormalized.reduce(
+			(acc, s) => acc + s.costCents,
+			0,
+		);
+		const servicesJson = JSON.stringify({
+			items: servicesNormalized,
+			totals: { totalValueCents, totalCostCents },
+		});
 
-		const fd = new FormData()
-		fd.append('customerId', values.customerId)
-		fd.append('document', documentDigits)
-		fd.append('deviceModelId', values.deviceModelId)
-		fd.append('brand', values.brand)
-		fd.append('deviceType', values.deviceType)
-		fd.append('model', values.model)
-		fd.append('isWarranty', values.isWarranty ? '1' : '')
-		fd.append('passcodeType', values.passcodeType)
-		fd.append('passcodeText', values.passcodeText)
-		fd.append('passcodePattern', values.passcodePattern)
+		const fd = new FormData();
+		fd.append("customerId", values.customerId);
+		fd.append("document", documentDigits);
+		fd.append("deviceModelId", values.deviceModelId);
+		fd.append("brand", values.brand);
+		fd.append("deviceType", values.deviceType);
+		fd.append("model", values.model);
+		fd.append("isWarranty", values.isWarranty ? "1" : "");
+		fd.append("passcodeType", values.passcodeType);
+		fd.append("passcodeText", values.passcodeText);
+		fd.append("passcodePattern", values.passcodePattern);
 		fd.append(
-			'paymentMethodsJson',
+			"paymentMethodsJson",
 			JSON.stringify(
 				(values.paymentMethods || []).filter((e) => {
-					const id = String(e.payment_method_id || '').trim()
-					return Boolean(id) && id !== SELECT_NONE_VALUE
+					const id = String(e.payment_method_id || "").trim();
+					return Boolean(id) && id !== SELECT_NONE_VALUE;
 				}),
 			),
-		)
-		fd.append('title', values.title)
-		fd.append('status', values.status)
-		fd.append('imei', values.imei)
-		fd.append('color', values.color)
-		fd.append('estimatedReadyAt', values.estimatedReadyAt)
-		fd.append('customerDescription', values.customerDescription)
-		fd.append('internalInitialComment', values.internalInitialComment)
-		fd.append('receivingNotes', values.receivingNotes)
-		fd.append('servicesJson', servicesJson)
-		fd.append('deviceEntryChecksJson', values.deviceEntryChecksJson || '')
-		fd.append('seller_user_id', props.isAdmin ? (values.sellerUserId || props.currentUserId) : props.currentUserId)
-		return fd
+		);
+		fd.append("title", values.title);
+		fd.append("status", values.status);
+		fd.append("imei", values.imei);
+		fd.append("color", values.color);
+		fd.append("estimatedReadyAt", values.estimatedReadyAt);
+		fd.append("customerDescription", values.customerDescription);
+		fd.append("internalInitialComment", values.internalInitialComment);
+		fd.append("receivingNotes", values.receivingNotes);
+		fd.append("servicesJson", servicesJson);
+		fd.append("deviceEntryChecksJson", values.deviceEntryChecksJson || "");
+		fd.append(
+			"seller_user_id",
+			props.isAdmin
+				? values.sellerUserId || props.currentUserId
+				: props.currentUserId,
+		);
+		return fd;
 	}
 
 	if (props.duplicateOrderId && !duplicateLoaded) {
@@ -500,16 +642,17 @@ export function NovaOrdemClient(props: Props) {
 					</p>
 				</div>
 			</div>
-		)
+		);
 	}
 
 	return (
-		<div className="max-w-4xl space-y-6">
-
+		<div className="max-w-4xl space-y-6 pb-24">
 			<div>
 				<h1 className="text-2xl font-bold">Nova ordem de serviço</h1>
 				<p className="text-sm text-muted-foreground">
-					{duplicateFormValues ? 'Revise os dados e salve para criar a cópia.' : 'Busque o cliente por nome ou CPF/CNPJ e preencha os dados da OS.'}
+					{duplicateFormValues
+						? "Revise os dados e salve para criar a cópia."
+						: "Busque o cliente por nome ou CPF/CNPJ e preencha os dados da OS."}
 				</p>
 			</div>
 
@@ -518,429 +661,651 @@ export function NovaOrdemClient(props: Props) {
 				validationSchema={orderFormSchema}
 				enableReinitialize={!!duplicateFormValues}
 				onSubmit={async (values) => {
-					const fd = buildFormDataFromValues(values, documentDigits)
-					const result = await props.action(fd)
-					if (result && 'redirectTo' in result && result.redirectTo) router.push(result.redirectTo)
+					const fd = buildFormDataFromValues(values, documentDigits);
+					const result = await props.action(fd);
+					if (result && "redirectTo" in result && result.redirectTo)
+						router.push(result.redirectTo);
 				}}
 			>
 				{(formik) => (
 					<>
 						<Form className="relative space-y-6">
 							<OrderServicesTotalProvider initialTotal={0}>
-							<NovaOrdemCustomerCard
-								selectedCustomer={selectedCustomer}
-								searchInput={customerSearchInput}
-								documentDigits={documentDigits}
-								onSearchInputChange={setCustomerSearchInput}
-								isCpfPopoverOpen={isCpfPopoverOpen}
-								onCpfPopoverOpenChange={setIsCpfPopoverOpen}
-								customersFiltered={customersFiltered}
-								isSearchingDocument={isSearchingDocument}
-								documentSearchError={documentSearchError}
-								hasFetched={hasFetched}
-								isDocumentMode={isDocumentMode}
-								isNameMode={isNameMode}
-								onSelectCustomer={(c) => {
-									setSelectedCustomer(c)
-									setIsCpfPopoverOpen(false)
-									formik.setFieldValue('customerId', c.id)
-									formik.setFieldValue('document', getCustomerDocumentDigits(c))
-								}}
-								onClearCustomer={() => {
-									setSelectedCustomer(null)
-									setIsCpfPopoverOpen(true)
-									formik.setFieldValue('customerId', '')
-									formik.setFieldValue('document', documentDigits)
-								}}
-								onEditCustomer={() => {
-									setCustomerToEdit(selectedCustomer!)
-									setIsCreateCustomerOpen(true)
-								}}
-								onCreateCustomer={() => {
-									setCreateCustomerInitialDocumentDigits(documentDigits)
-									setCustomerToEdit(null)
-									setIsCpfPopoverOpen(false)
-									setIsCreateCustomerOpen(true)
-								}}
-							/>
+								<NovaOrdemCustomerCard
+									selectedCustomer={selectedCustomer}
+									searchInput={customerSearchInput}
+									documentDigits={documentDigits}
+									onSearchInputChange={setCustomerSearchInput}
+									isCpfPopoverOpen={isCpfPopoverOpen}
+									onCpfPopoverOpenChange={setIsCpfPopoverOpen}
+									customersFiltered={customersFiltered}
+									isSearchingDocument={isSearchingDocument}
+									documentSearchError={documentSearchError}
+									hasFetched={hasFetched}
+									isDocumentMode={isDocumentMode}
+									isNameMode={isNameMode}
+									onSelectCustomer={(c) => {
+										setSelectedCustomer(c);
+										setIsCpfPopoverOpen(false);
+										formik.setFieldValue("customerId", c.id);
+										formik.setFieldValue(
+											"document",
+											getCustomerDocumentDigits(c),
+										);
+									}}
+									onClearCustomer={() => {
+										setSelectedCustomer(null);
+										setIsCpfPopoverOpen(true);
+										formik.setFieldValue("customerId", "");
+										formik.setFieldValue("document", documentDigits);
+									}}
+									onEditCustomer={() => {
+										setCustomerToEdit(selectedCustomer!);
+										setIsCreateCustomerOpen(true);
+									}}
+									onCreateCustomer={() => {
+										setCreateCustomerInitialDocumentDigits(documentDigits);
+										setCustomerToEdit(null);
+										setIsCpfPopoverOpen(false);
+										setIsCreateCustomerOpen(true);
+									}}
+								/>
 
-							<Card>
-								<CardHeader>
-									<CardTitle>Informações do Aparelho</CardTitle>
-								</CardHeader>
-								<CardContent className="space-y-6">
-									<OrderDeviceSelector
-										formik={{
-											values: {
-												brand: formik.values.brand,
-												deviceType: formik.values.deviceType,
-												deviceModelId: formik.values.deviceModelId,
-												model: formik.values.model,
-											},
-											setFieldValue: formik.setFieldValue,
-										}}
-										initialDeviceModels={props.deviceModels}
-										hasExistingDevices={customerDevices.length > 0}
-										onOpenExistingDevices={() => setIsDevicesDialogOpen(true)}
-									/>
-
-									<Dialog open={isDevicesDialogOpen} onOpenChange={setIsDevicesDialogOpen}>
-										<DialogContent className="max-w-md">
-											<DialogHeader>
-												<DialogTitle>Selecionar aparelho do cliente</DialogTitle>
-												<DialogDescription>
-													Escolha um aparelho já cadastrado para preencher os dados da OS.
-												</DialogDescription>
-											</DialogHeader>
-											<div className="mt-2 space-y-2 max-h-80 overflow-y-auto">
-												{isLoadingCustomerDevices ? (
-													<p className="text-sm text-muted-foreground">Carregando aparelhos…</p>
-												) : customerDevices.length === 0 ? (
-													<p className="text-sm text-muted-foreground">
-														Este cliente ainda não possui aparelhos cadastrados.
-													</p>
-												) : (
-													customerDevices.map((d) => {
-														const labelParts = [d.device_type, d.brand, d.model].filter(Boolean)
-														const label = labelParts.length ? labelParts.join(' • ') : 'Aparelho'
-														const secondaryParts = [d.imei, d.color].filter(Boolean)
-														const secondary = secondaryParts.length ? secondaryParts.join(' • ') : null
-														return (
-															<button
-																key={d.id}
-																type="button"
-																className="w-full rounded-md border px-3 py-2 text-left text-sm hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring"
-																onClick={() => {
-																	formik.setFieldValue('brand', d.brand ?? '')
-																	formik.setFieldValue('deviceType', d.device_type ?? '')
-																	formik.setFieldValue('deviceModelId', d.device_model_id ?? '')
-																	formik.setFieldValue('model', d.model ?? '')
-																	formik.setFieldValue('imei', d.imei ?? '')
-																	formik.setFieldValue('color', d.color ?? '')
-																	setIsDevicesDialogOpen(false)
-																}}
-															>
-																<div className="font-medium truncate">{label}</div>
-																{secondary ? (
-																	<div className="text-xs text-muted-foreground truncate">
-																		{secondary}
-																	</div>
-																) : null}
-															</button>
-														)
-													})
-												)}
-											</div>
-											<DialogFooter>
-												<Button type="button" variant="outline" onClick={() => setIsDevicesDialogOpen(false)}>
-													Fechar
-												</Button>
-											</DialogFooter>
-										</DialogContent>
-									</Dialog>
-
-									<div className="rounded-md border p-4 space-y-3">
-										<div className="flex items-center justify-between gap-3 flex-wrap">
-											<div>
-												<div className="text-sm font-medium">Senha do aparelho</div>
-											</div>
-										</div>
-										<RadioGroup
-											value={formik.values.passcodeType}
-											onValueChange={(v) => {
-												const next = v === 'pattern' ? 'pattern' : (v === 'text' ? 'text' : 'none')
-												formik.setFieldValue('passcodeType', next)
-												if (next === 'none') {
-													formik.setFieldValue('passcodeText', '')
-													formik.setFieldValue('passcodePattern', '')
-												}
+								<Card>
+									<CardHeader>
+										<CardTitle>Informações do Aparelho</CardTitle>
+									</CardHeader>
+									<CardContent className="space-y-6">
+										<OrderDeviceSelector
+											formik={{
+												values: {
+													brand: formik.values.brand,
+													deviceType: formik.values.deviceType,
+													deviceModelId: formik.values.deviceModelId,
+													model: formik.values.model,
+												},
+												setFieldValue: formik.setFieldValue,
 											}}
-											className="flex flex-wrap items-center gap-4"
+											initialDeviceModels={props.deviceModels}
+											hasExistingDevices={customerDevices.length > 0}
+											onOpenExistingDevices={() => setIsDevicesDialogOpen(true)}
+										/>
+
+										<Dialog
+											open={isDevicesDialogOpen}
+											onOpenChange={setIsDevicesDialogOpen}
 										>
-											<div className="flex items-center gap-2">
-												<RadioGroupItem value="text" id="passcode-text" />
-												<Label htmlFor="passcode-text" className="cursor-pointer">Texto</Label>
-											</div>
-											<div className="flex items-center gap-2">
-												<RadioGroupItem value="pattern" id="passcode-pattern" />
-												<Label htmlFor="passcode-pattern" className="cursor-pointer">Padrão</Label>
-											</div>
-											<div className="flex items-center gap-2">
-												<RadioGroupItem value="none" id="passcode-none" />
-												<Label htmlFor="passcode-none" className="cursor-pointer">Não informar</Label>
-											</div>
-										</RadioGroup>
-										{formik.values.passcodeType === 'text' ? (
-											<div className="space-y-2">
-												<Label htmlFor="passcodeText">Senha (texto)</Label>
-												<Field as={Input} id="passcodeText" name="passcodeText" placeholder="Ex: 1234, senha do iCloud, etc." />
-											</div>
-										) : formik.values.passcodeType === 'pattern' ? (
-											<div className="space-y-2">
-												<Label htmlFor="passcodePattern">Senha (padrão)</Label>
-												<PatternLockInput
-													id="passcodePattern"
-													value={formik.values.passcodePattern}
-													onChange={(v: string) => formik.setFieldValue('passcodePattern', v)}
-												/>
-											</div>
-										) : (
-											<div className="text-sm text-muted-foreground">
-												O cliente optou por não informar a senha.
-											</div>
-										)}
-									</div>
+											<DialogContent className="max-w-md">
+												<DialogHeader>
+													<DialogTitle>
+														Selecionar aparelho do cliente
+													</DialogTitle>
+													<DialogDescription>
+														Escolha um aparelho já cadastrado para preencher os
+														dados da OS.
+													</DialogDescription>
+												</DialogHeader>
+												<div className="mt-2 space-y-2 max-h-80 overflow-y-auto">
+													{isLoadingCustomerDevices ? (
+														<p className="text-sm text-muted-foreground">
+															Carregando aparelhos…
+														</p>
+													) : customerDevices.length === 0 ? (
+														<p className="text-sm text-muted-foreground">
+															Este cliente ainda não possui aparelhos
+															cadastrados.
+														</p>
+													) : (
+														customerDevices.map((d) => {
+															const labelParts = [
+																d.device_type,
+																d.brand,
+																d.model,
+															].filter(Boolean);
+															const label = labelParts.length
+																? labelParts.join(" • ")
+																: "Aparelho";
+															const secondaryParts = [d.imei, d.color].filter(
+																Boolean,
+															);
+															const secondary = secondaryParts.length
+																? secondaryParts.join(" • ")
+																: null;
+															return (
+																<button
+																	key={d.id}
+																	type="button"
+																	className="w-full rounded-md border px-3 py-2 text-left text-sm hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring"
+																	onClick={() => {
+																		formik.setFieldValue(
+																			"brand",
+																			d.brand ?? "",
+																		);
+																		formik.setFieldValue(
+																			"deviceType",
+																			d.device_type ?? "",
+																		);
+																		formik.setFieldValue(
+																			"deviceModelId",
+																			d.device_model_id ?? "",
+																		);
+																		formik.setFieldValue(
+																			"model",
+																			d.model ?? "",
+																		);
+																		formik.setFieldValue("imei", d.imei ?? "");
+																		formik.setFieldValue(
+																			"color",
+																			d.color ?? "",
+																		);
+																		setIsDevicesDialogOpen(false);
+																	}}
+																>
+																	<div className="font-medium truncate">
+																		{label}
+																	</div>
+																	{secondary ? (
+																		<div className="text-xs text-muted-foreground truncate">
+																			{secondary}
+																		</div>
+																	) : null}
+																</button>
+															);
+														})
+													)}
+												</div>
+												<DialogFooter>
+													<Button
+														type="button"
+														variant="outline"
+														onClick={() => setIsDevicesDialogOpen(false)}
+													>
+														Fechar
+													</Button>
+												</DialogFooter>
+											</DialogContent>
+										</Dialog>
 
-									<div className="grid md:grid-cols-2 gap-4">
-										<div className="space-y-2">
-											<Label htmlFor="imei">Número de série / IMEI</Label>
-											<Field as={Input} id="imei" name="imei" placeholder="Digite o número" />
-										</div>
-										<div className="space-y-2">
-											<Label htmlFor="color">Cor</Label>
-											<Field as={Input} id="color" name="color" placeholder="Ex: Preto, Prateado" />
-										</div>
-									</div>
-								</CardContent>
-							</Card>
-
-							<Card>
-								<CardHeader>
-									<CardTitle>Informações da assistência</CardTitle>
-									<CardDescription>Do título até a situação de entrada do aparelho.</CardDescription>
-								</CardHeader>
-								<CardContent className="relative space-y-6">
-									<div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
-										<div className="space-y-2 md:col-span-2">
-											<Label htmlFor="title">Título<span className="text-destructive"> *</span></Label>
-											<Field
-												as={Input}
-												id="title"
-												name="title"
-												placeholder="Ex: Troca de tela iPhone 13"
-												className={formik.touched.title && formik.errors.title ? 'border-destructive' : ''}
-											/>
-											{formik.touched.title && formik.errors.title ? (
-												<p className="text-sm text-destructive">{formik.errors.title}</p>
-											) : null}
-										</div>
-										<div className="space-y-2">
-											<Label htmlFor={props.isAdmin ? 'sellerUserId' : 'sellerName'}>Vendedor</Label>
-											{props.isAdmin ? (
-												<Select
-													value={formik.values.sellerUserId || props.currentUserId}
-													onValueChange={(v) => formik.setFieldValue('sellerUserId', v)}
-												>
-													<SelectTrigger id="sellerUserId">
-														<SelectValue placeholder="Selecione o vendedor" />
-													</SelectTrigger>
-													<SelectContent>
-														{props.sellerOptions.map((u) => (
-															<SelectItem key={u.id} value={u.id}>
-																{String(u.full_name || u.email || u.id).trim() || '(Sem nome)'}
-															</SelectItem>
-														))}
-													</SelectContent>
-												</Select>
+										<div className="rounded-md border p-4 space-y-3">
+											<div className="flex items-center justify-between gap-3 flex-wrap">
+												<div>
+													<div className="text-sm font-medium">
+														Senha do aparelho
+													</div>
+												</div>
+											</div>
+											<RadioGroup
+												value={formik.values.passcodeType}
+												onValueChange={(v) => {
+													const next =
+														v === "pattern"
+															? "pattern"
+															: v === "text"
+																? "text"
+																: "none";
+													formik.setFieldValue("passcodeType", next);
+													if (next === "none") {
+														formik.setFieldValue("passcodeText", "");
+														formik.setFieldValue("passcodePattern", "");
+													}
+												}}
+												className="flex flex-wrap items-center gap-4"
+											>
+												<div className="flex items-center gap-2">
+													<RadioGroupItem value="text" id="passcode-text" />
+													<Label
+														htmlFor="passcode-text"
+														className="cursor-pointer"
+													>
+														Texto
+													</Label>
+												</div>
+												<div className="flex items-center gap-2">
+													<RadioGroupItem
+														value="pattern"
+														id="passcode-pattern"
+													/>
+													<Label
+														htmlFor="passcode-pattern"
+														className="cursor-pointer"
+													>
+														Padrão
+													</Label>
+												</div>
+												<div className="flex items-center gap-2">
+													<RadioGroupItem value="none" id="passcode-none" />
+													<Label
+														htmlFor="passcode-none"
+														className="cursor-pointer"
+													>
+														Não informar
+													</Label>
+												</div>
+											</RadioGroup>
+											{formik.values.passcodeType === "text" ? (
+												<div className="space-y-2">
+													<Label htmlFor="passcodeText">Senha (texto)</Label>
+													<Field
+														as={Input}
+														id="passcodeText"
+														name="passcodeText"
+														placeholder="Ex: 1234, senha do iCloud, etc."
+													/>
+												</div>
+											) : formik.values.passcodeType === "pattern" ? (
+												<div className="space-y-2">
+													<Label htmlFor="passcodePattern">
+														Senha (padrão)
+													</Label>
+													<PatternLockInput
+														id="passcodePattern"
+														value={formik.values.passcodePattern}
+														onChange={(v: string) =>
+															formik.setFieldValue("passcodePattern", v)
+														}
+													/>
+												</div>
 											) : (
-												<Input id="sellerName" value={props.sellerName} readOnly />
+												<div className="text-sm text-muted-foreground">
+													O cliente optou por não informar a senha.
+												</div>
 											)}
 										</div>
-										<div className="space-y-2">
-											<Label htmlFor="estimatedReadyAt">Previsão (data e hora)</Label>
-											<PrevisaoInput
-												id="estimatedReadyAt"
-												name="estimatedReadyAt"
-												min={minPrevisao}
-												value={formik.values.estimatedReadyAt}
-												onChange={formik.handleChange}
-											/>
-										</div>
-									</div>
 
-									<div className="grid gap-4 md:grid-cols-2">
-										<div className="space-y-2">
-											<Label htmlFor="status">Status</Label>
-											<Field
-												as="select"
-												id="status"
-												name="status"
-												className="w-full h-10 rounded-md border border-input px-3 text-sm"
-											>
-												{statusOptions.map(s => (
-													<option key={s.value} value={s.value}>{s.label}</option>
-												))}
-											</Field>
-										</div>
-										<div className="flex items-center gap-2 rounded-md border p-3">
-											<Checkbox
-												id="isWarranty"
-												checked={formik.values.isWarranty}
-												onCheckedChange={(v) => formik.setFieldValue('isWarranty', !!v)}
-											/>
-											<Label htmlFor="isWarranty" className="cursor-pointer">Serviço em garantia</Label>
-										</div>
-									</div>
-
-									<div className="space-y-2">
-										<div className="flex items-center justify-between gap-2">
-											<Label htmlFor="customerDescription">Descrição</Label>
-											<OsAssistAiIconButton
-												value={formik.values.customerDescription}
-												onImproved={(text) => formik.setFieldValue('customerDescription', text)}
-												device={[formik.values.brand, formik.values.deviceType, formik.values.model].filter(Boolean).join(' ')}
-											/>
-										</div>
-										<Field as={Textarea} id="customerDescription" name="customerDescription" placeholder="Texto que o cliente vê" />
-									</div>
-
-									<div className="space-y-2">
-										<div className="flex items-center justify-between gap-2">
-											<Label htmlFor="receivingNotes">Observações do recebimento</Label>
-											<OsAssistAiIconButton
-												value={formik.values.receivingNotes}
-												onImproved={(text) => formik.setFieldValue('receivingNotes', text)}
-												device={[formik.values.brand, formik.values.deviceType, formik.values.model].filter(Boolean).join(' ')}
-											/>
-										</div>
-										<Field as={Textarea} id="receivingNotes" name="receivingNotes" placeholder="Checklist, avarias, acessórios, etc." />
-									</div>
-
-									<div className="rounded-md border border-border bg-muted/20 p-4 space-y-3">
-										<div className="flex flex-wrap items-center justify-between gap-2">
-											<span className="text-sm font-medium">Situação de entrada do aparelho</span>
-											<div className="flex flex-wrap items-center gap-2">
-												{(() => {
-													let parsed: any = null
-													try {
-														parsed = formik.values.deviceEntryChecksJson ? JSON.parse(formik.values.deviceEntryChecksJson) : null
-													} catch {
-														parsed = null
-													}
-													const status = parsed?.status || 'operante'
-													const rawCh = (parsed?.checks && typeof parsed.checks === 'object') ? parsed.checks as Record<string, unknown> : {}
-													const ch: Record<string, string> = {}
-													Object.entries(rawCh).forEach(([k, v]) => {
-														if (v === true) ch[k] = 'ok'
-														else if (v === false) ch[k] = 'fail'
-														else if (v === 'ok' || v === 'fail' || v === 'na') ch[k] = v
-													})
-													const notTested = status !== 'operante'
-													const passed = Object.values(ch).filter((v) => v === 'ok').length
-													const failed = Object.values(ch).filter((v) => v === 'fail').length
-													const na = Object.values(ch).filter((v) => v === 'na').length
-													return (
-														<>
-															{notTested ? (
-																<span className="text-xs text-amber-600 dark:text-amber-400">Não foi possível testar</span>
-															) : (
-																<>
-																	{passed > 0 && <span className="text-xs text-emerald-600 dark:text-emerald-400">{passed} passaram</span>}
-																	{failed > 0 && <span className="text-xs text-destructive">{failed} não passaram</span>}
-																	{na > 0 && <span className="text-xs text-muted-foreground">{na} não se aplicam</span>}
-																	{passed === 0 && failed === 0 && na === 0 && (
-																		<span className="text-xs text-muted-foreground">Nenhum teste registrado</span>
-																	)}
-																</>
-															)}
-														</>
-													)
-												})()}
-												<Button
-													type="button"
-													variant="outline"
-													size="sm"
-													onClick={() => setIsEntryChecksDialogOpen(true)}
-												>
-													Abrir checklist
-												</Button>
+										<div className="grid md:grid-cols-2 gap-4">
+											<div className="space-y-2">
+												<Label htmlFor="imei">Número de série / IMEI</Label>
+												<Field
+													as={Input}
+													id="imei"
+													name="imei"
+													placeholder="Digite o número"
+												/>
+											</div>
+											<div className="space-y-2">
+												<Label htmlFor="color">Cor</Label>
+												<Field
+													as={Input}
+													id="color"
+													name="color"
+													placeholder="Ex: Preto, Prateado"
+												/>
 											</div>
 										</div>
-									</div>
-								</CardContent>
-							</Card>
+									</CardContent>
+								</Card>
 
-							<FieldArray name="services">
-								{({ push, remove }) => (
-									<OrderServicesCard
-										ref={servicesCardRef}
-										formik={{
-											services: formik.values.services ?? [],
-											onAdd: (item) => push(item),
-											onRemove: remove,
-											onUpdate: (idx, field, value) => formik.setFieldValue(`services.${idx}.${field}`, value),
-											onBlurSync: (services) => formik.setFieldValue('services', services),
-										}}
-									/>
-								)}
-							</FieldArray>
+								<Card>
+									<CardHeader>
+										<CardTitle>Informações da assistência</CardTitle>
+										<CardDescription>
+											Do título até a situação de entrada do aparelho.
+										</CardDescription>
+									</CardHeader>
+									<CardContent className="relative space-y-6">
+										<div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+											<div className="space-y-2 md:col-span-2">
+												<Label htmlFor="title">
+													Título<span className="text-destructive"> *</span>
+												</Label>
+												<Field
+													as={Input}
+													id="title"
+													name="title"
+													placeholder="Ex: Troca de tela iPhone 13"
+													className={
+														formik.touched.title && formik.errors.title
+															? "border-destructive"
+															: ""
+													}
+												/>
+												{formik.touched.title && formik.errors.title ? (
+													<p className="text-sm text-destructive">
+														{formik.errors.title}
+													</p>
+												) : null}
+											</div>
+											<div className="space-y-2">
+												<Label
+													htmlFor={
+														props.isAdmin ? "sellerUserId" : "sellerName"
+													}
+												>
+													Vendedor
+												</Label>
+												{props.isAdmin ? (
+													<Select
+														value={
+															formik.values.sellerUserId || props.currentUserId
+														}
+														onValueChange={(v) =>
+															formik.setFieldValue("sellerUserId", v)
+														}
+													>
+														<SelectTrigger id="sellerUserId">
+															<SelectValue placeholder="Selecione o vendedor" />
+														</SelectTrigger>
+														<SelectContent>
+															{props.sellerOptions.map((u) => (
+																<SelectItem key={u.id} value={u.id}>
+																	{String(
+																		u.full_name || u.email || u.id,
+																	).trim() || "(Sem nome)"}
+																</SelectItem>
+															))}
+														</SelectContent>
+													</Select>
+												) : (
+													<Input
+														id="sellerName"
+														value={props.sellerName}
+														readOnly
+													/>
+												)}
+											</div>
+											<div className="space-y-2">
+												<Label htmlFor="estimatedReadyAt">
+													Previsão (data e hora)
+												</Label>
+												<PrevisaoInput
+													id="estimatedReadyAt"
+													name="estimatedReadyAt"
+													min={minPrevisao}
+													value={formik.values.estimatedReadyAt}
+													onChange={formik.handleChange}
+												/>
+											</div>
+										</div>
 
-							<Card>
-								<CardHeader>
-									<CardTitle>Formas de pagamento</CardTitle>
-									<CardDescription>Defina como o cliente pagará a OS.</CardDescription>
-								</CardHeader>
-								<CardContent className="relative space-y-3">
-									<OrderPaymentMethodFields
-										ref={paymentMethodsFieldsRef}
-										formik={{
-											values: { paymentMethods: formik.values.paymentMethods ?? [] },
-											setFieldValue: formik.setFieldValue,
-										}}
-										onCatalogLoadingChange={setPaymentMethodsCatalogLoading}
-									/>
-									<Button
-										type="button"
-										variant="outline"
-										size="sm"
-										className="w-full border-dashed border-green-600 bg-green-600/5 text-green-700 hover:bg-green-600/10 hover:text-green-800"
-										onClick={() => paymentMethodsFieldsRef.current?.addEntry()}
-										disabled={paymentMethodsCatalogLoading}
-										aria-label="Incluir forma de pagamento"
-									>
-										<Plus className="h-4 w-4 mr-2" />
-										Incluir forma de pagamento
-									</Button>
-								</CardContent>
-							</Card>
+										<div className="grid gap-4 md:grid-cols-2">
+											<div className="space-y-2">
+												<Label htmlFor="status">Status</Label>
+												<Field
+													as="select"
+													id="status"
+													name="status"
+													className="w-full h-10 rounded-md border border-input px-3 text-sm"
+												>
+													{statusOptions.map((s) => (
+														<option key={s.value} value={s.value}>
+															{s.label}
+														</option>
+													))}
+												</Field>
+											</div>
+											<div className="flex items-center gap-2 rounded-md border p-3">
+												<Checkbox
+													id="isWarranty"
+													checked={formik.values.isWarranty}
+													onCheckedChange={(v) =>
+														formik.setFieldValue("isWarranty", !!v)
+													}
+												/>
+												<Label htmlFor="isWarranty" className="cursor-pointer">
+													Serviço em garantia
+												</Label>
+											</div>
+										</div>
 
-							<Card>
-								<CardHeader>
-									<CardTitle>Descrição interna</CardTitle>
-									<CardDescription>
-										Primeira anotação interna (opcional). Depois de criar a OS, use o histórico na página da ordem para mais comentários.
-									</CardDescription>
-								</CardHeader>
-								<CardContent className="relative space-y-6">
-									<div className="space-y-2">
-										<div className="flex items-center justify-between gap-2">
-											<Label htmlFor="internalInitialComment">Texto inicial</Label>
-											<OsAssistAiIconButton
-												value={formik.values.internalInitialComment}
-												onImproved={(text) => formik.setFieldValue('internalInitialComment', text)}
-												device={[formik.values.brand, formik.values.deviceType, formik.values.model].filter(Boolean).join(' ')}
+										<div className="space-y-2">
+											<div className="flex items-center justify-between gap-2">
+												<Label htmlFor="customerDescription">Descrição</Label>
+												<OsAssistAiIconButton
+													value={formik.values.customerDescription}
+													onImproved={(text) =>
+														formik.setFieldValue("customerDescription", text)
+													}
+													device={[
+														formik.values.brand,
+														formik.values.deviceType,
+														formik.values.model,
+													]
+														.filter(Boolean)
+														.join(" ")}
+												/>
+											</div>
+											<Field
+												as={Textarea}
+												id="customerDescription"
+												name="customerDescription"
+												placeholder="Texto que o cliente vê"
 											/>
 										</div>
-										<Field as={Textarea} id="internalInitialComment" name="internalInitialComment" placeholder="" maxLength={6000} />
-									</div>
 
-									{formik.status && typeof formik.status === 'string' ? (
-										<p className="text-sm text-destructive">{formik.status}</p>
-									) : null}
+										<div className="space-y-2">
+											<div className="flex items-center justify-between gap-2">
+												<Label htmlFor="receivingNotes">
+													Observações do recebimento
+												</Label>
+												<OsAssistAiIconButton
+													value={formik.values.receivingNotes}
+													onImproved={(text) =>
+														formik.setFieldValue("receivingNotes", text)
+													}
+													device={[
+														formik.values.brand,
+														formik.values.deviceType,
+														formik.values.model,
+													]
+														.filter(Boolean)
+														.join(" ")}
+												/>
+											</div>
+											<Field
+												as={Textarea}
+												id="receivingNotes"
+												name="receivingNotes"
+												placeholder="Checklist, avarias, acessórios, etc."
+											/>
+										</div>
 
-									{formik.errors.customerId ? (
-										<p className="text-sm text-destructive">{formik.errors.customerId}</p>
-									) : null}
+										<div className="rounded-md border border-border bg-muted/20 p-4 space-y-3">
+											<div className="flex flex-wrap items-center justify-between gap-2">
+												<span className="text-sm font-medium">
+													Situação de entrada do aparelho
+												</span>
+												<div className="flex flex-wrap items-center gap-2">
+													{(() => {
+														let parsed: any = null;
+														try {
+															parsed = formik.values.deviceEntryChecksJson
+																? JSON.parse(
+																		formik.values.deviceEntryChecksJson,
+																	)
+																: null;
+														} catch {
+															parsed = null;
+														}
+														const status = parsed?.status || "operante";
+														const rawCh =
+															parsed?.checks &&
+															typeof parsed.checks === "object"
+																? (parsed.checks as Record<string, unknown>)
+																: {};
+														const ch: Record<string, string> = {};
+														Object.entries(rawCh).forEach(([k, v]) => {
+															if (v === true) ch[k] = "ok";
+															else if (v === false) ch[k] = "fail";
+															else if (v === "ok" || v === "fail" || v === "na")
+																ch[k] = v;
+														});
+														const notTested = status !== "operante";
+														const passed = Object.values(ch).filter(
+															(v) => v === "ok",
+														).length;
+														const failed = Object.values(ch).filter(
+															(v) => v === "fail",
+														).length;
+														const na = Object.values(ch).filter(
+															(v) => v === "na",
+														).length;
+														return (
+															<>
+																{notTested ? (
+																	<span className="text-xs text-amber-600 dark:text-amber-400">
+																		Não foi possível testar
+																	</span>
+																) : (
+																	<>
+																		{passed > 0 && (
+																			<span className="text-xs text-emerald-600 dark:text-emerald-400">
+																				{passed} passaram
+																			</span>
+																		)}
+																		{failed > 0 && (
+																			<span className="text-xs text-destructive">
+																				{failed} não passaram
+																			</span>
+																		)}
+																		{na > 0 && (
+																			<span className="text-xs text-muted-foreground">
+																				{na} não se aplicam
+																			</span>
+																		)}
+																		{passed === 0 &&
+																			failed === 0 &&
+																			na === 0 && (
+																				<span className="text-xs text-muted-foreground">
+																					Nenhum teste registrado
+																				</span>
+																			)}
+																	</>
+																)}
+															</>
+														);
+													})()}
+													<Button
+														type="button"
+														variant="outline"
+														size="sm"
+														onClick={() => setIsEntryChecksDialogOpen(true)}
+													>
+														Abrir checklist
+													</Button>
+												</div>
+											</div>
+										</div>
+									</CardContent>
+								</Card>
 
+								<FieldArray name="services">
+									{({ push, remove }) => (
+										<OrderServicesCard
+											ref={servicesCardRef}
+											formik={{
+												services: formik.values.services ?? [],
+												onAdd: (item) => push(item),
+												onRemove: remove,
+												onUpdate: (idx, field, value) =>
+													formik.setFieldValue(
+														`services.${idx}.${field}`,
+														value,
+													),
+												onBlurSync: (services) =>
+													formik.setFieldValue("services", services),
+											}}
+										/>
+									)}
+								</FieldArray>
+
+								<Card>
+									<CardHeader>
+										<CardTitle>Formas de pagamento</CardTitle>
+										<CardDescription>
+											Defina como o cliente pagará a OS.
+										</CardDescription>
+									</CardHeader>
+									<CardContent className="relative space-y-3">
+										<OrderPaymentMethodFields
+											ref={paymentMethodsFieldsRef}
+											formik={{
+												values: {
+													paymentMethods: formik.values.paymentMethods ?? [],
+												},
+												setFieldValue: formik.setFieldValue,
+											}}
+											onCatalogLoadingChange={setPaymentMethodsCatalogLoading}
+										/>
+										<Button
+											type="button"
+											variant="outline"
+											size="sm"
+											className="w-full border-dashed border-green-600 bg-green-600/5 text-green-700 hover:bg-green-600/10 hover:text-green-800"
+											onClick={() =>
+												paymentMethodsFieldsRef.current?.addEntry()
+											}
+											disabled={paymentMethodsCatalogLoading}
+											aria-label="Incluir forma de pagamento"
+										>
+											<Plus className="h-4 w-4 mr-2" />
+											Incluir forma de pagamento
+										</Button>
+									</CardContent>
+								</Card>
+
+								<Card>
+									<CardHeader>
+										<CardTitle>Descrição interna</CardTitle>
+										<CardDescription>
+											Primeira anotação interna (opcional). Depois de criar a
+											OS, use o histórico na página da ordem para mais
+											comentários.
+										</CardDescription>
+									</CardHeader>
+									<CardContent className="relative space-y-6">
+										<div className="space-y-2">
+											<div className="flex items-center justify-between gap-2">
+												<Label htmlFor="internalInitialComment">
+													Texto inicial
+												</Label>
+												<OsAssistAiIconButton
+													value={formik.values.internalInitialComment}
+													onImproved={(text) =>
+														formik.setFieldValue("internalInitialComment", text)
+													}
+													device={[
+														formik.values.brand,
+														formik.values.deviceType,
+														formik.values.model,
+													]
+														.filter(Boolean)
+														.join(" ")}
+												/>
+											</div>
+											<Field
+												as={Textarea}
+												id="internalInitialComment"
+												name="internalInitialComment"
+												placeholder=""
+												maxLength={6000}
+											/>
+										</div>
+
+										{formik.status && typeof formik.status === "string" ? (
+											<p className="text-sm text-destructive">
+												{formik.status}
+											</p>
+										) : null}
+
+										{formik.errors.customerId ? (
+											<p className="text-sm text-destructive">
+												{formik.errors.customerId}
+											</p>
+										) : null}
+									</CardContent>
+								</Card>
+
+								<OrderFormActionBar>
+									<Button variant="outline" asChild>
+										<Link href="/portal/ordens">Voltar</Link>
+									</Button>
 									<Button
 										type="submit"
-										className="w-full"
 										disabled={formik.isSubmitting || !selectedCustomer}
 										onClick={(e) => {
-											e.preventDefault()
-											servicesCardRef.current?.syncToFormik()
-											// Submit no próximo tick para o Formik ter os serviços atualizados
-											setTimeout(() => formik.submitForm(), 0)
+											e.preventDefault();
+											servicesCardRef.current?.syncToFormik();
+											setTimeout(() => formik.submitForm(), 0);
 										}}
 									>
 										{formik.isSubmitting ? (
@@ -949,119 +1314,250 @@ export function NovaOrdemClient(props: Props) {
 												Carregando
 											</span>
 										) : (
-											'Criar ordem'
+											"Criar ordem"
 										)}
 									</Button>
-								</CardContent>
-							</Card>
+								</OrderFormActionBar>
 							</OrderServicesTotalProvider>
 						</Form>
 
-						<Dialog open={isEntryChecksDialogOpen} onOpenChange={setIsEntryChecksDialogOpen}>
+						<Dialog
+							open={isEntryChecksDialogOpen}
+							onOpenChange={setIsEntryChecksDialogOpen}
+						>
 							<DialogContent className="max-w-lg">
 								<DialogHeader>
 									<DialogTitle>Situação de entrada do aparelho</DialogTitle>
 									<DialogDescription>
-										Marque os testes realizados no momento da entrada do aparelho na assistência.
+										Marque os testes realizados no momento da entrada do
+										aparelho na assistência.
 									</DialogDescription>
 								</DialogHeader>
 								<Field name="deviceEntryChecksJson">
 									{() => {
-										let parsed: any = null
+										let parsed: any = null;
 										try {
-											parsed = formik.values.deviceEntryChecksJson ? JSON.parse(formik.values.deviceEntryChecksJson) : null
+											parsed = formik.values.deviceEntryChecksJson
+												? JSON.parse(formik.values.deviceEntryChecksJson)
+												: null;
 										} catch {
-											parsed = null
+											parsed = null;
 										}
-										const status: string = parsed?.status || 'operante'
-										const rawChecks = (parsed?.checks && typeof parsed.checks === 'object') ? parsed.checks as Record<string, unknown> : {}
-										const checks: Record<string, 'ok' | 'fail' | 'na'> = {}
+										const status: string = parsed?.status || "operante";
+										const rawChecks =
+											parsed?.checks && typeof parsed.checks === "object"
+												? (parsed.checks as Record<string, unknown>)
+												: {};
+										const checks: Record<string, "ok" | "fail" | "na"> = {};
 										Object.entries(rawChecks).forEach(([k, v]) => {
-											if (v === true) checks[k] = 'ok'
-											else if (v === false) checks[k] = 'fail'
-											else if (v === 'ok' || v === 'fail' || v === 'na') checks[k] = v
-										})
+											if (v === true) checks[k] = "ok";
+											else if (v === false) checks[k] = "fail";
+											else if (v === "ok" || v === "fail" || v === "na")
+												checks[k] = v;
+										});
 										const setStatus = (next: string) => {
-											const nextChecks = next === 'operante' ? { ...checks } : {}
-											formik.setFieldValue('deviceEntryChecksJson', JSON.stringify({ status: next, checks: nextChecks }))
-										}
-										const setCheck = (key: string, value: 'ok' | 'fail' | 'na') => {
-											const nextChecks = { ...checks, [key]: value }
-											formik.setFieldValue('deviceEntryChecksJson', JSON.stringify({ status, checks: nextChecks }))
-										}
-										const requiresDeviceOn = status === 'operante'
+											const nextChecks =
+												next === "operante" ? { ...checks } : {};
+											formik.setFieldValue(
+												"deviceEntryChecksJson",
+												JSON.stringify({ status: next, checks: nextChecks }),
+											);
+										};
+										const setCheck = (
+											key: string,
+											value: "ok" | "fail" | "na",
+										) => {
+											const nextChecks = { ...checks, [key]: value };
+											formik.setFieldValue(
+												"deviceEntryChecksJson",
+												JSON.stringify({ status, checks: nextChecks }),
+											);
+										};
+										const requiresDeviceOn = status === "operante";
 
-										const items: { key: string; label: string; requiresOn?: boolean }[] = [
-											{ key: 'rear_camera_main', label: 'Câmera traseira (1x)', requiresOn: true },
-											{ key: 'rear_camera_2x', label: 'Câmera traseira (2x)', requiresOn: true },
-											{ key: 'rear_camera_3x', label: 'Câmera traseira (3x)', requiresOn: true },
-											{ key: 'front_camera', label: 'Câmera frontal', requiresOn: true },
-											{ key: 'microphone', label: 'Microfone', requiresOn: true },
-											{ key: 'earpiece_speaker', label: 'Alto-falante de ouvido', requiresOn: true },
-											{ key: 'loudspeaker', label: 'Alto-falante principal', requiresOn: true },
-											{ key: 'charging_port', label: 'Carregamento (cabo)', requiresOn: true },
-											{ key: 'wireless_charging', label: 'Carregamento por indução', requiresOn: true },
-											{ key: 'sim_signal', label: 'Sinal de operadora', requiresOn: true },
-											{ key: 'wifi', label: 'Wi‑Fi', requiresOn: true },
-											{ key: 'bluetooth', label: 'Bluetooth', requiresOn: true },
-											{ key: 'face_touch_id', label: 'Face ID / Touch ID', requiresOn: true },
-											{ key: 'volume_buttons', label: 'Botões de volume', requiresOn: true },
-											{ key: 'power_button', label: 'Botão power', requiresOn: true },
-											{ key: 'vibration', label: 'Vibração', requiresOn: true },
-											{ key: 'proximity_sensor', label: 'Sensor de proximidade', requiresOn: true },
-											{ key: 'display_touch', label: 'Toque na tela', requiresOn: true },
-											{ key: 'display_colors', label: 'Cores/brilho da tela', requiresOn: true },
-										]
+										const items: {
+											key: string;
+											label: string;
+											requiresOn?: boolean;
+										}[] = [
+											{
+												key: "rear_camera_main",
+												label: "Câmera traseira (1x)",
+												requiresOn: true,
+											},
+											{
+												key: "rear_camera_2x",
+												label: "Câmera traseira (2x)",
+												requiresOn: true,
+											},
+											{
+												key: "rear_camera_3x",
+												label: "Câmera traseira (3x)",
+												requiresOn: true,
+											},
+											{
+												key: "front_camera",
+												label: "Câmera frontal",
+												requiresOn: true,
+											},
+											{
+												key: "microphone",
+												label: "Microfone",
+												requiresOn: true,
+											},
+											{
+												key: "earpiece_speaker",
+												label: "Alto-falante de ouvido",
+												requiresOn: true,
+											},
+											{
+												key: "loudspeaker",
+												label: "Alto-falante principal",
+												requiresOn: true,
+											},
+											{
+												key: "charging_port",
+												label: "Carregamento (cabo)",
+												requiresOn: true,
+											},
+											{
+												key: "wireless_charging",
+												label: "Carregamento por indução",
+												requiresOn: true,
+											},
+											{
+												key: "sim_signal",
+												label: "Sinal de operadora",
+												requiresOn: true,
+											},
+											{ key: "wifi", label: "Wi‑Fi", requiresOn: true },
+											{
+												key: "bluetooth",
+												label: "Bluetooth",
+												requiresOn: true,
+											},
+											{
+												key: "face_touch_id",
+												label: "Face ID / Touch ID",
+												requiresOn: true,
+											},
+											{
+												key: "volume_buttons",
+												label: "Botões de volume",
+												requiresOn: true,
+											},
+											{
+												key: "power_button",
+												label: "Botão power",
+												requiresOn: true,
+											},
+											{ key: "vibration", label: "Vibração", requiresOn: true },
+											{
+												key: "proximity_sensor",
+												label: "Sensor de proximidade",
+												requiresOn: true,
+											},
+											{
+												key: "display_touch",
+												label: "Toque na tela",
+												requiresOn: true,
+											},
+											{
+												key: "display_colors",
+												label: "Cores/brilho da tela",
+												requiresOn: true,
+											},
+										];
 
 										return (
 											<>
 												<div className="space-y-3">
 													<div className="space-y-1">
-														<div className="text-sm font-medium">Estado na entrada</div>
+														<div className="text-sm font-medium">
+															Estado na entrada
+														</div>
 														<RadioGroup
 															value={status}
 															onValueChange={(v) => setStatus(v)}
 															className="flex flex-col gap-2"
 														>
 															<div className="flex items-center gap-2">
-																<RadioGroupItem value="operante" id="entry-operante" />
-																<Label htmlFor="entry-operante" className="cursor-pointer">Liga normalmente</Label>
+																<RadioGroupItem
+																	value="operante"
+																	id="entry-operante"
+																/>
+																<Label
+																	htmlFor="entry-operante"
+																	className="cursor-pointer"
+																>
+																	Liga normalmente
+																</Label>
 															</div>
 															<div className="flex items-center gap-2">
-																<RadioGroupItem value="display_apagado" id="entry-display-apagado" />
-																<Label htmlFor="entry-display-apagado" className="cursor-pointer">Display apagado / danificado</Label>
+																<RadioGroupItem
+																	value="display_apagado"
+																	id="entry-display-apagado"
+																/>
+																<Label
+																	htmlFor="entry-display-apagado"
+																	className="cursor-pointer"
+																>
+																	Display apagado / danificado
+																</Label>
 															</div>
 															<div className="flex items-center gap-2">
-																<RadioGroupItem value="nao_liga" id="entry-nao-liga" />
-																<Label htmlFor="entry-nao-liga" className="cursor-pointer">Não liga</Label>
+																<RadioGroupItem
+																	value="nao_liga"
+																	id="entry-nao-liga"
+																/>
+																<Label
+																	htmlFor="entry-nao-liga"
+																	className="cursor-pointer"
+																>
+																	Não liga
+																</Label>
 															</div>
 														</RadioGroup>
 													</div>
 													<div className="space-y-2">
-														<div className="text-sm font-medium">Testes realizados — ✓ funciona · ✗ não funciona · — não se aplica</div>
+														<div className="text-sm font-medium">
+															Testes realizados — ✓ funciona · ✗ não funciona ·
+															— não se aplica
+														</div>
 														<div className="grid grid-cols-1 gap-2 max-h-80 overflow-auto pr-1">
 															{items.map((item) => {
-																const disabled = item.requiresOn && !requiresDeviceOn
-																const current = checks[item.key]
+																const disabled =
+																	item.requiresOn && !requiresDeviceOn;
+																const current = checks[item.key];
 																return (
 																	<div
 																		key={item.key}
 																		className={cn(
-																			'flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm',
-																			disabled ? 'opacity-50 bg-muted/60 border-muted' : 'bg-background'
+																			"flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm",
+																			disabled
+																				? "opacity-50 bg-muted/60 border-muted"
+																				: "bg-background",
 																		)}
 																	>
-																		<span className="min-w-0 truncate">{item.label}</span>
+																		<span className="min-w-0 truncate">
+																			{item.label}
+																		</span>
 																		<div className="flex items-center gap-1 shrink-0">
 																			<button
 																				type="button"
 																				title="Funciona"
 																				disabled={disabled}
-																				onClick={() => !disabled && setCheck(item.key, 'ok')}
+																				onClick={() =>
+																					!disabled && setCheck(item.key, "ok")
+																				}
 																				className={cn(
-																					'rounded p-1 transition-colors',
-																					disabled ? 'cursor-not-allowed text-muted-foreground' : 'hover:bg-emerald-100 dark:hover:bg-emerald-900/50',
-																					current === 'ok' ? 'bg-emerald-500 text-white hover:bg-emerald-600' : 'text-muted-foreground'
+																					"rounded p-1 transition-colors",
+																					disabled
+																						? "cursor-not-allowed text-muted-foreground"
+																						: "hover:bg-emerald-100 dark:hover:bg-emerald-900/50",
+																					current === "ok"
+																						? "bg-emerald-500 text-white hover:bg-emerald-600"
+																						: "text-muted-foreground",
 																				)}
 																			>
 																				<Check className="h-4 w-4" />
@@ -1070,11 +1566,18 @@ export function NovaOrdemClient(props: Props) {
 																				type="button"
 																				title="Não funciona"
 																				disabled={disabled}
-																				onClick={() => !disabled && setCheck(item.key, 'fail')}
+																				onClick={() =>
+																					!disabled &&
+																					setCheck(item.key, "fail")
+																				}
 																				className={cn(
-																					'rounded p-1 transition-colors',
-																					disabled ? 'cursor-not-allowed text-muted-foreground' : 'hover:bg-destructive/10',
-																					current === 'fail' ? 'bg-destructive text-destructive-foreground' : 'text-muted-foreground'
+																					"rounded p-1 transition-colors",
+																					disabled
+																						? "cursor-not-allowed text-muted-foreground"
+																						: "hover:bg-destructive/10",
+																					current === "fail"
+																						? "bg-destructive text-destructive-foreground"
+																						: "text-muted-foreground",
 																				)}
 																			>
 																				<X className="h-4 w-4" />
@@ -1083,29 +1586,39 @@ export function NovaOrdemClient(props: Props) {
 																				type="button"
 																				title="Não se aplica"
 																				disabled={disabled}
-																				onClick={() => !disabled && setCheck(item.key, 'na')}
+																				onClick={() =>
+																					!disabled && setCheck(item.key, "na")
+																				}
 																				className={cn(
-																					'rounded p-1 transition-colors',
-																					disabled ? 'cursor-not-allowed text-muted-foreground' : 'hover:bg-muted',
-																					current === 'na' ? 'bg-muted text-muted-foreground' : 'text-muted-foreground'
+																					"rounded p-1 transition-colors",
+																					disabled
+																						? "cursor-not-allowed text-muted-foreground"
+																						: "hover:bg-muted",
+																					current === "na"
+																						? "bg-muted text-muted-foreground"
+																						: "text-muted-foreground",
 																				)}
 																			>
 																				<Minus className="h-4 w-4" />
 																			</button>
 																		</div>
 																	</div>
-																)
+																);
 															})}
 														</div>
 													</div>
 												</div>
 												<DialogFooter>
-													<Button type="button" variant="outline" onClick={() => setIsEntryChecksDialogOpen(false)}>
+													<Button
+														type="button"
+														variant="outline"
+														onClick={() => setIsEntryChecksDialogOpen(false)}
+													>
 														Fechar
 													</Button>
 												</DialogFooter>
 											</>
-										)
+										);
 									}}
 								</Field>
 							</DialogContent>
@@ -1117,10 +1630,13 @@ export function NovaOrdemClient(props: Props) {
 								onOpenChange={setIsCreateCustomerOpen}
 								customer={customerToEdit}
 								onSaved={(customer) => {
-									setSelectedCustomer(customer)
-									setIsCpfPopoverOpen(false)
-									formik.setFieldValue('customerId', customer.id)
-									formik.setFieldValue('document', getCustomerDocumentDigits(customer))
+									setSelectedCustomer(customer);
+									setIsCpfPopoverOpen(false);
+									formik.setFieldValue("customerId", customer.id);
+									formik.setFieldValue(
+										"document",
+										getCustomerDocumentDigits(customer),
+									);
 								}}
 							/>
 						) : (
@@ -1130,18 +1646,19 @@ export function NovaOrdemClient(props: Props) {
 								initialDocumentDigits={createCustomerInitialDocumentDigits}
 								mode="create"
 								onCreated={(customer) => {
-									setSelectedCustomer(customer)
-									setIsCpfPopoverOpen(false)
-									formik.setFieldValue('customerId', customer.id)
-									formik.setFieldValue('document', getCustomerDocumentDigits(customer))
+									setSelectedCustomer(customer);
+									setIsCpfPopoverOpen(false);
+									formik.setFieldValue("customerId", customer.id);
+									formik.setFieldValue(
+										"document",
+										getCustomerDocumentDigits(customer),
+									);
 								}}
 							/>
 						)}
-
 					</>
 				)}
 			</Formik>
 		</div>
-	)
+	);
 }
-
