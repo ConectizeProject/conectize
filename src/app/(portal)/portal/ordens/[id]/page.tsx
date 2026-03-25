@@ -24,6 +24,10 @@ import {
 	enrichWarrantyTemplateHistoryValues,
 } from "@/lib/orders/order-edit-history";
 import {
+	parsePaymentMethodsJson,
+	parseServicesJson,
+} from "@/lib/orders/order-form-parsers";
+import {
 	isFinalizedOrderStatus,
 	isValidOrderStatus,
 } from "@/lib/orders/order-status";
@@ -116,114 +120,6 @@ function parseOrderPaymentMethods(
 		];
 	}
 	return [];
-}
-
-function parsePaymentMethodsJson(
-	raw: unknown,
-): Array<{
-	payment_method_id: string;
-	installments?: number;
-	value_cents?: number | null;
-}> {
-	if (!raw) return [];
-	try {
-		const parsed = JSON.parse(String(raw));
-		if (!Array.isArray(parsed)) return [];
-		return parsed
-			.filter(
-				(item: unknown) =>
-					item && typeof item === "object" && (item as any).payment_method_id,
-			)
-			.map((item: any) => {
-				const id = parseOptionalUuid(item.payment_method_id);
-				if (!id) return null;
-				return {
-					payment_method_id: id,
-					installments:
-						item.installments != null
-							? Math.max(1, Math.min(24, Number(item.installments) || 1))
-							: undefined,
-					value_cents:
-						item.value_cents != null
-							? Math.max(0, Number(item.value_cents) || 0)
-							: null,
-				};
-			})
-			.filter(Boolean) as Array<{
-			payment_method_id: string;
-			installments?: number;
-			value_cents?: number | null;
-		}>;
-	} catch {
-		return [];
-	}
-}
-
-function parseServicesJson(raw: unknown): {
-	items: Array<{
-		kind?: "service" | "product";
-		description: string;
-		quantity?: number;
-		unitValueCents?: number;
-		unitCostCents?: number;
-		valueCents: number;
-		costCents: number;
-	}>;
-	totalValueCents: number;
-	totalCostCents: number;
-} {
-	if (!raw) return { items: [], totalValueCents: 0, totalCostCents: 0 };
-	try {
-		const parsed = JSON.parse(String(raw)) as {
-			items?: unknown[];
-			totals?: { totalValueCents?: number; totalCostCents?: number };
-		};
-		const items = Array.isArray(parsed?.items) ? parsed.items : [];
-		const normalized = items
-			.slice(0, 100)
-			.map((item: unknown) => {
-				const i = item as Record<string, unknown>;
-				const kind: "service" | "product" =
-					i.kind === "product" ? "product" : "service";
-				const description = String(i?.description ?? "")
-					.trim()
-					.slice(0, 240);
-				const quantityRaw =
-					kind === "product"
-						? Number.parseInt(String(i?.quantity ?? "1"), 10)
-						: 1;
-				const quantity =
-					Number.isFinite(quantityRaw) && quantityRaw > 0
-						? Math.min(9999, Math.max(1, quantityRaw))
-						: 1;
-				const unitValueCentsRaw = i.unitValueCents ?? i.valueCents ?? 0;
-				const unitCostCentsRaw = i.unitCostCents ?? i.costCents ?? 0;
-				const unitValueCents = Math.max(0, Number(unitValueCentsRaw ?? 0) || 0);
-				const unitCostCents = Math.max(0, Number(unitCostCentsRaw ?? 0) || 0);
-				const valueCents = unitValueCents * quantity;
-				const costCents = unitCostCents * quantity;
-				const sourceProductId = parseOptionalUuid(i.sourceProductId);
-				return {
-					kind,
-					description,
-					quantity,
-					unitValueCents,
-					unitCostCents,
-					valueCents,
-					costCents,
-					sourceProductId,
-				};
-			})
-			.filter((s) => s.description || s.valueCents > 0 || s.costCents > 0);
-		const totalValueCents = normalized.reduce(
-			(acc, s) => acc + s.valueCents,
-			0,
-		);
-		const totalCostCents = normalized.reduce((acc, s) => acc + s.costCents, 0);
-		return { items: normalized, totalValueCents, totalCostCents };
-	} catch {
-		return { items: [], totalValueCents: 0, totalCostCents: 0 };
-	}
 }
 
 function formatDateTimeLocal(value: string | null | undefined) {

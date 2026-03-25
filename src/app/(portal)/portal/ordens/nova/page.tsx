@@ -3,6 +3,10 @@ import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server
 import { fetchDeviceModelsForSelector } from '@/lib/portal/device-models-server'
 import { getOrdemErrorMessage } from '@/lib/utils/error-messages'
 import { previsaoToISO } from '@/lib/utils/previsao-ordem'
+import {
+  parsePaymentMethodsJson,
+  parseServicesJson,
+} from '@/lib/orders/order-form-parsers'
 import { applyOrderStatusStockTransition } from '@/lib/orders/stock-by-status'
 import { NovaOrdemClient } from './NovaOrdemClient'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
@@ -13,79 +17,6 @@ function normalizeCpf(value: string) {
 
 function normalizeDocument(value: string) {
   return value.replace(/\D/g, '').trim()
-}
-
-function parsePaymentMethodsJson(raw: unknown): Array<{ payment_method_id: string; installments?: number; value_cents?: number | null }> {
-  if (!raw) return []
-  try {
-    const parsed = JSON.parse(String(raw))
-    if (!Array.isArray(parsed)) return []
-    return parsed
-      .filter((item: unknown) => item && typeof item === 'object' && (item as any).payment_method_id)
-      .map((item: any) => {
-        const id = parseOptionalUuid(item.payment_method_id)
-        if (!id) return null
-        return {
-          payment_method_id: id,
-          installments: item.installments != null ? Math.max(1, Math.min(24, Number(item.installments) || 1)) : undefined,
-          value_cents: item.value_cents != null ? Math.max(0, Number(item.value_cents) || 0) : null,
-        }
-      })
-      .filter(Boolean) as Array<{ payment_method_id: string; installments?: number; value_cents?: number | null }>
-  } catch {
-    return []
-  }
-}
-
-function parseServicesJson(raw: unknown) {
-  if (!raw) return { items: [], totalValueCents: 0, totalCostCents: 0 }
-
-  const parsed = JSON.parse(String(raw))
-  const items = Array.isArray(parsed?.items) ? parsed.items : []
-
-  const normalized = items
-    .slice(0, 100)
-    .map((item: any) => {
-      const description = String(item?.description || '').trim().slice(0, 240)
-      const kind = item?.kind === 'product' ? 'product' : 'service'
-      const quantityRaw =
-        kind === 'product'
-          ? Number.parseInt(String(item?.quantity ?? '1'), 10)
-          : 1
-      const quantity =
-        Number.isFinite(quantityRaw) && quantityRaw > 0
-          ? Math.min(9999, Math.max(1, quantityRaw))
-          : 1
-      const unitValueCentsRaw = item?.unitValueCents ?? item?.valueCents ?? 0
-      const unitCostCentsRaw = item?.unitCostCents ?? item?.costCents ?? 0
-      const unitValueCents = Math.max(
-        0,
-        Number.parseInt(String(unitValueCentsRaw || '0'), 10) || 0,
-      )
-      const unitCostCents = Math.max(
-        0,
-        Number.parseInt(String(unitCostCentsRaw || '0'), 10) || 0,
-      )
-      const valueCents = unitValueCents * quantity
-      const costCents = unitCostCents * quantity
-      const sourceProductIdRaw = String(item?.sourceProductId || '').trim()
-      return {
-        kind,
-        description,
-        quantity,
-        unitValueCents,
-        unitCostCents,
-        valueCents,
-        costCents,
-        sourceProductId: sourceProductIdRaw || null,
-      }
-    })
-    .filter((s: any) => s.description || s.valueCents > 0 || s.costCents > 0)
-
-  const totalValueCents = normalized.reduce((acc: number, s: any) => acc + s.valueCents, 0)
-  const totalCostCents = normalized.reduce((acc: number, s: any) => acc + s.costCents, 0)
-
-  return { items: normalized, totalValueCents, totalCostCents }
 }
 
 async function createOrderAction(formData: FormData) {
