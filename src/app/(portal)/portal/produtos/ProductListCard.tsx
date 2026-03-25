@@ -52,7 +52,7 @@ export const ProductListCard = memo(function ProductListCard ({
 	bulkBusy,
 	isSyncing,
 	isBarcodeGenerating,
-	barcodeGeneratingStage,
+	barcodeGeneratingStage: _barcodeGeneratingStage,
 	optimisticBarcode,
 	onToggleSelect,
 	onRowClick,

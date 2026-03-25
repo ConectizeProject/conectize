@@ -147,10 +147,6 @@ export const OrderPaymentMethodFields = forwardRef<OrderPaymentMethodFieldsRef, 
       }
     }
 
-    function addEntry() {
-      setEntries([...entries, { ...DEFAULT_EMPTY_ENTRY }])
-    }
-
     useImperativeHandle(
       ref,
       () => ({

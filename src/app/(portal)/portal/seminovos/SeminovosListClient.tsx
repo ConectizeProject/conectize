@@ -204,7 +204,7 @@ export function SeminovosListClient({
 	)
 
 	const [devices, setDevices] = useState<ResaleDevice[]>(initialDevices as ResaleDevice[])
-	const [isLoading, setIsLoading] = useState(false)
+	const [isLoading] = useState(false)
 	const [deleteTarget, setDeleteTarget] = useState<ResaleDevice | null>(null)
 	const [isDeleting, setIsDeleting] = useState(false)
 	const [isBulkEdit, setIsBulkEdit] = useState(false)
@@ -662,7 +662,6 @@ Comprando 3 iPhones
 				return
 			}
 		}
-		const totalFromMethods = validMethods.reduce((acc, e) => acc + (e.value_cents ?? 0), 0)
 		const singleMethod = validMethods.length === 1 && (validMethods[0].value_cents == null || validMethods[0].value_cents === 0)
 
 		let paymentFeeCents = 0

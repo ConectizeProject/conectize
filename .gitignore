@@ -27,6 +27,9 @@ node_modules/@next/swc-*
 dist
 dist-ssr
 
+# TypeScript (cache incremental — regenerado pelo `tsc`)
+*.tsbuildinfo
+
 # Misc
 .DS_Store
 *.pem

@@ -6,22 +6,13 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { calcularFrete, COLETA_PRICE_TIERS, type FreteResult } from '@/lib/utils/frete'
+import { calcularFrete, type FreteResult } from '@/lib/utils/frete'
 import { MapPin, Truck, Loader2, AlertCircle, CheckCircle2, ArrowRight } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 
 export function FreteCalculator() {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<FreteResult | null>(null)
-
-  const getTierLabel = (tier: { maxKm: number | null }, index: number) => {
-    if (tier.maxKm === null) {
-      const prev = COLETA_PRICE_TIERS[index - 1]
-      const min = prev?.maxKm || 0
-      return `+${min}km`
-    }
-    return `Até ${tier.maxKm}km`
-  }
 
   const formatCep = (value: string) => {
     const cepLimpo = value.replace(/\D/g, '')
@@ -56,7 +47,7 @@ export function FreteCalculator() {
       try {
         const freteResult = await calcularFrete(values.cep)
         setResult(freteResult)
-      } catch (err) {
+      } catch {
         setResult({
           distancia: 0,
           valor: 0,

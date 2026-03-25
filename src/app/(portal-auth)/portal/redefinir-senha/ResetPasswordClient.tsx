@@ -45,7 +45,7 @@ export function ResetPasswordClient () {
           setHasSession(false)
           setErrorMessage('Não foi possível validar sua sessão. Tente novamente.')
         })
-    } catch (err) {
+    } catch {
       setHasSession(false)
       setErrorMessage('Configuração do Supabase ausente. Não é possível redefinir a senha agora.')
     }
@@ -92,7 +92,7 @@ export function ResetPasswordClient () {
 
       setMessage('Senha atualizada com sucesso. Você já pode continuar.')
       router.replace('/portal')
-    } catch (err) {
+    } catch {
       setErrorMessage('Não foi possível redefinir sua senha agora. Tente novamente.')
     } finally {
       setIsSubmitting(false)

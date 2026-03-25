@@ -49,7 +49,7 @@ export function CustomerOrderHistoryModal({
   open,
   onOpenChange,
   customerId,
-  isCreationPage = false,
+  isCreationPage: _isCreationPage = false,
 }: Props) {
   const router = useRouter()
   const [orders, setOrders] = useState<OrderRow[]>([])

@@ -50,7 +50,7 @@ function getAddPhotosUrl(orderId: string): string {
 
 export function OrderEntryPhotos({
 	orderId,
-	initialPhotos = [],
+	initialPhotos: _initialPhotos = [],
 	initialPhotoCount,
 	disabled = false,
 }: OrderEntryPhotosProps) {

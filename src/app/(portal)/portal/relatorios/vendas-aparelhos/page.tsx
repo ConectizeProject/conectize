@@ -52,7 +52,7 @@ export default async function RelatorioVendasAparelhosPage ({
   }
 
   const { from, to } = await searchParams
-  const { fromDate, toDate, fromStr, toStr } = getCurrentMonthRangeOrSearch(from, to)
+  const { fromStr, toStr } = getCurrentMonthRangeOrSearch(from, to)
 
   const supabase = await createSupabaseServerClient()
 
@@ -307,10 +307,6 @@ function formatDateYYYYMMDD (date: Date) {
   const month = String(date.getUTCMonth() + 1).padStart(2, '0')
   const day = String(date.getUTCDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
-}
-
-function formatInputDate (date: Date) {
-  return formatDateYYYYMMDD(date)
 }
 
 type TopMetric = 'quantity' | 'gross' | 'net'

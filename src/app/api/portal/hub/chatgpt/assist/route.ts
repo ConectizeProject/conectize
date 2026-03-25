@@ -53,7 +53,6 @@ export async function POST(request: Request) {
   const model = metadata.model || 'gpt-5-mini'
 
   const customerDescription = String(context.customerDescription || context.description || '').trim()
-  const title = String(context.title || '').trim()
   const device = String(context.device || '').trim()
   const receivingNotes = String(context.receivingNotes || '').trim()
   const assistanceDraft = String(context.draft || context.content || '').trim()

@@ -48,10 +48,6 @@ type Props = {
   deviceModels: DeviceModel[]
 }
 
-function normalizeCpf(value: string) {
-  return value.replace(/\D/g, '').trim()
-}
-
 function getCustomerDisplayName(c: CustomerHit): string {
   const name = c.is_company ? (c.company_name || c.full_name || '') : (c.full_name || c.company_name || '')
   const doc = c.is_company ? c.cnpj : c.cpf

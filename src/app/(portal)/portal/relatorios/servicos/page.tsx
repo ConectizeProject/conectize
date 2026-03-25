@@ -711,22 +711,3 @@ function formatDateYYYYMMDD(date: Date) {
   const day = String(date.getUTCDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
 }
-
-function formatInputDate(date: Date) {
-  return formatDateYYYYMMDD(date)
-}
-
-function formatRangeLabel(from: Date, to: Date) {
-  const fromLabel = formatBrDate(from)
-  const toLabel = formatBrDate(to)
-  if (fromLabel === toLabel) return fromLabel
-  return `${fromLabel} a ${toLabel}`
-}
-
-function formatBrDate(date: Date) {
-  const day = String(date.getUTCDate()).padStart(2, '0')
-  const month = String(date.getUTCMonth() + 1).padStart(2, '0')
-  const year = String(date.getUTCFullYear())
-  return `${day}/${month}/${year}`
-}
-

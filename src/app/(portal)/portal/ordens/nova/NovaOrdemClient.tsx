@@ -22,7 +22,6 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
@@ -92,7 +91,7 @@ export function NovaOrdemClient(props: Props) {
 		documentDigits,
 		isDocumentMode,
 		isNameMode,
-		customersBase,
+		customersBase: _customersBase,
 		setCustomersBase,
 		isSearchingDocument,
 		documentSearchError,

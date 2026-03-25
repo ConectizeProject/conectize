@@ -5,7 +5,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { OrderStatusBadge } from '@/components/orders'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { formatDateTimeBr } from '@/lib/utils/format-date'
-import { formatPhoneBr as formatPhoneBrUtil } from '@/lib/utils/format-phone'
 import { formatCentsBr } from '@/lib/utils/format-money'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
@@ -26,10 +25,6 @@ function getCustomerFromOrder(order: { customers?: unknown }) {
 	const customer = order?.customers
 	if (Array.isArray(customer)) return customer[0] || null
 	return customer || null
-}
-
-function formatPhoneBr(value: string | null | undefined) {
-	return formatPhoneBrUtil(value) ?? '-'
 }
 
 function parseServicesForDisplay(raw: unknown): {
@@ -172,7 +167,7 @@ export default async function OrdemPublicaPage({
 		)
 	}
 
-	const [{ data: order }, { data: company }, { data: paymentMethodsCatalog }] = await Promise.all([
+	const [{ data: order }, { data: _company }, { data: paymentMethodsCatalog }] = await Promise.all([
 		supabase
 			.from('service_orders')
 			.select('id, display_number, status, title, imei, is_warranty, estimated_ready_at, customer_description, receiving_notes, warranty_text, services, payment_methods, brand, model, device_model_id, created_at, updated_at, closed_at, device_entry_checks, customers ( cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date ), device_models ( id, model, device_types ( name, device_brands ( name ) ) )')

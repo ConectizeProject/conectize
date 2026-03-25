@@ -55,7 +55,7 @@ export function SignupClient() {
 			if (data?.url) {
 				window.location.href = data.url
 			}
-		} catch (err) {
+		} catch {
 			setErrorMessage('Não foi possível cadastrar com Google. Tente novamente.')
 		} finally {
 			setIsGoogleLoading(false)
@@ -117,7 +117,7 @@ export function SignupClient() {
 			}
 
 			setMessage('Enviamos um e-mail de confirmação. Abra o link para finalizar o cadastro.')
-		} catch (err) {
+		} catch {
 			setErrorMessage('Não foi possível concluir o cadastro. Tente novamente.')
 		} finally {
 			setIsSubmitting(false)

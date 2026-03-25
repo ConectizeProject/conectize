@@ -60,7 +60,7 @@ export function OrdemActionsMenu({
   estimatedReadyAt,
   mobilePhone,
   email,
-  isFinalized,
+  isFinalized: _isFinalized,
   canDelete,
   deleteOrderAction,
   isAdmin = false,

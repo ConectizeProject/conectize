@@ -44,7 +44,7 @@ export function LoginClient() {
           if (data?.session) router.replace(redirectTo)
         })
         .catch(() => { })
-    } catch (err) {
+    } catch {
       // Sem env do Supabase: mantém a tela de login renderizando
     }
   }, [router, redirectTo])
@@ -83,7 +83,7 @@ export function LoginClient() {
       }
 
       setMessage('Se existir uma conta com este e-mail, enviaremos um link para redefinir sua senha. Pode levar alguns minutos — verifique também o spam/lixo eletrônico.')
-    } catch (err) {
+    } catch {
       setErrorMessage('Não foi possível solicitar a redefinição agora. Tente novamente.')
     } finally {
       setIsSendingRecovery(false)
@@ -120,7 +120,7 @@ export function LoginClient() {
       }
 
       setMessage('Enviamos um link de acesso para seu e-mail. Abra o link para entrar no portal.')
-    } catch (err) {
+    } catch {
       setErrorMessage('Não foi possível enviar o link agora. Tente novamente.')
     } finally {
       setIsMagicLinkLoading(false)
@@ -147,7 +147,7 @@ export function LoginClient() {
       if (data?.url) {
         window.location.href = data.url
       }
-    } catch (err) {
+    } catch {
       setErrorMessage('Não foi possível entrar com Google. Tente novamente.')
     } finally {
       setIsGoogleLoading(false)
@@ -187,7 +187,7 @@ export function LoginClient() {
       }
 
       setIsRedirecting(true)
-    } catch (err) {
+    } catch {
       setErrorMessage('Não foi possível entrar agora. Tente novamente.')
       setIsSubmitting(false)
     }

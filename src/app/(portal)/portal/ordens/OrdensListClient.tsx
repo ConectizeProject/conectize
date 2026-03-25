@@ -61,11 +61,6 @@ export function OrdensListClient({
   canDelete,
 }: Props) {
   const totalOpen = OPEN_STATUS_ORDER.reduce((acc, s) => acc + (openOrdersByStatus[s]?.length ?? 0), 0)
-  const hasFilters = Boolean(
-    filterQ || filterCpf || filterOsNumber || filterStatus ||
-    filterCustomerId || filterCustomerName || filterDeviceModelId ||
-    filterCreatedFrom || filterCreatedTo || filterReadyFrom || filterReadyTo
-  )
 
   const [openByStatus, setOpenByStatus] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {}

@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 
 function cleanText(value: string) {

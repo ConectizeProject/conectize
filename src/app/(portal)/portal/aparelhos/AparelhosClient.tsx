@@ -74,18 +74,6 @@ function cleanText(value: string) {
 	return String(value || "").trim();
 }
 
-function buildAparelhosSearchParams(params: {
-	brand: string;
-	deviceType: string;
-	modelQuery: string;
-}) {
-	const sp = new URLSearchParams();
-	if (params.brand) sp.set("brand", params.brand);
-	if (params.deviceType) sp.set("deviceType", params.deviceType);
-	if (params.modelQuery) sp.set("q", params.modelQuery);
-	return sp.toString();
-}
-
 function BrandCollapsible({
 	brand,
 	deviceTypes,
@@ -209,7 +197,7 @@ function BrandCollapsible({
 }
 
 function DeviceTypeCollapsible({
-	brandName,
+	brandName: _brandName,
 	deviceType,
 	models,
 	isLoadingModels,
@@ -352,7 +340,12 @@ function DeviceTypeCollapsible({
 	);
 }
 
-export function AparelhosClient(props: {
+export function AparelhosClient({
+	initialDeviceModels: _initialDeviceModels,
+	initialBrand: _initialBrand,
+	initialDeviceType: _initialDeviceType,
+	initialModelQuery: _initialModelQuery,
+}: {
 	initialDeviceModels?: DeviceModelRow[];
 	initialBrand?: string;
 	initialDeviceType?: string;

@@ -559,7 +559,6 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 
 					<div className="space-y-3 overflow-y-auto pr-1">
 						{services.map((s, idx) => {
-							const normalized = servicesNormalized[idx]
 							const isProduct = s.kind === 'product'
 
 							return (

@@ -70,9 +70,6 @@ export default async function OrdensPage({
     noServices,
     noCost,
     noPayment,
-    toast,
-    id,
-    error,
   } = await searchParams
   const query = String(q || '').trim()
   const cpfDigits = normalizeCpf(String(cpf || ''))
@@ -87,9 +84,6 @@ export default async function OrdensPage({
   const quickNoServices = String(noServices || '').trim() === '1'
   const quickNoCost = String(noCost || '').trim() === '1'
   const quickNoPayment = String(noPayment || '').trim() === '1'
-  const toastType = String(toast || '').trim()
-  const toastId = String(id || '').trim()
-  const toastError = String(error || '').trim()
 
   const { user, role } = await getPortalAuth()
   if (!user) redirect('/portal/login')
@@ -176,7 +170,7 @@ export default async function OrdensPage({
 
   const { data: rawOrders } = await baseQuery
 
-  let ordersList: PortalServiceOrderListQueryRow[] = (rawOrders ?? []) as PortalServiceOrderListQueryRow[]
+  let ordersList: PortalServiceOrderListQueryRow[] = (rawOrders ?? []) as unknown as PortalServiceOrderListQueryRow[]
   if (needsQuickFilterColumns && ordersList.length > 0) {
     ordersList = ordersList.filter((o) => {
       if (quickNoServices) {
