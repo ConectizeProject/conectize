@@ -9,22 +9,21 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { ChevronDown } from 'lucide-react'
+import {
+  FINALIZED_ORDER_STATUSES,
+  OPEN_ORDER_STATUSES,
+  ORDER_STATUS_LABELS,
+} from '@/lib/orders/order-status'
 
-const OPEN_STATUSES = [
-  { value: 'orcamento', label: 'Orçamento' },
-  { value: 'aguardando_aprovacao', label: 'Aguardando aprovação' },
-  { value: 'aprovado', label: 'Aprovado' },
-  { value: 'aguardando_pecas', label: 'Aguardando peças' },
-  { value: 'em_manutencao', label: 'Em manutenção' },
-  { value: 'aguardando_retirada', label: 'Aguardando retirada' },
-] as const
+const OPEN_STATUS_OPTIONS = OPEN_ORDER_STATUSES.map((value) => ({
+  value,
+  label: ORDER_STATUS_LABELS[value] ?? value,
+}))
 
-const CLOSED_STATUSES = [
-  { value: 'finalizada', label: 'Finalizada' },
-  { value: 'finalizada_sem_conserto', label: 'Finalizada sem conserto' },
-  { value: 'finalizada_sem_aprovacao', label: 'Finalizada sem aprovação' },
-  { value: 'cancelada', label: 'Cancelada' },
-] as const
+const CLOSED_STATUS_OPTIONS = FINALIZED_ORDER_STATUSES.map((value) => ({
+  value,
+  label: ORDER_STATUS_LABELS[value] ?? value,
+}))
 
 export type StatusGroup = 'open' | 'closed' | ''
 
@@ -38,10 +37,10 @@ export function useRelatorioServicosFilters() {
   const selectedStatuses = Array.isArray(statusParam) ? statusParam : [statusParam].filter(Boolean)
 
   const statusOptions = statusGroup === 'open'
-    ? OPEN_STATUSES
+    ? OPEN_STATUS_OPTIONS
     : statusGroup === 'closed'
-      ? CLOSED_STATUSES
-      : [...OPEN_STATUSES, ...CLOSED_STATUSES]
+      ? CLOSED_STATUS_OPTIONS
+      : [...OPEN_STATUS_OPTIONS, ...CLOSED_STATUS_OPTIONS]
 
   function updateParams(updates: { statusGroup?: StatusGroup; status?: string[] }) {
     const params = new URLSearchParams(searchParams?.toString() || '')

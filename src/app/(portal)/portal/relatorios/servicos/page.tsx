@@ -13,24 +13,14 @@ import { DateRangePicker } from '@/components/ui/date-range-picker'
 import { RelatorioServicosSituacao } from '@/components/reports/RelatorioServicosSituacao'
 import { maskedFromCents } from '@/lib/utils/money'
 import { formatDateBr } from '@/lib/utils/format-date'
+import {
+  FINALIZED_ORDER_STATUSES,
+  OPEN_ORDER_STATUSES,
+  isFinalizedOrderStatus,
+  isOpenOrderStatus,
+} from '@/lib/orders/order-status'
 
 export const dynamic = 'force-dynamic'
-
-const OPEN_STATUSES = [
-  'orcamento',
-  'aguardando_aprovacao',
-  'aprovado',
-  'aguardando_pecas',
-  'em_manutencao',
-  'aguardando_retirada',
-] as const
-
-const CLOSED_STATUSES = [
-  'finalizada',
-  'finalizada_sem_conserto',
-  'finalizada_sem_aprovacao',
-  'cancelada',
-] as const
 
 const FINAL_SUCCESS_STATUS = 'finalizada'
 const FINAL_NO_FIX_STATUS = 'finalizada_sem_conserto'
@@ -71,11 +61,11 @@ export default async function RelatorioServicosPage({
   const fetchClosed = statusGroup !== 'open'
 
   const openStatuses = statusArray.length > 0
-    ? statusArray.filter((s) => OPEN_STATUSES.includes(s as any))
-    : [...OPEN_STATUSES]
+    ? statusArray.filter((s) => isOpenOrderStatus(s))
+    : [...OPEN_ORDER_STATUSES]
   const closedStatuses = statusArray.length > 0
-    ? statusArray.filter((s) => CLOSED_STATUSES.includes(s as any))
-    : [...CLOSED_STATUSES]
+    ? statusArray.filter((s) => isFinalizedOrderStatus(s))
+    : [...FINALIZED_ORDER_STATUSES]
 
   const supabase = await createSupabaseServerClient()
 

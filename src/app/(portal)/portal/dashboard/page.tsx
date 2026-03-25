@@ -5,19 +5,11 @@ import { DashboardOsAtivasCard } from '@/components/dashboard/DashboardOsAtivasC
 import { DashboardAguardandoPecasCard } from '@/components/dashboard/DashboardAguardandoPecasCard'
 import { DashboardAlertaAmareloCard } from '@/components/dashboard/DashboardAlertaAmareloCard'
 import { DashboardAlertaVermelhoCard } from '@/components/dashboard/DashboardAlertaVermelhoCard'
+import { OPEN_ORDER_STATUSES } from '@/lib/orders/order-status'
 
 export const dynamic = 'force-dynamic'
 
-const OPEN_STATUSES = [
-  'orcamento',
-  'aguardando_aprovacao',
-  'aprovado',
-  'aguardando_pecas',
-  'em_manutencao',
-  'aguardando_retirada',
-]
-
-const OPEN_STATUSES_FOR_ALERTS = OPEN_STATUSES.filter((s) => s !== 'aguardando_retirada')
+const OPEN_STATUSES_FOR_ALERTS = OPEN_ORDER_STATUSES.filter((s) => s !== 'aguardando_retirada')
 
 function oneBusinessDayAgo(now: Date): Date {
   const t = new Date(now.getTime())
@@ -64,7 +56,7 @@ export default async function DashboardPage() {
         supabase
           .from('service_orders')
           .select('id, display_number, status, title, created_at, estimated_ready_at')
-          .in('status', OPEN_STATUSES)
+          .in('status', [...OPEN_ORDER_STATUSES])
           .order('created_at', { ascending: false }),
       ]
     : []
@@ -168,7 +160,7 @@ export default async function DashboardPage() {
     const in30MinIso = in30Min.toISOString()
     const oneDayAgoIso = oneDayAgo.toISOString()
 
-    const alertStatusSet = new Set(OPEN_STATUSES_FOR_ALERTS)
+    const alertStatusSet = new Set<string>(OPEN_STATUSES_FOR_ALERTS)
     for (const o of openOrdersRaw) {
       if (!alertStatusSet.has(o.status)) continue
       const est = o.estimated_ready_at ?? null

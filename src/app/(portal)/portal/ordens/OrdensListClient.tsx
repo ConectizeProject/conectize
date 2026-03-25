@@ -6,6 +6,7 @@ import { ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { getOrderStatusLabel } from '@/lib/orders/order-status'
 import { OrdemCard } from './OrdemCard'
 import { OrdensFinalSection } from './OrdensFinalSection'
 
@@ -17,15 +18,6 @@ const OPEN_STATUS_ORDER = [
   'aguardando_pecas',
   'aguardando_retirada',
 ] as const
-
-const STATUS_LABELS: Record<string, string> = {
-  orcamento: 'Orçamento',
-  aguardando_aprovacao: 'Aguardando aprovação',
-  aprovado: 'Aprovado',
-  aguardando_pecas: 'Aguardando peças',
-  em_manutencao: 'Em manutenção',
-  aguardando_retirada: 'Aguardando retirada',
-}
 
 const STATUS_DOT_CLASSES: Record<string, string> = {
   orcamento: 'bg-amber-400 shadow-[0_0_0.6rem_rgba(251,191,36,0.9)]',
@@ -151,7 +143,7 @@ export function OrdensListClient({
       {OPEN_STATUS_ORDER.map((status) => {
         const list = openOrdersByStatus[status] ?? []
         if (list.length === 0) return null
-        const label = STATUS_LABELS[status] ?? status
+        const label = getOrderStatusLabel(status)
         const dotClass = STATUS_DOT_CLASSES[status] ?? 'bg-muted shadow-[0_0_0.6rem_rgba(148,163,184,0.7)]'
         return (
           <Collapsible

@@ -649,11 +649,11 @@ export function NovaOrdemClient(props: Props) {
 		<div className="max-w-4xl space-y-6 pb-24">
 			<div>
 				<h1 className="text-2xl font-bold">Nova ordem de serviço</h1>
-				<p className="text-sm text-muted-foreground">
-					{duplicateFormValues
-						? "Revise os dados e salve para criar a cópia."
-						: "Busque o cliente por nome ou CPF/CNPJ e preencha os dados da OS."}
-				</p>
+				{duplicateFormValues ? (
+					<p className="text-sm text-muted-foreground">
+						Revise os dados e salve para criar a cópia.
+					</p>
+				) : null}
 			</div>
 
 			<Formik
@@ -1296,11 +1296,16 @@ export function NovaOrdemClient(props: Props) {
 								</Card>
 
 								<OrderFormActionBar>
-									<Button variant="outline" asChild>
+									<Button
+										variant="ghost"
+										asChild
+										className="font-medium text-muted-foreground hover:text-foreground"
+									>
 										<Link href="/portal/ordens">Voltar</Link>
 									</Button>
 									<Button
 										type="submit"
+										variant="success"
 										disabled={formik.isSubmitting || !selectedCustomer}
 										onClick={(e) => {
 											e.preventDefault();

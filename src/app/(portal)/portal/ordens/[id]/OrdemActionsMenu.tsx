@@ -27,20 +27,8 @@ import { History, MessageCircle, Mail, MoreVertical, Trash2, Copy } from 'lucide
 import { OrderEditHistoryDialog } from './OrderEditHistoryDialog'
 import { toast } from '@/hooks/use-toast'
 import { buildOrderMessage } from '@/lib/ordem-share-message'
+import { ORDER_STATUS_LABELS } from '@/lib/orders/order-status'
 import { formatPhoneForWhatsApp } from '@/lib/utils/format-phone'
-
-const STATUS_LABELS: Record<string, string> = {
-  orcamento: 'Orçamento',
-  aguardando_aprovacao: 'Aguardando aprovação',
-  aprovado: 'Aprovado',
-  aguardando_pecas: 'Aguardando peças',
-  em_manutencao: 'Em manutenção',
-  aguardando_retirada: 'Aguardando retirada',
-  finalizada: 'Finalizada',
-  finalizada_sem_conserto: 'Finalizada sem conserto',
-  finalizada_sem_aprovacao: 'Finalizada sem aprovação',
-  cancelada: 'Cancelada',
-}
 
 type Props = {
   orderId: string
@@ -103,7 +91,7 @@ export function OrdemActionsMenu({
   }, [orderId, publicOrderPath])
 
   const orderHref = publicUrl ?? ''
-  const statusLabel = STATUS_LABELS[status] ?? status
+  const statusLabel = ORDER_STATUS_LABELS[status] ?? status
   const message = orderHref
     ? buildOrderMessage({
       displayNumber,
@@ -138,7 +126,7 @@ export function OrdemActionsMenu({
       toast({
         variant: 'success',
         title: 'Status atualizado',
-        description: STATUS_LABELS[newStatus] ?? newStatus,
+        description: ORDER_STATUS_LABELS[newStatus] ?? newStatus,
       })
       router.refresh()
     } finally {
@@ -221,7 +209,7 @@ export function OrdemActionsMenu({
               Alterar status
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
-              {Object.entries(STATUS_LABELS).map(([value, label]) => (
+              {Object.entries(ORDER_STATUS_LABELS).map(([value, label]) => (
                 <DropdownMenuItem
                   key={value}
                   onClick={() => handleStatusChange(value)}

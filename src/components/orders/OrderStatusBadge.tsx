@@ -1,18 +1,6 @@
 import { Badge } from '@/components/ui/badge'
+import { ORDER_STATUS_LABELS } from '@/lib/orders/order-status'
 import { cn } from '@/lib/utils'
-
-const STATUS_LABELS: Record<string, string> = {
-  orcamento: 'Orçamento',
-  aguardando_aprovacao: 'Aguardando aprovação',
-  aprovado: 'Aprovado',
-  aguardando_pecas: 'Aguardando peças',
-  em_manutencao: 'Em manutenção',
-  aguardando_retirada: 'Aguardando retirada',
-  finalizada: 'Finalizada',
-  finalizada_sem_conserto: 'Finalizada sem conserto',
-  finalizada_sem_aprovacao: 'Finalizada sem aprovação',
-  cancelada: 'Cancelada',
-}
 
 const STATUS_CLASSES: Record<string, string> = {
   orcamento: 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300',
@@ -33,7 +21,7 @@ type Props = {
 }
 
 export function OrderStatusBadge({ status, className }: Props) {
-  const label = STATUS_LABELS[status] ?? status
+  const label = ORDER_STATUS_LABELS[status] ?? status
   const statusClasses = STATUS_CLASSES[status] ?? 'border-transparent bg-secondary text-secondary-foreground'
 
   return (

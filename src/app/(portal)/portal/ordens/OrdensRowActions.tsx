@@ -28,20 +28,8 @@ import { Printer, MessageCircle, Mail, Copy, Tag, MoreVertical, Trash2 } from 'l
 import { toast } from '@/hooks/use-toast'
 import { getLabelWindowFeatures, getPrintWindowFeatures } from '@/lib/ordem-print'
 import { buildOrderMessage } from '@/lib/ordem-share-message'
+import { ORDER_STATUS_LABELS } from '@/lib/orders/order-status'
 import { formatPhoneForWhatsApp } from '@/lib/utils/format-phone'
-
-const STATUS_LABELS: Record<string, string> = {
-  orcamento: 'Orçamento',
-  aguardando_aprovacao: 'Aguardando aprovação',
-  aprovado: 'Aprovado',
-  aguardando_pecas: 'Aguardando peças',
-  em_manutencao: 'Em manutenção',
-  aguardando_retirada: 'Aguardando retirada',
-  finalizada: 'Finalizada',
-  finalizada_sem_conserto: 'Finalizada sem conserto',
-  finalizada_sem_aprovacao: 'Finalizada sem aprovação',
-  cancelada: 'Cancelada',
-}
 
 type OrderRow = {
   id: string
@@ -95,7 +83,7 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
   const device = deviceModel
     ? [deviceModel.brand, deviceModel.device_type, deviceModel.model].filter(Boolean).join(' • ') || '-'
     : '-'
-  const statusLabel = STATUS_LABELS[order.status] || order.status
+  const statusLabel = ORDER_STATUS_LABELS[order.status] || order.status
 
   const publicPath = order.share_token ? `/os/${order.share_token}` : null
   const orderHref =
@@ -144,7 +132,7 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
         toast({ title: 'Erro ao atualizar status', variant: 'destructive' })
         return
       }
-      toast({ variant: 'success', title: 'Status atualizado', description: `${STATUS_LABELS[newStatus] || newStatus}` })
+      toast({ variant: 'success', title: 'Status atualizado', description: `${ORDER_STATUS_LABELS[newStatus] || newStatus}` })
       router.refresh()
     } finally {
       setUpdating(false)
@@ -251,7 +239,7 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
               Alterar status
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent className="min-w-36 p-1">
-              {Object.entries(STATUS_LABELS).map(([value, label]) => (
+              {Object.entries(ORDER_STATUS_LABELS).map(([value, label]) => (
                 <DropdownMenuItem
                   key={value}
                   className={itemClass}

@@ -23,6 +23,10 @@ import {
 	buildOrderEditDiff,
 	enrichWarrantyTemplateHistoryValues,
 } from "@/lib/orders/order-edit-history";
+import {
+	isFinalizedOrderStatus,
+	isValidOrderStatus,
+} from "@/lib/orders/order-status";
 import { applyOrderStatusStockTransition } from "@/lib/orders/stock-by-status";
 import { fetchDeviceModelsForSelector } from "@/lib/portal/device-models-server";
 import {
@@ -52,42 +56,6 @@ import { OrderPasscodeFields } from "./OrderPasscodeFields";
 import { UpdateOrderSubmitButton } from "./UpdateOrderSubmitButton";
 
 export const dynamic = "force-dynamic";
-
-function formatStatus(status: string) {
-	if (status === "orcamento") return "Orçamento";
-	if (status === "aguardando_aprovacao") return "Aguardando aprovação";
-	if (status === "aprovado") return "Aprovado";
-	if (status === "aguardando_pecas") return "Aguardando peças";
-	if (status === "em_manutencao") return "Em manutenção";
-	if (status === "aguardando_retirada") return "Aguardando retirada";
-	if (status === "finalizada") return "Finalizada";
-	if (status === "finalizada_sem_conserto") return "Finalizada sem conserto";
-	if (status === "finalizada_sem_aprovacao") return "Finalizada sem aprovação";
-	if (status === "cancelada") return "Cancelada";
-	return status;
-}
-
-function isValidStatus(value: string) {
-	return (
-		value === "orcamento" ||
-		value === "aguardando_aprovacao" ||
-		value === "aprovado" ||
-		value === "aguardando_pecas" ||
-		value === "em_manutencao" ||
-		value === "aguardando_retirada" ||
-		value === "finalizada" ||
-		value === "finalizada_sem_conserto" ||
-		value === "finalizada_sem_aprovacao" ||
-		value === "cancelada"
-	);
-}
-
-const FINALIZED_STATUSES = new Set([
-	"finalizada",
-	"finalizada_sem_conserto",
-	"finalizada_sem_aprovacao",
-	"cancelada",
-]);
 
 function getCustomerFromOrder(order: any) {
 	const customer = order?.customers;
@@ -447,7 +415,7 @@ export default async function OrdemDetalhePage({
 		if (formOrderId !== id)
 			redirect(`/portal/ordens/${id}?error=dados_invalidos`);
 		if (!title) redirect(`/portal/ordens/${id}?error=titulo_obrigatorio`);
-		if (!isValidStatus(status))
+		if (!isValidOrderStatus(status))
 			redirect(`/portal/ordens/${id}?error=status_invalido`);
 
 		const { user, role } = await getPortalAuth();
@@ -514,7 +482,7 @@ export default async function OrdemDetalhePage({
 			redirect(`/portal/ordens/${id}?error=previsao_invalida`);
 		}
 		const isOrderFinalized =
-			existing && FINALIZED_STATUSES.has(existing.status);
+			existing && isFinalizedOrderStatus(String(existing.status || ""));
 		if (isOrderFinalized && role !== "admin") {
 			redirect(`/portal/ordens/${id}?error=ordem_finalizada`);
 		}
@@ -556,7 +524,7 @@ export default async function OrdemDetalhePage({
 				.maybeSingle();
 			if (sellerUser?.id) updatePayload.seller_user_id = sellerUser.id;
 		}
-		if (FINALIZED_STATUSES.has(status)) {
+		if (isFinalizedOrderStatus(status)) {
 			updatePayload.closed_at = new Date().toISOString();
 		}
 		const { error } = await supabase
@@ -661,7 +629,7 @@ export default async function OrdemDetalhePage({
 		redirect("/portal/ordens?ok=1");
 	}
 
-	const isFinalized = FINALIZED_STATUSES.has(order.status);
+	const isFinalized = isFinalizedOrderStatus(order.status);
 	const formDisabled = isFinalized && role !== "admin";
 	const canEditDeviceModelWhenFinalized = isAdmin && isFinalized;
 	const deviceModelDisabled = isFinalized && !canEditDeviceModelWhenFinalized;
@@ -999,7 +967,11 @@ export default async function OrdemDetalhePage({
 					</Card>
 
 					<OrderFormActionBar>
-						<Button variant="outline" asChild>
+						<Button
+							variant="ghost"
+							asChild
+							className="font-medium text-muted-foreground hover:text-foreground"
+						>
 							<Link href="/portal/ordens">
 								{isFinalized ? "Voltar à lista" : "Voltar"}
 							</Link>

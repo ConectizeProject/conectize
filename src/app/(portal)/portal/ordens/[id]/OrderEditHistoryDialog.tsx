@@ -23,23 +23,11 @@ import {
 	formatWarrantyTemplateHistoryDisplay,
 	ORDER_EDIT_FIELD_LABELS,
 } from "@/lib/orders/order-edit-history";
+import { getOrderStatusLabel } from "@/lib/orders/order-status";
 import { formatDateTimeBr } from "@/lib/utils/format-date";
 import { formatCentsBr } from "@/lib/utils/format-money";
 import { History, Loader2, Trash2 } from "lucide-react";
-import { Fragment, useCallback, useRef, useState } from "react";
-
-const STATUS_LABELS: Record<string, string> = {
-	orcamento: "Orçamento",
-	aguardando_aprovacao: "Aguardando aprovação",
-	aprovado: "Aprovado",
-	aguardando_pecas: "Aguardando peças",
-	em_manutencao: "Em manutenção",
-	aguardando_retirada: "Aguardando retirada",
-	finalizada: "Finalizada",
-	finalizada_sem_conserto: "Finalizada sem conserto",
-	finalizada_sem_aprovacao: "Finalizada sem aprovação",
-	cancelada: "Cancelada",
-};
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 
 type Entry = {
 	id: string;
@@ -56,7 +44,8 @@ function formatDisplayValue(
 	raw: string | null | undefined,
 ): string {
 	const v = raw ?? "";
-	if (fieldKey === "status") return (STATUS_LABELS[v] ?? v) || "(vazio)";
+	if (fieldKey === "status")
+		return (v ? getOrderStatusLabel(v) : "") || "(vazio)";
 	if (fieldKey === "is_warranty") {
 		if (v === "true") return "Sim";
 		if (v === "false") return "Não";
@@ -152,12 +141,16 @@ export function OrderEditHistoryDialog({
 		}
 	}, [orderId]);
 
+	useEffect(() => {
+		if (!open) return;
+		void load();
+	}, [open, load]);
+
 	function handleOpenChange(next: boolean) {
 		if (!next && pendingDeleteRef.current !== null) {
 			return;
 		}
 		setOpen(next);
-		if (next) void load();
 	}
 
 	const showTrigger = !isMenuMode;

@@ -2,27 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffOrAdmin, requireAdmin } from '@/lib/auth/portal-api'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 import { buildOrderEditDiff } from '@/lib/orders/order-edit-history'
+import {
+  FINALIZED_ORDER_STATUS_SET,
+  ORDER_STATUS_SET,
+} from '@/lib/orders/order-status'
 import { applyOrderStatusStockTransition } from '@/lib/orders/stock-by-status'
-
-const VALID_STATUSES = new Set([
-  'orcamento',
-  'aguardando_aprovacao',
-  'aprovado',
-  'aguardando_pecas',
-  'em_manutencao',
-  'aguardando_retirada',
-  'finalizada',
-  'finalizada_sem_conserto',
-  'finalizada_sem_aprovacao',
-  'cancelada',
-])
-
-const FINALIZED_STATUSES = new Set([
-  'finalizada',
-  'finalizada_sem_conserto',
-  'finalizada_sem_aprovacao',
-  'cancelada',
-])
 
 export async function PATCH (
   request: NextRequest,
@@ -44,7 +28,7 @@ export async function PATCH (
     ? String((body as { status: unknown }).status ?? '').trim()
     : ''
 
-  if (!status || !VALID_STATUSES.has(status)) {
+  if (!status || !ORDER_STATUS_SET.has(status)) {
     return NextResponse.json({ ok: false, error: 'invalid_status' }, { status: 400 })
   }
 
@@ -63,7 +47,7 @@ export async function PATCH (
 
   const previousStatus = String(existing.status || '')
   const updatePayload: Record<string, unknown> = { status }
-  if (FINALIZED_STATUSES.has(status)) {
+  if (FINALIZED_ORDER_STATUS_SET.has(status)) {
     updatePayload.closed_at = new Date().toISOString()
   }
 

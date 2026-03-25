@@ -5,16 +5,19 @@ import { Button } from '@/components/ui/button'
 import { OrdensFilterCollapsible } from './OrdensFilterCollapsible'
 import { OrdensListClient } from './OrdensListClient'
 import { OrdensToastClient } from './OrdensToastClient'
+import {
+  OPEN_ORDER_STATUSES,
+  isOpenOrderStatus,
+} from '@/lib/orders/order-status'
 
-const OPEN_STATUSES = ['orcamento', 'aguardando_aprovacao', 'aprovado', 'aguardando_pecas', 'em_manutencao', 'aguardando_retirada'] as const
 const LIMIT_OPEN = 500
 
 function normalizeCpf(value: string) {
   return value.replace(/\D/g, '').trim()
 }
 
-function isValidOpenStatus(value: string): value is typeof OPEN_STATUSES[number] {
-  return OPEN_STATUSES.includes(value as any)
+function isValidOpenStatus (value: string): value is (typeof OPEN_ORDER_STATUSES)[number] {
+  return isOpenOrderStatus(value)
 }
 
 function isValidDate(value: string): boolean {
@@ -120,7 +123,7 @@ export default async function OrdensPage({
         ? 'id, display_number, status, title, created_at, updated_at, closed_at, estimated_ready_at, share_token, customer_id, device_model_id, services, services_total_cents, services_cost_total_cents, payment_methods'
         : 'id, display_number, status, title, created_at, updated_at, closed_at, estimated_ready_at, share_token, customer_id, device_model_id, services, services_total_cents, services_cost_total_cents'
     )
-    .in('status', [...OPEN_STATUSES])
+    .in('status', [...OPEN_ORDER_STATUSES])
     .order('created_at', { ascending: false })
     .limit(LIMIT_OPEN)
 
@@ -229,7 +232,7 @@ export default async function OrdensPage({
   }))
 
   const openOrdersByStatus: Record<string, typeof ordersWithRelations> = {}
-  for (const s of OPEN_STATUSES) {
+  for (const s of OPEN_ORDER_STATUSES) {
     openOrdersByStatus[s] = ordersWithRelations.filter((o: any) => o.status === s)
   }
 
