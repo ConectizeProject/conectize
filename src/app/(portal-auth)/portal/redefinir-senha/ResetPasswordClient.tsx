@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { AUTH_PASSWORD_MIN_LENGTH, isValidPassword } from '@/lib/auth/password-rules'
-import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
+import { useSupabaseBrowserClient } from '@/lib/supabase/use-supabase-browser-client'
 import { AuthCardLayout } from '@/components/auth/AuthCardLayout'
 import { AuthFormMessages } from '@/components/auth/AuthFormMessages'
 import { Button } from '@/components/ui/button'
@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { getAuthErrorMessage } from '@/lib/utils/error-messages'
+import { Loader2 } from 'lucide-react'
 
 export function ResetPasswordClient() {
   const router = useRouter()
@@ -23,13 +24,9 @@ export function ResetPasswordClient() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [hasSession, setHasSession] = useState<boolean | null>(null)
 
-  const supabase = useMemo(() => {
-    try {
-      return createSupabaseBrowserClient()
-    } catch {
-      return null
-    }
-  }, [])
+  const supabase = useSupabaseBrowserClient()
+
+  const isValidatingLink = hasSession === null
 
   const canSubmit = useMemo(() => {
     if (!hasSession) return false
@@ -147,6 +144,17 @@ export function ResetPasswordClient() {
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="space-y-4">
+            {isValidatingLink ? (
+              <div
+                className="flex items-center gap-2 text-sm text-muted-foreground py-1"
+                role="status"
+                aria-live="polite"
+              >
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" aria-hidden />
+                Validando link…
+              </div>
+            ) : null}
+
             <div className="space-y-2">
               <Label htmlFor="password">Nova senha</Label>
               <Input
@@ -157,6 +165,7 @@ export function ResetPasswordClient() {
                 placeholder="Mínimo 8 caracteres"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                disabled={isValidatingLink}
               />
             </div>
 
@@ -170,12 +179,17 @@ export function ResetPasswordClient() {
                 placeholder="Repita a nova senha"
                 value={passwordConfirm}
                 onChange={(e) => setPasswordConfirm(e.target.value)}
+                disabled={isValidatingLink}
               />
             </div>
 
             <AuthFormMessages errorMessage={errorMessage} message={message} />
 
-            <Button type="submit" className="w-full" disabled={isSubmitting || !canSubmit}>
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={isSubmitting || !canSubmit || isValidatingLink}
+            >
               {isSubmitting ? 'Salvando…' : 'Salvar nova senha'}
             </Button>
 

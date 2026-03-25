@@ -15,7 +15,7 @@ import { buildPortalAuthCallbackUrl } from '@/lib/auth/callback-url'
 import { PORTAL_COMPLETE_PROFILE_PATH } from '@/lib/auth/portal-auth-paths'
 import { AUTH_PASSWORD_MIN_LENGTH, isValidPassword } from '@/lib/auth/password-rules'
 import { getAuthSiteOrigin } from '@/lib/auth/site-origin'
-import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
+import { useSupabaseBrowserClient } from '@/lib/supabase/use-supabase-browser-client'
 import { getAuthErrorMessage } from '@/lib/utils/error-messages'
 
 export function SignupClient() {
@@ -28,13 +28,7 @@ export function SignupClient() {
   const [message, setMessage] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  const supabase = useMemo(() => {
-    try {
-      return createSupabaseBrowserClient()
-    } catch {
-      return null
-    }
-  }, [])
+  const supabase = useSupabaseBrowserClient()
 
   const canSubmit = useMemo(() => {
     if (!email || !password || !passwordConfirm) return false

@@ -4,8 +4,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { buildPortalAuthCallbackUrl } from '@/lib/auth/callback-url'
+import { assertSafePortalPath } from '@/lib/auth/safe-redirect'
 import { getAuthSiteOrigin } from '@/lib/auth/site-origin'
-import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
+import { useSupabaseBrowserClient } from '@/lib/supabase/use-supabase-browser-client'
 import { getAuthErrorMessage } from '@/lib/utils/error-messages'
 import { AuthCardLayout } from '@/components/auth/AuthCardLayout'
 import { AuthDivider } from '@/components/auth/AuthDivider'
@@ -31,20 +32,12 @@ export function LoginClient() {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false)
   const [isMagicLinkLoading, setIsMagicLinkLoading] = useState(false)
 
-  const redirectTo = useMemo(() => {
-    const value = searchParams.get('redirectTo')
-    if (!value) return '/portal'
-    if (!value.startsWith('/portal')) return '/portal'
-    return value
-  }, [searchParams])
+  const redirectTo = useMemo(
+    () => assertSafePortalPath(searchParams.get('redirectTo')),
+    [searchParams],
+  )
 
-  const supabase = useMemo(() => {
-    try {
-      return createSupabaseBrowserClient()
-    } catch {
-      return null
-    }
-  }, [])
+  const supabase = useSupabaseBrowserClient()
 
   const siteOrigin = getAuthSiteOrigin()
 
@@ -52,7 +45,10 @@ export function LoginClient() {
     if (!supabase) return
     supabase.auth.getSession()
       .then(({ data }) => {
-        if (data?.session) router.replace(redirectTo)
+        if (data?.session) {
+          router.refresh()
+          router.replace(redirectTo)
+        }
       })
       .catch(() => { })
   }, [router, redirectTo, supabase])

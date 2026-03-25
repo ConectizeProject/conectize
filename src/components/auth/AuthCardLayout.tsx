@@ -13,7 +13,7 @@ export function AuthCardLayout({ children, className }: AuthCardLayoutProps) {
   return (
     <div
       className={cn(
-        'min-h-screen pt-32 pb-20 flex items-center justify-center',
+        'min-h-screen w-full px-4 sm:px-6 pt-32 pb-20 flex items-center justify-center',
         className,
       )}
     >

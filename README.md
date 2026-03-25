@@ -57,11 +57,33 @@ conectize/
 
 ## Variáveis de ambiente (integrações)
 
+### Portal e autenticação (Supabase)
+
+O login do portal (senha, magic link, Google OAuth e recuperação de senha) usa o Supabase no browser e no servidor. Configure:
+
+| Variável | Descrição |
+|----------|-----------|
+| `NEXT_PUBLIC_SUPABASE_URL` | URL do projeto (Project URL no painel do Supabase). |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Chave anônima (anon public). |
+| `NEXT_PUBLIC_SITE_URL` | URL canônica do site **sem barra no final** (ex.: `https://seu-dominio.com` ou `http://localhost:3000`). Usada para montar redirects seguros de OAuth e links por e-mail; em produção deve ser o domínio real do deploy. |
+
+**Supabase (Authentication → URL Configuration):**
+
+- **Site URL:** alinhe com `NEXT_PUBLIC_SITE_URL` (ex.: produção `https://seu-dominio.com`).
+- **Redirect URLs:** inclua a callback do app, por exemplo:
+  - `http://localhost:3000/portal/auth/callback` (desenvolvimento)
+  - `https://seu-dominio.com/portal/auth/callback` (produção)
+  - URLs de preview (Vercel), se usar.
+
+Sem essas URLs permitidas, o fluxo OAuth ou o link de e-mail pode falhar ou redirecionar para o lugar errado.
+
+### Bling (OAuth)
+
 Para conectar com o Bling via OAuth 2.0, configure:
 
 - `BLING_CLIENT_ID` - Client ID do aplicativo no [developer.bling.com.br](https://developer.bling.com.br/aplicativos)
 - `BLING_CLIENT_SECRET` - Client Secret do aplicativo
-- `NEXT_PUBLIC_SITE_URL` - URL base do site (ex: `https://seu-dominio.com` ou `http://localhost:3000`)
+- `NEXT_PUBLIC_SITE_URL` - URL base do site (ex: `https://seu-dominio.com` ou `http://localhost:3000`) — mesma variável usada pelo portal/SEO acima
 
 **Importante:** Cadastre a URL de redirecionamento no aplicativo Bling: `{NEXT_PUBLIC_SITE_URL}/api/portal/hub/oauth/bling/callback`
 
