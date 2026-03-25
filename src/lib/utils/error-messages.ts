@@ -5,7 +5,7 @@
 /** Códigos de erro de autenticação -> mensagem em português */
 export const AUTH_ERROR_CODES: Record<string, string> = {
   over_email_send_rate_limit:
-    'Por segurança, há um limite de envio de e-mails. Aguarde alguns segundos antes de solicitar novame nte.',
+    'Por segurança, há um limite de envio de e-mails. Aguarde alguns segundos antes de solicitar novamente.',
 }
 
 /** Padrões de erro de autenticação (substring na mensagem) -> mensagem em português */

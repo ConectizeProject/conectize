@@ -3,16 +3,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { AUTH_PASSWORD_MIN_LENGTH, isValidPassword } from '@/lib/auth/password-rules'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { getAuthErrorMessage } from '@/lib/utils/error-messages'
-
-function isValidPassword (value: string) {
-  return value.length >= 8
-}
 
 export function ResetPasswordClient () {
   const router = useRouter()
@@ -77,7 +74,7 @@ export function ResetPasswordClient () {
 
     if (!isValidPassword(password)) {
       setIsSubmitting(false)
-      setErrorMessage('A senha deve ter pelo menos 8 caracteres.')
+      setErrorMessage(`A senha deve ter pelo menos ${AUTH_PASSWORD_MIN_LENGTH} caracteres.`)
       return
     }
 
