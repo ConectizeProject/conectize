@@ -9,6 +9,36 @@ import {
   OPEN_ORDER_STATUSES,
   isOpenOrderStatus,
 } from '@/lib/orders/order-status'
+import type {
+  PortalOrdensCustomerSummary,
+  PortalOrdensDeviceModelSummary,
+  PortalOrdensListRow,
+  PortalServiceOrderListQueryRow,
+} from './ordens-list-types'
+
+function mapDeviceModelJoinToSummary(d: {
+  id: string
+  model: string | null
+  device_types?: unknown
+}): PortalOrdensDeviceModelSummary {
+  const dtRaw = d.device_types
+  const dt = (Array.isArray(dtRaw) ? dtRaw[0] : dtRaw) as
+    | { name?: string | null; device_brands?: unknown }
+    | null
+    | undefined
+  const brRaw = dt?.device_brands
+  const br = Array.isArray(brRaw) ? brRaw[0] : brRaw
+  const brandName =
+    br && typeof br === 'object' && br !== null && 'name' in br
+      ? (br as { name: string | null }).name ?? null
+      : null
+  return {
+    id: d.id,
+    brand: brandName,
+    device_type: dt?.name ?? null,
+    model: d.model ?? null,
+  }
+}
 
 const LIMIT_OPEN = 500
 
@@ -170,9 +200,9 @@ export default async function OrdensPage({
 
   const { data: rawOrders } = await baseQuery
 
-  let ordersList = rawOrders || []
+  let ordersList: PortalServiceOrderListQueryRow[] = (rawOrders ?? []) as PortalServiceOrderListQueryRow[]
   if (needsQuickFilterColumns && ordersList.length > 0) {
-    ordersList = ordersList.filter((o: any) => {
+    ordersList = ordersList.filter((o) => {
       if (quickNoServices) {
         const svc = o.services
         const hasServices = Array.isArray(svc) && svc.length > 0
@@ -190,50 +220,47 @@ export default async function OrdensPage({
       return true
     })
   }
-  const customerIds = [...new Set(ordersList.map((o: any) => o.customer_id).filter(Boolean))]
-  const deviceModelIds = [...new Set(ordersList.map((o: any) => o.device_model_id).filter(Boolean))]
+  const customerIds = [...new Set(ordersList.map((o) => o.customer_id).filter(Boolean))]
+  const deviceModelIds = [...new Set(ordersList.map((o) => o.device_model_id).filter(Boolean))]
 
-  let customersMap: Record<string, any> = {}
-  let deviceModelsMap: Record<string, any> = {}
+  let customersMap: Record<string, PortalOrdensCustomerSummary> = {}
+  let deviceModelsMap: Record<string, PortalOrdensDeviceModelSummary> = {}
 
   if (customerIds.length > 0) {
     const { data: customers } = await supabase
       .from('customers')
       .select('id, cpf, cnpj, is_company, full_name, company_name, email, mobile_phone')
       .in('id', customerIds)
-    customersMap = (customers || []).reduce((acc: Record<string, any>, c: any) => {
-      acc[c.id] = c
+    customersMap = (customers ?? []).reduce<Record<string, PortalOrdensCustomerSummary>>((acc, c) => {
+      acc[c.id] = c as PortalOrdensCustomerSummary
       return acc
     }, {})
   }
 
   if (deviceModelIds.length > 0) {
-    const { data: deviceModels } = await supabase
+    const { data: deviceModelsJoined } = await supabase
       .from('device_models')
       .select('id, model, device_types ( name, device_brands ( name ) )')
       .in('id', deviceModelIds)
-    deviceModelsMap = (deviceModels || []).reduce((acc: Record<string, any>, d: any) => {
-      const dt = (d as any).device_types || null
-      const brandRow = dt?.device_brands || null
-      acc[d.id] = {
-        id: d.id,
-        brand: brandRow?.name ?? null,
-        device_type: dt?.name ?? null,
-        model: d.model ?? null,
-      }
-      return acc
-    }, {})
+    deviceModelsMap = (deviceModelsJoined ?? []).reduce<Record<string, PortalOrdensDeviceModelSummary>>(
+      (acc, d) => {
+        const s = mapDeviceModelJoinToSummary(d)
+        acc[d.id] = s
+        return acc
+      },
+      {},
+    )
   }
 
-  const ordersWithRelations = ordersList.map((o: any) => ({
+  const ordersWithRelations: PortalOrdensListRow[] = ordersList.map((o) => ({
     ...o,
     customers: o.customer_id ? customersMap[o.customer_id] ?? null : null,
     device_models: o.device_model_id ? deviceModelsMap[o.device_model_id] ?? null : null,
   }))
 
-  const openOrdersByStatus: Record<string, typeof ordersWithRelations> = {}
+  const openOrdersByStatus: Record<string, PortalOrdensListRow[]> = {}
   for (const s of OPEN_ORDER_STATUSES) {
-    openOrdersByStatus[s] = ordersWithRelations.filter((o: any) => o.status === s)
+    openOrdersByStatus[s] = ordersWithRelations.filter((o) => o.status === s)
   }
 
   const { data: deviceModelsRaw } = await supabase
@@ -242,16 +269,7 @@ export default async function OrdensPage({
     .order('model', { ascending: true })
     .limit(500)
 
-  const deviceModels = (deviceModelsRaw || []).map((d: any) => {
-    const dt = Array.isArray(d.device_types) ? d.device_types[0] : d.device_types
-    const brandRow = dt && (Array.isArray(dt.device_brands) ? dt.device_brands[0] : dt.device_brands)
-    return {
-      id: d.id,
-      brand: brandRow?.name ?? null,
-      device_type: dt?.name ?? null,
-      model: d.model ?? null,
-    }
-  })
+  const deviceModels = (deviceModelsRaw ?? []).map((d) => mapDeviceModelJoinToSummary(d))
 
   const hasFilters = Boolean(
     query || cpfDigits || osNumberValue || statusValue ||

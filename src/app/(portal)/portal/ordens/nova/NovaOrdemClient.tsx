@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
+import type { PortalPaymentMethodCatalogItem } from "@/lib/portal/payment-methods-server";
 import { portalFetch } from "@/lib/portal/portal-fetch";
 import { formatCpfCnpj } from "@/lib/utils/format-cpf-cnpj";
 import { parseMoneyToCents } from "@/lib/utils/format-money";
@@ -82,6 +83,7 @@ type Props = {
 	isAdmin: boolean;
 	sellerOptions: SellerOption[];
 	deviceModels?: DeviceModel[];
+	paymentMethodsCatalog: PortalPaymentMethodCatalogItem[];
 	currentUserId: string;
 	duplicateOrderId?: string;
 };
@@ -116,8 +118,6 @@ export function NovaOrdemClient(props: Props) {
 
 	const servicesCardRef = useRef<OrderServicesCardRef>(null);
 	const paymentMethodsFieldsRef = useRef<OrderPaymentMethodFieldsRef>(null);
-	const [paymentMethodsCatalogLoading, setPaymentMethodsCatalogLoading] =
-		useState(true);
 	const initialErrorToastShownRef = useRef(false);
 
 	const [customerDevices, setCustomerDevices] = useState<
@@ -729,13 +729,13 @@ export function NovaOrdemClient(props: Props) {
 									<CardContent className="relative space-y-3">
 										<OrderPaymentMethodFields
 											ref={paymentMethodsFieldsRef}
+											initialCatalog={props.paymentMethodsCatalog}
 											formik={{
 												values: {
 													paymentMethods: formik.values.paymentMethods ?? [],
 												},
 												setFieldValue: formik.setFieldValue,
 											}}
-											onCatalogLoadingChange={setPaymentMethodsCatalogLoading}
 										/>
 										<Button
 											type="button"
@@ -745,7 +745,6 @@ export function NovaOrdemClient(props: Props) {
 											onClick={() =>
 												paymentMethodsFieldsRef.current?.addEntry()
 											}
-											disabled={paymentMethodsCatalogLoading}
 											aria-label="Incluir forma de pagamento"
 										>
 											<Plus className="h-4 w-4 mr-2" />

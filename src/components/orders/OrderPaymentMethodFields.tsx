@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import type { PortalPaymentMethodCatalogItem } from '@/lib/portal/payment-methods-server'
 import { portalFetch } from '@/lib/portal/portal-fetch'
 import { formatCentsBr, formatMoneyInputBr, parseMoneyToCents } from '@/lib/utils/format-money'
 import { cn } from '@/lib/utils'
@@ -34,17 +35,6 @@ export type PaymentMethodEntry = {
 
 export type OrderPaymentMethodFieldsRef = {
   addEntry: () => void
-}
-
-type CreditInstallmentFee = { installments: number; fee_percent: number }
-
-type PaymentMethod = {
-  id: string
-  description: string
-  type: string
-  fee_percent: number
-  credit_installment_fees: CreditInstallmentFee[]
-  sort_order: number
 }
 
 type FormikProps = {
@@ -61,6 +51,8 @@ type Props = {
   disabled?: boolean
   /** Total da ordem em centavos (para exibir resumo e validar soma). */
   totalValueCents?: number
+  /** Catálogo já carregado no servidor (RSC); se definido, não há fetch no cliente. */
+  initialCatalog?: PortalPaymentMethodCatalogItem[]
   /** Para desabilitar o botão “Adicionar” no header enquanto o catálogo carrega. */
   onCatalogLoadingChange?: (loading: boolean) => void
 }
@@ -75,6 +67,7 @@ export const OrderPaymentMethodFields = forwardRef<OrderPaymentMethodFieldsRef, 
       formId,
       disabled = false,
       totalValueCents: totalValueCentsProp,
+      initialCatalog,
       onCatalogLoadingChange,
     },
     ref,
@@ -82,8 +75,10 @@ export const OrderPaymentMethodFields = forwardRef<OrderPaymentMethodFieldsRef, 
     const totalFromSubscription = useOrderServicesTotalSubscription()
     const totalValueCents = totalValueCentsProp ?? totalFromSubscription
 
-    const [paymentMethodsCatalog, setPaymentMethodsCatalog] = useState<PaymentMethod[]>([])
-    const [isLoading, setIsLoading] = useState(true)
+    const [paymentMethodsCatalog, setPaymentMethodsCatalog] = useState<
+      PortalPaymentMethodCatalogItem[]
+    >(() => (initialCatalog !== undefined ? initialCatalog : []))
+    const [isLoading, setIsLoading] = useState(() => initialCatalog === undefined)
     const [internalEntries, setInternalEntries] = useState<PaymentMethodEntry[]>(
       defaultValue.length > 0 ? defaultValue : [DEFAULT_EMPTY_ENTRY],
     )
@@ -137,8 +132,9 @@ export const OrderPaymentMethodFields = forwardRef<OrderPaymentMethodFieldsRef, 
     }, [])
 
     useEffect(() => {
+      if (initialCatalog !== undefined) return
       loadPaymentMethods()
-    }, [loadPaymentMethods])
+    }, [initialCatalog, loadPaymentMethods])
 
     function setEntries(next: PaymentMethodEntry[]) {
       if (isFormikMode) {

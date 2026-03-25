@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import { fetchDeviceModelsForSelector } from '@/lib/portal/device-models-server'
+import { fetchPaymentMethodsCatalogForPortal } from '@/lib/portal/payment-methods-server'
 import { getOrdemErrorMessage } from '@/lib/utils/error-messages'
 import { previsaoToISO } from '@/lib/utils/previsao-ordem'
 import {
@@ -81,10 +82,10 @@ async function createOrderAction(formData: FormData) {
     if (sellerUser?.id) sellerUserId = sellerUser.id
   }
 
-  let deviceEntryChecks: any = null
-  if (deviceEntryChecksJson) {
+  let deviceEntryChecks: unknown = null
+  if (deviceEntryChecksJson && typeof deviceEntryChecksJson === 'string') {
     try {
-      deviceEntryChecks = JSON.parse(deviceEntryChecksJson)
+      deviceEntryChecks = JSON.parse(deviceEntryChecksJson) as unknown
     } catch {
       deviceEntryChecks = null
     }
@@ -147,7 +148,9 @@ async function createOrderAction(formData: FormData) {
       services: services.items,
       actorUserId: user.id,
     })
-  } catch (_) {}
+  } catch (err) {
+    console.error('[order-create][stock-transition]', { orderId: insertedOrder.id, err })
+  }
 
   if (internalInitialComment) {
     const { data: me } = await supabase.from('users').select('full_name, email').eq('id', user.id).maybeSingle()
@@ -244,15 +247,17 @@ export default async function NovaOrdemPage({
   const sellerName = fullName || user.email || ''
   const isAdmin = role === 'admin'
 
-  const [sellerOptionsResult, deviceModels] = await Promise.all([
+  const [sellerOptionsResult, deviceModels, paymentMethodsCatalog] = await Promise.all([
     isAdmin
       ? supabase.from('users').select('id, email, full_name').in('role', ['admin', 'staff']).order('email')
       : Promise.resolve({ data: [] }),
     fetchDeviceModelsForSelector(supabase),
+    fetchPaymentMethodsCatalogForPortal(supabase),
   ])
 
-  const sellerOptions: Array<{ id: string; full_name: string | null; email: string | null }> = isAdmin
-    ? (sellerOptionsResult.data ?? []).map((u: any) => ({
+  type SellerOptionRow = { id: string; full_name: string | null; email: string | null }
+  const sellerOptions: SellerOptionRow[] = isAdmin
+    ? (sellerOptionsResult.data ?? []).map((u: SellerOptionRow) => ({
         id: u.id,
         full_name: u.full_name ?? null,
         email: u.email ?? null,
@@ -266,6 +271,7 @@ export default async function NovaOrdemPage({
       isAdmin={isAdmin}
       sellerOptions={sellerOptions}
       deviceModels={deviceModels}
+      paymentMethodsCatalog={paymentMethodsCatalog}
       currentUserId={user.id}
       initialError={error ? getOrdemErrorMessage(error) : undefined}
       duplicateOrderId={duplicate || undefined}

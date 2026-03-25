@@ -9,6 +9,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { getOrderStatusLabel } from '@/lib/orders/order-status'
 import { OrdemCard } from './OrdemCard'
 import { OrdensFinalSection } from './OrdensFinalSection'
+import type { PortalOrdensListRow } from './ordens-list-types'
 
 const OPEN_STATUS_ORDER = [
   'em_manutencao',
@@ -28,25 +29,8 @@ const STATUS_DOT_CLASSES: Record<string, string> = {
   aguardando_retirada: 'bg-emerald-400 shadow-[0_0_0.6rem_rgba(52,211,153,0.9)]',
 }
 
-type OrderRow = {
-  id: string
-  display_number: number | null
-  status: string
-  title: string
-  created_at: string
-  updated_at: string
-  closed_at: string | null
-  estimated_ready_at: string | null
-  share_token?: string | null
-  customers: Record<string, unknown> | null
-  device_models: Record<string, unknown> | null
-  services?: any[] | null
-  services_total_cents?: number | null
-  services_cost_total_cents?: number | null
-}
-
 type Props = {
-  openOrdersByStatus: Record<string, OrderRow[]>
+  openOrdersByStatus: Record<string, PortalOrdensListRow[]>
   filterQ: string
   filterCpf: string
   filterOsNumber: string
@@ -166,7 +150,7 @@ export function OrdensListClient({
             <CollapsibleContent>
               <div className="pt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                 {list.map((order) => (
-                  <OrdemCard key={order.id} order={order as any} canDelete={canDelete} />
+                  <OrdemCard key={order.id} order={order} canDelete={canDelete} />
                 ))}
               </div>
             </CollapsibleContent>

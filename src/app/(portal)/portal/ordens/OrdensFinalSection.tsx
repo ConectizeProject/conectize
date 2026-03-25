@@ -5,20 +5,7 @@ import { ChevronDown, Loader2 } from 'lucide-react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { OrdemCard } from './OrdemCard'
 import { portalFetch } from '@/lib/portal/portal-fetch'
-
-type OrderRow = {
-  id: string
-  display_number: number | null
-  status: string
-  title: string
-  created_at: string
-  updated_at: string
-  closed_at: string | null
-  estimated_ready_at: string | null
-  share_token?: string | null
-  customers: Record<string, unknown> | null
-  device_models: Record<string, unknown> | null
-}
+import type { PortalOrdensListRow } from './ordens-list-types'
 
 type Props = {
   q?: string
@@ -50,7 +37,7 @@ export function OrdensFinalSection({
   defaultOpen = false,
 }: Props) {
   const [open, setOpen] = useState(defaultOpen)
-  const [orders, setOrders] = useState<OrderRow[]>([])
+  const [orders, setOrders] = useState<PortalOrdensListRow[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [hasFetched, setHasFetched] = useState(false)
 
@@ -75,7 +62,7 @@ export function OrdensFinalSection({
       .then((res) => res?.json())
       .then((data) => {
         if (data?.ok && Array.isArray(data.orders)) {
-          setOrders(data.orders)
+          setOrders(data.orders as PortalOrdensListRow[])
         }
       })
       .catch(() => setOrders([]))
@@ -117,7 +104,7 @@ export function OrdensFinalSection({
           ) : orders.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
               {orders.map((order) => (
-                <OrdemCard key={order.id} order={order as any} />
+                <OrdemCard key={order.id} order={order} />
               ))}
             </div>
           ) : null}

@@ -46,6 +46,14 @@ export const OPEN_ORDER_STATUS_SET = new Set<string>(OPEN_ORDER_STATUSES)
 
 export const FINALIZED_ORDER_STATUS_SET = new Set<string>(FINALIZED_ORDER_STATUSES)
 
+/**
+ * Abertos em que consumo de estoque de produtos pode aplicar (exclui orçamento).
+ * Usar em conjunto com {@link FINALIZED_ORDER_STATUS_SET} para regras de movimentação.
+ */
+export const STOCK_CONSUMING_ORDER_STATUS_SET = new Set<string>(
+  OPEN_ORDER_STATUSES.filter((s) => s !== 'orcamento'),
+)
+
 export function getOrderStatusLabel (status: string): string {
   return ORDER_STATUS_LABELS[status] ?? status
 }

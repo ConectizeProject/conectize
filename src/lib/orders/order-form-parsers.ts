@@ -1,3 +1,7 @@
+import {
+  orderFormPaymentMethodsJsonRootSchema,
+  orderFormServicesJsonPayloadSchema,
+} from '@/lib/orders/order-form-json-schemas'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 
 export type OrderFormPaymentMethodRow = {
@@ -36,8 +40,9 @@ export function parsePaymentMethodsJson (raw: unknown): OrderFormPaymentMethodRo
   if (!raw) return []
   try {
     const parsed = JSON.parse(String(raw))
-    if (!Array.isArray(parsed)) return []
-    return parsed
+    const root = orderFormPaymentMethodsJsonRootSchema.safeParse(parsed)
+    if (!root.success) return []
+    return root.data
       .filter(
         (item: unknown) =>
           item && typeof item === 'object' && (item as { payment_method_id?: unknown }).payment_method_id,
@@ -75,11 +80,11 @@ export function parsePaymentMethodsJson (raw: unknown): OrderFormPaymentMethodRo
 export function parseServicesJson (raw: unknown): ParseServicesFromFormJsonResult {
   if (!raw) return { ...EMPTY_SERVICES }
   try {
-    const parsed = JSON.parse(String(raw)) as {
-      items?: unknown[]
-      totals?: { totalValueCents?: number; totalCostCents?: number }
-    }
-    const items = Array.isArray(parsed?.items) ? parsed.items : []
+    const parsed = JSON.parse(String(raw))
+    const base = orderFormServicesJsonPayloadSchema.safeParse(parsed)
+    if (!base.success) return { ...EMPTY_SERVICES }
+    const payload = base.data
+    const items = Array.isArray(payload.items) ? payload.items : []
     const normalized = items
       .slice(0, 100)
       .map((item: unknown) => {

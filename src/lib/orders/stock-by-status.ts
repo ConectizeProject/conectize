@@ -1,4 +1,9 @@
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { pushStockMovementToBling } from '@/lib/integrations/bling/push-stock-movement'
+import {
+  FINALIZED_ORDER_STATUS_SET,
+  STOCK_CONSUMING_ORDER_STATUS_SET,
+} from '@/lib/orders/order-status'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 
 type OrderServiceItem = {
@@ -8,21 +13,6 @@ type OrderServiceItem = {
   unitCostCents?: number | null
   sourceProductId?: string | null
 }
-
-const FINAL_STATUSES = new Set([
-  'finalizada',
-  'finalizada_sem_conserto',
-  'finalizada_sem_aprovacao',
-  'cancelada',
-])
-
-const STOCK_CONSUMING_STATUSES = new Set([
-  'aguardando_aprovacao',
-  'aprovado',
-  'aguardando_pecas',
-  'em_manutencao',
-  'aguardando_retirada',
-])
 
 function normalizeServices (services: unknown): OrderServiceItem[] {
   if (!Array.isArray(services)) return []
@@ -34,8 +24,8 @@ function normalizeServices (services: unknown): OrderServiceItem[] {
 function shouldConsumeStock (status: string) {
   if (!status) return false
   if (status === 'orcamento') return false
-  if (FINAL_STATUSES.has(status)) return false
-  return STOCK_CONSUMING_STATUSES.has(status)
+  if (FINALIZED_ORDER_STATUS_SET.has(status)) return false
+  return STOCK_CONSUMING_ORDER_STATUS_SET.has(status)
 }
 
 function shouldReturnStockOnFinalWithoutRepair (nextStatus: string) {
@@ -80,7 +70,7 @@ function getProductLines (services: unknown) {
 }
 
 type ApplyOrderStatusStockTransitionInput = {
-  supabase: any
+  supabase: SupabaseClient
   orderId: string
   previousStatus: string
   nextStatus: string
@@ -106,10 +96,11 @@ export async function applyOrderStatusStockTransition (input: ApplyOrderStatusSt
     .select('id, bling_id')
     .in('id', productIds)
 
+  type ProductIdRow = { id: string; bling_id: string | null }
   const blingByProductId = new Map<string, string>()
-  for (const row of productRows ?? []) {
-    const productId = String((row as any)?.id || '').trim()
-    const blingId = String((row as any)?.bling_id || '').trim()
+  for (const row of (productRows ?? []) as ProductIdRow[]) {
+    const productId = String(row?.id || '').trim()
+    const blingId = String(row?.bling_id || '').trim()
     if (!productId || !blingId) continue
     blingByProductId.set(productId, blingId)
   }

@@ -31,42 +31,10 @@ import { buildOrderMessage } from '@/lib/ordem-share-message'
 import { ORDER_STATUS_LABELS } from '@/lib/orders/order-status'
 import { formatPhoneForWhatsApp } from '@/lib/utils/format-phone'
 import { updateOrderStatusAction } from './[id]/order-detail-actions'
-
-type OrderRow = {
-  id: string
-  display_number: number | null
-  status: string
-  title: string
-  created_at: string
-  updated_at: string
-  estimated_ready_at: string | null
-  share_token?: string | null
-  customers: {
-    id?: string
-    cpf?: string | null
-    cnpj?: string | null
-    is_company?: boolean
-    full_name?: string | null
-    company_name?: string | null
-    email?: string | null
-    mobile_phone?: string | null
-  } | null
-  device_models: { brand?: string; device_type?: string; model?: string } | null
-  services?: Array<{
-    kind?: 'service' | 'product'
-    description?: string | null
-    quantity?: number | null
-    unitValueCents?: number | null
-    unitCostCents?: number | null
-    valueCents?: number | null
-    costCents?: number | null
-  }> | null
-  services_total_cents?: number | null
-  services_cost_total_cents?: number | null
-}
+import type { PortalOrdensListRow } from './ordens-list-types'
 
 type Props = {
-  order: OrderRow
+  order: PortalOrdensListRow
   canDelete?: boolean
 }
 
