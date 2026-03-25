@@ -7,6 +7,9 @@ import { buildPortalAuthCallbackUrl } from '@/lib/auth/callback-url'
 import { getAuthSiteOrigin } from '@/lib/auth/site-origin'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import { getAuthErrorMessage } from '@/lib/utils/error-messages'
+import { AuthCardLayout } from '@/components/auth/AuthCardLayout'
+import { AuthDivider } from '@/components/auth/AuthDivider'
+import { AuthFormMessages } from '@/components/auth/AuthFormMessages'
 import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -35,23 +38,28 @@ export function LoginClient() {
     return value
   }, [searchParams])
 
+  const supabase = useMemo(() => {
+    try {
+      return createSupabaseBrowserClient()
+    } catch {
+      return null
+    }
+  }, [])
+
   const siteOrigin = getAuthSiteOrigin()
 
   useEffect(() => {
-    try {
-      const supabase = createSupabaseBrowserClient()
-      supabase.auth.getSession()
-        .then(({ data }) => {
-          if (data?.session) router.replace(redirectTo)
-        })
-        .catch(() => { })
-    } catch {
-      // Sem env do Supabase: mantém a tela de login renderizando
-    }
-  }, [router, redirectTo])
+    if (!supabase) return
+    supabase.auth.getSession()
+      .then(({ data }) => {
+        if (data?.session) router.replace(redirectTo)
+      })
+      .catch(() => { })
+  }, [router, redirectTo, supabase])
 
   useEffect(() => {
     if (!isRedirecting) return
+    router.refresh()
     const id = setTimeout(() => router.replace(redirectTo), 80)
     return () => clearTimeout(id)
   }, [isRedirecting, router, redirectTo])
@@ -70,7 +78,10 @@ export function LoginClient() {
     setIsSendingRecovery(true)
 
     try {
-      const supabase = createSupabaseBrowserClient()
+      if (!supabase) {
+        setErrorMessage('Configuração do Supabase ausente. Não é possível redefinir a senha agora.')
+        return
+      }
       const redirectToUrl = buildPortalAuthCallbackUrl('/portal/redefinir-senha', siteOrigin)
 
       const { error } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
@@ -103,7 +114,10 @@ export function LoginClient() {
     setIsMagicLinkLoading(true)
 
     try {
-      const supabase = createSupabaseBrowserClient()
+      if (!supabase) {
+        setErrorMessage('Configuração do Supabase ausente. Não é possível enviar o link agora.')
+        return
+      }
       const emailRedirectTo = buildPortalAuthCallbackUrl(redirectTo, siteOrigin)
 
       const { error } = await supabase.auth.signInWithOtp({
@@ -130,7 +144,10 @@ export function LoginClient() {
     setErrorMessage(null)
     setIsGoogleLoading(true)
     try {
-      const supabase = createSupabaseBrowserClient()
+      if (!supabase) {
+        setErrorMessage('Configuração do Supabase ausente. Não é possível entrar com Google agora.')
+        return
+      }
       const oauthRedirect = buildPortalAuthCallbackUrl(redirectTo, siteOrigin)
 
       const { data, error } = await supabase.auth.signInWithOAuth({
@@ -172,7 +189,11 @@ export function LoginClient() {
     }
 
     try {
-      const supabase = createSupabaseBrowserClient()
+      if (!supabase) {
+        setErrorMessage('Configuração do Supabase ausente. Não é possível entrar agora.')
+        setIsSubmitting(false)
+        return
+      }
       const { error } = await supabase.auth.signInWithPassword({
         email: trimmedEmail,
         password,
@@ -210,7 +231,7 @@ export function LoginClient() {
   return (
     <>
       {redirectOverlay}
-      <div className="min-h-screen pt-32 pb-20 flex items-center justify-center">
+      <AuthCardLayout>
         <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle>Área do cliente</CardTitle>
@@ -258,12 +279,7 @@ export function LoginClient() {
                   />
                 </div>
 
-                {errorMessage ? (
-                  <p className="text-sm text-destructive">{errorMessage}</p>
-                ) : null}
-                {message ? (
-                  <p className="text-sm text-muted-foreground">{message}</p>
-                ) : null}
+                <AuthFormMessages errorMessage={errorMessage} message={message} />
 
                 <div className="flex items-center justify-end gap-2">
                   <Button type="button" variant="outline" size="sm" asChild>
@@ -275,14 +291,7 @@ export function LoginClient() {
                 </div>
               </form>
 
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t" />
-                </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-card px-2 text-muted-foreground">ou</span>
-                </div>
-              </div>
+              <AuthDivider />
 
               <div className="space-y-2">
                 <Button
@@ -316,7 +325,7 @@ export function LoginClient() {
             </div>
           </CardContent>
         </Card>
-      </div>
+      </AuthCardLayout>
     </>
   )
 }

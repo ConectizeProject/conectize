@@ -1,17 +1,19 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { AUTH_PASSWORD_MIN_LENGTH, isValidPassword } from '@/lib/auth/password-rules'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
+import { AuthCardLayout } from '@/components/auth/AuthCardLayout'
+import { AuthFormMessages } from '@/components/auth/AuthFormMessages'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { getAuthErrorMessage } from '@/lib/utils/error-messages'
 
-export function ResetPasswordClient () {
+export function ResetPasswordClient() {
   const router = useRouter()
 
   const [password, setPassword] = useState('')
@@ -21,6 +23,14 @@ export function ResetPasswordClient () {
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [hasSession, setHasSession] = useState<boolean | null>(null)
 
+  const supabase = useMemo(() => {
+    try {
+      return createSupabaseBrowserClient()
+    } catch {
+      return null
+    }
+  }, [])
+
   const canSubmit = useMemo(() => {
     if (!hasSession) return false
     if (!password || !passwordConfirm) return false
@@ -29,26 +39,52 @@ export function ResetPasswordClient () {
   }, [hasSession, password, passwordConfirm])
 
   useEffect(() => {
-    try {
-      const supabase = createSupabaseBrowserClient()
-      supabase.auth.getSession()
-        .then(({ data }) => {
-          setHasSession(Boolean(data?.session))
-          if (!data?.session) {
-            setErrorMessage('Link inválido ou expirado. Solicite a redefinição novamente.')
-          }
-        })
-        .catch(() => {
-          setHasSession(false)
-          setErrorMessage('Não foi possível validar sua sessão. Tente novamente.')
-        })
-    } catch {
+    if (!supabase) {
       setHasSession(false)
       setErrorMessage('Configuração do Supabase ausente. Não é possível redefinir a senha agora.')
+      return
     }
-  }, [])
 
-  async function onSubmit (event: React.FormEvent) {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY' || session) {
+        if (timeoutId !== undefined) clearTimeout(timeoutId)
+        setHasSession(true)
+        setErrorMessage(null)
+      }
+    })
+
+    supabase.auth.getSession()
+      .then(({ data }) => {
+        if (data.session) {
+          if (timeoutId !== undefined) clearTimeout(timeoutId)
+          setHasSession(true)
+          setErrorMessage(null)
+        } else {
+          timeoutId = setTimeout(() => {
+            setHasSession((h) => {
+              if (h === null) {
+                setErrorMessage('Link inválido ou expirado. Solicite a redefinição novamente.')
+                return false
+              }
+              return h
+            })
+          }, 500)
+        }
+      })
+      .catch(() => {
+        setHasSession(false)
+        setErrorMessage('Não foi possível validar sua sessão. Tente novamente.')
+      })
+
+    return () => {
+      if (timeoutId !== undefined) clearTimeout(timeoutId)
+      subscription.unsubscribe()
+    }
+  }, [supabase])
+
+  async function onSubmit(event: React.FormEvent) {
     event.preventDefault()
     setIsSubmitting(true)
     setErrorMessage(null)
@@ -78,8 +114,13 @@ export function ResetPasswordClient () {
       return
     }
 
+    if (!supabase) {
+      setIsSubmitting(false)
+      setErrorMessage('Configuração do Supabase ausente. Não é possível redefinir a senha agora.')
+      return
+    }
+
     try {
-      const supabase = createSupabaseBrowserClient()
       const { error } = await supabase.auth.updateUser({ password })
 
       if (error) {
@@ -88,6 +129,7 @@ export function ResetPasswordClient () {
       }
 
       setMessage('Senha atualizada com sucesso. Você já pode continuar.')
+      router.refresh()
       router.replace('/portal')
     } catch {
       setErrorMessage('Não foi possível redefinir sua senha agora. Tente novamente.')
@@ -97,7 +139,7 @@ export function ResetPasswordClient () {
   }
 
   return (
-    <div className="min-h-screen pt-32 pb-20 flex items-center justify-center">
+    <AuthCardLayout>
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle>Redefinir senha</CardTitle>
@@ -131,12 +173,7 @@ export function ResetPasswordClient () {
               />
             </div>
 
-            {errorMessage ? (
-              <p className="text-sm text-destructive">{errorMessage}</p>
-            ) : null}
-            {message ? (
-              <p className="text-sm text-muted-foreground">{message}</p>
-            ) : null}
+            <AuthFormMessages errorMessage={errorMessage} message={message} />
 
             <Button type="submit" className="w-full" disabled={isSubmitting || !canSubmit}>
               {isSubmitting ? 'Salvando…' : 'Salvar nova senha'}
@@ -150,7 +187,6 @@ export function ResetPasswordClient () {
           </form>
         </CardContent>
       </Card>
-    </div>
+    </AuthCardLayout>
   )
 }
-
