@@ -125,10 +125,6 @@ export async function POST(request: Request) {
 			? lastEntryBeforeRes.unitValueCents
 			: null;
 
-		let targetVirtualBling: number | null = null;
-		let stockDiffApplied: number | null = null;
-		let movementUnitCentsUsed: number | null = null;
-
 		if (effectiveKind !== "service") {
 			let targetVirtual = getVirtualStockTargetFromMappedProduct(local);
 			if (targetVirtual === null) {
@@ -143,14 +139,12 @@ export async function POST(request: Request) {
 					targetVirtual = null;
 				}
 			}
-			targetVirtualBling = targetVirtual;
 			if (targetVirtual !== null) {
 				const stockRes = await getProductCurrentStock(productId);
 				const balance =
 					stockRes.ok && "currentStock" in stockRes ? stockRes.currentStock : 0;
 				const diff = targetVirtual - balance;
 				stockAdjustedBy = Number.isFinite(diff) ? diff : null;
-				stockDiffApplied = Number.isFinite(diff) ? diff : null;
 				if (Number.isFinite(diff) && diff !== 0) {
 					let unitCents = 0;
 					for (const c of [
@@ -163,7 +157,6 @@ export async function POST(request: Request) {
 							break;
 						}
 					}
-					movementUnitCentsUsed = unitCents;
 					const movRes = await addStockMovement(productId, {
 						type: diff > 0 ? "entry" : "exit",
 						quantity: Math.abs(diff),
@@ -204,8 +197,6 @@ export async function POST(request: Request) {
 			costPriceCentsToSave = local.costPriceCents ?? undefined;
 		} else if (costFromLastEntry != null) {
 			costPriceCentsToSave = costFromLastEntry;
-		} else if (isPlausibleCostUnit(local.costPriceCents, saleCentsFromBling)) {
-			costPriceCentsToSave = local.costPriceCents ?? undefined;
 		} else if (
 			isPlausibleCostUnit(current.product.costPriceCents, saleCentsFromBling)
 		) {

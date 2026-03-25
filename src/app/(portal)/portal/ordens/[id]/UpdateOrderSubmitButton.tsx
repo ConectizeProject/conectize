@@ -10,7 +10,7 @@ export function UpdateOrderSubmitButton({ disabled = false }: Props) {
   const { pending } = useFormStatus()
 
   return (
-    <Button type="submit" disabled={pending || disabled}>
+    <Button type="submit" variant="success" disabled={pending || disabled}>
       {pending ? (
         <span className="inline-flex items-center gap-2">
           <Loader2 className="h-4 w-4 animate-spin" />

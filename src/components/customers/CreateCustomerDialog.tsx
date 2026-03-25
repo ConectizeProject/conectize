@@ -10,7 +10,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { AlertTriangle } from 'lucide-react'
 import { portalFetch } from '@/lib/portal/portal-fetch'
 import { formatPhoneBr } from '@/lib/utils/format-phone'
-import { formatCpf, formatCnpj, formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
+import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { formatCepBr } from '@/lib/utils/format-cep'
 import { onlyDigits } from '@/lib/utils/strings'
 
@@ -174,7 +174,7 @@ export function CreateCustomerDialog(props: Props) {
         setNeighborhood(String(data.bairro || ''))
         setCity(String(data.localidade || ''))
         setState(String(data.uf || ''))
-      } catch (err) {
+      } catch {
         if (!cancelled) setZipCodeLookupError('Não foi possível buscar o CEP agora.')
       } finally {
         if (!cancelled) setIsLookingUpZipCode(false)
@@ -289,7 +289,7 @@ export function CreateCustomerDialog(props: Props) {
       })
 
       props.onOpenChange(false)
-    } catch (err) {
+    } catch {
       setErrorMessage('Não foi possível criar o cliente.')
     } finally {
       setIsSaving(false)

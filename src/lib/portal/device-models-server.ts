@@ -25,7 +25,15 @@ export async function fetchDeviceModelsForSelector(
 
   if (error) return []
 
-  const rows = (data || []).map((row: any) => {
+  type BrandRow = { name?: string | null }
+  type DeviceTypeRow = { name?: string | null; device_brands?: BrandRow | BrandRow[] | null }
+  type DeviceModelRow = {
+    id: string
+    model?: string | null
+    device_types?: DeviceTypeRow | DeviceTypeRow[] | null
+  }
+
+  const rows = (data || []).map((row: DeviceModelRow) => {
     const dt = Array.isArray(row.device_types) ? row.device_types[0] : row.device_types
     const brandRow = dt && (Array.isArray(dt.device_brands) ? dt.device_brands[0] : dt.device_brands)
     return {

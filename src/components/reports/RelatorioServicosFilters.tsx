@@ -1,6 +1,5 @@
 'use client'
 
-import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -8,68 +7,17 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import {
+  useRelatorioServicosFilters,
+  type StatusGroup,
+} from '@/components/reports/use-relatorio-servicos-filters'
 import { ChevronDown } from 'lucide-react'
 
-const OPEN_STATUSES = [
-  { value: 'orcamento', label: 'Orçamento' },
-  { value: 'aguardando_aprovacao', label: 'Aguardando aprovação' },
-  { value: 'aprovado', label: 'Aprovado' },
-  { value: 'aguardando_pecas', label: 'Aguardando peças' },
-  { value: 'em_manutencao', label: 'Em manutenção' },
-  { value: 'aguardando_retirada', label: 'Aguardando retirada' },
-] as const
+export function RelatorioServicosStatusSelect () {
+  const { selectedStatuses, statusOptions, updateParams } =
+    useRelatorioServicosFilters()
 
-const CLOSED_STATUSES = [
-  { value: 'finalizada', label: 'Finalizada' },
-  { value: 'finalizada_sem_conserto', label: 'Finalizada sem conserto' },
-  { value: 'finalizada_sem_aprovacao', label: 'Finalizada sem aprovação' },
-  { value: 'cancelada', label: 'Cancelada' },
-] as const
-
-export type StatusGroup = 'open' | 'closed' | ''
-
-export function useRelatorioServicosFilters() {
-  const router = useRouter()
-  const pathname = usePathname()
-  const searchParams = useSearchParams()
-
-  const statusGroup = (searchParams?.get('statusGroup') || '') as StatusGroup
-  const statusParam = searchParams?.getAll('status') ?? []
-  const selectedStatuses = Array.isArray(statusParam) ? statusParam : [statusParam].filter(Boolean)
-
-  const statusOptions = statusGroup === 'open'
-    ? OPEN_STATUSES
-    : statusGroup === 'closed'
-      ? CLOSED_STATUSES
-      : [...OPEN_STATUSES, ...CLOSED_STATUSES]
-
-  function updateParams(updates: { statusGroup?: StatusGroup; status?: string[] }) {
-    const params = new URLSearchParams(searchParams?.toString() || '')
-    if (updates.statusGroup !== undefined) {
-      if (updates.statusGroup) params.set('statusGroup', updates.statusGroup)
-      else params.delete('statusGroup')
-    }
-    if (updates.status !== undefined) {
-      params.delete('status')
-      for (const s of updates.status) {
-        if (s) params.append('status', s)
-      }
-    }
-    router.push(`${pathname}?${params.toString()}`)
-  }
-
-  return {
-    statusGroup,
-    selectedStatuses,
-    statusOptions,
-    updateParams,
-  }
-}
-
-export function RelatorioServicosStatusSelect() {
-  const { selectedStatuses, statusOptions, updateParams } = useRelatorioServicosFilters()
-
-  function handleStatusToggle(value: string, checked: boolean) {
+  function handleStatusToggle (value: string, checked: boolean) {
     const next = checked
       ? [...selectedStatuses, value]
       : selectedStatuses.filter((s) => s !== value)
@@ -117,10 +65,10 @@ export function RelatorioServicosStatusSelect() {
   )
 }
 
-export function RelatorioServicosQuickFilter() {
+export function RelatorioServicosQuickFilter () {
   const { statusGroup, updateParams } = useRelatorioServicosFilters()
 
-  function handleQuickFilter(group: StatusGroup) {
+  function handleQuickFilter (group: StatusGroup) {
     updateParams({ statusGroup: group, status: [] })
   }
 

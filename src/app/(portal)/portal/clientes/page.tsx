@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { ClientesTableClient } from './ClientesTableClient'
+import { ClientesTableClient, type CustomerRow } from './ClientesTableClient'
 import { DocumentMaskedInput } from './DocumentMaskedInput'
 
 export const dynamic = 'force-dynamic'
@@ -102,7 +102,7 @@ export default async function ClientesPage({
 				</CardHeader>
 				<CardContent>
 					{customers && customers.length > 0 ? (
-						<ClientesTableClient customers={customers as any} />
+						<ClientesTableClient customers={(customers ?? []) as CustomerRow[]} />
 					) : (
 						<div className="text-sm text-muted-foreground">
 							Nenhum cliente encontrado.

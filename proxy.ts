@@ -89,7 +89,7 @@ export async function proxy(request: NextRequest) {
       const env = getSupabaseEnv()
       supabaseUrl = env.url
       anonKey = env.anonKey
-    } catch (err) {
+    } catch {
       if (isPublicPortalPath) return response
 
       url.pathname = '/portal/login'

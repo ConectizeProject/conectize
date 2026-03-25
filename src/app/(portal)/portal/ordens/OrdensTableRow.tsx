@@ -9,32 +9,10 @@ import { OrderStatusBadge, CustomerOrderHistoryModal } from '@/components/orders
 import { OrdensRowActions } from './OrdensRowActions'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { formatDateTimeBr } from '@/lib/utils/format-date'
-
-type OrderRow = {
-  id: string
-  display_number: number | null
-  status: string
-  title: string
-  created_at: string
-  updated_at: string
-  closed_at: string | null
-  estimated_ready_at: string | null
-  share_token?: string | null
-  customers: {
-    id?: string
-    cpf?: string | null
-    cnpj?: string | null
-    is_company?: boolean
-    full_name?: string | null
-    company_name?: string | null
-    email?: string | null
-    mobile_phone?: string | null
-  } | null
-  device_models: { brand?: string; device_type?: string; model?: string } | null
-}
+import type { PortalOrdensListRow } from '@/lib/orders/portal-ordens-list-types'
 
 type Props = {
-  order: OrderRow
+  order: PortalOrdensListRow
 }
 
 export function OrdensTableRow({ order }: Props) {

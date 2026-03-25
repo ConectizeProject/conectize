@@ -3,7 +3,6 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { BarChart3, Building2, ChevronDown, ClipboardList, DollarSign, Home, LayoutDashboard, LogOut, Moon, Plug2, Settings, Sun, UserCheck, Smartphone, Users, Package } from 'lucide-react'
-import { PortalDataChat } from './PortalDataChat'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
 	DropdownMenu,
@@ -26,8 +25,8 @@ import {
 	SidebarProvider,
 	SidebarRail,
 	SidebarTrigger,
-	useSidebar,
 } from '@/components/ui/sidebar'
+import { useSidebar } from '@/components/ui/use-sidebar'
 import { useTheme } from 'next-themes'
 import { cn } from '@/lib/utils'
 
@@ -238,8 +237,6 @@ export function PortalShell(props: PortalShellProps) {
 					{props.children}
 				</div>
 			</SidebarInset>
-
-			{!isBasicUser && <PortalDataChat role={props.role} />}
 		</SidebarProvider>
 	)
 }

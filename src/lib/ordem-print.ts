@@ -178,7 +178,7 @@ export type OrdemPrintData = {
     valueCents?: number | null
     costCents?: number | null
   }> | null
-  deviceEntryChecks?: any | null
+  deviceEntryChecks?: unknown | null
 }
 
 function formatDate(value: string | null): string {
@@ -367,9 +367,14 @@ export function buildOrdemPrintHtml(
   ${data.internalDescription ? `<div class="section"><h2>Notas internas</h2><div class="block">${escapeHtml(data.internalDescription)}</div></div>` : ''}
   ${(() => {
       const checks = data.deviceEntryChecks
-      if (!checks || typeof checks !== 'object') return ''
-      const status = typeof checks.status === 'string' ? checks.status : null
-      const list = checks.checks && typeof checks.checks === 'object' ? checks.checks as Record<string, unknown> : null
+      if (!checks || typeof checks !== 'object' || Array.isArray(checks)) return ''
+      const c = checks as Record<string, unknown>
+      const status = typeof c.status === 'string' ? c.status : null
+      const rawChecks = c.checks
+      const list =
+        rawChecks && typeof rawChecks === 'object' && !Array.isArray(rawChecks)
+          ? (rawChecks as Record<string, unknown>)
+          : null
 
       const statusLabel = status
         ? ({

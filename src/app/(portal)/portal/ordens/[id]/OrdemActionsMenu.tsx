@@ -23,23 +23,13 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { MessageCircle, Mail, MoreVertical, Trash2, Copy } from 'lucide-react'
+import { History, MessageCircle, Mail, MoreVertical, Trash2, Copy } from 'lucide-react'
+import { OrderEditHistoryDialog } from './OrderEditHistoryDialog'
 import { toast } from '@/hooks/use-toast'
 import { buildOrderMessage } from '@/lib/ordem-share-message'
+import { ORDER_STATUS_LABELS } from '@/lib/orders/order-status'
 import { formatPhoneForWhatsApp } from '@/lib/utils/format-phone'
-
-const STATUS_LABELS: Record<string, string> = {
-  orcamento: 'Orçamento',
-  aguardando_aprovacao: 'Aguardando aprovação',
-  aprovado: 'Aprovado',
-  aguardando_pecas: 'Aguardando peças',
-  em_manutencao: 'Em manutenção',
-  aguardando_retirada: 'Aguardando retirada',
-  finalizada: 'Finalizada',
-  finalizada_sem_conserto: 'Finalizada sem conserto',
-  finalizada_sem_aprovacao: 'Finalizada sem aprovação',
-  cancelada: 'Cancelada',
-}
+import { updateOrderStatusAction } from './order-detail-actions'
 
 type Props = {
   orderId: string
@@ -55,6 +45,8 @@ type Props = {
   isFinalized: boolean
   canDelete: boolean
   deleteOrderAction: (formData: FormData) => Promise<unknown>
+  /** Permite excluir linhas do histórico dentro do diálogo */
+  isAdmin?: boolean
 }
 
 export function OrdemActionsMenu({
@@ -68,11 +60,13 @@ export function OrdemActionsMenu({
   estimatedReadyAt,
   mobilePhone,
   email,
-  isFinalized,
+  isFinalized: _isFinalized,
   canDelete,
   deleteOrderAction,
+  isAdmin = false,
 }: Props) {
   const router = useRouter()
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [publicUrl, setPublicUrl] = useState<string | null>(
     publicOrderPath && typeof window !== 'undefined' ? `${window.location.origin}${publicOrderPath}` : null
   )
@@ -98,7 +92,7 @@ export function OrdemActionsMenu({
   }, [orderId, publicOrderPath])
 
   const orderHref = publicUrl ?? ''
-  const statusLabel = STATUS_LABELS[status] ?? status
+  const statusLabel = ORDER_STATUS_LABELS[status] ?? status
   const message = orderHref
     ? buildOrderMessage({
       displayNumber,
@@ -120,20 +114,18 @@ export function OrdemActionsMenu({
   async function handleStatusChange(newStatus: string) {
     setStatusUpdating(true)
     try {
-      const res = await fetch(`/api/portal/ordens/${orderId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus }),
-      })
-      const data = await res.json().catch(() => null)
-      if (!res.ok || !data?.ok) {
+      const fd = new FormData()
+      fd.set('orderId', orderId)
+      fd.set('status', newStatus)
+      const result = await updateOrderStatusAction(fd)
+      if (!result.ok) {
         toast({ title: 'Erro ao atualizar status', variant: 'destructive' })
         return
       }
       toast({
         variant: 'success',
         title: 'Status atualizado',
-        description: STATUS_LABELS[newStatus] ?? newStatus,
+        description: ORDER_STATUS_LABELS[newStatus] ?? newStatus,
       })
       router.refresh()
     } finally {
@@ -200,12 +192,23 @@ export function OrdemActionsMenu({
               </a>
             </DropdownMenuItem>
           ) : null}
+          {(whatsappHref || message || mailtoHref) ? <DropdownMenuSeparator /> : null}
+          <DropdownMenuItem
+            onSelect={(e) => {
+              e.preventDefault()
+              setHistoryOpen(true)
+            }}
+          >
+            <History className="h-4 w-4 mr-2" />
+            Histórico de edições
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           <DropdownMenuSub>
             <DropdownMenuSubTrigger disabled={statusUpdating}>
               Alterar status
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
-              {Object.entries(STATUS_LABELS).map(([value, label]) => (
+              {Object.entries(ORDER_STATUS_LABELS).map(([value, label]) => (
                 <DropdownMenuItem
                   key={value}
                   onClick={() => handleStatusChange(value)}
@@ -233,6 +236,13 @@ export function OrdemActionsMenu({
           ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <OrderEditHistoryDialog
+        orderId={orderId}
+        isAdmin={isAdmin}
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+      />
 
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>

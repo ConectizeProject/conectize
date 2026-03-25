@@ -2,8 +2,7 @@
 const CONECTIZE_LAT = -19.9276
 const CONECTIZE_LNG = -43.9248
 
-// CEP da Conectize
-const CONECTIZE_CEP = '30130-094'
+/** CEP da loja (referência): 30130-094 — Santa Efigênia, BH */
 
 // Configuração da coleta (faixas e valores) para facilitar ajustes
 export const COLETA_DISTANCE_MULTIPLIER = 1.8

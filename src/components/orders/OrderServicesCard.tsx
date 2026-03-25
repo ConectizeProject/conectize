@@ -301,8 +301,8 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 					return
 				}
 				setCatalogItems(data.items as CatalogItem[])
-			} catch (err: any) {
-				if (cancelled || err?.name === 'AbortError') return
+			} catch (err: unknown) {
+				if (cancelled || (err instanceof Error && err.name === 'AbortError')) return
 				setCatalogError('Não foi possível carregar os itens cadastrados.')
 				setCatalogItems([])
 			} finally {
@@ -559,7 +559,6 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 
 					<div className="space-y-3 overflow-y-auto pr-1">
 						{services.map((s, idx) => {
-							const normalized = servicesNormalized[idx]
 							const isProduct = s.kind === 'product'
 
 							return (

@@ -1,6 +1,5 @@
 import { redirect } from 'next/navigation'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
-import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -58,7 +57,7 @@ async function updateCompanyAction(formData: FormData) {
 }
 
 export default async function DadosEmpresaPage({
-  searchParams,
+  searchParams: _searchParams,
 }: {
   searchParams: Promise<{ ok?: string }>
 }) {

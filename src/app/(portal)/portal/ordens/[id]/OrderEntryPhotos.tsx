@@ -50,7 +50,7 @@ function getAddPhotosUrl(orderId: string): string {
 
 export function OrderEntryPhotos({
 	orderId,
-	initialPhotos = [],
+	initialPhotos: _initialPhotos = [],
 	initialPhotoCount,
 	disabled = false,
 }: OrderEntryPhotosProps) {
@@ -419,7 +419,6 @@ export function OrderEntryPhotos({
 									key={item.key}
 									className="relative aspect-square rounded-lg border bg-muted overflow-hidden"
 								>
-									{/* eslint-disable-next-line @next/next/no-img-element */}
 									<img
 										src={item.previewUrl}
 										alt=""

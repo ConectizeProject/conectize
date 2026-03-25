@@ -5,7 +5,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { OrderStatusBadge } from '@/components/orders'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { formatDateTimeBr } from '@/lib/utils/format-date'
-import { formatPhoneBr as formatPhoneBrUtil } from '@/lib/utils/format-phone'
 import { formatCentsBr } from '@/lib/utils/format-money'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
@@ -22,14 +21,10 @@ export const metadata = {
 	},
 }
 
-function getCustomerFromOrder(order: any) {
+function getCustomerFromOrder(order: { customers?: unknown }) {
 	const customer = order?.customers
 	if (Array.isArray(customer)) return customer[0] || null
 	return customer || null
-}
-
-function formatPhoneBr(value: string | null | undefined) {
-	return formatPhoneBrUtil(value) ?? '-'
 }
 
 function parseServicesForDisplay(raw: unknown): {
@@ -43,7 +38,7 @@ function parseServicesForDisplay(raw: unknown): {
 		const data = parsed as Record<string, unknown>
 		let items = Array.isArray(data?.items) ? data.items : Array.isArray(raw) ? raw : []
 		items = items.slice(0, 100)
-		const result = items.map((item: any) => {
+		const result = items.map((item: Record<string, unknown>) => {
 			const kind = item?.kind === 'product' ? 'product' : 'service'
 			const description = String(item?.description ?? '').trim().slice(0, 240)
 			const quantity =
@@ -103,8 +98,8 @@ function parsePaymentMethodsForDisplay(
 	const list = Array.isArray(raw) ? raw : []
 	const byId = new Map((catalog ?? []).map((p) => [p.id, p.type]))
 	return list
-		.filter((e: any) => e?.payment_method_id)
-		.map((e: any) => {
+		.filter((e: Record<string, unknown>) => e?.payment_method_id)
+		.map((e: Record<string, unknown>) => {
 			const type = byId.get(String(e.payment_method_id)) || ''
 			const typeLabel = PAYMENT_TYPE_LABELS[type] || type || 'Forma de pagamento'
 			return {
@@ -172,7 +167,7 @@ export default async function OrdemPublicaPage({
 		)
 	}
 
-	const [{ data: order }, { data: company }, { data: paymentMethodsCatalog }] = await Promise.all([
+	const [{ data: order }, { data: _company }, { data: paymentMethodsCatalog }] = await Promise.all([
 		supabase
 			.from('service_orders')
 			.select('id, display_number, status, title, imei, is_warranty, estimated_ready_at, customer_description, receiving_notes, warranty_text, services, payment_methods, brand, model, device_model_id, created_at, updated_at, closed_at, device_entry_checks, customers ( cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date ), device_models ( id, model, device_types ( name, device_brands ( name ) ) )')

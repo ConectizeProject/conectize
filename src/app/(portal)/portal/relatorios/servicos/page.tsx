@@ -13,27 +13,37 @@ import { DateRangePicker } from '@/components/ui/date-range-picker'
 import { RelatorioServicosSituacao } from '@/components/reports/RelatorioServicosSituacao'
 import { maskedFromCents } from '@/lib/utils/money'
 import { formatDateBr } from '@/lib/utils/format-date'
+import {
+  FINALIZED_ORDER_STATUSES,
+  OPEN_ORDER_STATUSES,
+  isFinalizedOrderStatus,
+  isOpenOrderStatus,
+} from '@/lib/orders/order-status'
+import type { RevenueBucket } from '@/lib/reports/revenue-series'
 
 export const dynamic = 'force-dynamic'
 
-const OPEN_STATUSES = [
-  'orcamento',
-  'aguardando_aprovacao',
-  'aprovado',
-  'aguardando_pecas',
-  'em_manutencao',
-  'aguardando_retirada',
-] as const
-
-const CLOSED_STATUSES = [
-  'finalizada',
-  'finalizada_sem_conserto',
-  'finalizada_sem_aprovacao',
-  'cancelada',
-] as const
-
 const FINAL_SUCCESS_STATUS = 'finalizada'
 const FINAL_NO_FIX_STATUS = 'finalizada_sem_conserto'
+
+type FeeBreakdownItem = { type: string; feePercent: number; valueCents: number; feeCents: number }
+
+type ServiceOrderRow = {
+  id: string
+  display_number: string | number | null
+  status: string
+  title: string | null
+  created_at: string | null
+  closed_at: string | null
+  services: unknown
+  services_total_cents: number | null
+  services_cost_total_cents: number | null
+  payment_methods?: unknown
+  is_warranty?: boolean | null
+  payment_fees_cents?: number
+  net_received_cents?: number
+  payment_fees_breakdown?: FeeBreakdownItem[]
+}
 
 type FaturamentoFiltroKey = 'todos' | 'ambos_zero' | 'custo_zero_com_cobrado'
 
@@ -71,11 +81,11 @@ export default async function RelatorioServicosPage({
   const fetchClosed = statusGroup !== 'open'
 
   const openStatuses = statusArray.length > 0
-    ? statusArray.filter((s) => OPEN_STATUSES.includes(s as any))
-    : [...OPEN_STATUSES]
+    ? statusArray.filter((s) => isOpenOrderStatus(s))
+    : [...OPEN_ORDER_STATUSES]
   const closedStatuses = statusArray.length > 0
-    ? statusArray.filter((s) => CLOSED_STATUSES.includes(s as any))
-    : [...CLOSED_STATUSES]
+    ? statusArray.filter((s) => isFinalizedOrderStatus(s))
+    : [...FINALIZED_ORDER_STATUSES]
 
   const supabase = await createSupabaseServerClient()
 
@@ -179,13 +189,13 @@ export default async function RelatorioServicosPage({
   }>
   const pmById = new Map(paymentMethodsCatalog.map((p) => [p.id, p]))
 
-  const sortedOrders = [...openList, ...closedList].sort((a: any, b: any) => {
+  const sortedOrders = [...openList, ...closedList].sort((a: ServiceOrderRow, b: ServiceOrderRow) => {
     const dateA = a.closed_at ? new Date(a.closed_at).getTime() : new Date(a.created_at).getTime()
     const dateB = b.closed_at ? new Date(b.closed_at).getTime() : new Date(b.created_at).getTime()
     return dateB - dateA
   })
 
-  const allOrders = sortedOrders.map((o: any) => {
+  const allOrders = sortedOrders.map((o: ServiceOrderRow) => {
     const { payment_fees_cents, net_received_cents, payment_fees_breakdown } = computePaymentFeesAndNet(o, pmById)
     return { ...o, payment_fees_cents, net_received_cents, payment_fees_breakdown }
   })
@@ -198,8 +208,8 @@ export default async function RelatorioServicosPage({
   const openCount = openList.length
   const openCountPrev = openListPrev.length
   const openCountDiff = openCount - openCountPrev
-  const closedSuccessCount = closedList.filter((o: any) => o.status === FINAL_SUCCESS_STATUS).length
-  const closedNoFixCount = closedList.filter((o: any) => o.status === FINAL_NO_FIX_STATUS).length
+  const closedSuccessCount = closedList.filter((o: ServiceOrderRow) => o.status === FINAL_SUCCESS_STATUS).length
+  const closedNoFixCount = closedList.filter((o: ServiceOrderRow) => o.status === FINAL_NO_FIX_STATUS).length
 
   let totalSlaMs = 0
   let totalSlaCount = 0
@@ -220,8 +230,8 @@ export default async function RelatorioServicosPage({
   let costCents = 0
 
   for (const o of closedList) {
-    const gross = (o as any).services_total_cents ?? 0
-    const cost = (o as any).services_cost_total_cents ?? 0
+    const gross = o.services_total_cents ?? 0
+    const cost = o.services_cost_total_cents ?? 0
     if (Number.isFinite(gross)) grossCents += Number(gross)
     if (Number.isFinite(cost)) costCents += Number(cost)
   }
@@ -230,7 +240,7 @@ export default async function RelatorioServicosPage({
   const marginPercent = grossCents > 0 ? (netCents / grossCents) * 100 : 0
 
   const closedFinalizedCount = closedSuccessCount + closedNoFixCount
-  const closedFinalizedPrev = closedListPrev.filter((o: any) => o.status === FINAL_SUCCESS_STATUS || o.status === FINAL_NO_FIX_STATUS).length
+  const closedFinalizedPrev = closedListPrev.filter((o: ServiceOrderRow) => o.status === FINAL_SUCCESS_STATUS || o.status === FINAL_NO_FIX_STATUS).length
   const closedFinalizedDiff = closedFinalizedCount - closedFinalizedPrev
 
   let totalSlaMsPrev = 0
@@ -250,8 +260,8 @@ export default async function RelatorioServicosPage({
   let grossCentsPrev = 0
   let costCentsPrev = 0
   for (const o of closedListPrev) {
-    const gross = (o as any).services_total_cents ?? 0
-    const cost = (o as any).services_cost_total_cents ?? 0
+    const gross = o.services_total_cents ?? 0
+    const cost = o.services_cost_total_cents ?? 0
     if (Number.isFinite(gross)) grossCentsPrev += Number(gross)
     if (Number.isFinite(cost)) costCentsPrev += Number(cost)
   }
@@ -268,7 +278,7 @@ export default async function RelatorioServicosPage({
   const avgGrossPerDayDiff = avgGrossPerDayCents - avgGrossPerDayCentsPrev
 
   const revenueSeries = buildRevenueSeries(
-    closedList.map((o: any) => ({
+    closedList.map((o: ServiceOrderRow) => ({
       dateISO: o.closed_at,
       grossCents: o.services_total_cents ?? 0,
       netCents: (o.services_total_cents ?? 0) - (o.services_cost_total_cents ?? 0),
@@ -276,15 +286,15 @@ export default async function RelatorioServicosPage({
   )
 
   const revenueSeriesPrev = buildRevenueSeries(
-    closedListPrev.map((o: any) => ({
+    closedListPrev.map((o: ServiceOrderRow) => ({
       dateISO: o.closed_at,
       grossCents: o.services_total_cents ?? 0,
       netCents: (o.services_total_cents ?? 0) - (o.services_cost_total_cents ?? 0),
     })),
   )
 
-  const dailyByKey = new Map(revenueSeries.daily.map((b: any) => [b.key, b]))
-  const dailyPrevByKey = new Map(revenueSeriesPrev.daily.map((b: any) => [b.key, b]))
+  const dailyByKey = new Map(revenueSeries.daily.map((b: RevenueBucket) => [b.key, b]))
+  const dailyPrevByKey = new Map(revenueSeriesPrev.daily.map((b: RevenueBucket) => [b.key, b]))
   const filledDaily: Array<{ key: string; label: string; grossCents: number; netCents: number; count: number }> = []
   const filledDailyPrev: Array<{ key: string; label: string; grossCents: number; netCents: number; count: number }> = []
   const oneDayMs = 86400000
@@ -317,26 +327,26 @@ export default async function RelatorioServicosPage({
   const situacaoItems = [
     {
       label: 'Finalizada',
-      count: closedList.filter((o: any) => o.status === 'finalizada').length,
-      totalCents: closedList.filter((o: any) => o.status === 'finalizada').reduce((s: number, o: any) => s + (Number(o.services_total_cents) || 0), 0),
+      count: closedList.filter((o: ServiceOrderRow) => o.status === 'finalizada').length,
+      totalCents: closedList.filter((o: ServiceOrderRow) => o.status === 'finalizada').reduce((s: number, o: ServiceOrderRow) => s + (Number(o.services_total_cents) || 0), 0),
       barColor: 'hsl(142, 76%, 36%)',
     },
     {
       label: 'Finalizada sem conserto',
-      count: closedList.filter((o: any) => o.status === 'finalizada_sem_conserto').length,
-      totalCents: closedList.filter((o: any) => o.status === 'finalizada_sem_conserto').reduce((s: number, o: any) => s + (Number(o.services_total_cents) || 0), 0),
+      count: closedList.filter((o: ServiceOrderRow) => o.status === 'finalizada_sem_conserto').length,
+      totalCents: closedList.filter((o: ServiceOrderRow) => o.status === 'finalizada_sem_conserto').reduce((s: number, o: ServiceOrderRow) => s + (Number(o.services_total_cents) || 0), 0),
       barColor: 'hsl(215, 16%, 47%)',
     },
     {
       label: 'Finalizada sem aprovação',
-      count: closedList.filter((o: any) => o.status === 'finalizada_sem_aprovacao').length,
-      totalCents: closedList.filter((o: any) => o.status === 'finalizada_sem_aprovacao').reduce((s: number, o: any) => s + (Number(o.services_total_cents) || 0), 0),
+      count: closedList.filter((o: ServiceOrderRow) => o.status === 'finalizada_sem_aprovacao').length,
+      totalCents: closedList.filter((o: ServiceOrderRow) => o.status === 'finalizada_sem_aprovacao').reduce((s: number, o: ServiceOrderRow) => s + (Number(o.services_total_cents) || 0), 0),
       barColor: 'hsl(38, 92%, 50%)',
     },
     {
       label: 'Cancelada',
-      count: closedList.filter((o: any) => o.status === 'cancelada').length,
-      totalCents: closedList.filter((o: any) => o.status === 'cancelada').reduce((s: number, o: any) => s + (Number(o.services_total_cents) || 0), 0),
+      count: closedList.filter((o: ServiceOrderRow) => o.status === 'cancelada').length,
+      totalCents: closedList.filter((o: ServiceOrderRow) => o.status === 'cancelada').reduce((s: number, o: ServiceOrderRow) => s + (Number(o.services_total_cents) || 0), 0),
       barColor: 'hsl(0, 84%, 60%)',
     },
   ].filter((i) => i.count > 0)
@@ -553,7 +563,7 @@ export default async function RelatorioServicosPage({
               </CardDescription>
             </div>
             <RelatorioServicosPdfButton
-              orders={displayOrders.map((o: any) => ({
+              orders={displayOrders.map((o: ServiceOrderRow) => ({
                 id: String(o.id),
                 display_number: o.display_number ?? null,
                 status: String(o.status),
@@ -592,7 +602,7 @@ function resolveFaturamentoFiltro (sp: { faturamentoFiltro?: string; semValores?
   return 'todos'
 }
 
-function applyFaturamentoFiltro (orders: any[], key: FaturamentoFiltroKey): any[] {
+function applyFaturamentoFiltro (orders: ServiceOrderRow[], key: FaturamentoFiltroKey): ServiceOrderRow[] {
   if (key === 'todos') return orders
   return orders.filter((o) => {
     const gross = Number(o.services_total_cents) || 0
@@ -613,7 +623,11 @@ function getPdfFilterNote (key: FaturamentoFiltroKey): string | null {
   return null
 }
 
-type FeeBreakdownItem = { type: string; feePercent: number; valueCents: number; feeCents: number }
+type PaymentMethodEntryRow = {
+  payment_method_id?: unknown
+  value_cents?: unknown
+  installments?: unknown
+}
 
 function computePaymentFeesAndNet(
   order: { payment_methods?: unknown; services_total_cents?: number | null },
@@ -625,14 +639,15 @@ function computePaymentFeesAndNet(
   const pmRaw = order.payment_methods
   const entries = Array.isArray(pmRaw) ? pmRaw : []
   for (const e of entries) {
-    const pmId = (e as any)?.payment_method_id
-    const valueCents = (e as any)?.value_cents != null ? Math.max(0, Number((e as any).value_cents)) : 0
+    const row = e as PaymentMethodEntryRow
+    const pmId = row.payment_method_id
+    const valueCents = row.value_cents != null ? Math.max(0, Number(row.value_cents)) : 0
     if (!pmId || valueCents <= 0) continue
     const pm = pmById.get(String(pmId))
     if (!pm) continue
     let feePercent = Number(pm.fee_percent) || 0
     if (pm.type === 'credito' && Array.isArray(pm.credit_installment_fees) && pm.credit_installment_fees.length > 0) {
-      const installments = Math.max(1, Number((e as any).installments) || 1)
+      const installments = Math.max(1, Number(row.installments) || 1)
       const fees = [...pm.credit_installment_fees].sort((a, b) => a.installments - b.installments)
       const exact = fees.find((f) => f.installments === installments)
       const match = exact ?? fees.filter((f) => f.installments <= installments).pop() ?? fees[0]
@@ -696,22 +711,3 @@ function formatDateYYYYMMDD(date: Date) {
   const day = String(date.getUTCDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
 }
-
-function formatInputDate(date: Date) {
-  return formatDateYYYYMMDD(date)
-}
-
-function formatRangeLabel(from: Date, to: Date) {
-  const fromLabel = formatBrDate(from)
-  const toLabel = formatBrDate(to)
-  if (fromLabel === toLabel) return fromLabel
-  return `${fromLabel} a ${toLabel}`
-}
-
-function formatBrDate(date: Date) {
-  const day = String(date.getUTCDate()).padStart(2, '0')
-  const month = String(date.getUTCMonth() + 1).padStart(2, '0')
-  const year = String(date.getUTCFullYear())
-  return `${day}/${month}/${year}`
-}
-

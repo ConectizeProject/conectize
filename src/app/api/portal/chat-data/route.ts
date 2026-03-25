@@ -1,22 +1,17 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
-
-const OPEN_STATUSES = [
-  'orcamento', 'aguardando_aprovacao', 'aprovado',
-  'aguardando_pecas', 'em_manutencao', 'aguardando_retirada',
-] as const
-
-const FINALIZED_STATUSES = [
-  'finalizada', 'finalizada_sem_conserto', 'finalizada_sem_aprovacao', 'cancelada',
-] as const
+import {
+  FINALIZED_ORDER_STATUSES,
+  OPEN_ORDER_STATUSES,
+} from '@/lib/orders/order-status'
 
 const FINANCIAL_KEYWORDS = /faturamento|receita|financeiro|financeiros|lucro|custo total|valor total|vendas em|faturamento do|receita do|resumo financeiro|custos|faturamento do mês|receita do mês/i
 
 async function fetchOrderStats(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>) {
   const [openRes, closedRes, todayRes] = await Promise.all([
-    supabase.from('service_orders').select('id', { count: 'exact', head: true }).in('status', [...OPEN_STATUSES]),
-    supabase.from('service_orders').select('id', { count: 'exact', head: true }).in('status', [...FINALIZED_STATUSES]),
+    supabase.from('service_orders').select('id', { count: 'exact', head: true }).in('status', [...OPEN_ORDER_STATUSES]),
+    supabase.from('service_orders').select('id', { count: 'exact', head: true }).in('status', [...FINALIZED_ORDER_STATUSES]),
     supabase
       .from('service_orders')
       .select('id', { count: 'exact', head: true })
@@ -31,7 +26,7 @@ async function fetchOrderStats(supabase: Awaited<ReturnType<typeof createSupabas
   const { data: byStatus } = await supabase
     .from('service_orders')
     .select('status')
-    .in('status', [...OPEN_STATUSES, ...FINALIZED_STATUSES])
+    .in('status', [...OPEN_ORDER_STATUSES, ...FINALIZED_ORDER_STATUSES])
 
   const countByStatus: Record<string, number> = {}
   for (const row of byStatus || []) {
@@ -127,7 +122,7 @@ async function fetchFinancialSummary(supabase: Awaited<ReturnType<typeof createS
   const { data: closed } = await supabase
     .from('service_orders')
     .select('services_total_cents, services_cost_total_cents')
-    .in('status', [...FINALIZED_STATUSES])
+    .in('status', [...FINALIZED_ORDER_STATUSES])
     .gte('closed_at', fromIso)
     .lte('closed_at', toIso)
 

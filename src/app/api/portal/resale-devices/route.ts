@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 
 function cleanText(value: unknown): string {
@@ -114,7 +113,7 @@ export async function GET(request: Request) {
   }
 
   const ids = (devices || []).map((d: { id: string }) => d.id)
-  let costsMap: Record<string, { id: string; description: string | null; value_cents: number }[]> = {}
+  const costsMap: Record<string, { id: string; description: string | null; value_cents: number }[]> = {}
   if (ids.length > 0) {
     const { data: costs } = await auth.supabase
       .from('resale_device_costs')

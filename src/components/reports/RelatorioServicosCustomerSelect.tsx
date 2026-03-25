@@ -66,7 +66,9 @@ export function RelatorioServicosCustomerSelect ({
     if (customerSearchDebounceRef.current) clearTimeout(customerSearchDebounceRef.current)
     const t = customerQuery.trim()
     if (t.length < 2) {
-      setCustomerSuggestions([])
+      queueMicrotask(() => {
+        setCustomerSuggestions([])
+      })
       return
     }
     customerSearchDebounceRef.current = setTimeout(() => searchCustomers(t), 300)

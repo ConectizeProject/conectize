@@ -28,7 +28,7 @@ export function BackfillFromBlingButton () {
       const maxIterations = 100
       let iterations = 0
 
-      // eslint-disable-next-line no-constant-condition
+       
       while (true) {
         if (iterations >= maxIterations) break
         iterations += 1
@@ -47,13 +47,15 @@ export function BackfillFromBlingButton () {
           updated?: number
           nextOffset?: number
           finished?: boolean
+          message?: string
+          error?: string
         } | null
 
         if (!res.ok || !data?.ok) {
           toast({
             variant: 'destructive',
             title: 'Erro ao atualizar produtos pelo Bling',
-            description: (data as any)?.message || (data as any)?.error || 'Tente novamente.',
+            description: data?.message || data?.error || 'Tente novamente.',
           })
           break
         }

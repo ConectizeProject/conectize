@@ -60,6 +60,7 @@ type ResaleDevice = {
   storage_gb: string | null
   battery: string | null
   condition: string | null
+  /** Observações / detalhes gerais (API pode expor como info). */
   info: string | null
   imei: string | null
   imei2: string | null
@@ -433,9 +434,9 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
       const data = await res?.json().catch(() => null)
       if (data?.ok && data.device) {
         const d = data.device as ResaleDevice
-        const salePms = (d as any).sale_payment_methods
+        const salePms = d.sale_payment_methods
         const pms = Array.isArray(salePms) && salePms.length > 0
-          ? salePms.map((e: any) => ({
+          ? salePms.map((e) => ({
             rowKey: makeSalePaymentRowKey(),
             payment_method_id: String(e.payment_method_id ?? ''),
             value_cents: e.value_cents != null ? Number(e.value_cents) : null,
@@ -445,13 +446,13 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
             ? [{ rowKey: makeSalePaymentRowKey(), payment_method_id: d.payment_method_id, value_cents: null, installments: d.payment_installments ?? 1 }]
             : [newEmptySalePaymentRow()])
         setSellPaymentMethods(pms.length > 0 ? pms : [newEmptySalePaymentRow()])
-        const soldCents = (d as any).sold_for_cents ?? null
+        const soldCents = d.sold_for_cents ?? null
         const valueMasked = soldCents != null ? maskedFromCents(soldCents) : ''
         setSellModalValue(valueMasked)
         setSellModalDate(d.sale_date || new Date().toISOString().slice(0, 10))
-        setSellBuyerName((d as any).buyer_name ?? '')
-        setSellBuyerCpf(formatCpfCnpj((d as any).buyer_cpf ?? ''))
-        setSellSaleDetails((d as any).sale_details ?? d.info ?? '')
+        setSellBuyerName(d.buyer_name ?? '')
+        setSellBuyerCpf(formatCpfCnpj(d.buyer_cpf ?? ''))
+        setSellSaleDetails(d.sale_details ?? d.info ?? '')
         loadPaymentMethods()
         setShowSellModal(true)
       }
@@ -552,8 +553,8 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
         setFormSold(true)
         setFormSoldFor(sellModalValue)
         setFormSaleDate(sellModalDate)
-        if (updated && Array.isArray((updated as any).costs)) {
-          const mappedCosts = (updated as any).costs.map((c: any) => ({
+        if (updated && Array.isArray(updated.costs)) {
+          const mappedCosts = updated.costs.map((c) => ({
             id: c.id,
             description: c.description ?? '',
             value_cents: c.value_cents ?? 0,
@@ -1264,14 +1265,14 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
                 battery: termsDevice.battery,
                 imei: termsDevice.imei,
                 serial: termsDevice.serial,
-                sold_for_cents: (termsDevice as any).sold_for_cents ?? null,
+                sold_for_cents: termsDevice.sold_for_cents ?? null,
                 sale_date: termsDevice.sale_date,
-                buyer_name: (termsDevice as any).buyer_name ?? null,
-                buyer_cpf: (termsDevice as any).buyer_cpf ?? null,
-                sale_details: (termsDevice as any).sale_details ?? null,
-                payment_method_id: (termsDevice as any).payment_method_id ?? null,
-                payment_installments: (termsDevice as any).payment_installments ?? null,
-                sale_payment_methods: (termsDevice as any).sale_payment_methods ?? null,
+                buyer_name: termsDevice.buyer_name ?? null,
+                buyer_cpf: termsDevice.buyer_cpf ?? null,
+                sale_details: termsDevice.sale_details ?? null,
+                payment_method_id: termsDevice.payment_method_id ?? null,
+                payment_installments: termsDevice.payment_installments ?? null,
+                sale_payment_methods: termsDevice.sale_payment_methods ?? null,
               }
             : null
         }

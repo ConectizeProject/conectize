@@ -1,29 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffOrAdmin, requireAdmin } from '@/lib/auth/portal-api'
+import { applyOrderStatusChange } from '@/lib/orders/apply-order-status-change'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
-import { buildOrderEditDiff } from '@/lib/orders/order-edit-history'
-import { applyOrderStatusStockTransition } from '@/lib/orders/stock-by-status'
+import { ORDER_STATUS_SET } from '@/lib/orders/order-status'
 
-const VALID_STATUSES = new Set([
-  'orcamento',
-  'aguardando_aprovacao',
-  'aprovado',
-  'aguardando_pecas',
-  'em_manutencao',
-  'aguardando_retirada',
-  'finalizada',
-  'finalizada_sem_conserto',
-  'finalizada_sem_aprovacao',
-  'cancelada',
-])
-
-const FINALIZED_STATUSES = new Set([
-  'finalizada',
-  'finalizada_sem_conserto',
-  'finalizada_sem_aprovacao',
-  'cancelada',
-])
-
+/**
+ * API REST para integrações / clientes que não usam Server Actions.
+ * Lógica compartilhada com `updateOrderStatusAction` em `order-detail-actions.ts`
+ * (`applyOrderStatusChange`).
+ */
 export async function PATCH (
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -44,70 +29,25 @@ export async function PATCH (
     ? String((body as { status: unknown }).status ?? '').trim()
     : ''
 
-  if (!status || !VALID_STATUSES.has(status)) {
+  if (!status || !ORDER_STATUS_SET.has(status)) {
     return NextResponse.json({ ok: false, error: 'invalid_status' }, { status: 400 })
   }
 
-  const { data: existing, error: fetchErr } = await auth.supabase
-    .from('service_orders')
-    .select('status, services, closed_at')
-    .eq('id', orderId)
-    .maybeSingle()
+  const result = await applyOrderStatusChange(auth.supabase, {
+    orderId,
+    nextStatus: status,
+    editorUserId: auth.userId,
+  })
 
-  if (fetchErr) {
-    return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
-  }
-  if (!existing) {
-    return NextResponse.json({ ok: false, error: 'not_found' }, { status: 404 })
-  }
-
-  const previousStatus = String(existing.status || '')
-  const updatePayload: Record<string, unknown> = { status }
-  if (FINALIZED_STATUSES.has(status)) {
-    updatePayload.closed_at = new Date().toISOString()
-  }
-
-  const { error: upErr } = await auth.supabase
-    .from('service_orders')
-    .update(updatePayload)
-    .eq('id', orderId)
-
-  if (upErr) {
-    console.error('[ordens PATCH]', upErr)
-    return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
-  }
-
-  const diffRows = buildOrderEditDiff(existing as Record<string, unknown>, updatePayload)
-  if (diffRows.length > 0) {
-    const editedAt = new Date().toISOString()
-    const { error: histErr } = await auth.supabase
-      .from('service_order_edit_history')
-      .insert(
-        diffRows.map((r) => ({
-          service_order_id: orderId,
-          edited_by: auth.userId,
-          edited_at: editedAt,
-          field_key: r.field_key,
-          old_value: r.old_value,
-          new_value: r.new_value,
-        })),
-      )
-    if (histErr) {
-      console.error('[ordens PATCH edit-history]', histErr)
+  if (result.ok === false) {
+    const err = result.error
+    if (err === 'not_found') {
+      return NextResponse.json({ ok: false, error: 'not_found' }, { status: 404 })
     }
-  }
-
-  try {
-    await applyOrderStatusStockTransition({
-      supabase: auth.supabase,
-      orderId,
-      previousStatus,
-      nextStatus: status,
-      services: existing.services,
-      actorUserId: auth.userId,
-    })
-  } catch (err) {
-    console.error('[ordens PATCH stock]', err)
+    if (err === 'invalid_status') {
+      return NextResponse.json({ ok: false, error: 'invalid_status' }, { status: 400 })
+    }
+    return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
   }
 
   return NextResponse.json({ ok: true })

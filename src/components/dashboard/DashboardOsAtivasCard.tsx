@@ -3,15 +3,7 @@
 import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-
-const STATUS_LABELS: Record<string, string> = {
-  orcamento: 'Orçamento',
-  aguardando_aprovacao: 'Aguardando aprovação',
-  aprovado: 'Aprovado',
-  aguardando_pecas: 'Aguardando peças',
-  em_manutencao: 'Em manutenção',
-  aguardando_retirada: 'Aguardando retirada',
-}
+import { getOrderStatusLabel } from '@/lib/orders/order-status'
 
 const STATUS_DOT_CLASSES: Record<string, string> = {
   orcamento: 'bg-amber-500',
@@ -38,7 +30,7 @@ type Props = {
 export function DashboardOsAtivasCard({ total, orders, statusCounts }: Props) {
   const statusEntries = Object.entries(statusCounts).filter(([, n]) => n > 0)
   const tooltipText = statusEntries.length > 0
-    ? statusEntries.map(([status, n]) => `${STATUS_LABELS[status] ?? status}: ${n}`).join(' · ')
+    ? statusEntries.map(([status, n]) => `${getOrderStatusLabel(status)}: ${n}`).join(' · ')
     : null
 
   return (
@@ -57,7 +49,7 @@ export function DashboardOsAtivasCard({ total, orders, statusCounts }: Props) {
             <ul className="space-y-1.5 text-sm">
               {orders.slice(0, 12).map((o) => {
                 const dotClass = STATUS_DOT_CLASSES[o.status] ?? 'bg-muted'
-                const label = STATUS_LABELS[o.status] ?? o.status
+                const label = getOrderStatusLabel(o.status)
                 return (
                   <li key={o.id} className="flex items-center gap-2">
                     <Tooltip>
@@ -91,7 +83,7 @@ export function DashboardOsAtivasCard({ total, orders, statusCounts }: Props) {
           )}
           {tooltipText && (
             <p className="text-[10px] text-muted-foreground" title={tooltipText}>
-              Por status: {statusEntries.map(([s, n]) => `${STATUS_LABELS[s] ?? s} ${n}`).join(', ')}
+              Por status: {statusEntries.map(([s, n]) => `${getOrderStatusLabel(s)} ${n}`).join(', ')}
             </p>
           )}
           <div className="flex flex-row gap-2 pt-1 justify-start items-center">

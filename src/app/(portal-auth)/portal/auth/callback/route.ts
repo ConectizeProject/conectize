@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
+import { assertSafePortalPath } from '@/lib/auth/safe-redirect'
 import { getSupabaseEnv } from '@/lib/supabase/env'
 
 /**
@@ -11,8 +12,7 @@ import { getSupabaseEnv } from '@/lib/supabase/env'
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')
-  const redirectTo = requestUrl.searchParams.get('redirectTo') || '/portal'
-  const safeRedirect = redirectTo.startsWith('/portal') ? redirectTo : '/portal'
+  const safeRedirect = assertSafePortalPath(requestUrl.searchParams.get('redirectTo'))
 
   if (!code) {
     return NextResponse.redirect(
@@ -64,7 +64,11 @@ export async function GET(request: Request) {
         opts.secure = false
       }
       opts.path = opts.path ?? '/'
-      response.cookies.set(name, value, opts as any)
+      response.cookies.set(
+        name,
+        value,
+        opts as NonNullable<Parameters<typeof response.cookies.set>[2]>,
+      )
     }
     return response
   } catch (err) {

@@ -6,8 +6,10 @@ import { ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { getOrderStatusLabel } from '@/lib/orders/order-status'
 import { OrdemCard } from './OrdemCard'
 import { OrdensFinalSection } from './OrdensFinalSection'
+import type { PortalOrdensListRow } from '@/lib/orders/portal-ordens-list-types'
 
 const OPEN_STATUS_ORDER = [
   'em_manutencao',
@@ -18,15 +20,6 @@ const OPEN_STATUS_ORDER = [
   'aguardando_retirada',
 ] as const
 
-const STATUS_LABELS: Record<string, string> = {
-  orcamento: 'Orçamento',
-  aguardando_aprovacao: 'Aguardando aprovação',
-  aprovado: 'Aprovado',
-  aguardando_pecas: 'Aguardando peças',
-  em_manutencao: 'Em manutenção',
-  aguardando_retirada: 'Aguardando retirada',
-}
-
 const STATUS_DOT_CLASSES: Record<string, string> = {
   orcamento: 'bg-amber-400 shadow-[0_0_0.6rem_rgba(251,191,36,0.9)]',
   aguardando_aprovacao: 'bg-violet-400 shadow-[0_0_0.6rem_rgba(167,139,250,0.9)]',
@@ -36,25 +29,8 @@ const STATUS_DOT_CLASSES: Record<string, string> = {
   aguardando_retirada: 'bg-emerald-400 shadow-[0_0_0.6rem_rgba(52,211,153,0.9)]',
 }
 
-type OrderRow = {
-  id: string
-  display_number: number | null
-  status: string
-  title: string
-  created_at: string
-  updated_at: string
-  closed_at: string | null
-  estimated_ready_at: string | null
-  share_token?: string | null
-  customers: Record<string, unknown> | null
-  device_models: Record<string, unknown> | null
-  services?: any[] | null
-  services_total_cents?: number | null
-  services_cost_total_cents?: number | null
-}
-
 type Props = {
-  openOrdersByStatus: Record<string, OrderRow[]>
+  openOrdersByStatus: Record<string, PortalOrdensListRow[]>
   filterQ: string
   filterCpf: string
   filterOsNumber: string
@@ -85,11 +61,6 @@ export function OrdensListClient({
   canDelete,
 }: Props) {
   const totalOpen = OPEN_STATUS_ORDER.reduce((acc, s) => acc + (openOrdersByStatus[s]?.length ?? 0), 0)
-  const hasFilters = Boolean(
-    filterQ || filterCpf || filterOsNumber || filterStatus ||
-    filterCustomerId || filterCustomerName || filterDeviceModelId ||
-    filterCreatedFrom || filterCreatedTo || filterReadyFrom || filterReadyTo
-  )
 
   const [openByStatus, setOpenByStatus] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {}
@@ -151,7 +122,7 @@ export function OrdensListClient({
       {OPEN_STATUS_ORDER.map((status) => {
         const list = openOrdersByStatus[status] ?? []
         if (list.length === 0) return null
-        const label = STATUS_LABELS[status] ?? status
+        const label = getOrderStatusLabel(status)
         const dotClass = STATUS_DOT_CLASSES[status] ?? 'bg-muted shadow-[0_0_0.6rem_rgba(148,163,184,0.7)]'
         return (
           <Collapsible
@@ -174,7 +145,7 @@ export function OrdensListClient({
             <CollapsibleContent>
               <div className="pt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                 {list.map((order) => (
-                  <OrdemCard key={order.id} order={order as any} canDelete={canDelete} />
+                  <OrdemCard key={order.id} order={order} canDelete={canDelete} />
                 ))}
               </div>
             </CollapsibleContent>

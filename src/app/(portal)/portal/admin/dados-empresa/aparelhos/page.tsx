@@ -1,6 +1,21 @@
 import { redirect } from 'next/navigation'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
-import { AparelhosClient } from '@/app/(portal)/portal/aparelhos/AparelhosClient'
+import {
+  AparelhosClient,
+  type DeviceModelRow,
+} from '@/app/(portal)/portal/aparelhos/AparelhosClient'
+
+type DeviceBrandJoin = { name?: string | null }
+type DeviceTypeJoin = {
+  name?: string | null
+  device_brands?: DeviceBrandJoin | DeviceBrandJoin[] | null
+}
+type DeviceModelQueryRow = {
+  id: string
+  model: string | null
+  created_at: string | null
+  device_types?: DeviceTypeJoin | DeviceTypeJoin[] | null
+}
 
 export const dynamic = 'force-dynamic'
 
@@ -34,21 +49,25 @@ export default async function DadosEmpresaAparelhosPage({
     .order('model', { ascending: true })
     .limit(2000)
 
-  const deviceModels = (deviceModelsRaw || []).map((d: any) => {
-    const dt = d.device_types || null
-    const brandRow = dt?.device_brands || null
-    return {
-      id: d.id,
-      brand: brandRow?.name ?? null,
-      device_type: dt?.name ?? null,
-      model: d.model ?? null,
-      created_at: d.created_at ?? null,
-    }
-  })
+  const deviceModels: DeviceModelRow[] = (deviceModelsRaw || []).map(
+    (d: DeviceModelQueryRow) => {
+      const rawDt = d.device_types
+      const dt = Array.isArray(rawDt) ? rawDt[0] : rawDt
+      const rawBr = dt?.device_brands
+      const brandRow = Array.isArray(rawBr) ? rawBr[0] : rawBr
+      return {
+        id: d.id,
+        brand: brandRow?.name ?? null,
+        device_type: dt?.name ?? null,
+        model: d.model ?? '',
+        created_at: d.created_at ?? null,
+      }
+    },
+  )
 
   return (
     <AparelhosClient
-      initialDeviceModels={deviceModels as any}
+      initialDeviceModels={deviceModels}
       initialBrand={initialBrand}
       initialDeviceType={initialDeviceType}
       initialModelQuery={initialModelQuery}

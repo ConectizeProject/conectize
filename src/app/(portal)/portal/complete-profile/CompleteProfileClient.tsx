@@ -99,7 +99,7 @@ export function CompleteProfileClient(props: { initialError?: string, initialCpf
 
           setServerMessage('Cadastro atualizado. Redirecionando…')
           router.replace('/portal')
-        } catch (err) {
+        } catch {
           setServerError('Não foi possível salvar agora. Tente novamente.')
         } finally {
           formik.setSubmitting(false)

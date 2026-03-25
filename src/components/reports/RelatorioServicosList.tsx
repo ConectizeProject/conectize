@@ -20,19 +20,7 @@ import { maskedFromCents } from '@/lib/utils/money'
 import { formatDateBr } from '@/lib/utils/format-date'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-
-const STATUS_LABELS: Record<string, string> = {
-  orcamento: 'Orçamento',
-  aguardando_aprovacao: 'Aguardando aprovação',
-  aprovado: 'Aprovado',
-  aguardando_pecas: 'Aguardando peças',
-  em_manutencao: 'Em manutenção',
-  aguardando_retirada: 'Aguardando retirada',
-  finalizada: 'Finalizada',
-  finalizada_sem_conserto: 'Finalizada sem conserto',
-  finalizada_sem_aprovacao: 'Finalizada sem aprovação',
-  cancelada: 'Cancelada',
-}
+import { getOrderStatusLabel } from '@/lib/orders/order-status'
 
 const STATUS_DOT_CLASSES: Record<string, string> = {
   orcamento: 'bg-amber-400 shadow-[0_0_0.6rem_rgba(251,191,36,0.9)]',
@@ -75,7 +63,7 @@ const PAYMENT_TYPE_LABELS: Record<string, string> = {
 
 type OrderRow = {
   id: string
-  display_number: number | null
+  display_number: number | string | null
   status: string
   title: string | null
   created_at: string | null
@@ -98,7 +86,7 @@ function parseServicesItems(raw: unknown): ServiceItem[] {
       : Array.isArray(parsed)
         ? parsed
         : []
-    return items.slice(0, 50).map((i: any) => {
+    return items.slice(0, 50).map((i: Record<string, unknown>) => {
       const qty = Math.max(1, Number(i?.quantity) || 1)
       const unitVal = Number(i?.unitValueCents ?? i?.valueCents ?? 0) || 0
       const unitCost = Number(i?.unitCostCents ?? i?.costCents ?? 0) || 0
@@ -188,7 +176,7 @@ function FaturamentoRow ({ order }: { order: OrderRow }) {
           <TooltipTrigger asChild>
             <span className={`inline-block h-2.5 w-2.5 rounded-full cursor-default ${dotClass}`} aria-hidden />
           </TooltipTrigger>
-          <TooltipContent>{STATUS_LABELS[order.status] ?? order.status}</TooltipContent>
+          <TooltipContent>{getOrderStatusLabel(order.status)}</TooltipContent>
         </Tooltip>
       </TableCell>
       <TableCell>

@@ -10,7 +10,6 @@ import {
   getProductById,
   updateProduct,
   type Product,
-  type ProductSyncSnapshot,
   type UpdateProductInput,
 } from '@/lib/products/service'
 

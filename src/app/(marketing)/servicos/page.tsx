@@ -286,7 +286,13 @@ export default async function ServicosPage({ searchParams }: { searchParams: Sea
             <Breadcrumbs items={breadcrumbs} />
             <header>
               <h1 className="inline-block text-4xl md:text-5xl font-bold text-foreground mb-4 mt-4">
-                Nossos Serviços de <span className="text-gradient">Assistência Técnica</span>
+                {isFiltering && h1 ? (
+                  h1
+                ) : (
+                  <>
+                    Nossos Serviços de <span className="text-gradient">Assistência Técnica</span>
+                  </>
+                )}
               </h1>
             </header>
 

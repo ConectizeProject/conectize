@@ -17,7 +17,7 @@ export function formatModelName (slug: string): string {
     xiaomi: 'Xiaomi'
   }
   
-  return words.map((word, index) => {
+  return words.map((word, _index) => {
     const lowerWord = word.toLowerCase()
     
     // Verificar se é uma palavra especial

@@ -27,11 +27,6 @@ export type CustomerData = {
   street_complement?: string | null
 }
 
-function getDisplayName(c: CustomerData) {
-  if (c.is_company) return String(c.company_name || c.trade_name || c.full_name || 'Empresa')
-  return String(c.full_name || 'Cliente')
-}
-
 function getAddressDisplay(c: CustomerData): string | null {
   if (c.street || c.city || c.zip_code) {
     return [

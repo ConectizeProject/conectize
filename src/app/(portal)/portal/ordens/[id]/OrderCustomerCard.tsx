@@ -60,7 +60,9 @@ export function OrderCustomerCard({ customer }: Props) {
 
   useEffect(() => {
     if (!customerId) {
-      setOrderCount(null)
+      queueMicrotask(() => {
+        setOrderCount(null)
+      })
       return
     }
     let cancelled = false

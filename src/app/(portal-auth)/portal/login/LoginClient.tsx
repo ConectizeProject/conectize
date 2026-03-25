@@ -3,8 +3,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
+import { buildPortalAuthCallbackUrl } from '@/lib/auth/callback-url'
+import { assertSafePortalPath } from '@/lib/auth/safe-redirect'
+import { getAuthSiteOrigin } from '@/lib/auth/site-origin'
+import { useSupabaseBrowserClient } from '@/lib/supabase/use-supabase-browser-client'
 import { getAuthErrorMessage } from '@/lib/utils/error-messages'
+import { AuthCardLayout } from '@/components/auth/AuthCardLayout'
+import { AuthDivider } from '@/components/auth/AuthDivider'
+import { AuthFormMessages } from '@/components/auth/AuthFormMessages'
+import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -25,32 +32,30 @@ export function LoginClient() {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false)
   const [isMagicLinkLoading, setIsMagicLinkLoading] = useState(false)
 
-  const redirectTo = useMemo(() => {
-    const value = searchParams.get('redirectTo')
-    if (!value) return '/portal'
-    if (!value.startsWith('/portal')) return '/portal'
-    return value
-  }, [searchParams])
+  const redirectTo = useMemo(
+    () => assertSafePortalPath(searchParams.get('redirectTo')),
+    [searchParams],
+  )
 
-  const siteOrigin = typeof window !== 'undefined'
-    ? (process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') || window.location.origin)
-    : ''
+  const supabase = useSupabaseBrowserClient()
+
+  const siteOrigin = getAuthSiteOrigin()
 
   useEffect(() => {
-    try {
-      const supabase = createSupabaseBrowserClient()
-      supabase.auth.getSession()
-        .then(({ data }) => {
-          if (data?.session) router.replace(redirectTo)
-        })
-        .catch(() => { })
-    } catch (err) {
-      // Sem env do Supabase: mantém a tela de login renderizando
-    }
-  }, [router, redirectTo])
+    if (!supabase) return
+    supabase.auth.getSession()
+      .then(({ data }) => {
+        if (data?.session) {
+          router.refresh()
+          router.replace(redirectTo)
+        }
+      })
+      .catch(() => { })
+  }, [router, redirectTo, supabase])
 
   useEffect(() => {
     if (!isRedirecting) return
+    router.refresh()
     const id = setTimeout(() => router.replace(redirectTo), 80)
     return () => clearTimeout(id)
   }, [isRedirecting, router, redirectTo])
@@ -69,12 +74,14 @@ export function LoginClient() {
     setIsSendingRecovery(true)
 
     try {
-      const supabase = createSupabaseBrowserClient()
-      const redirectUrl = new URL('/portal/auth/callback', siteOrigin)
-      redirectUrl.searchParams.set('redirectTo', '/portal/redefinir-senha')
+      if (!supabase) {
+        setErrorMessage('Configuração do Supabase ausente. Não é possível redefinir a senha agora.')
+        return
+      }
+      const redirectToUrl = buildPortalAuthCallbackUrl('/portal/redefinir-senha', siteOrigin)
 
       const { error } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
-        redirectTo: redirectUrl.toString(),
+        redirectTo: redirectToUrl,
       })
 
       if (error) {
@@ -83,7 +90,7 @@ export function LoginClient() {
       }
 
       setMessage('Se existir uma conta com este e-mail, enviaremos um link para redefinir sua senha. Pode levar alguns minutos — verifique também o spam/lixo eletrônico.')
-    } catch (err) {
+    } catch {
       setErrorMessage('Não foi possível solicitar a redefinição agora. Tente novamente.')
     } finally {
       setIsSendingRecovery(false)
@@ -103,14 +110,16 @@ export function LoginClient() {
     setIsMagicLinkLoading(true)
 
     try {
-      const supabase = createSupabaseBrowserClient()
-      const redirectUrl = new URL('/portal/auth/callback', siteOrigin)
-      redirectUrl.searchParams.set('redirectTo', redirectTo)
+      if (!supabase) {
+        setErrorMessage('Configuração do Supabase ausente. Não é possível enviar o link agora.')
+        return
+      }
+      const emailRedirectTo = buildPortalAuthCallbackUrl(redirectTo, siteOrigin)
 
       const { error } = await supabase.auth.signInWithOtp({
         email: trimmedEmail,
         options: {
-          emailRedirectTo: redirectUrl.toString(),
+          emailRedirectTo,
         },
       })
 
@@ -120,7 +129,7 @@ export function LoginClient() {
       }
 
       setMessage('Enviamos um link de acesso para seu e-mail. Abra o link para entrar no portal.')
-    } catch (err) {
+    } catch {
       setErrorMessage('Não foi possível enviar o link agora. Tente novamente.')
     } finally {
       setIsMagicLinkLoading(false)
@@ -131,13 +140,15 @@ export function LoginClient() {
     setErrorMessage(null)
     setIsGoogleLoading(true)
     try {
-      const supabase = createSupabaseBrowserClient()
-      const callbackUrl = new URL('/portal/auth/callback', siteOrigin)
-      callbackUrl.searchParams.set('redirectTo', redirectTo)
+      if (!supabase) {
+        setErrorMessage('Configuração do Supabase ausente. Não é possível entrar com Google agora.')
+        return
+      }
+      const oauthRedirect = buildPortalAuthCallbackUrl(redirectTo, siteOrigin)
 
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: { redirectTo: callbackUrl.toString() },
+        options: { redirectTo: oauthRedirect },
       })
 
       if (error) {
@@ -147,7 +158,7 @@ export function LoginClient() {
       if (data?.url) {
         window.location.href = data.url
       }
-    } catch (err) {
+    } catch {
       setErrorMessage('Não foi possível entrar com Google. Tente novamente.')
     } finally {
       setIsGoogleLoading(false)
@@ -174,7 +185,11 @@ export function LoginClient() {
     }
 
     try {
-      const supabase = createSupabaseBrowserClient()
+      if (!supabase) {
+        setErrorMessage('Configuração do Supabase ausente. Não é possível entrar agora.')
+        setIsSubmitting(false)
+        return
+      }
       const { error } = await supabase.auth.signInWithPassword({
         email: trimmedEmail,
         password,
@@ -187,7 +202,7 @@ export function LoginClient() {
       }
 
       setIsRedirecting(true)
-    } catch (err) {
+    } catch {
       setErrorMessage('Não foi possível entrar agora. Tente novamente.')
       setIsSubmitting(false)
     }
@@ -212,7 +227,7 @@ export function LoginClient() {
   return (
     <>
       {redirectOverlay}
-      <div className="min-h-screen pt-32 pb-20 flex items-center justify-center">
+      <AuthCardLayout>
         <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle>Área do cliente</CardTitle>
@@ -260,12 +275,7 @@ export function LoginClient() {
                   />
                 </div>
 
-                {errorMessage ? (
-                  <p className="text-sm text-destructive">{errorMessage}</p>
-                ) : null}
-                {message ? (
-                  <p className="text-sm text-muted-foreground">{message}</p>
-                ) : null}
+                <AuthFormMessages errorMessage={errorMessage} message={message} />
 
                 <div className="flex items-center justify-end gap-2">
                   <Button type="button" variant="outline" size="sm" asChild>
@@ -277,14 +287,7 @@ export function LoginClient() {
                 </div>
               </form>
 
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t" />
-                </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-card px-2 text-muted-foreground">ou</span>
-                </div>
-              </div>
+              <AuthDivider />
 
               <div className="space-y-2">
                 <Button
@@ -307,35 +310,18 @@ export function LoginClient() {
                   )}
                 </Button>
 
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full"
-                  disabled={isSubmitting || isGoogleLoading}
+                <GoogleSignInButton
+                  loading={isGoogleLoading}
+                  loadingLabel="Entrando com Google…"
+                  label="Entrar com Google"
+                  disabled={isSubmitting}
                   onClick={onGoogleLogin}
-                >
-                  {isGoogleLoading ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Entrando com Google…
-                    </>
-                  ) : (
-                    <>
-                      <svg className="h-4 w-4" viewBox="0 0 24 24">
-                        <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                        <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                        <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
-                        <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
-                      </svg>
-                      Entrar com Google
-                    </>
-                  )}
-                </Button>
+                />
               </div>
             </div>
           </CardContent>
         </Card>
-      </div>
+      </AuthCardLayout>
     </>
   )
 }

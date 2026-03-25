@@ -5,23 +5,11 @@ import { FileDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { maskedFromCents } from '@/lib/utils/money'
 import { formatDateBr } from '@/lib/utils/format-date'
-
-const STATUS_LABELS: Record<string, string> = {
-  orcamento: 'Orçamento',
-  aguardando_aprovacao: 'Aguardando aprovação',
-  aprovado: 'Aprovado',
-  aguardando_pecas: 'Aguardando peças',
-  em_manutencao: 'Em manutenção',
-  aguardando_retirada: 'Aguardando retirada',
-  finalizada: 'Finalizada',
-  finalizada_sem_conserto: 'Finalizada sem conserto',
-  finalizada_sem_aprovacao: 'Finalizada sem aprovação',
-  cancelada: 'Cancelada',
-}
+import { getOrderStatusLabel } from '@/lib/orders/order-status'
 
 export type RelatorioServicosPdfOrder = {
   id: string
-  display_number: number | null
+  display_number: number | string | null
   status: string
   title: string | null
   created_at: string | null
@@ -69,7 +57,7 @@ export function RelatorioServicosPdfButton ({ orders, periodLabel, filterNote }:
       return `
         <tr>
           <td>${o.display_number != null ? `#${escapeHtml(String(o.display_number))}` : '-'}</td>
-          <td>${escapeHtml(STATUS_LABELS[o.status] ?? o.status)}</td>
+          <td>${escapeHtml(getOrderStatusLabel(o.status))}</td>
           <td class="title">${escapeHtml((o.title || '').trim() || '-')}</td>
           <td>${o.created_at ? escapeHtml(formatDateBr(o.created_at)) : '-'}</td>
           <td>${o.closed_at ? escapeHtml(formatDateBr(o.closed_at)) : '-'}</td>

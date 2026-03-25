@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/dialog'
 import { toast } from '@/hooks/use-toast'
 
-type WebhookRow = {
+export type WebhookRow = {
   id: string
   platform_id: string
   event_type: string

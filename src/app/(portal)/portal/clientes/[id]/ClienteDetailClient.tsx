@@ -88,10 +88,10 @@ export function ClienteDetailClient({ customerId, customerName }: Props) {
 	const [deleteId, setDeleteId] = useState<string | null>(null);
 
 	const loadDevices = useCallback(() => {
-		setError(null);
 		portalFetch(`/api/portal/customers/${customerId}/devices`)
 			.then((res) => res?.json())
 			.then((data) => {
+				setError(null);
 				if (data?.ok && Array.isArray(data.devices))
 					setDevices(data.devices);
 				else setError("Não foi possível carregar os aparelhos.");

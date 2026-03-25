@@ -28,56 +28,13 @@ import { Printer, MessageCircle, Mail, Copy, Tag, MoreVertical, Trash2 } from 'l
 import { toast } from '@/hooks/use-toast'
 import { getLabelWindowFeatures, getPrintWindowFeatures } from '@/lib/ordem-print'
 import { buildOrderMessage } from '@/lib/ordem-share-message'
+import { ORDER_STATUS_LABELS } from '@/lib/orders/order-status'
 import { formatPhoneForWhatsApp } from '@/lib/utils/format-phone'
-
-const STATUS_LABELS: Record<string, string> = {
-  orcamento: 'Orçamento',
-  aguardando_aprovacao: 'Aguardando aprovação',
-  aprovado: 'Aprovado',
-  aguardando_pecas: 'Aguardando peças',
-  em_manutencao: 'Em manutenção',
-  aguardando_retirada: 'Aguardando retirada',
-  finalizada: 'Finalizada',
-  finalizada_sem_conserto: 'Finalizada sem conserto',
-  finalizada_sem_aprovacao: 'Finalizada sem aprovação',
-  cancelada: 'Cancelada',
-}
-
-type OrderRow = {
-  id: string
-  display_number: number | null
-  status: string
-  title: string
-  created_at: string
-  updated_at: string
-  estimated_ready_at: string | null
-  share_token?: string | null
-  customers: {
-    id?: string
-    cpf?: string | null
-    cnpj?: string | null
-    is_company?: boolean
-    full_name?: string | null
-    company_name?: string | null
-    email?: string | null
-    mobile_phone?: string | null
-  } | null
-  device_models: { brand?: string; device_type?: string; model?: string } | null
-  services?: Array<{
-    kind?: 'service' | 'product'
-    description?: string | null
-    quantity?: number | null
-    unitValueCents?: number | null
-    unitCostCents?: number | null
-    valueCents?: number | null
-    costCents?: number | null
-  }> | null
-  services_total_cents?: number | null
-  services_cost_total_cents?: number | null
-}
+import { updateOrderStatusAction } from './[id]/order-detail-actions'
+import type { PortalOrdensListRow } from '@/lib/orders/portal-ordens-list-types'
 
 type Props = {
-  order: OrderRow
+  order: PortalOrdensListRow
   canDelete?: boolean
 }
 
@@ -95,7 +52,7 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
   const device = deviceModel
     ? [deviceModel.brand, deviceModel.device_type, deviceModel.model].filter(Boolean).join(' • ') || '-'
     : '-'
-  const statusLabel = STATUS_LABELS[order.status] || order.status
+  const statusLabel = ORDER_STATUS_LABELS[order.status] || order.status
 
   const publicPath = order.share_token ? `/os/${order.share_token}` : null
   const orderHref =
@@ -134,17 +91,15 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
   async function handleStatusChange(newStatus: string) {
     setUpdating(true)
     try {
-      const res = await fetch(`/api/portal/ordens/${order.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus }),
-      })
-      const data = await res.json().catch(() => null)
-      if (!res.ok || !data?.ok) {
+      const fd = new FormData()
+      fd.set('orderId', order.id)
+      fd.set('status', newStatus)
+      const result = await updateOrderStatusAction(fd)
+      if (!result.ok) {
         toast({ title: 'Erro ao atualizar status', variant: 'destructive' })
         return
       }
-      toast({ variant: 'success', title: 'Status atualizado', description: `${STATUS_LABELS[newStatus] || newStatus}` })
+      toast({ variant: 'success', title: 'Status atualizado', description: `${ORDER_STATUS_LABELS[newStatus] || newStatus}` })
       router.refresh()
     } finally {
       setUpdating(false)
@@ -251,7 +206,7 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
               Alterar status
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent className="min-w-36 p-1">
-              {Object.entries(STATUS_LABELS).map(([value, label]) => (
+              {Object.entries(ORDER_STATUS_LABELS).map(([value, label]) => (
                 <DropdownMenuItem
                   key={value}
                   className={itemClass}

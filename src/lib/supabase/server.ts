@@ -92,7 +92,7 @@ export async function createSupabaseServerClient () {
           for (const cookie of cookiesToSet) {
             cookieStore.set(cookie.name, cookie.value, cookie.options)
           }
-        } catch (err) {
+        } catch {
           // ignore
         }
       },

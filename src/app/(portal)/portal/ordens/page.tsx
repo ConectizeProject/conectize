@@ -5,16 +5,25 @@ import { Button } from '@/components/ui/button'
 import { OrdensFilterCollapsible } from './OrdensFilterCollapsible'
 import { OrdensListClient } from './OrdensListClient'
 import { OrdensToastClient } from './OrdensToastClient'
-
-const OPEN_STATUSES = ['orcamento', 'aguardando_aprovacao', 'aprovado', 'aguardando_pecas', 'em_manutencao', 'aguardando_retirada'] as const
-const LIMIT_OPEN = 500
+import {
+  OPEN_ORDER_STATUSES,
+  isOpenOrderStatus,
+} from '@/lib/orders/order-status'
+import type {
+  PortalOrdensCustomerSummary,
+  PortalOrdensDeviceModelSummary,
+  PortalOrdensListRow,
+  PortalServiceOrderListQueryRow,
+} from '@/lib/orders/portal-ordens-list-types'
+import { mapDeviceModelJoinToSummary } from '@/lib/portal/list-final-orders-with-relations'
+import { PORTAL_OPEN_ORDERS_LIST_LIMIT } from '@/lib/portal/ordens-list-limits'
 
 function normalizeCpf(value: string) {
   return value.replace(/\D/g, '').trim()
 }
 
-function isValidOpenStatus(value: string): value is typeof OPEN_STATUSES[number] {
-  return OPEN_STATUSES.includes(value as any)
+function isValidOpenStatus (value: string): value is (typeof OPEN_ORDER_STATUSES)[number] {
+  return isOpenOrderStatus(value)
 }
 
 function isValidDate(value: string): boolean {
@@ -61,9 +70,6 @@ export default async function OrdensPage({
     noServices,
     noCost,
     noPayment,
-    toast,
-    id,
-    error,
   } = await searchParams
   const query = String(q || '').trim()
   const cpfDigits = normalizeCpf(String(cpf || ''))
@@ -78,9 +84,6 @@ export default async function OrdensPage({
   const quickNoServices = String(noServices || '').trim() === '1'
   const quickNoCost = String(noCost || '').trim() === '1'
   const quickNoPayment = String(noPayment || '').trim() === '1'
-  const toastType = String(toast || '').trim()
-  const toastId = String(id || '').trim()
-  const toastError = String(error || '').trim()
 
   const { user, role } = await getPortalAuth()
   if (!user) redirect('/portal/login')
@@ -120,9 +123,9 @@ export default async function OrdensPage({
         ? 'id, display_number, status, title, created_at, updated_at, closed_at, estimated_ready_at, share_token, customer_id, device_model_id, services, services_total_cents, services_cost_total_cents, payment_methods'
         : 'id, display_number, status, title, created_at, updated_at, closed_at, estimated_ready_at, share_token, customer_id, device_model_id, services, services_total_cents, services_cost_total_cents'
     )
-    .in('status', [...OPEN_STATUSES])
+    .in('status', [...OPEN_ORDER_STATUSES])
     .order('created_at', { ascending: false })
-    .limit(LIMIT_OPEN)
+    .limit(PORTAL_OPEN_ORDERS_LIST_LIMIT)
 
   if (query) {
     const escaped = query.replaceAll(',', ' ').trim()
@@ -167,9 +170,9 @@ export default async function OrdensPage({
 
   const { data: rawOrders } = await baseQuery
 
-  let ordersList = rawOrders || []
+  let ordersList: PortalServiceOrderListQueryRow[] = (rawOrders ?? []) as unknown as PortalServiceOrderListQueryRow[]
   if (needsQuickFilterColumns && ordersList.length > 0) {
-    ordersList = ordersList.filter((o: any) => {
+    ordersList = ordersList.filter((o) => {
       if (quickNoServices) {
         const svc = o.services
         const hasServices = Array.isArray(svc) && svc.length > 0
@@ -187,50 +190,47 @@ export default async function OrdensPage({
       return true
     })
   }
-  const customerIds = [...new Set(ordersList.map((o: any) => o.customer_id).filter(Boolean))]
-  const deviceModelIds = [...new Set(ordersList.map((o: any) => o.device_model_id).filter(Boolean))]
+  const customerIds = [...new Set(ordersList.map((o) => o.customer_id).filter(Boolean))]
+  const deviceModelIds = [...new Set(ordersList.map((o) => o.device_model_id).filter(Boolean))]
 
-  let customersMap: Record<string, any> = {}
-  let deviceModelsMap: Record<string, any> = {}
+  let customersMap: Record<string, PortalOrdensCustomerSummary> = {}
+  let deviceModelsMap: Record<string, PortalOrdensDeviceModelSummary> = {}
 
   if (customerIds.length > 0) {
     const { data: customers } = await supabase
       .from('customers')
       .select('id, cpf, cnpj, is_company, full_name, company_name, email, mobile_phone')
       .in('id', customerIds)
-    customersMap = (customers || []).reduce((acc: Record<string, any>, c: any) => {
-      acc[c.id] = c
+    customersMap = (customers ?? []).reduce<Record<string, PortalOrdensCustomerSummary>>((acc, c) => {
+      acc[c.id] = c as PortalOrdensCustomerSummary
       return acc
     }, {})
   }
 
   if (deviceModelIds.length > 0) {
-    const { data: deviceModels } = await supabase
+    const { data: deviceModelsJoined } = await supabase
       .from('device_models')
       .select('id, model, device_types ( name, device_brands ( name ) )')
       .in('id', deviceModelIds)
-    deviceModelsMap = (deviceModels || []).reduce((acc: Record<string, any>, d: any) => {
-      const dt = (d as any).device_types || null
-      const brandRow = dt?.device_brands || null
-      acc[d.id] = {
-        id: d.id,
-        brand: brandRow?.name ?? null,
-        device_type: dt?.name ?? null,
-        model: d.model ?? null,
-      }
-      return acc
-    }, {})
+    deviceModelsMap = (deviceModelsJoined ?? []).reduce<Record<string, PortalOrdensDeviceModelSummary>>(
+      (acc, d) => {
+        const s = mapDeviceModelJoinToSummary(d)
+        acc[d.id] = s
+        return acc
+      },
+      {},
+    )
   }
 
-  const ordersWithRelations = ordersList.map((o: any) => ({
+  const ordersWithRelations: PortalOrdensListRow[] = ordersList.map((o) => ({
     ...o,
     customers: o.customer_id ? customersMap[o.customer_id] ?? null : null,
     device_models: o.device_model_id ? deviceModelsMap[o.device_model_id] ?? null : null,
   }))
 
-  const openOrdersByStatus: Record<string, typeof ordersWithRelations> = {}
-  for (const s of OPEN_STATUSES) {
-    openOrdersByStatus[s] = ordersWithRelations.filter((o: any) => o.status === s)
+  const openOrdersByStatus: Record<string, PortalOrdensListRow[]> = {}
+  for (const s of OPEN_ORDER_STATUSES) {
+    openOrdersByStatus[s] = ordersWithRelations.filter((o) => o.status === s)
   }
 
   const { data: deviceModelsRaw } = await supabase
@@ -239,16 +239,7 @@ export default async function OrdensPage({
     .order('model', { ascending: true })
     .limit(500)
 
-  const deviceModels = (deviceModelsRaw || []).map((d: any) => {
-    const dt = Array.isArray(d.device_types) ? d.device_types[0] : d.device_types
-    const brandRow = dt && (Array.isArray(dt.device_brands) ? dt.device_brands[0] : dt.device_brands)
-    return {
-      id: d.id,
-      brand: brandRow?.name ?? null,
-      device_type: dt?.name ?? null,
-      model: d.model ?? null,
-    }
-  })
+  const deviceModels = (deviceModelsRaw ?? []).map((d) => mapDeviceModelJoinToSummary(d))
 
   const hasFilters = Boolean(
     query || cpfDigits || osNumberValue || statusValue ||
