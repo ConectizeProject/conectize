@@ -59,7 +59,6 @@ import {
 	getDefaultPrevisao,
 	getMinPrevisaoNow,
 } from "@/lib/utils/previsao-ordem";
-import { onlyDigits } from "@/lib/utils/strings";
 import { Field, FieldArray, Form, Formik } from "formik";
 import { Check, Loader2, Minus, Plus, X } from "lucide-react";
 import Link from "next/link";
@@ -68,6 +67,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as Yup from "yup";
 import { OrderFormActionBar } from "../OrderFormActionBar";
 import { NovaOrdemCustomerCard } from "./NovaOrdemCustomerCard";
+import {
+	getCustomerDocumentDigits,
+	useNovaOrdemCustomerSearch,
+} from "./use-nova-ordem-customer-search";
 
 const statusOptions = [
 	{ value: "orcamento", label: "Orçamento" },
@@ -83,10 +86,6 @@ function makeId() {
 		return crypto.randomUUID();
 	}
 	return String(Date.now()) + String(Math.random()).slice(2);
-}
-
-function getCustomerDocumentDigits(customer: CustomerHit) {
-	return onlyDigits(String(customer.cnpj || customer.cpf || "")).slice(0, 14);
 }
 
 type SellerOption = {
@@ -178,56 +177,37 @@ const orderFormSchema = Yup.object().shape({
 
 export function NovaOrdemClient(props: Props) {
 	const router = useRouter();
-	const [customerSearchInput, setCustomerSearchInput] = useState("");
-	const documentDigits = useMemo(
-		() => onlyDigits(customerSearchInput).slice(0, 14),
-		[customerSearchInput],
+
+	const [selectedCustomer, setSelectedCustomer] = useState<CustomerHit | null>(
+		null,
 	);
-	const documentPrefix = useMemo(
-		() => documentDigits.slice(0, 5),
-		[documentDigits],
-	);
-	const nameQuery = useMemo(
-		() => customerSearchInput.trim(),
-		[customerSearchInput],
-	);
-	const isDocumentMode = documentDigits.length >= 5;
-	const isNameMode =
-		nameQuery.length >= 2 && /[a-zA-Z\u00C0-\u024F]/.test(nameQuery);
+
+	const {
+		customerSearchInput,
+		setCustomerSearchInput,
+		documentDigits,
+		isDocumentMode,
+		isNameMode,
+		customersBase,
+		setCustomersBase,
+		isSearchingDocument,
+		documentSearchError,
+		hasFetched,
+		customersFiltered,
+		isCpfPopoverOpen,
+		setIsCpfPopoverOpen,
+		setLastPrefixFetched,
+	} = useNovaOrdemCustomerSearch({ selectedCustomer });
 
 	const [duplicateFormValues, setDuplicateFormValues] =
 		useState<FormValues | null>(null);
 	const [duplicateLoaded, setDuplicateLoaded] = useState(false);
 
-	const [customersBase, setCustomersBase] = useState<CustomerHit[]>([]);
-	const [isSearchingDocument, setIsSearchingDocument] = useState(false);
-	const [documentSearchError, setDocumentSearchError] = useState<string | null>(
-		null,
-	);
-	const [lastPrefixFetched, setLastPrefixFetched] = useState<string | null>(
-		null,
-	);
-	const [lastNameQueryFetched, setLastNameQueryFetched] = useState<
-		string | null
-	>(null);
-	const cpfSearchAbortRef = useRef<AbortController | null>(null);
-	const cpfSearchInFlightPrefixRef = useRef<string | null>(null);
-	const nameSearchInFlightRef = useRef<string | null>(null);
-	const cpfSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
-		null,
-	);
-	const nameSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
-		null,
-	);
 	const servicesCardRef = useRef<OrderServicesCardRef>(null);
 	const paymentMethodsFieldsRef = useRef<OrderPaymentMethodFieldsRef>(null);
 	const [paymentMethodsCatalogLoading, setPaymentMethodsCatalogLoading] =
 		useState(true);
 	const initialErrorToastShownRef = useRef(false);
-
-	const [selectedCustomer, setSelectedCustomer] = useState<CustomerHit | null>(
-		null,
-	);
 
 	type CustomerDevice = {
 		id: string;
@@ -253,7 +233,6 @@ export function NovaOrdemClient(props: Props) {
 		null,
 	);
 
-	const [isCpfPopoverOpen, setIsCpfPopoverOpen] = useState(false);
 	const [isEntryChecksDialogOpen, setIsEntryChecksDialogOpen] = useState(false);
 
 	const defaultPrevisao = useMemo(() => getDefaultPrevisao(), []);
@@ -360,14 +339,6 @@ export function NovaOrdemClient(props: Props) {
 	}, [props.duplicateOrderId]);
 
 	useEffect(() => {
-		if (!selectedCustomer) return;
-		const doc = getCustomerDocumentDigits(selectedCustomer);
-		if (doc && doc !== documentDigits) {
-			setCustomerSearchInput(formatCpfCnpj(doc));
-		}
-	}, [documentDigits, selectedCustomer]);
-
-	useEffect(() => {
 		if (!selectedCustomer?.id) {
 			setCustomerDevices([]);
 			setIsDevicesDialogOpen(false);
@@ -398,153 +369,6 @@ export function NovaOrdemClient(props: Props) {
 			cancelled = true;
 		};
 	}, [selectedCustomer]);
-
-	useEffect(() => {
-		if (!isDocumentMode && !isNameMode) {
-			setDocumentSearchError(null);
-			setCustomersBase([]);
-			setLastPrefixFetched(null);
-			setLastNameQueryFetched(null);
-			cpfSearchAbortRef.current?.abort();
-			cpfSearchAbortRef.current = null;
-			cpfSearchInFlightPrefixRef.current = null;
-			nameSearchInFlightRef.current = null;
-			if (cpfSearchDebounceRef.current)
-				clearTimeout(cpfSearchDebounceRef.current);
-			if (nameSearchDebounceRef.current)
-				clearTimeout(nameSearchDebounceRef.current);
-			cpfSearchDebounceRef.current = null;
-			nameSearchDebounceRef.current = null;
-			setIsSearchingDocument(false);
-			return;
-		}
-
-		let cancelled = false;
-
-		if (isDocumentMode) {
-			if (
-				documentPrefix === lastPrefixFetched ||
-				cpfSearchInFlightPrefixRef.current === documentPrefix
-			)
-				return;
-			if (cpfSearchDebounceRef.current)
-				clearTimeout(cpfSearchDebounceRef.current);
-			cpfSearchDebounceRef.current = setTimeout(() => {
-				if (cancelled) return;
-				cpfSearchAbortRef.current?.abort();
-				const controller = new AbortController();
-				cpfSearchAbortRef.current = controller;
-				cpfSearchInFlightPrefixRef.current = documentPrefix;
-				setIsSearchingDocument(true);
-				setDocumentSearchError(null);
-				portalFetch(
-					`/api/portal/customers/search?documentPrefix=${documentPrefix}`,
-					{ signal: controller.signal },
-				)
-					.then((res) => res.json())
-					.then((data) => {
-						if (cancelled) return;
-						if (!data?.ok) {
-							setDocumentSearchError("Não foi possível buscar clientes agora.");
-							setCustomersBase([]);
-							setLastPrefixFetched(documentPrefix);
-							return;
-						}
-						setCustomersBase(data.customers || []);
-						setLastPrefixFetched(documentPrefix);
-					})
-					.catch((err: any) => {
-						if (err?.name === "AbortError") return;
-						if (!cancelled) {
-							setDocumentSearchError("Não foi possível buscar clientes agora.");
-							setCustomersBase([]);
-							setLastPrefixFetched(documentPrefix);
-						}
-					})
-					.finally(() => {
-						if (!cancelled) setIsSearchingDocument(false);
-						if (cpfSearchInFlightPrefixRef.current === documentPrefix)
-							cpfSearchInFlightPrefixRef.current = null;
-					});
-			}, 350);
-		} else if (isNameMode) {
-			if (
-				nameQuery === lastNameQueryFetched ||
-				nameSearchInFlightRef.current === nameQuery
-			)
-				return;
-			if (nameSearchDebounceRef.current)
-				clearTimeout(nameSearchDebounceRef.current);
-			nameSearchDebounceRef.current = setTimeout(() => {
-				if (cancelled) return;
-				cpfSearchAbortRef.current?.abort();
-				const controller = new AbortController();
-				cpfSearchAbortRef.current = controller;
-				nameSearchInFlightRef.current = nameQuery;
-				setIsSearchingDocument(true);
-				setDocumentSearchError(null);
-				portalFetch(
-					`/api/portal/customers/search?name=${encodeURIComponent(nameQuery)}`,
-					{ signal: controller.signal },
-				)
-					.then((res) => res.json())
-					.then((data) => {
-						if (cancelled) return;
-						if (!data?.ok) {
-							setDocumentSearchError("Não foi possível buscar clientes agora.");
-							setCustomersBase([]);
-							setLastNameQueryFetched(nameQuery);
-							return;
-						}
-						setCustomersBase(data.customers || []);
-						setLastNameQueryFetched(nameQuery);
-					})
-					.catch((err: any) => {
-						if (err?.name === "AbortError") return;
-						if (!cancelled) {
-							setDocumentSearchError("Não foi possível buscar clientes agora.");
-							setCustomersBase([]);
-							setLastNameQueryFetched(nameQuery);
-						}
-					})
-					.finally(() => {
-						if (!cancelled) setIsSearchingDocument(false);
-						if (nameSearchInFlightRef.current === nameQuery)
-							nameSearchInFlightRef.current = null;
-					});
-			}, 350);
-		}
-
-		return () => {
-			cancelled = true;
-			if (cpfSearchDebounceRef.current)
-				clearTimeout(cpfSearchDebounceRef.current);
-			if (nameSearchDebounceRef.current)
-				clearTimeout(nameSearchDebounceRef.current);
-		};
-	}, [
-		isDocumentMode,
-		isNameMode,
-		documentPrefix,
-		lastPrefixFetched,
-		nameQuery,
-		lastNameQueryFetched,
-	]);
-
-	const hasFetchedDocPrefix =
-		isDocumentMode && lastPrefixFetched === documentPrefix;
-	const hasFetchedName = isNameMode && lastNameQueryFetched === nameQuery;
-	const hasFetched = hasFetchedDocPrefix || hasFetchedName;
-
-	const customersFiltered = useMemo(() => {
-		if (!hasFetched) return [];
-		if (isDocumentMode) {
-			return customersBase.filter((c) =>
-				getCustomerDocumentDigits(c).startsWith(documentDigits),
-			);
-		}
-		return customersBase;
-	}, [customersBase, hasFetched, isDocumentMode, documentDigits]);
 
 	function buildFormDataFromValues(
 		values: FormValues,
