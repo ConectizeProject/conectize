@@ -23,7 +23,8 @@ jobs:
             exit 1
           fi
 
-          HTTP_CODE=$(curl -sS -o response.json -w "%{http_code}" \
+          # -L segue 301/302/307/308 (ex.: http→https, www). Sem isso o 307 vira falha com corpo "Redirecting..."
+          HTTP_CODE=$(curl -sS -L --max-redirs 5 -o response.json -w "%{http_code}" \
             -X POST "$CRON_URL" \
             -H "Authorization: Bearer $CRON_SECRET" \
             -H "Content-Type: application/json")
