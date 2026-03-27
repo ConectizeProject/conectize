@@ -1,0 +1,37 @@
+name: Bling Token Refresh
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call token refresh endpoint
+        env:
+          CRON_URL: ${{ secrets.BLING_CRON_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_URL" ]; then
+            echo "Missing secret: BLING_CRON_URL"
+            exit 1
+          fi
+          if [ -z "$CRON_SECRET" ]; then
+            echo "Missing secret: CRON_SECRET"
+            exit 1
+          fi
+
+          HTTP_CODE=$(curl -sS -o response.json -w "%{http_code}" \
+            -X POST "$CRON_URL" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json")
+
+          echo "HTTP $HTTP_CODE"
+          cat response.json
+
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "Token refresh failed"
+            exit 1
+          fi
