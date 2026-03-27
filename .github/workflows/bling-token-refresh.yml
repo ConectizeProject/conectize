@@ -23,6 +23,16 @@ jobs:
             exit 1
           fi
 
+          # Remove \r, espaços no início/fim e aspas ao redor (erro comum ao colar secrets no GitHub)
+          CRON_URL=$(printf '%s' "$CRON_URL" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          CRON_SECRET=$(printf '%s' "$CRON_SECRET" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          if [ "${#CRON_SECRET}" -ge 2 ]; then
+            if [ "${CRON_SECRET:0:1}" = '"' ] && [ "${CRON_SECRET: -1}" = '"' ]; then
+              CRON_SECRET="${CRON_SECRET#\"}"
+              CRON_SECRET="${CRON_SECRET%\"}"
+            fi
+          fi
+
           # -L segue 301/302/307/308 (ex.: http→https, www). Sem isso o 307 vira falha com corpo "Redirecting..."
           HTTP_CODE=$(curl -sS -L --max-redirs 5 -o response.json -w "%{http_code}" \
             -X POST "$CRON_URL" \
