@@ -104,7 +104,7 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
         fd.set('confirmIncompleteExit', '1')
       }
       const result = await updateOrderStatusAction(fd)
-      if (!result.ok) {
+      if (result.ok === false) {
         if (result.error === 'exit_considerations_incomplete') {
           setPendingFinalizeStatus(newStatus)
           setExitConsiderationsOpen(true)

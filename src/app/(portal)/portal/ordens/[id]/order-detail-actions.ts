@@ -339,14 +339,16 @@ export async function updateOrderStatusAction (
 	})
 
 	if (applied.ok) return { ok: true }
-	if (applied.error === 'exit_considerations_incomplete') {
-		return { ok: false, error: 'exit_considerations_incomplete' }
-	}
-	if (applied.error === 'not_found') {
-		return { ok: false, error: 'not_found' }
-	}
-	if (applied.error === 'invalid_status') {
-		return { ok: false, error: 'invalid_status' }
+	if (applied.ok === false) {
+		if (applied.error === 'exit_considerations_incomplete') {
+			return { ok: false, error: 'exit_considerations_incomplete' }
+		}
+		if (applied.error === 'not_found') {
+			return { ok: false, error: 'not_found' }
+		}
+		if (applied.error === 'invalid_status') {
+			return { ok: false, error: 'invalid_status' }
+		}
 	}
 	return { ok: false, error: 'db_error' }
 }
