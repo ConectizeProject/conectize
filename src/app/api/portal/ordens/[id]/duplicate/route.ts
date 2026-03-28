@@ -8,6 +8,18 @@ function onlyDigits (s: string): string {
   return String(s || '').replace(/\D/g, '')
 }
 
+/** Status permitidos na tela "Nova ordem" (Yup + createOrderAction). */
+const NOVA_ORDEM_STATUS = new Set([
+  'orcamento',
+  'aguardando_aprovacao',
+  'aprovado',
+])
+
+function statusForNovaOrdemForm (raw: unknown): string {
+  const s = String(raw ?? 'orcamento').trim()
+  return NOVA_ORDEM_STATUS.has(s) ? s : 'orcamento'
+}
+
 function mapServicesForDuplicateForm (raw: unknown): unknown[] {
   if (!raw) return []
   try {
@@ -159,7 +171,7 @@ export async function GET (
     customerId: o.customer_id ? String(o.customer_id) : '',
     documentDigits,
     title: String(o.title ?? ''),
-    status: String(o.status ?? 'orcamento'),
+    status: statusForNovaOrdemForm(o.status),
     deviceModelId: o.device_model_id ? String(o.device_model_id) : '',
     brand: String(o.brand ?? ''),
     model: o.device_model_id && dm ? String(dm.model ?? o.model ?? '') : String(o.model ?? ''),

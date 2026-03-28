@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Loader2, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from '@/hooks/use-toast'
+import { toastChatgptAssistFailure } from './chatgpt-assist-error-toast'
 
 export type AssistanceCommentAiContext = {
   device?: string
@@ -20,26 +21,9 @@ type Props = {
 }
 
 export function OsAssistanceCommentAiButton({ draft, onResult, context, disabled }: Props) {
-  const [connected, setConnected] = useState<boolean | null>(null)
   const [loading, setLoading] = useState(false)
 
-  useEffect(() => {
-    fetch('/api/portal/hub/chatgpt/status')
-      .then((res) => res.json())
-      .then((data) => setConnected(Boolean(data?.connected)))
-      .catch(() => setConnected(false))
-  }, [])
-
   async function handleClick() {
-    if (connected === false) {
-      toast({
-        title: 'IA não conectada',
-        description: 'Conecte o ChatGPT no HUB de integrações para usar esta função.',
-        variant: 'destructive',
-      })
-      return
-    }
-
     setLoading(true)
     try {
       const res = await fetch('/api/portal/hub/chatgpt/assist', {
@@ -63,8 +47,7 @@ export function OsAssistanceCommentAiButton({ draft, onResult, context, disabled
       const data = await res.json().catch(() => null)
 
       if (!res.ok) {
-        const msg = data?.message || data?.error || 'Erro ao usar a IA'
-        toast({ title: 'Erro na IA', description: msg, variant: 'destructive' })
+        toastChatgptAssistFailure(data)
         return
       }
       if (!data?.text) return

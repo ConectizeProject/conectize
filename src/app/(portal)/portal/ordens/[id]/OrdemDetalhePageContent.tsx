@@ -370,7 +370,6 @@ export function OrdemDetalhePageContent (props: Props) {
 						<CardContent>
 							<OrderAssistanceChat
 								orderId={order.id}
-								disabled={formDisabled}
 								assistanceAiContext={{
 									device: deviceString || undefined,
 									customerDescription: String(order.customer_description || ''),

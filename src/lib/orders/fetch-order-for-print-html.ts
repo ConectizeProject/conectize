@@ -7,7 +7,10 @@ import {
   type OrdemPrintData,
 } from '@/lib/ordem-print'
 import { formatPhoneBr } from '@/lib/utils/format-phone'
-import { toDateTimeLocalInBrazil } from '@/lib/utils/previsao-ordem'
+import {
+  getDefaultPrevisao,
+  toDateTimeLocalInBrazil,
+} from '@/lib/utils/previsao-ordem'
 
 function getCustomerFromOrder (order: Record<string, unknown>) {
   const customer = order?.customers
@@ -229,5 +232,7 @@ export function estimatedReadyAtForDuplicateForm (iso: string | null | undefined
   if (!iso) return ''
   const d = new Date(String(iso))
   if (Number.isNaN(d.getTime())) return ''
+  // Formulário de nova OS exige previsão >= agora; cópias costumam trazer data antiga.
+  if (d.getTime() < Date.now() - 60_000) return getDefaultPrevisao()
   return toDateTimeLocalInBrazil(d)
 }

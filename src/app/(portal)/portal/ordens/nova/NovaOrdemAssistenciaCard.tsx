@@ -44,6 +44,9 @@ type Props = {
 
 export function NovaOrdemAssistenciaCard(props: Props) {
 	const formik = useFormikContext<FormValues>();
+	const showErr = (field: keyof FormValues) =>
+		(Boolean(formik.touched[field]) || formik.submitCount > 0) &&
+		Boolean(formik.errors[field]);
 
 	return (
 		<Card>
@@ -65,12 +68,10 @@ export function NovaOrdemAssistenciaCard(props: Props) {
 							name="title"
 							placeholder="Ex: Troca de tela iPhone 13"
 							className={
-								formik.touched.title && formik.errors.title
-									? "border-destructive"
-									: ""
+								showErr("title") ? "border-destructive" : ""
 							}
 						/>
-						{formik.touched.title && formik.errors.title ? (
+						{showErr("title") ? (
 							<p className="text-sm text-destructive">
 								{formik.errors.title}
 							</p>
@@ -123,6 +124,11 @@ export function NovaOrdemAssistenciaCard(props: Props) {
 							value={formik.values.estimatedReadyAt}
 							onChange={formik.handleChange}
 						/>
+						{showErr("estimatedReadyAt") ? (
+							<p className="text-sm text-destructive">
+								{formik.errors.estimatedReadyAt}
+							</p>
+						) : null}
 					</div>
 				</div>
 
@@ -133,7 +139,11 @@ export function NovaOrdemAssistenciaCard(props: Props) {
 							as="select"
 							id="status"
 							name="status"
-							className="w-full h-10 rounded-md border border-input px-3 text-sm"
+							className={`w-full h-10 rounded-md border px-3 text-sm ${
+								showErr("status")
+									? "border-destructive"
+									: "border-input"
+							}`}
 						>
 							{novaOrdemStatusOptions.map((s) => (
 								<option key={s.value} value={s.value}>
@@ -141,6 +151,11 @@ export function NovaOrdemAssistenciaCard(props: Props) {
 								</option>
 							))}
 						</Field>
+						{showErr("status") ? (
+							<p className="text-sm text-destructive">
+								{formik.errors.status}
+							</p>
+						) : null}
 					</div>
 					<div className="flex items-center gap-2 rounded-md border p-3">
 						<Checkbox
