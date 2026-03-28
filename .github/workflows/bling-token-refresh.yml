@@ -33,13 +33,27 @@ jobs:
             fi
           fi
 
+          # Se o secret for só o domínio (ex.: https://www.conectize.com.br), acrescenta o path da API.
+          # Se já tiver .../bling-refresh-tokens, mantém.
+          CRON_URL="${CRON_URL%/}"
+          case "$CRON_URL" in
+            *bling-refresh-tokens*) ;;
+            *)
+              if printf '%s' "$CRON_URL" | grep -qE '^https?://[^/]+$'; then
+                CRON_URL="${CRON_URL}/api/cron/bling-refresh-tokens"
+                echo "BLING_CRON_URL era só o domínio — ajustado para: $CRON_URL"
+              else
+                echo "ERRO: BLING_CRON_URL deve terminar em /api/cron/bling-refresh-tokens"
+                echo "       ou ser só a origem (ex.: https://www.conectize.com.br)."
+                echo "       Valor atual: $CRON_URL"
+                exit 1
+              fi
+              ;;
+          esac
+
           # GET: mesmo método que a Vercel Cron usa no path; POST pode receber 405 atrás de proxy/CDN
           # ou após redirect (301/302 costumam virar GET e perder o corpo).
           echo "Calling: $CRON_URL"
-          case "$CRON_URL" in
-            *bling-refresh-tokens*) ;;
-            *) echo "Aviso: a URL deveria terminar em /api/cron/bling-refresh-tokens" ;;
-          esac
 
           HTTP_CODE=$(curl -sS -L --max-redirs 5 -o response.json -w "%{http_code}" \
             -X GET "$CRON_URL" \
@@ -56,5 +70,8 @@ jobs:
           fi
           if ! jq -e '.ok == true' response.json >/dev/null 2>&1; then
             echo "Token refresh failed (JSON ok != true)"
+            if head -c 5 response.json | grep -q '<!DOC\|<html'; then
+              echo "A resposta é HTML (página do site), não JSON da API. Confira BLING_CRON_URL no GitHub (Secrets)."
+            fi
             exit 1
           fi
