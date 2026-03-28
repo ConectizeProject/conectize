@@ -1,6 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { buildOrderEditDiff } from '@/lib/orders/order-edit-history'
 import {
+  isExitConsiderationsEmpty,
+  shouldRequireExitConsiderationsOnStatusChange,
+} from '@/lib/orders/exit-considerations'
+import {
   FINALIZED_ORDER_STATUS_SET,
   ORDER_STATUS_SET,
 } from '@/lib/orders/order-status'
@@ -8,7 +12,14 @@ import { applyOrderStatusStockTransition } from '@/lib/orders/stock-by-status'
 
 export type ApplyOrderStatusChangeResult =
   | { ok: true }
-  | { ok: false; error: 'invalid_status' | 'not_found' | 'db_error' }
+  | {
+      ok: false
+      error:
+        | 'invalid_status'
+        | 'not_found'
+        | 'db_error'
+        | 'exit_considerations_incomplete'
+    }
 
 /**
  * Atualiza apenas o status da OS (histórico, estoque, closed_at quando finalizado).
@@ -20,9 +31,11 @@ export async function applyOrderStatusChange (
     orderId: string
     nextStatus: string
     editorUserId: string
+    /** Após o usuário confirmar no diálogo que deseja finalizar sem saída registrada */
+    skipExitConsiderationsCheck?: boolean
   },
 ): Promise<ApplyOrderStatusChangeResult> {
-  const { orderId, nextStatus, editorUserId } = params
+  const { orderId, nextStatus, editorUserId, skipExitConsiderationsCheck } = params
 
   if (!ORDER_STATUS_SET.has(nextStatus)) {
     return { ok: false, error: 'invalid_status' }
@@ -30,7 +43,7 @@ export async function applyOrderStatusChange (
 
   const { data: existing, error: fetchErr } = await supabase
     .from('service_orders')
-    .select('status, services, closed_at')
+    .select('status, services, closed_at, device_exit_checks')
     .eq('id', orderId)
     .maybeSingle()
 
@@ -43,6 +56,29 @@ export async function applyOrderStatusChange (
   }
 
   const previousStatus = String(existing.status || '')
+
+  if (
+    !skipExitConsiderationsCheck &&
+    shouldRequireExitConsiderationsOnStatusChange(previousStatus, nextStatus)
+  ) {
+    const { count: exitPhotoCount, error: exitCountErr } = await supabase
+      .from('service_order_exit_photos')
+      .select('*', { count: 'exact', head: true })
+      .eq('service_order_id', orderId)
+
+    if (exitCountErr) {
+      console.error('[applyOrderStatusChange exit photos count]', exitCountErr)
+      return { ok: false, error: 'db_error' }
+    }
+
+    const exitEmpty = isExitConsiderationsEmpty(
+      (existing as { device_exit_checks?: unknown }).device_exit_checks,
+      exitPhotoCount ?? 0,
+    )
+    if (exitEmpty) {
+      return { ok: false, error: 'exit_considerations_incomplete' }
+    }
+  }
   const updatePayload: Record<string, unknown> = { status: nextStatus }
   if (FINALIZED_ORDER_STATUS_SET.has(nextStatus)) {
     updatePayload.closed_at = new Date().toISOString()

@@ -16,6 +16,31 @@ import {
 } from '@/components/ui/dialog'
 import { ENTRY_CHECK_ITEMS } from '@/lib/orders/entry-check-items'
 
+export type OrderDeviceChecksVariant = 'entry' | 'exit'
+
+const VARIANT_COPY: Record<OrderDeviceChecksVariant, {
+  summary: string
+  dialogTitle: string
+  dialogDesc: string
+  stateLabel: string
+  hiddenName: string
+}> = {
+  entry: {
+    summary: 'Situação de entrada do aparelho',
+    dialogTitle: 'Situação de entrada do aparelho',
+    dialogDesc: 'Marque os testes realizados no momento da entrada do aparelho na assistência.',
+    stateLabel: 'Estado na entrada',
+    hiddenName: 'deviceEntryChecksJson',
+  },
+  exit: {
+    summary: 'Situação de saída do aparelho',
+    dialogTitle: 'Situação de saída do aparelho',
+    dialogDesc: 'Marque os testes realizados no momento da saída do aparelho (entrega ao cliente), para comparar com a entrada.',
+    stateLabel: 'Estado na saída',
+    hiddenName: 'deviceExitChecksJson',
+  },
+}
+
 function parseChecks(raw: Record<string, unknown> | null): Record<string, 'ok' | 'fail' | 'na'> {
   const out: Record<string, 'ok' | 'fail' | 'na'> = {}
   if (!raw || typeof raw !== 'object') return out
@@ -39,8 +64,11 @@ export function OrderDeviceEntryChecksEditor (props: {
   initialValue: unknown
   disabled?: boolean
   formId: string
+  /** default `entry` — `exit` usa coluna e campo de formulário próprios */
+  variant?: OrderDeviceChecksVariant
 }) {
-  const { initialValue, disabled = false, formId } = props
+  const { initialValue, disabled = false, formId, variant = 'entry' } = props
+  const copy = VARIANT_COPY[variant]
   const [valueJson, setValueJson] = useState(() => initialJson(initialValue))
   const [dialogOpen, setDialogOpen] = useState(false)
   const hiddenInputRef = useRef<HTMLInputElement>(null)
@@ -101,7 +129,7 @@ export function OrderDeviceEntryChecksEditor (props: {
       <input
         ref={hiddenInputRef}
         type="hidden"
-        name="deviceEntryChecksJson"
+        name={copy.hiddenName}
         form={formId}
         value={valueJson}
         readOnly
@@ -109,7 +137,7 @@ export function OrderDeviceEntryChecksEditor (props: {
       />
       <div className="rounded-md border border-border bg-muted/20 p-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="text-sm font-medium">Situação de entrada do aparelho</span>
+          <span className="text-sm font-medium">{copy.summary}</span>
           <div className="flex flex-wrap items-center gap-2">
             {notTested ? (
               <span className="text-xs text-amber-600 dark:text-amber-400">Não foi possível testar</span>
@@ -140,30 +168,30 @@ export function OrderDeviceEntryChecksEditor (props: {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Situação de entrada do aparelho</DialogTitle>
+            <DialogTitle>{copy.dialogTitle}</DialogTitle>
             <DialogDescription>
-              Marque os testes realizados no momento da entrada do aparelho na assistência.
+              {copy.dialogDesc}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
-              <div className="text-sm font-medium">Estado na entrada</div>
+              <div className="text-sm font-medium">{copy.stateLabel}</div>
               <RadioGroup
                 value={status}
                 onValueChange={setStatus}
                 className="flex flex-col gap-2"
               >
                 <div className="flex items-center gap-2">
-                  <RadioGroupItem value="operante" id="edit-entry-operante" />
-                  <Label htmlFor="edit-entry-operante" className="cursor-pointer">Liga normalmente</Label>
+                  <RadioGroupItem value="operante" id={`edit-${variant}-operante`} />
+                  <Label htmlFor={`edit-${variant}-operante`} className="cursor-pointer">Liga normalmente</Label>
                 </div>
                 <div className="flex items-center gap-2">
-                  <RadioGroupItem value="display_apagado" id="edit-entry-display-apagado" />
-                  <Label htmlFor="edit-entry-display-apagado" className="cursor-pointer">Display apagado / danificado</Label>
+                  <RadioGroupItem value="display_apagado" id={`edit-${variant}-display-apagado`} />
+                  <Label htmlFor={`edit-${variant}-display-apagado`} className="cursor-pointer">Display apagado / danificado</Label>
                 </div>
                 <div className="flex items-center gap-2">
-                  <RadioGroupItem value="nao_liga" id="edit-entry-nao-liga" />
-                  <Label htmlFor="edit-entry-nao-liga" className="cursor-pointer">Não liga</Label>
+                  <RadioGroupItem value="nao_liga" id={`edit-${variant}-nao-liga`} />
+                  <Label htmlFor={`edit-${variant}-nao-liga`} className="cursor-pointer">Não liga</Label>
                 </div>
               </RadioGroup>
             </div>

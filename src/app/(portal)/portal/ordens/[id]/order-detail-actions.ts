@@ -48,6 +48,11 @@ export async function updateOrderAction (formData: FormData) {
 		typeof deviceEntryChecksRaw === 'string'
 			? deviceEntryChecksRaw.trim()
 			: ''
+	const deviceExitChecksRaw = formData.get('deviceExitChecksJson')
+	const deviceExitChecksJson =
+		typeof deviceExitChecksRaw === 'string'
+			? deviceExitChecksRaw.trim()
+			: ''
 	const deviceModelId = parseOptionalUuid(formData.get('deviceModelId'))
 	const brand = String(formData.get('brand') || '').trim() || null
 	const model = String(formData.get('model') || '').trim() || null
@@ -67,6 +72,14 @@ export async function updateOrderAction (formData: FormData) {
 			deviceEntryChecks = JSON.parse(deviceEntryChecksJson)
 		} catch {
 			deviceEntryChecks = null
+		}
+	}
+	let deviceExitChecks: unknown = null
+	if (deviceExitChecksJson) {
+		try {
+			deviceExitChecks = JSON.parse(deviceExitChecksJson)
+		} catch {
+			deviceExitChecks = null
 		}
 	}
 
@@ -97,7 +110,7 @@ export async function updateOrderAction (formData: FormData) {
 				payment_methods, customer_description, receiving_notes,
 				warranty_template_id, warranty_text, device_model_id, brand, model,
 				services_total_cents, services_cost_total_cents,
-				device_entry_checks, seller_user_id, closed_at,
+				device_entry_checks, device_exit_checks, seller_user_id, closed_at,
 				created_at`,
 		)
 		.eq('id', formOrderId)
@@ -178,6 +191,9 @@ export async function updateOrderAction (formData: FormData) {
 	}
 	if (formData.has('deviceEntryChecksJson')) {
 		updatePayload.device_entry_checks = deviceEntryChecks
+	}
+	if (formData.has('deviceExitChecksJson')) {
+		updatePayload.device_exit_checks = deviceExitChecks
 	}
 	if (role === 'admin' && formSellerUserId) {
 		const { data: sellerUser } = await supabase
@@ -281,6 +297,7 @@ export type UpdateOrderStatusActionResult =
 				| 'invalid_status'
 				| 'not_found'
 				| 'db_error'
+				| 'exit_considerations_incomplete'
 	  }
 
 /**
@@ -310,11 +327,28 @@ export async function updateOrderStatusAction (
 	}
 
 	const supabase = await createSupabaseServerClient()
-	return applyOrderStatusChange(supabase, {
+	const confirmRaw = String(formData.get('confirmIncompleteExit') || '').trim()
+	const skipExitConsiderationsCheck =
+		confirmRaw === '1' || confirmRaw.toLowerCase() === 'true'
+
+	const applied = await applyOrderStatusChange(supabase, {
 		orderId,
 		nextStatus: status,
 		editorUserId: user.id,
+		skipExitConsiderationsCheck,
 	})
+
+	if (applied.ok) return { ok: true }
+	if (applied.error === 'exit_considerations_incomplete') {
+		return { ok: false, error: 'exit_considerations_incomplete' }
+	}
+	if (applied.error === 'not_found') {
+		return { ok: false, error: 'not_found' }
+	}
+	if (applied.error === 'invalid_status') {
+		return { ok: false, error: 'invalid_status' }
+	}
+	return { ok: false, error: 'db_error' }
 }
 
 export async function deleteOrderAction (formData: FormData) {

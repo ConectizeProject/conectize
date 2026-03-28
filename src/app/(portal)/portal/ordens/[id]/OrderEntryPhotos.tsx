@@ -32,20 +32,71 @@ export type EntryPhotoItem = {
 	created_at: string;
 };
 
+export type OrderPhotosStage = "entry" | "exit";
+
+const PHOTO_STAGE_CONFIG: Record<
+	OrderPhotosStage,
+	{
+		apiPath: string;
+		queryOpen: string;
+		labelRow: string;
+		modalTitle: string;
+		modalDesc: string;
+		toastSavedTitle: string;
+		toastSavedDesc: string;
+		toastDeletedTitle: string;
+		toastDeletedDesc: string;
+		ariaAdd: string;
+	}
+> = {
+	entry: {
+		apiPath: "entry-photos",
+		queryOpen: "addEntryPhotos",
+		labelRow: "Fotos do aparelho no momento de entrada",
+		modalTitle: "Fotos de entrada do aparelho",
+		modalDesc:
+			"Adicione fotos do aparelho no momento do recebimento. No celular, escaneie o QR code para abrir esta tela e enviar fotos da câmera.",
+		toastSavedTitle: "Fotos salvas",
+		toastSavedDesc:
+			"As fotos foram adicionadas à OS e já estão salvas.",
+		toastDeletedTitle: "Foto excluída",
+		toastDeletedDesc:
+			"A foto foi removida da OS e a alteração já está salva.",
+		ariaAdd: "Adicionar fotos de entrada",
+	},
+	exit: {
+		apiPath: "exit-photos",
+		queryOpen: "addExitPhotos",
+		labelRow: "Fotos do aparelho no momento de saída",
+		modalTitle: "Fotos de saída do aparelho",
+		modalDesc:
+			"Adicione fotos do aparelho na entrega ao cliente. No celular, escaneie o QR code para abrir esta tela e enviar fotos da câmera.",
+		toastSavedTitle: "Fotos de saída salvas",
+		toastSavedDesc:
+			"As fotos de saída foram adicionadas e já estão salvas.",
+		toastDeletedTitle: "Foto de saída excluída",
+		toastDeletedDesc:
+			"A foto de saída foi removida e a alteração já está salva.",
+		ariaAdd: "Adicionar fotos de saída",
+	},
+};
+
 type OrderEntryPhotosProps = {
 	orderId: string;
 	initialPhotos?: EntryPhotoItem[];
 	/** Quantidade de fotos vinda do servidor (evita request extra no mount) */
 	initialPhotoCount?: number | null;
 	disabled?: boolean;
+	/** `entry` = recebimento; `saída` = bucket e API próprios */
+	photoStage?: OrderPhotosStage;
 };
 
-function getAddPhotosUrl(orderId: string): string {
+function getAddPhotosUrl(orderId: string, queryOpen: string): string {
 	if (typeof window === "undefined") {
 		return "";
 	}
 	const base = window.location.origin;
-	return `${base}/portal/ordens/${orderId}?addEntryPhotos=1`;
+	return `${base}/portal/ordens/${orderId}?${queryOpen}=1`;
 }
 
 export function OrderEntryPhotos({
@@ -53,7 +104,9 @@ export function OrderEntryPhotos({
 	initialPhotos: _initialPhotos = [],
 	initialPhotoCount,
 	disabled = false,
+	photoStage = "entry",
 }: OrderEntryPhotosProps) {
+	const cfg = PHOTO_STAGE_CONFIG[photoStage];
 	const [photos, setPhotos] = useState<EntryPhotoItem[]>([]);
 	const [photoCount, setPhotoCount] = useState<number | null>(
 		initialPhotoCount !== undefined && initialPhotoCount !== null ? initialPhotoCount : null,
@@ -71,18 +124,18 @@ export function OrderEntryPhotos({
 
 	const fetchCount = useCallback(async () => {
 		const res = await portalFetch(
-			`/api/portal/ordens/${orderId}/entry-photos?countOnly=1`,
+			`/api/portal/ordens/${orderId}/${cfg.apiPath}?countOnly=1`,
 		);
 		if (!res.ok) return;
 		const data = await res.json().catch(() => null);
 		if (data?.ok && typeof data.count === "number") {
 			setPhotoCount(data.count);
 		}
-	}, [orderId]);
+	}, [orderId, cfg.apiPath]);
 
 	const fetchPhotos = useCallback(async () => {
 		const res = await portalFetch(
-			`/api/portal/ordens/${orderId}/entry-photos`,
+			`/api/portal/ordens/${orderId}/${cfg.apiPath}`,
 		);
 		if (!res.ok) return;
 		const data = await res.json().catch(() => null);
@@ -90,7 +143,7 @@ export function OrderEntryPhotos({
 			setPhotos(data.photos);
 			setPhotoCount(data.photos.length);
 		}
-	}, [orderId]);
+	}, [orderId, cfg.apiPath]);
 
 	useEffect(() => {
 		if (initialPhotoCount === undefined || initialPhotoCount === null) fetchCount();
@@ -101,10 +154,10 @@ export function OrderEntryPhotos({
 	}, [modalOpen, fetchPhotos]);
 
 	useEffect(() => {
-		if (searchParams.get("addEntryPhotos") === "1") {
+		if (searchParams.get(cfg.queryOpen) === "1") {
 			setModalOpen(true);
 		}
-	}, [searchParams]);
+	}, [searchParams, cfg.queryOpen]);
 
 	useEffect(() => {
 		if (!modalOpen) setLightboxOpen(false);
@@ -112,12 +165,12 @@ export function OrderEntryPhotos({
 
 	useEffect(() => {
 		if (!modalOpen) return;
-		const url = getAddPhotosUrl(orderId);
+		const url = getAddPhotosUrl(orderId, cfg.queryOpen);
 		if (!url) return;
 		QRCode.toDataURL(url, { width: 200, margin: 1 })
 			.then(setQrDataUrl)
 			.catch(() => setQrDataUrl(null));
-	}, [modalOpen, orderId]);
+	}, [modalOpen, orderId, cfg.queryOpen]);
 
 	const openLightbox = useCallback((index: number) => {
 		setLightboxIndex(index);
@@ -187,7 +240,7 @@ export function OrderEntryPhotos({
 
 				try {
 					const res = await portalFetch(
-						`/api/portal/ordens/${orderId}/entry-photos`,
+						`/api/portal/ordens/${orderId}/${cfg.apiPath}`,
 						{ method: "POST", body: formData },
 					);
 					const data = res.ok ? await res.json().catch(() => null) : null;
@@ -211,11 +264,11 @@ export function OrderEntryPhotos({
 			});
 			toast({
 				variant: "success",
-				title: "Fotos salvas",
-				description: "As fotos foram adicionadas à OS e já estão salvas.",
+				title: cfg.toastSavedTitle,
+				description: cfg.toastSavedDesc,
 			});
 		},
-		[orderId, fetchPhotos],
+		[orderId, fetchPhotos, cfg],
 	);
 
 	const handleDrop = useCallback(
@@ -250,22 +303,22 @@ export function OrderEntryPhotos({
 			setDeletingId(photoId);
 			try {
 				const res = await portalFetch(
-					`/api/portal/ordens/${orderId}/entry-photos/${photoId}`,
+					`/api/portal/ordens/${orderId}/${cfg.apiPath}/${photoId}`,
 					{ method: "DELETE" },
 				);
 				if (res.ok) {
 					await fetchPhotos();
 					toast({
 						variant: "success",
-						title: "Foto excluída",
-						description: "A foto foi removida da OS e a alteração já está salva.",
+						title: cfg.toastDeletedTitle,
+						description: cfg.toastDeletedDesc,
 					});
 				}
 			} finally {
 				setDeletingId(null);
 			}
 		},
-		[orderId, fetchPhotos],
+		[orderId, fetchPhotos, cfg],
 	);
 
 	const addBlock = (
@@ -317,7 +370,7 @@ export function OrderEntryPhotos({
 	return (
 		<div className="rounded-md border border-border bg-muted/20 p-4 space-y-3">
 			<div className="flex items-center justify-between gap-2">
-				<Label>Fotos do aparelho no momento de entrada</Label>
+				<Label>{cfg.labelRow}</Label>
 				<div className="flex items-center gap-2">
 					{photoCount !== null && (
 						<span className="text-sm text-muted-foreground">
@@ -335,7 +388,7 @@ export function OrderEntryPhotos({
 						size="sm"
 						onClick={() => setModalOpen(true)}
 						disabled={disabled}
-						aria-label="Adicionar fotos de entrada"
+						aria-label={cfg.ariaAdd}
 					>
 						+
 					</Button>
@@ -345,12 +398,8 @@ export function OrderEntryPhotos({
 			<Dialog open={modalOpen} onOpenChange={setModalOpen}>
 				<DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
 					<DialogHeader>
-						<DialogTitle>Fotos de entrada do aparelho</DialogTitle>
-						<DialogDescription>
-							Adicione fotos do aparelho no momento do
-							recebimento. No celular, escaneie o QR code para
-							abrir esta tela e enviar fotos da câmera.
-						</DialogDescription>
+						<DialogTitle>{cfg.modalTitle}</DialogTitle>
+						<DialogDescription>{cfg.modalDesc}</DialogDescription>
 					</DialogHeader>
 
 					<div className="space-y-4">

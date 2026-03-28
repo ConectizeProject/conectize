@@ -34,6 +34,7 @@ export type ServiceOrderDetail = {
   share_token: string | null
   seller_user_id: string | null
   device_entry_checks: unknown
+  device_exit_checks?: unknown
   /** Join Supabase (objeto ou array) — também acessível via helpers. */
   customers?: unknown
   device_models?: unknown
