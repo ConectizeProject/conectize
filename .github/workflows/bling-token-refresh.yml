@@ -33,16 +33,28 @@ jobs:
             fi
           fi
 
-          # -L segue 301/302/307/308 (ex.: http→https, www). Sem isso o 307 vira falha com corpo "Redirecting..."
+          # GET: mesmo método que a Vercel Cron usa no path; POST pode receber 405 atrás de proxy/CDN
+          # ou após redirect (301/302 costumam virar GET e perder o corpo).
+          echo "Calling: $CRON_URL"
+          case "$CRON_URL" in
+            *bling-refresh-tokens*) ;;
+            *) echo "Aviso: a URL deveria terminar em /api/cron/bling-refresh-tokens" ;;
+          esac
+
           HTTP_CODE=$(curl -sS -L --max-redirs 5 -o response.json -w "%{http_code}" \
-            -X POST "$CRON_URL" \
+            -X GET "$CRON_URL" \
             -H "Authorization: Bearer $CRON_SECRET" \
-            -H "Content-Type: application/json")
+            -H "x-cron-secret: $CRON_SECRET")
 
           echo "HTTP $HTTP_CODE"
           cat response.json
+          echo
 
           if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
-            echo "Token refresh failed"
+            echo "Token refresh failed (HTTP)"
+            exit 1
+          fi
+          if ! jq -e '.ok == true' response.json >/dev/null 2>&1; then
+            echo "Token refresh failed (JSON ok != true)"
             exit 1
           fi
