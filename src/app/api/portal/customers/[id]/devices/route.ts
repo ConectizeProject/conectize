@@ -1,65 +1,78 @@
 import { NextResponse } from 'next/server'
-import { formatCpf, formatCnpj } from '@/lib/utils/format-cpf-cnpj'
-import { onlyDigits } from '@/lib/utils/strings'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 
-export async function GET(request: Request) {
+const DEVICE_FIELDS =
+  'id, customer_id, device_model_id, brand, model, device_type, imei, color, notes, created_at, updated_at'
+
+export async function GET (
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
   const auth = await requireStaffOrAdmin()
   if (auth.ok === false) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 
-  const url = new URL(request.url)
-  const nameQuery = String(url.searchParams.get('name') || url.searchParams.get('q') || '').trim()
-  const prefixRaw = String(
-    url.searchParams.get('documentPrefix') ||
-    url.searchParams.get('docPrefix') ||
-    url.searchParams.get('cpfPrefix') ||
-    ''
-  )
-  const digits = onlyDigits(prefixRaw).slice(0, 14)
-  const prefix = digits.slice(0, 5)
-
-  if (nameQuery.length >= 2) {
-    const escaped = nameQuery.replace(/%/g, '\\%').replace(/_/g, '\\_')
-    const { data: customers, error } = await auth.supabase
-      .from('customers')
-      .select('id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, phone, mobile_phone, contact_phone, contact_notes, address_full, zip_code, state, city, neighborhood, street, street_number, street_complement, birth_date, referral_source, referral_source_other')
-      .or(`full_name.ilike.%${escaped}%,company_name.ilike.%${escaped}%,trade_name.ilike.%${escaped}%`)
-      .order('full_name', { ascending: true, nullsFirst: false })
-      .order('company_name', { ascending: true, nullsFirst: false })
-      .limit(20)
-
-    if (error) {
-      return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
-    }
-    return NextResponse.json({ ok: true, customers: customers || [] })
+  const { id: rawCustomerId } = await params
+  const customerId = parseOptionalUuid(rawCustomerId)
+  if (!customerId) {
+    return NextResponse.json({ ok: false, error: 'invalid_id' }, { status: 400 })
   }
 
-  if (prefix.length < 5) {
-    return NextResponse.json({ ok: false, error: 'document_prefix_too_short' }, { status: 400 })
-  }
-
-  const cpfPrefixMasked = formatCpf(prefix)
-  const cnpjPrefixMasked = formatCnpj(prefix)
-
-  const { data: customers, error } = await auth.supabase
-    .from('customers')
-    .select('id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, phone, mobile_phone, contact_phone, contact_notes, address_full, zip_code, state, city, neighborhood, street, street_number, street_complement, birth_date, referral_source, referral_source_other')
-    .or([
-      `cpf.like.${prefix}%`,
-      cpfPrefixMasked ? `cpf.like.${cpfPrefixMasked}%` : null,
-      `cnpj.like.${prefix}%`,
-      cnpjPrefixMasked ? `cnpj.like.${cnpjPrefixMasked}%` : null,
-    ].filter(Boolean).join(','))
-    .order('cpf', { ascending: true, nullsFirst: false })
-    .order('cnpj', { ascending: true, nullsFirst: false })
-    .limit(10)
+  const { data: devices, error } = await auth.supabase
+    .from('customer_devices')
+    .select(DEVICE_FIELDS)
+    .eq('customer_id', customerId)
+    .order('created_at', { ascending: false })
 
   if (error) {
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
   }
 
-  return NextResponse.json({ ok: true, customers: customers || [] })
+  return NextResponse.json({ ok: true, devices: devices ?? [] })
 }
 
+export async function POST (
+  request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const auth = await requireStaffOrAdmin()
+  if (auth.ok === false) {
+    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
+  }
+
+  const { id: rawCustomerId } = await params
+  const customerId = parseOptionalUuid(rawCustomerId)
+  if (!customerId) {
+    return NextResponse.json({ ok: false, error: 'invalid_id' }, { status: 400 })
+  }
+
+  const body = await request.json().catch(() => null) as Record<string, unknown> | null
+  if (!body || typeof body !== 'object') {
+    return NextResponse.json({ ok: false, error: 'invalid_json' }, { status: 400 })
+  }
+
+  const insertRow = {
+    customer_id: customerId,
+    device_model_id: parseOptionalUuid(body.device_model_id),
+    brand: body.brand == null ? null : String(body.brand).trim() || null,
+    model: body.model == null ? null : String(body.model).trim() || null,
+    device_type: body.device_type == null ? null : String(body.device_type).trim() || null,
+    imei: body.imei == null ? null : String(body.imei).trim() || null,
+    color: body.color == null ? null : String(body.color).trim() || null,
+    notes: body.notes == null ? null : String(body.notes).trim() || null,
+  }
+
+  const { data: row, error } = await auth.supabase
+    .from('customer_devices')
+    .insert(insertRow)
+    .select(DEVICE_FIELDS)
+    .single()
+
+  if (error) {
+    return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+  }
+
+  return NextResponse.json({ ok: true, device: row })
+}

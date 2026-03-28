@@ -545,7 +545,8 @@ export function NovaOrdemClient(props: Props) {
 											</p>
 										) : null}
 
-										{formik.errors.customerId ? (
+										{(formik.touched.customerId || formik.submitCount > 0) &&
+										formik.errors.customerId ? (
 											<p className="text-sm text-destructive">
 												{formik.errors.customerId}
 											</p>
