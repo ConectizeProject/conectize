@@ -50,7 +50,7 @@ export default async function OrdemDetalhePage ({
 		supabase
 			.from('service_orders')
 			.select(
-				'id, display_number, status, title, imei, color, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, payment_methods, customer_description, receiving_notes, warranty_template_id, warranty_text, device_model_id, brand, model, services, services_total_cents, services_cost_total_cents, created_at, updated_at, closed_at, share_token, seller_user_id, device_entry_checks, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date, zip_code, state, city, neighborhood, street, street_number, street_complement, referral_source, referral_source_other ), device_models ( id, model, device_types ( name, device_brands ( name ) ) )',
+				'id, display_number, status, title, imei, color, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, payment_methods, customer_description, receiving_notes, warranty_template_id, warranty_text, device_model_id, brand, model, services, services_total_cents, services_cost_total_cents, created_at, updated_at, closed_at, share_token, seller_user_id, device_entry_checks, device_exit_checks, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date, zip_code, state, city, neighborhood, street, street_number, street_complement, referral_source, referral_source_other ), device_models ( id, model, device_types ( name, device_brands ( name ) ) )',
 			)
 			.eq('id', id)
 			.maybeSingle(),
@@ -83,7 +83,7 @@ export default async function OrdemDetalhePage ({
 		(order as { seller_user_id?: string | null }).seller_user_id ?? null
 	const isAdmin = role === 'admin'
 
-	const [sellerUser, staffAdminUsers, entryPhotoCountRes] = await Promise.all([
+	const [sellerUser, staffAdminUsers, entryPhotoCountRes, exitPhotoCountRes] = await Promise.all([
 		sellerUserId
 			? supabase
 				.from('users')
@@ -102,8 +102,13 @@ export default async function OrdemDetalhePage ({
 			.from('service_order_entry_photos')
 			.select('*', { count: 'exact', head: true })
 			.eq('service_order_id', order.id),
+		supabase
+			.from('service_order_exit_photos')
+			.select('*', { count: 'exact', head: true })
+			.eq('service_order_id', order.id),
 	])
 	const entryPhotoCount = entryPhotoCountRes?.count ?? 0
+	const exitPhotoCount = exitPhotoCountRes?.count ?? 0
 
 	const seller = sellerUser.data
 	const sellerDisplayName = seller
@@ -162,6 +167,7 @@ export default async function OrdemDetalhePage ({
 			sellerDisplayName={sellerDisplayName}
 			sellerOptions={sellerOptions}
 			entryPhotoCount={entryPhotoCount}
+			exitPhotoCount={exitPhotoCount}
 			role={role}
 			isAdmin={isAdmin}
 			openServicesModalInitially={openServicesModalInitially}

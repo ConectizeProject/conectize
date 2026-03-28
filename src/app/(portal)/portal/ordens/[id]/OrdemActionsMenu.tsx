@@ -29,6 +29,10 @@ import { toast } from '@/hooks/use-toast'
 import { buildOrderMessage } from '@/lib/ordem-share-message'
 import { ORDER_STATUS_LABELS } from '@/lib/orders/order-status'
 import { formatPhoneForWhatsApp } from '@/lib/utils/format-phone'
+import {
+  isExitConsiderationsEmpty,
+  shouldRequireExitConsiderationsOnStatusChange,
+} from '@/lib/orders/exit-considerations'
 import { updateOrderStatusAction } from './order-detail-actions'
 
 type Props = {
@@ -47,6 +51,8 @@ type Props = {
   deleteOrderAction: (formData: FormData) => Promise<unknown>
   /** Permite excluir linhas do histórico dentro do diálogo */
   isAdmin?: boolean
+  deviceExitChecks: unknown
+  exitPhotoCount: number
 }
 
 export function OrdemActionsMenu({
@@ -64,6 +70,8 @@ export function OrdemActionsMenu({
   canDelete,
   deleteOrderAction,
   isAdmin = false,
+  deviceExitChecks,
+  exitPhotoCount,
 }: Props) {
   const router = useRouter()
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -73,6 +81,8 @@ export function OrdemActionsMenu({
   const [statusUpdating, setStatusUpdating] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleteSubmitting, setDeleteSubmitting] = useState(false)
+  const [exitConsiderationsOpen, setExitConsiderationsOpen] = useState(false)
+  const [pendingFinalizeStatus, setPendingFinalizeStatus] = useState<string | null>(null)
 
   useEffect(() => {
     if (publicOrderPath && typeof window !== 'undefined') {
@@ -111,17 +121,41 @@ export function OrdemActionsMenu({
       ? `mailto:${email}?subject=${encodeURIComponent(`Ordem de Serviço #${displayNumber} - Conectize`)}&body=${encodeURIComponent(message)}`
       : null
 
-  async function handleStatusChange(newStatus: string) {
+  async function handleStatusChange(
+    newStatus: string,
+    options?: { confirmIncompleteExit?: boolean },
+  ) {
+    const confirmIncompleteExit = options?.confirmIncompleteExit === true
+    if (
+      !confirmIncompleteExit &&
+      shouldRequireExitConsiderationsOnStatusChange(status, newStatus) &&
+      isExitConsiderationsEmpty(deviceExitChecks, exitPhotoCount)
+    ) {
+      setPendingFinalizeStatus(newStatus)
+      setExitConsiderationsOpen(true)
+      return
+    }
+
     setStatusUpdating(true)
     try {
       const fd = new FormData()
       fd.set('orderId', orderId)
       fd.set('status', newStatus)
+      if (confirmIncompleteExit) {
+        fd.set('confirmIncompleteExit', '1')
+      }
       const result = await updateOrderStatusAction(fd)
-      if (!result.ok) {
+      if (result.ok === false) {
+        if (result.error === 'exit_considerations_incomplete') {
+          setPendingFinalizeStatus(newStatus)
+          setExitConsiderationsOpen(true)
+          return
+        }
         toast({ title: 'Erro ao atualizar status', variant: 'destructive' })
         return
       }
+      setExitConsiderationsOpen(false)
+      setPendingFinalizeStatus(null)
       toast({
         variant: 'success',
         title: 'Status atualizado',
@@ -211,7 +245,9 @@ export function OrdemActionsMenu({
               {Object.entries(ORDER_STATUS_LABELS).map(([value, label]) => (
                 <DropdownMenuItem
                   key={value}
-                  onClick={() => handleStatusChange(value)}
+                  onClick={() => {
+                    void handleStatusChange(value)
+                  }}
                   disabled={statusUpdating || status === value}
                 >
                   {label}
@@ -243,6 +279,38 @@ export function OrdemActionsMenu({
         open={historyOpen}
         onOpenChange={setHistoryOpen}
       />
+
+      <AlertDialog
+        open={exitConsiderationsOpen}
+        onOpenChange={(open) => {
+          setExitConsiderationsOpen(open)
+          if (!open) setPendingFinalizeStatus(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Considerações da assistência não preenchidas</AlertDialogTitle>
+            <AlertDialogDescription>
+              Não há checklist de saída nem fotos de saída registrados nesta OS. Em geral isso
+              ajuda a comparar o aparelho na entrega com o recebimento. Deseja finalizar mesmo assim?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={statusUpdating}>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                const next = pendingFinalizeStatus
+                if (!next) return
+                void handleStatusChange(next, { confirmIncompleteExit: true })
+              }}
+              disabled={statusUpdating || !pendingFinalizeStatus}
+            >
+              {statusUpdating ? 'Salvando…' : 'Sim, finalizar'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>

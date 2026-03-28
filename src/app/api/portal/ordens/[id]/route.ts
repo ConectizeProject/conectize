@@ -28,6 +28,10 @@ export async function PATCH (
   const status = typeof body === 'object' && body && 'status' in body
     ? String((body as { status: unknown }).status ?? '').trim()
     : ''
+  const confirmIncompleteExit =
+    typeof body === 'object' &&
+    body !== null &&
+    (body as { confirmIncompleteExit?: unknown }).confirmIncompleteExit === true
 
   if (!status || !ORDER_STATUS_SET.has(status)) {
     return NextResponse.json({ ok: false, error: 'invalid_status' }, { status: 400 })
@@ -37,6 +41,7 @@ export async function PATCH (
     orderId,
     nextStatus: status,
     editorUserId: auth.userId,
+    skipExitConsiderationsCheck: confirmIncompleteExit,
   })
 
   if (result.ok === false) {
@@ -46,6 +51,12 @@ export async function PATCH (
     }
     if (err === 'invalid_status') {
       return NextResponse.json({ ok: false, error: 'invalid_status' }, { status: 400 })
+    }
+    if (err === 'exit_considerations_incomplete') {
+      return NextResponse.json(
+        { ok: false, error: 'exit_considerations_incomplete' },
+        { status: 409 },
+      )
     }
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
   }

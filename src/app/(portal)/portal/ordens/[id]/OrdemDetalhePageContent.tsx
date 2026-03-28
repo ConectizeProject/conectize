@@ -72,6 +72,7 @@ type Props = {
 	sellerDisplayName: string
 	sellerOptions: SellerOption[]
 	entryPhotoCount: number
+	exitPhotoCount: number
 	role: string
 	isAdmin: boolean
 	/** Abre o modal avançado de serviços quando `?servicesModal=1` */
@@ -92,6 +93,7 @@ export function OrdemDetalhePageContent (props: Props) {
 		sellerDisplayName,
 		sellerOptions,
 		entryPhotoCount,
+		exitPhotoCount,
 		role,
 		isAdmin,
 		openServicesModalInitially,
@@ -146,6 +148,8 @@ export function OrdemDetalhePageContent (props: Props) {
 						canDelete={role === 'admin'}
 						deleteOrderAction={deleteOrderAction}
 						isAdmin={isAdmin}
+						deviceExitChecks={order.device_exit_checks ?? null}
+						exitPhotoCount={exitPhotoCount}
 					/>
 				</div>
 			</div>
@@ -345,6 +349,31 @@ export function OrdemDetalhePageContent (props: Props) {
 								orderId={order.id}
 								initialPhotoCount={entryPhotoCount}
 								disabled={formDisabled}
+							/>
+						</CardContent>
+					</Card>
+
+					<Card>
+						<CardHeader>
+							<CardTitle>Considerações da assistência</CardTitle>
+							<CardDescription>
+								Checklist e fotos na saída do aparelho. Registro
+								independente da entrada, para comparar antes e
+								depois.
+							</CardDescription>
+						</CardHeader>
+						<CardContent className="space-y-6">
+							<OrderDeviceEntryChecksEditor
+								initialValue={order.device_exit_checks ?? null}
+								disabled={formDisabled}
+								formId="order-edit-form"
+								variant="exit"
+							/>
+							<OrderEntryPhotos
+								orderId={order.id}
+								initialPhotoCount={exitPhotoCount}
+								disabled={formDisabled}
+								photoStage="exit"
 							/>
 						</CardContent>
 					</Card>

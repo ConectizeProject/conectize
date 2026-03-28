@@ -269,7 +269,7 @@ function serializeScalar (key: string, value: unknown): string {
     return id ?? ''
   }
   if (key === 'services') return serializeServicesForCompare(value)
-  if (key === 'device_entry_checks') {
+  if (key === 'device_entry_checks' || key === 'device_exit_checks') {
     if (value === null || value === undefined) return ''
     try {
       const parsed = typeof value === 'string' ? JSON.parse(value) : value
@@ -418,6 +418,7 @@ export const ORDER_EDIT_FIELD_LABELS: Record<string, string> = {
   services_total_cents: 'Total serviços (R$)',
   services_cost_total_cents: 'Custo total (R$)',
   device_entry_checks: 'Checklist de entrada',
+  device_exit_checks: 'Checklist de saída',
   seller_user_id: 'Vendedor',
   closed_at: 'Data de fechamento',
 }

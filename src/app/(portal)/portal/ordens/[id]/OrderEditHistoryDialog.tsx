@@ -79,7 +79,7 @@ function formatDisplayValue(
 	if (fieldKey === "services") {
 		return formatOrderServicesForHistoryDisplay(v);
 	}
-	if (fieldKey === "payment_methods" || fieldKey === "device_entry_checks") {
+	if (fieldKey === "payment_methods" || fieldKey === "device_entry_checks" || fieldKey === "device_exit_checks") {
 		try {
 			const parsed = JSON.parse(v);
 			return JSON.stringify(parsed, null, 2);

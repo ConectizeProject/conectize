@@ -44,6 +44,8 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
   const [fetchedPublicUrl, setFetchedPublicUrl] = useState<string | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleteSubmitting, setDeleteSubmitting] = useState(false)
+  const [exitConsiderationsOpen, setExitConsiderationsOpen] = useState(false)
+  const [pendingFinalizeStatus, setPendingFinalizeStatus] = useState<string | null>(null)
 
   const customer = order.customers
   const deviceModel = order.device_models
@@ -88,17 +90,31 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
     ? `mailto:${customer.email}?subject=${encodeURIComponent(`Ordem de Serviço #${displayNumber} - Conectize`)}&body=${encodeURIComponent(message)}`
     : null
 
-  async function handleStatusChange(newStatus: string) {
+  async function handleStatusChange(
+    newStatus: string,
+    options?: { confirmIncompleteExit?: boolean },
+  ) {
+    const confirmIncompleteExit = options?.confirmIncompleteExit === true
     setUpdating(true)
     try {
       const fd = new FormData()
       fd.set('orderId', order.id)
       fd.set('status', newStatus)
+      if (confirmIncompleteExit) {
+        fd.set('confirmIncompleteExit', '1')
+      }
       const result = await updateOrderStatusAction(fd)
-      if (!result.ok) {
+      if (result.ok === false) {
+        if (result.error === 'exit_considerations_incomplete') {
+          setPendingFinalizeStatus(newStatus)
+          setExitConsiderationsOpen(true)
+          return
+        }
         toast({ title: 'Erro ao atualizar status', variant: 'destructive' })
         return
       }
+      setExitConsiderationsOpen(false)
+      setPendingFinalizeStatus(null)
       toast({ variant: 'success', title: 'Status atualizado', description: `${ORDER_STATUS_LABELS[newStatus] || newStatus}` })
       router.refresh()
     } finally {
@@ -210,7 +226,9 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
                 <DropdownMenuItem
                   key={value}
                   className={itemClass}
-                  onClick={() => handleStatusChange(value)}
+                  onClick={() => {
+                    void handleStatusChange(value)
+                  }}
                   disabled={updating || order.status === value}
                 >
                   {label}
@@ -235,6 +253,37 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
           ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <AlertDialog
+        open={exitConsiderationsOpen}
+        onOpenChange={(open) => {
+          setExitConsiderationsOpen(open)
+          if (!open) setPendingFinalizeStatus(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Considerações da assistência não preenchidas</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta OS não tem checklist nem fotos de saída. Abra a ordem para registrar ou confirme se deseja finalizar assim mesmo.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={updating}>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                const next = pendingFinalizeStatus
+                if (!next) return
+                void handleStatusChange(next, { confirmIncompleteExit: true })
+              }}
+              disabled={updating || !pendingFinalizeStatus}
+            >
+              {updating ? 'Salvando…' : 'Sim, finalizar'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {canDelete ? (
         <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
