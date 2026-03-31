@@ -1,12 +1,10 @@
 'use client'
 
-import { useState } from 'react'
 import Link from 'next/link'
-import { ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { getOrderStatusLabel } from '@/lib/orders/order-status'
+import { DragScrollRow } from './DragScrollRow'
 import { OrdemCard } from './OrdemCard'
 import { OrdensFinalSection } from './OrdensFinalSection'
 import type { PortalOrdensListRow } from '@/lib/orders/portal-ordens-list-types'
@@ -62,35 +60,6 @@ export function OrdensListClient({
 }: Props) {
   const totalOpen = OPEN_STATUS_ORDER.reduce((acc, s) => acc + (openOrdersByStatus[s]?.length ?? 0), 0)
 
-  const [openByStatus, setOpenByStatus] = useState<Record<string, boolean>>(() => {
-    const initial: Record<string, boolean> = {}
-    for (const status of OPEN_STATUS_ORDER) {
-      const list = openOrdersByStatus[status] ?? []
-      if (list.length > 0) initial[status] = false
-    }
-    return initial
-  })
-
-  const hasAnyGroup = OPEN_STATUS_ORDER.some((status) => (openOrdersByStatus[status]?.length ?? 0) > 0)
-  const allOpen = hasAnyGroup && OPEN_STATUS_ORDER.every((status) => {
-    const list = openOrdersByStatus[status] ?? []
-    if (list.length === 0) return true
-    const v = openByStatus[status]
-    return v !== false
-  })
-
-  function handleToggleAll() {
-    const nextValue = !allOpen
-    setOpenByStatus((prev) => {
-      const next: Record<string, boolean> = { ...prev }
-      for (const status of OPEN_STATUS_ORDER) {
-        const list = openOrdersByStatus[status] ?? []
-        if (list.length > 0) next[status] = nextValue
-      }
-      return next
-    })
-  }
-
   return (
     <div className="space-y-4">
       {totalOpen === 0 ? (
@@ -106,50 +75,26 @@ export function OrdensListClient({
         </Card>
       ) : null}
 
-      {totalOpen > 0 ? (
-        <div className="flex justify-end">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={handleToggleAll}
-          >
-            {allOpen ? 'Fechar todos os status' : 'Abrir todos os status'}
-          </Button>
-        </div>
-      ) : null}
-
       {OPEN_STATUS_ORDER.map((status) => {
         const list = openOrdersByStatus[status] ?? []
         if (list.length === 0) return null
         const label = getOrderStatusLabel(status)
         const dotClass = STATUS_DOT_CLASSES[status] ?? 'bg-muted shadow-[0_0_0.6rem_rgba(148,163,184,0.7)]'
         return (
-          <Collapsible
-            key={status}
-            open={openByStatus[status] !== false}
-            onOpenChange={(open) => {
-              setOpenByStatus((prev) => ({ ...prev, [status]: open }))
-            }}
-          >
-            <CollapsibleTrigger className="flex w-full bg-card items-center rounded-md border px-3 py-2 text-sm font-medium hover:bg-muted/50 transition-colors">
-              <span className="flex items-center gap-2">
-                <span className={`h-2.5 w-2.5 rounded-full ${dotClass}`} aria-hidden />
-                <span>{label}</span>
-                <span className="text-xs font-normal text-muted-foreground">
-                  ({list.length})
-                </span>
+          <section key={status} className="space-y-3">
+            <div className="flex items-center gap-2 px-1 text-sm font-medium">
+              <span className={`h-2.5 w-2.5 rounded-full ${dotClass}`} aria-hidden />
+              <span>{label}</span>
+              <span className="text-xs font-normal text-muted-foreground">
+                ({list.length})
               </span>
-              <ChevronDown className="ml-auto h-4 w-4 transition-transform data-[state=open]:rotate-0 data-[state=closed]:-rotate-90" />
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <div className="pt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                {list.map((order) => (
-                  <OrdemCard key={order.id} order={order} canDelete={canDelete} />
-                ))}
-              </div>
-            </CollapsibleContent>
-          </Collapsible>
+            </div>
+            <DragScrollRow>
+              {list.map((order) => (
+                <OrdemCard key={order.id} order={order} canDelete={canDelete} />
+              ))}
+            </DragScrollRow>
+          </section>
         )
       })}
 
