@@ -12,9 +12,9 @@ import {
 	formatMoneyInputBr,
 } from '@/lib/utils/format-money'
 import { cn } from '@/lib/utils'
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
+import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
 	Dialog,
 	DialogContent,
@@ -51,8 +51,12 @@ type CatalogItem = {
 	name: string
 	sku?: string | null
 	barcode?: string | null
+	imageUrl?: string | null
 	salePriceCents: number
 	costPriceCents: number
+	currentStock?: number | null
+	isVariation?: boolean
+	hasVariations?: boolean
 }
 
 export function makeServiceId(): string {
@@ -124,6 +128,10 @@ type OrderServicesCardProps = {
 	disabled?: boolean
 	/** Abre a modal avançada inicialmente (usado para deep-link da listagem). */
 	advancedInitiallyOpen?: boolean
+	/** Status atual da OS (usado em regras da edição). */
+	currentStatus?: string
+	/** Campo hidden do form que guarda o status, para ajustes automáticos. */
+	statusInputName?: string
 }
 
 export type OrderServicesCardRef = {
@@ -137,6 +145,8 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 	formik,
 	disabled = false,
 	advancedInitiallyOpen = false,
+	currentStatus,
+	statusInputName,
 }, ref) {
 	const [internalServices, setInternalServices] = useState<ServiceLine[]>(() => {
 		if (formik && Array.isArray(formik.services)) {
@@ -152,6 +162,7 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 	const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([])
 	const [isCatalogLoading, setIsCatalogLoading] = useState(false)
 	const [catalogError, setCatalogError] = useState<string | null>(null)
+	const [resolvedStatus, setResolvedStatus] = useState(String(currentStatus || '').trim())
 
 	const services = internalServices
 
@@ -161,6 +172,19 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 	}, [formik])
 
 	const addCatalogItem = useCallback((item: CatalogItem) => {
+		const isOutOfStockProduct = item.kind === 'product' && Number(item.currentStock ?? 0) <= 0
+		if (resolvedStatus === 'aprovado' && isOutOfStockProduct) {
+			const shouldSwitch = window.confirm(
+				'Este produto está com estoque 0. Deseja alterar a OS para "Aguardando peças"?',
+			)
+			if (shouldSwitch && statusInputName && formId) {
+				const input = document.querySelector(
+					`input[name="${statusInputName}"][form="${formId}"]`,
+				) as HTMLInputElement | null
+				if (input) input.value = 'aguardando_pecas'
+				setResolvedStatus('aguardando_pecas')
+			}
+		}
 		appendLine({
 			id: makeServiceId(),
 			kind: item.kind,
@@ -175,7 +199,7 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 		setCatalogQuery('')
 		setCatalogItems([])
 		setCatalogError(null)
-	}, [appendLine])
+	}, [appendLine, formId, resolvedStatus, statusInputName])
 
 	const removeInternal = useCallback((idx: number) => {
 		setInternalServices((prev) => prev.filter((_, i) => i !== idx))
@@ -317,6 +341,10 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 		}
 	}, [catalogQuery, isPickerVisible])
 
+	useEffect(() => {
+		setResolvedStatus(String(currentStatus || '').trim())
+	}, [currentStatus])
+
 	const servicesJson = JSON.stringify({
 		items: servicesNormalized,
 		totals: { totalValueCents, totalCostCents },
@@ -324,360 +352,410 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 
 	return (
 		<Card>
-			<CardHeader className="space-y-1 pb-3">
+			<CardHeader className="space-y-1 p-5 pb-3">
 				<div className="flex items-center justify-between gap-3 flex-wrap">
 					<div className="min-w-0">
 						<CardTitle>Serviços a realizar</CardTitle>
-						<CardDescription>Selecione itens cadastrados e ajuste quantidade/valores.</CardDescription>
 					</div>
-				<Button
-					type="button"
-					variant="ghost"
-					size="icon"
-					className="h-8 w-8"
-					onClick={() => setIsAdvancedOpen(true)}
-					disabled={services.length === 0}
-					title="Ver custos e margem"
-					aria-label="Ver custos e margem"
-				>
-					<Settings className="h-4 w-4" />
-				</Button>
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon"
+						className="h-8 w-8"
+						onClick={() => setIsAdvancedOpen(true)}
+						disabled={services.length === 0}
+						title="Ver custos e margem"
+						aria-label="Ver custos e margem"
+					>
+						<Settings className="h-4 w-4" />
+					</Button>
 				</div>
 			</CardHeader>
 
-			<CardContent className="space-y-3 pt-0">
-			{services.length > 0 ? (
-				<div className="space-y-3">
-					<div className="hidden md:grid md:grid-cols-12 md:gap-3 text-xs font-medium text-muted-foreground px-1">
-						<div className="md:col-span-7">Descrição</div>
-						<div className="md:col-span-2">Qtd.</div>
-						<div className="md:col-span-2">Valor</div>
-						<div className="md:col-span-1 text-right">Ações</div>
-					</div>
-					{services.map((s, idx) => (
-						<div key={s.id} className="grid gap-3 md:grid-cols-12 items-end">
-							<div className={cn('space-y-1', s.kind === 'product' ? 'md:col-span-7' : 'md:col-span-9')}>
-								<Label htmlFor={`service-description-${s.id}`} className="md:hidden">Descrição</Label>
-								<Input
-									id={`service-description-${s.id}`}
-									value={s.description}
-									readOnly
-									placeholder={
-										s.kind === 'product'
-											? 'Ex: Tela iPhone 13 original...'
-											: 'Ex: Troca de tela, diagnóstico, limpeza...'
-									}
-									disabled
-								/>
-							</div>
-							{s.kind === 'product' ? (
-								<div className="md:col-span-2 space-y-1">
-									<Label htmlFor={`service-qty-${s.id}`} className="md:hidden">Qtd.</Label>
+			<CardContent className="space-y-3 p-5 pt-0">
+				{services.length > 0 ? (
+					<div className="space-y-3">
+						<div className="hidden md:grid md:grid-cols-12 md:gap-3 text-xs font-medium text-muted-foreground px-1">
+							<div className="md:col-span-7">Descrição</div>
+							<div className="md:col-span-2">Qtd.</div>
+							<div className="md:col-span-2">Valor</div>
+							<div className="md:col-span-1 text-right">Ações</div>
+						</div>
+						{services.map((s, idx) => (
+							<div key={s.id} className="grid gap-3 md:grid-cols-12 items-end">
+								<div className={cn('space-y-1', s.kind === 'product' ? 'md:col-span-7' : 'md:col-span-9')}>
+									<Label htmlFor={`service-description-${s.id}`} className="md:hidden">Descrição</Label>
 									<Input
-										id={`service-qty-${s.id}`}
-										value={s.quantity}
-										onChange={(e) => handleUpdate(idx, 'quantity', e.target.value.replace(/\D/g, '').slice(0, 4))}
+										id={`service-description-${s.id}`}
+										value={s.description}
+										readOnly
+										placeholder={
+											s.kind === 'product'
+												? 'Ex: Tela iPhone 13 original...'
+												: 'Ex: Troca de tela, diagnóstico, limpeza...'
+										}
+										disabled
+									/>
+								</div>
+								{s.kind === 'product' ? (
+									<div className="md:col-span-2 space-y-1">
+										<Label htmlFor={`service-qty-${s.id}`} className="md:hidden">Qtd.</Label>
+										<Input
+											id={`service-qty-${s.id}`}
+											value={s.quantity}
+											onChange={(e) => handleUpdate(idx, 'quantity', e.target.value.replace(/\D/g, '').slice(0, 4))}
+											onBlur={syncOnBlur}
+											inputMode="numeric"
+											placeholder="1"
+											disabled={disabled}
+										/>
+									</div>
+								) : null}
+								<div className="md:col-span-2 space-y-1">
+									<Label htmlFor={`service-value-${s.id}`} className="md:hidden">Valor</Label>
+									<Input
+										id={`service-value-${s.id}`}
+										value={s.value}
+										onChange={(e) => handleUpdate(idx, 'value', formatMoneyInputBr(e.target.value))}
 										onBlur={syncOnBlur}
 										inputMode="numeric"
-										placeholder="1"
+										placeholder="0,00"
 										disabled={disabled}
 									/>
 								</div>
-							) : null}
-							<div className="md:col-span-2 space-y-1">
-								<Label htmlFor={`service-value-${s.id}`} className="md:hidden">Valor</Label>
-								<Input
-									id={`service-value-${s.id}`}
-									value={s.value}
-									onChange={(e) => handleUpdate(idx, 'value', formatMoneyInputBr(e.target.value))}
-									onBlur={syncOnBlur}
-									inputMode="numeric"
-									placeholder="0,00"
-									disabled={disabled}
-								/>
+								<div className="md:col-span-1 flex justify-end">
+									<div className="flex items-center gap-1">
+										<Button
+											type="button"
+											variant="ghost"
+											size="icon"
+											onClick={() => handleRemove(idx)}
+											disabled={disabled}
+											title="Remover item"
+											aria-label="Remover item"
+											className="text-red-600 hover:text-red-700 hover:bg-red-500/10"
+										>
+											<Trash2 className="h-4 w-4" />
+										</Button>
+									</div>
+								</div>
+								{idx !== services.length - 1 ? <div className="md:col-span-12 border-t" /> : null}
 							</div>
-							<div className="md:col-span-1 flex justify-end">
-								<div className="flex items-center gap-1">
-									<Button
+						))}
+					</div>
+				) : null}
+
+				{isPickerVisible ? (
+					<div className="grid gap-3 md:grid-cols-12 items-end rounded-md border border-dashed p-3">
+						<div className="md:col-span-10 space-y-1">
+							<Popover open={isPickerOpen} onOpenChange={setIsPickerOpen}>
+								<PopoverTrigger asChild>
+									<button
+										id="service-picker-trigger"
 										type="button"
-										variant="ghost"
-										size="icon"
-										onClick={() => handleRemove(idx)}
 										disabled={disabled}
-										title="Remover item"
-										aria-label="Remover item"
-										className="text-red-600 hover:text-red-700 hover:bg-red-500/10"
-									>
-										<Trash2 className="h-4 w-4" />
-									</Button>
-								</div>
-							</div>
-							{idx !== services.length - 1 ? <div className="md:col-span-12 border-t" /> : null}
-						</div>
-					))}
-				</div>
-			) : null}
-
-			{isPickerVisible ? (
-				<div className="grid gap-3 md:grid-cols-12 items-end rounded-md border border-dashed p-3">
-					<div className="md:col-span-10 space-y-1">
-						<Label htmlFor="service-picker-trigger">Produto ou serviço</Label>
-						<Popover open={isPickerOpen} onOpenChange={setIsPickerOpen}>
-							<PopoverTrigger asChild>
-								<button
-									id="service-picker-trigger"
-									type="button"
-									disabled={disabled}
-									className={cn(
-										'w-full flex items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm text-left',
-										'hover:bg-accent/30 transition-colors disabled:cursor-not-allowed disabled:opacity-60',
-									)}
-								>
-									<span className={cn(!catalogQuery ? 'text-muted-foreground' : '')}>
-										{catalogQuery || 'Buscar produto/serviço (mín. 3 caracteres)'}
-									</span>
-									<ChevronsUpDown className="h-4 w-4 opacity-50 shrink-0" />
-								</button>
-							</PopoverTrigger>
-							<PopoverContent className="p-0 w-[min(640px,calc(100vw-2rem))]" align="start">
-								<Command shouldFilter={false}>
-									<CommandInput
-										placeholder="Digite nome, SKU ou código..."
-										value={catalogQuery}
-										onValueChange={setCatalogQuery}
-									/>
-									<CommandList>
-										{catalogQuery.trim().length < 3 ? (
-											<CommandEmpty>Digite ao menos 3 caracteres para buscar.</CommandEmpty>
-										) : isCatalogLoading ? (
-											<div className="p-3 text-sm text-muted-foreground flex items-center gap-2">
-												<Loader2 className="h-4 w-4 animate-spin" />
-												Carregando itens...
-											</div>
-										) : catalogError ? (
-											<CommandEmpty>{catalogError}</CommandEmpty>
-										) : catalogItems.length === 0 ? (
-											<CommandEmpty>Nenhum item encontrado.</CommandEmpty>
-										) : (
-											<CommandGroup heading="Produtos e serviços">
-												{catalogItems.map((item) => (
-													<CommandItem
-														key={item.id}
-														value={`${item.name} ${item.sku || ''} ${item.barcode || ''}`}
-														onSelect={() => addCatalogItem(item)}
-													>
-														<Check className="mr-2 h-4 w-4 opacity-0" />
-														<div className="flex flex-col min-w-0">
-															<span className="font-medium truncate">{item.name}</span>
-															<span className="text-xs text-muted-foreground flex items-center gap-2">
-																<span
-																	className={cn(
-																		'inline-flex rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide',
-																		item.kind === 'product'
-																			? 'bg-blue-500/10 text-blue-700 dark:text-blue-300'
-																			: 'bg-violet-500/10 text-violet-700 dark:text-violet-300',
-																	)}
-																>
-																	{item.kind === 'product' ? 'Produto' : 'Serviço'}
-																</span>
-																<span>SKU: {item.sku || '-'}</span>
-															</span>
-														</div>
-													</CommandItem>
-												))}
-											</CommandGroup>
+										className={cn(
+											'w-full flex items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm text-left',
+											'hover:bg-accent/30 transition-colors disabled:cursor-not-allowed disabled:opacity-60',
 										)}
-									</CommandList>
-								</Command>
-							</PopoverContent>
-						</Popover>
+									>
+										<span className={cn(!catalogQuery ? 'text-muted-foreground' : '')}>
+											{catalogQuery || 'Buscar produto/serviço (mín. 3 caracteres)'}
+										</span>
+										<ChevronsUpDown className="h-4 w-4 opacity-50 shrink-0" />
+									</button>
+								</PopoverTrigger>
+								<PopoverContent className="p-0 w-[min(640px,calc(100vw-2rem))]" align="start">
+									<Command shouldFilter={false}>
+										<CommandInput
+											placeholder="Digite nome, SKU ou código..."
+											value={catalogQuery}
+											onValueChange={setCatalogQuery}
+										/>
+										<CommandList>
+											{catalogQuery.trim().length < 3 ? (
+												<CommandEmpty>Digite ao menos 3 caracteres para buscar.</CommandEmpty>
+											) : isCatalogLoading ? (
+												<div className="p-3 text-sm text-muted-foreground flex items-center gap-2">
+													<Loader2 className="h-4 w-4 animate-spin" />
+													Carregando itens...
+												</div>
+											) : catalogError ? (
+												<CommandEmpty>{catalogError}</CommandEmpty>
+											) : catalogItems.length === 0 ? (
+												<CommandEmpty>Nenhum item encontrado.</CommandEmpty>
+											) : (
+											catalogItems.map((item) => {
+													const currentStock = Number(item.currentStock ?? 0)
+													const hasImage = Boolean(item.imageUrl)
+												const isParentWithVariations =
+													item.kind === 'product' && item.hasVariations === true
+												const isVariation = item.isVariation === true
+													return (
+														<CommandItem
+															key={item.id}
+															value={`${item.name} ${item.sku || ''} ${item.barcode || ''}`}
+															onSelect={() => addCatalogItem(item)}
+														disabled={isParentWithVariations}
+															className="gap-3 rounded-md px-3 py-2.5 data-[selected=true]:bg-muted/50 data-[selected=true]:text-foreground"
+														>
+															<Check className="hidden" />
+														<div
+															className={cn(
+																'relative flex items-center gap-3',
+																isVariation && 'pl-3',
+															)}
+														>
+															{isVariation ? (
+																<span
+																	className="absolute left-0 top-1/2 h-px w-2.5 -translate-y-1/2 bg-border"
+																	aria-hidden="true"
+																/>
+															) : null}
+															<div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/40">
+																{hasImage ? (
+																	<img
+																		src={String(item.imageUrl)}
+																		alt=""
+																		className="h-full w-full object-cover"
+																	/>
+																) : (
+																	<span className="text-[10px] uppercase text-muted-foreground">
+																		{item.kind === 'product' ? 'Produto' : 'Serviço'}
+																	</span>
+																)}
+															</div>
+														</div>
+														<div className="min-w-0 flex-1">
+																<div className="flex items-center gap-2">
+																	<span className="truncate font-medium">{item.name}</span>
+																	<span
+																		className={cn(
+																			'inline-flex rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide',
+																			item.kind === 'product'
+																				? 'bg-blue-500/10 text-blue-700 dark:text-blue-300'
+																				: 'bg-violet-500/10 text-violet-700 dark:text-violet-300',
+																		)}
+																	>
+																		{item.kind === 'product' ? 'Produto' : 'Serviço'}
+																	</span>
+																{isParentWithVariations ? (
+																	<span className="text-[11px] text-muted-foreground">
+																		Selecione uma variação
+																	</span>
+																) : null}
+																</div>
+															{!isParentWithVariations ? (
+																<div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+																	<span>SKU: {item.sku || '-'}</span>
+																	<span>Venda: {formatCentsBr(item.salePriceCents)}</span>
+																	{item.kind === 'product' ? (
+																		<span
+																			className={cn(
+																				currentStock <= 0 && 'text-amber-700 dark:text-amber-300',
+																			)}
+																		>
+																			Estoque: {currentStock}
+																		</span>
+																	) : null}
+																</div>
+															) : null}
+															</div>
+														</CommandItem>
+													)
+												})
+											)}
+										</CommandList>
+									</Command>
+								</PopoverContent>
+							</Popover>
+						</div>
+						<div className="md:col-span-2 flex justify-end">
+							<Button
+								type="button"
+								variant="ghost"
+								size="icon"
+								onClick={() => {
+									setIsPickerVisible(false)
+									setIsPickerOpen(false)
+									setCatalogQuery('')
+									setCatalogItems([])
+									setCatalogError(null)
+								}}
+								disabled={disabled}
+								title="Remover inclusão"
+								aria-label="Remover inclusão"
+								className="text-red-600 hover:text-red-700 hover:bg-red-500/10"
+							>
+								<Trash2 className="h-4 w-4" />
+							</Button>
+						</div>
 					</div>
-					<div className="md:col-span-2 flex justify-end">
-						<Button
-							type="button"
-							variant="ghost"
-							size="icon"
-							onClick={() => {
-								setIsPickerVisible(false)
-								setIsPickerOpen(false)
-								setCatalogQuery('')
-								setCatalogItems([])
-								setCatalogError(null)
-							}}
-							disabled={disabled}
-							title="Remover inclusão"
-							aria-label="Remover inclusão"
-							className="text-red-600 hover:text-red-700 hover:bg-red-500/10"
-						>
-							<Trash2 className="h-4 w-4" />
-						</Button>
+				) : null}
+
+				{services.length > 0 ? (
+					<div className="flex justify-end border-t pt-3 text-sm">
+						<span className="text-muted-foreground">Valor total: </span>
+						<span className="font-medium ml-1">{formatCentsBr(totalValueCents)}</span>
 					</div>
-				</div>
-			) : null}
+				) : null}
 
-			{services.length > 0 ? (
-				<div className="flex justify-end border-t pt-3 text-sm">
-					<span className="text-muted-foreground">Valor total: </span>
-					<span className="font-medium ml-1">{formatCentsBr(totalValueCents)}</span>
-				</div>
-			) : null}
-
-			<Button
-				type="button"
-				variant="outline"
-				size="sm"
-				onClick={() => {
-					setIsPickerVisible(true)
-					setIsPickerOpen(true)
-				}}
-				disabled={disabled || isPickerVisible}
+				<Button
+					type="button"
+					variant="outline"
+					size="sm"
+					onClick={() => {
+						setIsPickerVisible(true)
+						setIsPickerOpen(true)
+					}}
+					disabled={disabled || isPickerVisible}
 				className="w-full border-dashed border-green-600 bg-green-600/5 text-green-700 hover:bg-green-600/10 hover:text-green-800"
-			>
-				<Plus className="h-4 w-4 mr-2" />
-				Incluir serviço ou produto
-			</Button>
+				>
+					<Plus className="h-4 w-4 mr-2" />
+					Incluir serviço ou produto
+				</Button>
 
-			{inputName ? (
-				<input
-					type="hidden"
-					name={inputName}
-					value={servicesJson}
-					form={formId}
-					readOnly
-					aria-hidden
-				/>
-			) : null}
+				{inputName ? (
+					<input
+						type="hidden"
+						name={inputName}
+						value={servicesJson}
+						form={formId}
+						readOnly
+						aria-hidden
+					/>
+				) : null}
 
-			<Dialog open={isAdvancedOpen} onOpenChange={setIsAdvancedOpen}>
-				<DialogContent className="max-w-lg">
-					<DialogHeader>
-						<DialogTitle>Serviços e produtos</DialogTitle>
-						<DialogDescription>
-							Revise os valores de venda, custos e a margem desta ordem.
-						</DialogDescription>
-					</DialogHeader>
+				<Dialog open={isAdvancedOpen} onOpenChange={setIsAdvancedOpen}>
+					<DialogContent className="max-w-lg">
+						<DialogHeader>
+							<DialogTitle>Serviços e produtos</DialogTitle>
+							<DialogDescription>
+								Revise os valores de venda, custos e a margem desta ordem.
+							</DialogDescription>
+						</DialogHeader>
 
-					<div className="space-y-3 overflow-y-auto pr-1">
-						{services.map((s, idx) => {
-							const isProduct = s.kind === 'product'
+						<div className="space-y-3 overflow-y-auto pr-1">
+							{services.map((s, idx) => {
+								const isProduct = s.kind === 'product'
 
-							return (
-								<div
-									key={s.id}
-									className="rounded-md border border-border bg-card p-3 space-y-2 text-sm"
-								>
-									<div className='grid grid-cols-1 gap-2 md:grid-cols-2 md:gap-2 md:items-end'>
-										<div className="flex gap-2">
-											<div className="flex-1 min-w-0 space-y-1">
-												<Label htmlFor={`adv-desc-${s.id}`}>Descrição</Label>
-												<Input
-													id={`adv-desc-${s.id}`}
-													value={s.description}
-													readOnly
-													placeholder="Descrição"
-													disabled
-												/>
-											</div>
-											{isProduct ? (
-												<div className="w-16 shrink-0 space-y-1 md:min-w-0">
-													<Label htmlFor={`adv-qty-${s.id}`}>Qtd.</Label>
+								return (
+									<div
+										key={s.id}
+										className="rounded-md border border-border bg-card p-3 space-y-2 text-sm"
+									>
+										<div className='grid grid-cols-1 gap-2 md:grid-cols-2 md:gap-2 md:items-end'>
+											<div className="flex gap-2">
+												<div className="flex-1 min-w-0 space-y-1">
+													<Label htmlFor={`adv-desc-${s.id}`}>Descrição</Label>
 													<Input
-														id={`adv-qty-${s.id}`}
-														value={s.quantity}
+														id={`adv-desc-${s.id}`}
+														value={s.description}
+														readOnly
+														placeholder="Descrição"
+														disabled
+													/>
+												</div>
+												{isProduct ? (
+													<div className="w-16 shrink-0 space-y-1 md:min-w-0">
+														<Label htmlFor={`adv-qty-${s.id}`}>Qtd.</Label>
+														<Input
+															id={`adv-qty-${s.id}`}
+															value={s.quantity}
+															onChange={(e) =>
+																handleUpdate(
+																	idx,
+																	'quantity',
+																	e.target.value.replace(/\D/g, '').slice(0, 4),
+																)
+															}
+															onBlur={syncOnBlur}
+															inputMode="numeric"
+															placeholder="1"
+															disabled={disabled}
+															className="md:w-full"
+														/>
+													</div>
+												) : null}
+											</div>
+
+											<div className="grid grid-cols-2 gap-2">
+												<div className="space-y-1 min-w-0">
+													<Label htmlFor={`adv-value-${s.id}`}>Valor unitário</Label>
+													<Input
+														id={`adv-value-${s.id}`}
+														value={s.value}
 														onChange={(e) =>
 															handleUpdate(
 																idx,
-																'quantity',
-																e.target.value.replace(/\D/g, '').slice(0, 4),
+																'value',
+																formatMoneyInputBr(e.target.value),
 															)
 														}
 														onBlur={syncOnBlur}
 														inputMode="numeric"
-														placeholder="1"
+														placeholder="0,00"
 														disabled={disabled}
-														className="md:w-full"
 													/>
 												</div>
-											) : null}
-										</div>
-
-										<div className="grid grid-cols-2 gap-2">
-											<div className="space-y-1 min-w-0">
-												<Label htmlFor={`adv-value-${s.id}`}>Valor unitário</Label>
-												<Input
-													id={`adv-value-${s.id}`}
-													value={s.value}
-													onChange={(e) =>
-														handleUpdate(
-															idx,
-															'value',
-															formatMoneyInputBr(e.target.value),
-														)
-													}
-													onBlur={syncOnBlur}
-													inputMode="numeric"
-													placeholder="0,00"
-													disabled={disabled}
-												/>
-											</div>
-											<div className="space-y-1 min-w-0">
-												<Label htmlFor={`adv-cost-${s.id}`}>Custo unitário</Label>
-												<Input
-													id={`adv-cost-${s.id}`}
-													value={s.cost}
-													onChange={(e) =>
-														handleUpdate(
-															idx,
-															'cost',
-															formatMoneyInputBr(e.target.value),
-														)
-													}
-													onBlur={syncOnBlur}
-													inputMode="numeric"
-													placeholder="0,00"
-													disabled={disabled}
-												/>
+												<div className="space-y-1 min-w-0">
+													<Label htmlFor={`adv-cost-${s.id}`}>Custo unitário</Label>
+													<Input
+														id={`adv-cost-${s.id}`}
+														value={s.cost}
+														onChange={(e) =>
+															handleUpdate(
+																idx,
+																'cost',
+																formatMoneyInputBr(e.target.value),
+															)
+														}
+														onBlur={syncOnBlur}
+														inputMode="numeric"
+														placeholder="0,00"
+														disabled={disabled}
+													/>
+												</div>
 											</div>
 										</div>
 									</div>
-								</div>
-							)
-						})}
-					</div>
-
-					<div className="flex flex-wrap items-center justify-end gap-4 text-xs">
-						<div>
-							<span className="text-muted-foreground">Valor total: </span>
-							<span className="font-medium">
-								{formatCentsBr(totalValueCents)}
-							</span>
+								)
+							})}
 						</div>
-						<div>
-							<span className="text-muted-foreground">Custo total: </span>
-							<span className="font-medium">
-								{formatCentsBr(totalCostCents)}
-							</span>
+
+						<div className="flex flex-wrap items-center justify-end gap-4 text-xs">
+							<div>
+								<span className="text-muted-foreground">Valor total: </span>
+								<span className="font-medium">
+									{formatCentsBr(totalValueCents)}
+								</span>
+							</div>
+							<div>
+								<span className="text-muted-foreground">Custo total: </span>
+								<span className="font-medium">
+									{formatCentsBr(totalCostCents)}
+								</span>
+							</div>
+							<div>
+								<span className="text-muted-foreground">Margem: </span>
+								<span className="font-medium">
+									{formatCentsBr(netCents)} ({marginPercent.toFixed(1)}%)
+								</span>
+							</div>
 						</div>
-						<div>
-							<span className="text-muted-foreground">Margem: </span>
-							<span className="font-medium">
-								{formatCentsBr(netCents)} ({marginPercent.toFixed(1)}%)
-							</span>
-						</div>
-					</div>
 
 
-					<DialogFooter>
-						<Button
-							type="button"
-							variant="outline"
-							onClick={() => setIsAdvancedOpen(false)}
-						>
-							Fechar
-						</Button>
-					</DialogFooter>
-				</DialogContent>
-			</Dialog>
+						<DialogFooter>
+							<Button
+								type="button"
+								variant="outline"
+								onClick={() => setIsAdvancedOpen(false)}
+							>
+								Fechar
+							</Button>
+						</DialogFooter>
+					</DialogContent>
+				</Dialog>
 
 			</CardContent>
 		</Card>

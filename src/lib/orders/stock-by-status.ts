@@ -28,6 +28,10 @@ function shouldConsumeStock (status: string) {
   return STOCK_CONSUMING_ORDER_STATUS_SET.has(status)
 }
 
+function shouldConsumeOnDirectFinalize (previousStatus: string, nextStatus: string) {
+  return previousStatus === 'orcamento' && nextStatus === 'finalizada'
+}
+
 function shouldReturnStockOnFinalWithoutRepair (nextStatus: string) {
   return nextStatus === 'cancelada'
     || nextStatus === 'finalizada_sem_conserto'
@@ -82,7 +86,9 @@ export async function applyOrderStatusStockTransition (input: ApplyOrderStatusSt
   const previousStatus = String(input.previousStatus || '').trim()
   const nextStatus = String(input.nextStatus || '').trim()
 
-  const enterConsuming = !shouldConsumeStock(previousStatus) && shouldConsumeStock(nextStatus)
+  const enterConsuming =
+    (!shouldConsumeStock(previousStatus) && shouldConsumeStock(nextStatus))
+    || shouldConsumeOnDirectFinalize(previousStatus, nextStatus)
   const returnOnFinalNoRepair = shouldReturnOnStatusTransition(previousStatus, nextStatus)
   if (!enterConsuming && !returnOnFinalNoRepair) return
 

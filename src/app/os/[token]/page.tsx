@@ -122,13 +122,13 @@ export default async function OrdemPublicaPage({
 				<Header />
 				<main className="flex-1 flex items-center justify-center p-6">
 					<Card className="max-w-md w-full">
-						<CardHeader>
+						<CardHeader className="p-5">
 							<CardTitle>Link inválido</CardTitle>
 							<CardDescription>
 								O link da ordem de serviço não é válido. Verifique e tente novamente.
 							</CardDescription>
 						</CardHeader>
-						<CardContent>
+						<CardContent className="p-5 pt-0">
 							<Button asChild variant="outline">
 								<Link href="/">Ir para o início</Link>
 							</Button>
@@ -149,13 +149,13 @@ export default async function OrdemPublicaPage({
 				<Header />
 				<main className="flex-1 flex items-center justify-center p-6">
 					<Card className="max-w-md w-full">
-						<CardHeader>
+						<CardHeader className="p-5">
 							<CardTitle>Indisponível</CardTitle>
 							<CardDescription>
 								Não foi possível carregar a ordem no momento. Tente novamente mais tarde.
 							</CardDescription>
 						</CardHeader>
-						<CardContent>
+						<CardContent className="p-5 pt-0">
 							<Button asChild variant="outline">
 								<Link href="/">Ir para o início</Link>
 							</Button>
@@ -218,13 +218,13 @@ export default async function OrdemPublicaPage({
 				<Header />
 				<main className="flex-1 flex items-center justify-center p-6">
 					<Card className="max-w-md w-full">
-						<CardHeader>
+						<CardHeader className="p-5">
 							<CardTitle>Ordem não encontrada</CardTitle>
 							<CardDescription>
 								Este link pode ter expirado ou a ordem não existe.
 							</CardDescription>
 						</CardHeader>
-						<CardContent>
+						<CardContent className="p-5 pt-0">
 							<Button asChild variant="outline">
 								<Link href="/">Ir para o início</Link>
 							</Button>
@@ -315,7 +315,7 @@ export default async function OrdemPublicaPage({
 						</div>
 
 						<Card>
-							<CardHeader>
+							<CardHeader className="p-5">
 								<CardTitle>{order.title}</CardTitle>
 								<CardDescription>
 									Dispositivo: {deviceDisplay}
@@ -323,7 +323,7 @@ export default async function OrdemPublicaPage({
 									{order.is_warranty ? ' • Garantia: Sim' : ''}
 								</CardDescription>
 							</CardHeader>
-							<CardContent className="space-y-4">
+							<CardContent className="space-y-4 p-5 pt-0">
 								{order.estimated_ready_at && (
 									<div>
 										<span className="text-sm font-medium">Previsão de conclusão: </span>
@@ -458,7 +458,7 @@ export default async function OrdemPublicaPage({
 						</Card>
 
 						<Card className="border-primary/30 bg-primary/5">
-							<CardContent className="pt-6">
+							<CardContent className="p-5">
 								<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
 									<p className="text-sm text-muted-foreground sm:mb-0">
 										Cadastre-se na plataforma para acompanhar o histórico das suas ordens de serviço.

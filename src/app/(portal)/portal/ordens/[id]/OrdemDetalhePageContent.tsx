@@ -30,7 +30,6 @@ import { OrderFormActionBar } from '../OrderFormActionBar'
 import { OrdemActionsMenu } from './OrdemActionsMenu'
 import { OrdemDetalheToastClient } from './OrdemDetalheToastClient'
 import { OrdemLabelPrintButton } from './OrdemLabelPrintButton'
-import { OrdemPrintButton } from './OrdemPrintButton'
 import { OrderAssistanceChat } from './OrderAssistanceChat'
 import { OrderCustomerCard } from './OrderCustomerCard'
 import { OrderDeviceEntryChecksEditor } from './OrderDeviceEntryChecksEditor'
@@ -108,59 +107,62 @@ export function OrdemDetalhePageContent (props: Props) {
 		<div className="max-w-4xl space-y-6 pb-24">
 			<OrdemDetalheToastClient />
 
-			<div className="flex items-start justify-between gap-4 flex-wrap">
-				<div className="flex flex-col gap-1.5">
+			<div className="space-y-1.5">
+				<div>
+					<OrderStatusBadge status={order.status} />
+				</div>
+
+				<div className="flex items-start justify-between gap-4 flex-wrap">
 					<h1 className="text-2xl font-bold">
 						Editar Ordem #{order.display_number ?? order.id}
 					</h1>
-					<div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-						<OrderStatusBadge status={order.status} />
-						<span>
-							Criada em {formatDateTimeBr(order.created_at)} •{' '}
-							{order.closed_at
-								? `Finalizada em ${formatDateTimeBr(order.closed_at)}`
-								: `Atualizada em ${formatDateTimeBr(order.updated_at)}`}
-						</span>
+
+					<div className="flex items-center gap-2 flex-wrap justify-end">
+						<OrdemLabelPrintButton orderId={order.id} />
+						<OrdemActionsMenu
+							orderId={order.id}
+							publicOrderPath={
+								order.share_token ? `/os/${order.share_token}` : null
+							}
+							displayNumber={order.display_number ?? order.id}
+							title={order.title}
+							customerName={
+								customer?.is_company
+									? String(customer?.company_name ?? '')
+									: String(customer?.full_name ?? '')
+							}
+							device={deviceString || '-'}
+							status={order.status}
+							estimatedReadyAt={order.estimated_ready_at ?? null}
+							mobilePhone={customer?.mobile_phone as string | undefined}
+							email={customer?.email as string | undefined}
+							isFinalized={isFinalized}
+							canDelete={role === 'admin'}
+							deleteOrderAction={deleteOrderAction}
+							isAdmin={isAdmin}
+							deviceExitChecks={order.device_exit_checks ?? null}
+							exitPhotoCount={exitPhotoCount}
+						/>
 					</div>
 				</div>
 
-				<div className="flex items-center gap-2 flex-wrap">
-					<OrdemPrintButton orderId={order.id} />
-					<OrdemLabelPrintButton orderId={order.id} />
-					<OrdemActionsMenu
-						orderId={order.id}
-						publicOrderPath={
-							order.share_token ? `/os/${order.share_token}` : null
-						}
-						displayNumber={order.display_number ?? order.id}
-						title={order.title}
-						customerName={
-							customer?.is_company
-								? String(customer?.company_name ?? '')
-								: String(customer?.full_name ?? '')
-						}
-						device={deviceString || '-'}
-						status={order.status}
-						estimatedReadyAt={order.estimated_ready_at ?? null}
-						mobilePhone={customer?.mobile_phone as string | undefined}
-						email={customer?.email as string | undefined}
-						isFinalized={isFinalized}
-						canDelete={role === 'admin'}
-						deleteOrderAction={deleteOrderAction}
-						isAdmin={isAdmin}
-						deviceExitChecks={order.device_exit_checks ?? null}
-						exitPhotoCount={exitPhotoCount}
-					/>
+				<div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground/80">
+					<span>
+						Criada em {formatDateTimeBr(order.created_at)} •{' '}
+						{order.closed_at
+							? `Finalizada em ${formatDateTimeBr(order.closed_at)}`
+							: `Atualizada em ${formatDateTimeBr(order.updated_at)}`}
+					</span>
 				</div>
 			</div>
 
 			<OrderCustomerCard customer={customer} />
 
 			<Card>
-				<CardHeader>
+				<CardHeader className="p-5">
 					<CardTitle>Informações do Aparelho</CardTitle>
 				</CardHeader>
-				<CardContent className="space-y-6">
+				<CardContent className="space-y-6 p-5 pt-0">
 					<OrderDeviceSelector
 						initialValue={{
 							deviceModelId:
@@ -227,13 +229,13 @@ export function OrdemDetalhePageContent (props: Props) {
 					<input type="hidden" name="status" value={order.status} />
 
 					<Card>
-						<CardHeader>
+						<CardHeader className="p-5">
 							<CardTitle>Informações da assistência</CardTitle>
 							<CardDescription>
 								Do título até as fotos de entrada do aparelho.
 							</CardDescription>
 						</CardHeader>
-						<CardContent className="space-y-6">
+						<CardContent className="space-y-6 p-5 pt-0">
 							<div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
 								<div className="space-y-2 md:col-span-2">
 									<Label htmlFor="title">Título</Label>
@@ -354,7 +356,7 @@ export function OrdemDetalhePageContent (props: Props) {
 					</Card>
 
 					<Card>
-						<CardHeader>
+						<CardHeader className="p-5">
 							<CardTitle>Considerações da assistência</CardTitle>
 							<CardDescription>
 								Checklist e fotos na saída do aparelho. Registro
@@ -362,7 +364,7 @@ export function OrdemDetalhePageContent (props: Props) {
 								depois.
 							</CardDescription>
 						</CardHeader>
-						<CardContent className="space-y-6">
+						<CardContent className="space-y-6 p-5 pt-0">
 							<OrderDeviceEntryChecksEditor
 								initialValue={order.device_exit_checks ?? null}
 								disabled={formDisabled}
@@ -390,13 +392,15 @@ export function OrdemDetalhePageContent (props: Props) {
 						formId="order-edit-form"
 						disabled={formDisabled}
 						advancedInitiallyOpen={openServicesModalInitially}
+						currentStatus={order.status}
+						statusInputName="status"
 					/>
 
 					<Card>
-						<CardHeader>
+						<CardHeader className="p-5">
 							<CardTitle>Informações sobre a assistência</CardTitle>
 						</CardHeader>
-						<CardContent>
+						<CardContent className="p-5 pt-0">
 							<OrderAssistanceChat
 								orderId={order.id}
 								assistanceAiContext={{
@@ -410,13 +414,13 @@ export function OrdemDetalhePageContent (props: Props) {
 
 					{Array.isArray(warrantyTemplates) && warrantyTemplates.length > 0 ? (
 						<Card>
-							<CardHeader>
+							<CardHeader className="p-5">
 								<CardTitle>Garantia</CardTitle>
 								<CardDescription>
 									Modelo e texto exibidos na impressão e na visão pública da OS.
 								</CardDescription>
 							</CardHeader>
-							<CardContent>
+							<CardContent className="p-5 pt-0">
 								<OrderWarrantySelector
 									templates={warrantyTemplates}
 									initialTemplateId={
@@ -437,14 +441,14 @@ export function OrdemDetalhePageContent (props: Props) {
 					/>
 
 					<Card>
-						<CardHeader>
+						<CardHeader className="p-5">
 							<CardTitle>Descrição interna</CardTitle>
 							<CardDescription>
 								Anotações visíveis só para a equipe (não aparecem para o
 								cliente).
 							</CardDescription>
 						</CardHeader>
-						<CardContent>
+						<CardContent className="p-5 pt-0">
 							<OrderInternalCommentsChat
 								orderId={order.id}
 								disabled={formDisabled}

@@ -9,6 +9,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { EditCustomerDialog, type CustomerHit } from '@/components/customers'
 import { CustomerDataGrid, CustomerOrderHistoryModal } from '@/components/orders'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
+import { formatPhoneBr } from '@/lib/utils/format-phone'
 import { onlyDigits } from '@/lib/utils/strings'
 import { portalFetch } from '@/lib/portal/portal-fetch'
 
@@ -115,7 +116,7 @@ export function OrderCustomerCard({ customer }: Props) {
     <>
       <Collapsible open={isDataOpen} onOpenChange={setIsDataOpen}>
         <Card>
-          <CardHeader>
+          <CardHeader className="p-5">
             <div className="flex items-center justify-between gap-3 flex-nowrap">
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-foreground truncate">
@@ -123,6 +124,9 @@ export function OrderCustomerCard({ customer }: Props) {
                 </p>
                 <p className="text-sm text-muted-foreground truncate">
                   {getCustomerDocumentMasked(customer)}
+                </p>
+                <p className="text-sm text-muted-foreground truncate">
+                  {customer.mobile_phone ? formatPhoneBr(customer.mobile_phone) : null}
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
@@ -161,7 +165,7 @@ export function OrderCustomerCard({ customer }: Props) {
             </div>
           </CardHeader>
           <CollapsibleContent>
-            <CardContent>
+            <CardContent className="p-5 pt-0">
               <CustomerDataGrid customer={customer} />
             </CardContent>
           </CollapsibleContent>

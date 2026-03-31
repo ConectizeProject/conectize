@@ -54,7 +54,6 @@ export function CustomerDataGrid({ customer, grid = true }: Props) {
   return (
     <div className={grid ? 'grid gap-x-6 gap-y-3 md:grid-cols-3 text-sm' : 'space-y-3 text-sm'}>
       <LabeledValue label="E-mail" value={customer.email?.trim() || null} />
-      <LabeledValue label="Celular" value={customer.mobile_phone ? formatPhoneBr(customer.mobile_phone) : null} />
       <LabeledValue label="Contato alternativo / Informações" value={contactLine} />
       <LabeledValue label="Nascimento" value={customer.birth_date ? formatDateBr(customer.birth_date) : null} />
       {address ? (

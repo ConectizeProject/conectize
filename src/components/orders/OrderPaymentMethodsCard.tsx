@@ -28,11 +28,11 @@ export function OrderPaymentMethodsCard({
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="p-5">
         <CardTitle>Formas de pagamento</CardTitle>
         <CardDescription>{cardDescription}</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-3 p-5 pt-0">
         <OrderPaymentMethodFields
           ref={fieldsRef}
           defaultValue={defaultValue}
