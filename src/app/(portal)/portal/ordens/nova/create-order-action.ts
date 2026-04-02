@@ -6,6 +6,7 @@ import {
   parseServicesJson,
 } from '@/lib/orders/order-form-parsers'
 import { applyOrderStatusStockTransition } from '@/lib/orders/stock-by-status'
+import { getOrdemPortalPath, getOrdemPortalPathSegment } from '@/lib/orders/ordem-portal-path'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 import { previsaoToISO } from '@/lib/utils/previsao-ordem'
 import { redirect } from 'next/navigation'
@@ -110,7 +111,7 @@ export async function createOrderAction(formData: FormData) {
       services_total_cents: services.totalValueCents,
       services_cost_total_cents: services.totalCostCents,
     })
-    .select('id')
+    .select('id, display_number')
     .single()
 
   if (error) {
@@ -219,5 +220,10 @@ export async function createOrderAction(formData: FormData) {
     }
   }
 
-  return { redirectTo: `/portal/ordens/${insertedOrder.id}?toast=order_created` }
+  const inserted = insertedOrder as { id: string; display_number: number | null }
+  const path = getOrdemPortalPath(inserted)
+  const seg = getOrdemPortalPathSegment(inserted)
+  return {
+    redirectTo: `${path}?toast=order_created&os=${encodeURIComponent(seg)}`,
+  }
 }

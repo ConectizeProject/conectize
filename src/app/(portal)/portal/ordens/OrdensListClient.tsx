@@ -82,7 +82,7 @@ export function OrdensListClient({
         const dotClass = STATUS_DOT_CLASSES[status] ?? 'bg-muted shadow-[0_0_0.6rem_rgba(148,163,184,0.7)]'
         return (
           <section key={status} className="space-y-3">
-            <div className="flex items-center gap-2 px-1 text-sm font-medium">
+            <div className="flex items-center gap-2 text-sm font-medium">
               <span className={`h-2.5 w-2.5 rounded-full ${dotClass}`} aria-hidden />
               <span>{label}</span>
               <span className="text-xs font-normal text-muted-foreground">

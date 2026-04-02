@@ -79,7 +79,7 @@ export function OrdensFinalSection({
 
   return (
     <section className="space-y-3">
-      <div className="flex items-center gap-2 px-1 text-sm font-medium">
+      <div className="flex items-center gap-2 text-sm font-medium">
         <span className="h-2.5 w-2.5 rounded-full bg-green-400 shadow-[0_0_0.6rem_rgba(74,222,128,0.9)]" aria-hidden />
         <span>Finalizadas / Canceladas</span>
         {hasFetched && !isLoading ? (
@@ -88,7 +88,7 @@ export function OrdensFinalSection({
       </div>
 
       {!hasFetched ? (
-        <div className="mb-5 px-1">
+        <div className="mb-5">
           <Button
             type="button"
             variant="outline"
@@ -106,7 +106,7 @@ export function OrdensFinalSection({
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
       ) : orders.length === 0 && hasFetched ? (
-        <p className="px-1 py-4 text-sm text-muted-foreground">Nenhuma ordem com status final.</p>
+        <p className="py-4 text-sm text-muted-foreground">Nenhuma ordem com status final.</p>
       ) : orders.length > 0 ? (
         <DragScrollRow>
           {orders.map((order) => (

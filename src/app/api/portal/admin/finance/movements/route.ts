@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth/portal-api'
+import { getOrdemPortalPath } from '@/lib/orders/ordem-portal-path'
 
 export async function GET(request: NextRequest) {
   const auth = await requireAdmin()
@@ -46,6 +47,25 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  const serviceOrderIds = [
+    ...new Set(
+      (transactions ?? [])
+        .map((t) => (t as { service_order_id?: string | null }).service_order_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ]
+  const displayByOrderId: Record<string, number | null> = {}
+  if (serviceOrderIds.length > 0) {
+    const { data: soRows } = await auth.supabase
+      .from('service_orders')
+      .select('id, display_number')
+      .in('id', serviceOrderIds)
+    for (const r of soRows ?? []) {
+      const row = r as { id: string; display_number: number | null }
+      displayByOrderId[row.id] = row.display_number
+    }
+  }
+
   const merged = (transactions ?? []).map((t: Record<string, unknown>) => {
     const contaId = t.conta_id as string
     const conta = t.contas as { name?: string } | null
@@ -53,6 +73,12 @@ export async function GET(request: NextRequest) {
     const resaleDeviceId = t.resale_device_id as string | null
     const source = serviceOrderId ? 'os' : resaleDeviceId ? 'seminovo' : 'transaction'
     const editable = !serviceOrderId && !resaleDeviceId
+    const serviceOrderHref = serviceOrderId
+      ? getOrdemPortalPath({
+          id: serviceOrderId,
+          display_number: displayByOrderId[serviceOrderId] ?? null,
+        })
+      : null
     return {
       id: t.id,
       source,
@@ -66,6 +92,7 @@ export async function GET(request: NextRequest) {
       transfer_id: t.transfer_id ?? null,
       recurring_expense_id: t.recurring_expense_id ?? null,
       service_order_id: serviceOrderId,
+      service_order_href: serviceOrderHref,
       resale_device_id: resaleDeviceId,
       editable,
     }

@@ -9,6 +9,7 @@ import { getOrdemErrorMessage } from '@/lib/utils/error-messages'
 function cleanParams(params: URLSearchParams) {
   params.delete('toast')
   params.delete('id')
+  params.delete('os')
   params.delete('error')
   return params
 }
@@ -43,7 +44,9 @@ export function OrdensToastClient() {
 
     if (!toastType) return
 
-    const orderId = String(searchParams.get('id') || '').trim()
+    const orderSeg =
+      String(searchParams.get('os') || '').trim() ||
+      String(searchParams.get('id') || '').trim()
     const error = errorParam
 
     if (toastType === 'order_created') {
@@ -51,8 +54,8 @@ export function OrdensToastClient() {
         variant: 'success',
         title: 'Ordem criada',
         description: 'Ordem de serviço criada com sucesso.',
-        action: orderId ? (
-          <ToastAction altText="Abrir ordem" onClick={() => router.push(`/portal/ordens/${orderId}`)}>
+        action: orderSeg ? (
+          <ToastAction altText="Abrir ordem" onClick={() => router.push(`/portal/ordens/${orderSeg}`)}>
             Abrir
           </ToastAction>
         ) : undefined,

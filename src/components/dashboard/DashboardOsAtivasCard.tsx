@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { getOrderStatusLabel } from '@/lib/orders/order-status'
+import { getOrdemPortalPath } from '@/lib/orders/ordem-portal-path'
 
 const STATUS_DOT_CLASSES: Record<string, string> = {
   orcamento: 'bg-amber-500',
@@ -64,7 +65,7 @@ export function DashboardOsAtivasCard({ total, orders, statusCounts }: Props) {
                       </TooltipContent>
                     </Tooltip>
                     <Link
-                      href={`/portal/ordens/${o.id}`}
+                      href={getOrdemPortalPath(o)}
                       className="min-w-0 truncate hover:underline font-medium"
                     >
                       #{o.display_number ?? o.id.slice(0, 8)} — {o.title}

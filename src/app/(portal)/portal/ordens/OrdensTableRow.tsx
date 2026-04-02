@@ -9,6 +9,7 @@ import { OrderStatusBadge, CustomerOrderHistoryModal } from '@/components/orders
 import { OrdensRowActions } from './OrdensRowActions'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { formatDateTimeBr } from '@/lib/utils/format-date'
+import { getOrdemPortalPath } from '@/lib/orders/ordem-portal-path'
 import type { PortalOrdensListRow } from '@/lib/orders/portal-ordens-list-types'
 
 type Props = {
@@ -24,7 +25,7 @@ export function OrdensTableRow({ order }: Props) {
       <TableRow className="hover:bg-muted/50">
         <TableCell colSpan={9} className="relative p-0 align-middle">
           <Link
-            href={`/portal/ordens/${order.id}`}
+            href={getOrdemPortalPath(order)}
             className="absolute inset-0 z-0"
             aria-label={`Abrir ordem ${order.display_number ?? order.id}`}
           />

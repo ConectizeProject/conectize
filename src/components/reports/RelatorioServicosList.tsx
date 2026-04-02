@@ -21,6 +21,7 @@ import { formatDateBr } from '@/lib/utils/format-date'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { getOrderStatusLabel } from '@/lib/orders/order-status'
+import { getOrdemPortalPath } from '@/lib/orders/ordem-portal-path'
 
 const STATUS_DOT_CLASSES: Record<string, string> = {
   orcamento: 'bg-amber-400 shadow-[0_0_0.6rem_rgba(251,191,36,0.9)]',
@@ -181,7 +182,7 @@ function FaturamentoRow ({ order }: { order: OrderRow }) {
       </TableCell>
       <TableCell>
         <Link
-          href={`/portal/ordens/${order.id}`}
+          href={getOrdemPortalPath(order)}
           className="font-medium hover:underline text-primary block"
         >
           <span className="inline-flex items-center gap-2 font-mono text-sm">

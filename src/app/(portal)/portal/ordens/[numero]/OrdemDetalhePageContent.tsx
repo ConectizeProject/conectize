@@ -22,6 +22,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { fetchDeviceModelsForSelector } from '@/lib/portal/device-models-server'
 import { formatDateTimeBr } from '@/lib/utils/format-date'
 import { isFinalizedOrderStatus } from '@/lib/orders/order-status'
+import { getOrdemPortalPathSegment } from '@/lib/orders/ordem-portal-path'
 import {
 	getMinPrevisaoForEdit,
 } from '@/lib/utils/previsao-ordem'
@@ -159,8 +160,10 @@ export function OrdemDetalhePageContent (props: Props) {
 			<OrderCustomerCard customer={customer} />
 
 			<Card>
-				<CardHeader className="p-5">
-					<CardTitle>Informações do Aparelho</CardTitle>
+				<CardHeader className="space-y-0 p-5 pb-3">
+					<CardTitle className="text-lg font-semibold tracking-tight">
+						Informações do Aparelho
+					</CardTitle>
 				</CardHeader>
 				<CardContent className="space-y-6 p-5 pt-0">
 					<OrderDeviceSelector
@@ -349,6 +352,7 @@ export function OrdemDetalhePageContent (props: Props) {
 
 							<OrderEntryPhotos
 								orderId={order.id}
+								portalPathSegment={getOrdemPortalPathSegment(order)}
 								initialPhotoCount={entryPhotoCount}
 								disabled={formDisabled}
 							/>
@@ -373,6 +377,7 @@ export function OrdemDetalhePageContent (props: Props) {
 							/>
 							<OrderEntryPhotos
 								orderId={order.id}
+								portalPathSegment={getOrdemPortalPathSegment(order)}
 								initialPhotoCount={exitPhotoCount}
 								disabled={formDisabled}
 								photoStage="exit"

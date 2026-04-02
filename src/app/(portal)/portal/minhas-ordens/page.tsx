@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { OrderStatusBadge } from '@/components/orders'
+import { getOrdemPortalPath } from '@/lib/orders/ordem-portal-path'
 import { formatDateTimeBr } from '@/lib/utils/format-date'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -92,7 +93,7 @@ export default async function MinhasOrdensPage() {
                 {orders.map((order) => (
                   <TableRow key={order.id} className="hover:bg-muted/50">
                     <TableCell className="font-medium">
-                      <Link href={`/portal/ordens/${order.id}`} className="block hover:underline focus:underline outline-none">
+                      <Link href={getOrdemPortalPath(order)} className="block hover:underline focus:underline outline-none">
                         #{order.display_number ?? order.id}
                       </Link>
                     </TableCell>

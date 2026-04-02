@@ -19,6 +19,7 @@ import {
 	createSupabaseServerClient,
 	getPortalAuth,
 } from '@/lib/supabase/server'
+import { getOrdemPortalPath } from '@/lib/orders/ordem-portal-path'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 import { previsaoToISO } from '@/lib/utils/previsao-ordem'
 import { redirect } from 'next/navigation'
@@ -88,12 +89,6 @@ export async function updateOrderAction (formData: FormData) {
 	if (!formOrderId) {
 		redirect('/portal/ordens?error=dados_invalidos')
 	}
-	if (!title) {
-		redirect(`/portal/ordens/${formOrderId}?error=titulo_obrigatorio`)
-	}
-	if (!isValidOrderStatus(status)) {
-		redirect(`/portal/ordens/${formOrderId}?error=status_invalido`)
-	}
 
 	const { user, role } = await getPortalAuth()
 	if (!user) redirect('/portal/login')
@@ -105,7 +100,7 @@ export async function updateOrderAction (formData: FormData) {
 	const { data: existing, error: fetchExistingError } = await supabase
 		.from('service_orders')
 		.select(
-			`status, services, title, imei, color, is_warranty, estimated_ready_at,
+			`display_number, status, services, title, imei, color, is_warranty, estimated_ready_at,
 				passcode_type, passcode_text, passcode_pattern,
 				payment_methods, customer_description, receiving_notes,
 				warranty_template_id, warranty_text, device_model_id, brand, model,
@@ -115,6 +110,18 @@ export async function updateOrderAction (formData: FormData) {
 		)
 		.eq('id', formOrderId)
 		.maybeSingle()
+
+	const ordemPath = getOrdemPortalPath({
+		id: formOrderId,
+		display_number: (existing as { display_number?: number | null } | null)?.display_number ?? null,
+	})
+
+	if (!title) {
+		redirect(`${ordemPath}?error=titulo_obrigatorio`)
+	}
+	if (!isValidOrderStatus(status)) {
+		redirect(`${ordemPath}?error=status_invalido`)
+	}
 
 	if (fetchExistingError) {
 		console.error('[order-save-fetch]', {
@@ -142,11 +149,11 @@ export async function updateOrderAction (formData: FormData) {
 			.slice(0, 320)
 		if (ec) saveQs.set('ec', ec)
 		if (em) saveQs.set('em', em)
-		redirect(`/portal/ordens/${formOrderId}?${saveQs.toString()}`)
+		redirect(`${ordemPath}?${saveQs.toString()}`)
 	}
 
 	if (!existing) {
-		redirect(`/portal/ordens/${formOrderId}?error=ordem_nao_encontrada`)
+		redirect(`${ordemPath}?error=ordem_nao_encontrada`)
 	}
 
 	const minPrevisaoMs = existing.created_at
@@ -156,12 +163,12 @@ export async function updateOrderAction (formData: FormData) {
 		estimatedReadyAt &&
 		new Date(estimatedReadyAt).getTime() < minPrevisaoMs - 60_000
 	) {
-		redirect(`/portal/ordens/${formOrderId}?error=previsao_invalida`)
+		redirect(`${ordemPath}?error=previsao_invalida`)
 	}
 	const isOrderFinalized =
 		existing && isFinalizedOrderStatus(String(existing.status || ''))
 	if (isOrderFinalized && role !== 'admin') {
-		redirect(`/portal/ordens/${formOrderId}?error=ordem_finalizada`)
+		redirect(`${ordemPath}?error=ordem_finalizada`)
 	}
 	const updatePayload: Record<string, unknown> = {
 		title,
@@ -234,7 +241,7 @@ export async function updateOrderAction (formData: FormData) {
 			details: error.details,
 			hint: error.hint,
 		})
-		redirect(`/portal/ordens/${formOrderId}?${saveQs.toString()}`)
+		redirect(`${ordemPath}?${saveQs.toString()}`)
 	}
 
 	const diffRows = buildOrderEditDiff(
@@ -283,7 +290,7 @@ export async function updateOrderAction (formData: FormData) {
 		console.error('[order-save stock]', err)
 	}
 
-	redirect(`/portal/ordens/${formOrderId}?ok=1`)
+	redirect(`${ordemPath}?ok=1`)
 }
 
 export type UpdateOrderStatusActionResult =
@@ -362,18 +369,29 @@ export async function deleteOrderAction (formData: FormData) {
 
 	const normalizedRole = role === 'customer' ? 'user' : role
 	if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
-	if (normalizedRole !== 'admin') {
-		redirect(`/portal/ordens/${orderId}?error=sem_permissao`)
-	}
 
 	const supabase = await createSupabaseServerClient()
+	const { data: delRef } = await supabase
+		.from('service_orders')
+		.select('display_number')
+		.eq('id', orderId)
+		.maybeSingle()
+	const ordemPath = getOrdemPortalPath({
+		id: orderId,
+		display_number: delRef?.display_number ?? null,
+	})
+
+	if (normalizedRole !== 'admin') {
+		redirect(`${ordemPath}?error=sem_permissao`)
+	}
+
 	const { error } = await supabase
 		.from('service_orders')
 		.delete()
 		.eq('id', orderId)
 
 	if (error) {
-		redirect(`/portal/ordens/${orderId}?error=nao_foi_possivel_excluir`)
+		redirect(`${ordemPath}?error=nao_foi_possivel_excluir`)
 	}
 
 	redirect('/portal/ordens?ok=1')
