@@ -16,6 +16,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/hooks/use-toast'
+import { formatCurrency } from '@/lib/utils'
+import type { Product } from '@/lib/products/service'
 
 type ProductKind = 'product' | 'service'
 
@@ -31,6 +33,8 @@ type ProductDetails = {
   salePriceCents: number | null
   costPriceCents: number | null
   isActive: boolean
+  parentBlingId: string | null
+  catalogSortKey: string | null
 }
 
 type FormState = {
@@ -52,11 +56,31 @@ type Props = {
   initialBlingId?: string | null
   onOpenChange: (open: boolean) => void
   onSuccess?: () => void
+  /** Ao clicar numa variação, abre o cadastro dela (mesmo diálogo). */
+  onNavigateToProductId?: (id: string) => void
 }
 
 function formatMoneyInput (valueInCents: number | null) {
   if (typeof valueInCents !== 'number') return ''
   return (valueInCents / 100).toFixed(2)
+}
+
+function productToDetails (p: Product): ProductDetails {
+  return {
+    id: p.id,
+    blingId: p.blingId,
+    blingSyncPending: p.blingSyncPending,
+    kind: p.kind === 'service' ? 'service' : 'product',
+    name: p.name,
+    sku: p.sku,
+    barcode: p.barcode,
+    description: p.description,
+    salePriceCents: p.salePriceCents,
+    costPriceCents: p.costPriceCents,
+    isActive: p.isActive !== false,
+    parentBlingId: p.parentBlingId,
+    catalogSortKey: p.catalogSortKey,
+  }
 }
 
 function createFormState (product: ProductDetails): FormState {
@@ -113,9 +137,11 @@ export function ProductEditDialog ({
   initialBlingId,
   onOpenChange,
   onSuccess,
+  onNavigateToProductId,
 }: Props) {
   const { toast } = useToast()
   const [product, setProduct] = useState<ProductDetails | null>(null)
+  const [variations, setVariations] = useState<Product[]>([])
   const [form, setForm] = useState<FormState | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [savePhase, setSavePhase] = useState<SavePhase>('idle')
@@ -143,8 +169,13 @@ export function ProductEditDialog ({
 
         if (!isMounted) return
 
-        setProduct(data.product as ProductDetails)
-        setForm(createFormState(data.product as ProductDetails))
+        const loaded = productToDetails(data.product as Product)
+        setProduct(loaded)
+        setForm(createFormState(loaded))
+        const vars = Array.isArray(data.variations)
+          ? (data.variations as Product[])
+          : []
+        setVariations(vars)
         setSkuDirty(false)
         setBarcodeDirty(false)
       } catch (err) {
@@ -154,6 +185,7 @@ export function ProductEditDialog ({
         setLoadError(message)
         setProduct(null)
         setForm(null)
+        setVariations([])
       } finally {
         if (isMounted) {
           setIsLoading(false)
@@ -173,6 +205,7 @@ export function ProductEditDialog ({
 
     setProduct(null)
     setForm(null)
+    setVariations([])
     setIsLoading(false)
     setSavePhase('idle')
     setLoadError(null)
@@ -234,10 +267,11 @@ export function ProductEditDialog ({
         return
       }
 
-      const nextProduct = (data.product || null) as ProductDetails | null
+      const nextProduct = (data.product || null) as Product | null
       if (nextProduct) {
-        setProduct(nextProduct)
-        setForm(createFormState(nextProduct))
+        const details = productToDetails(nextProduct)
+        setProduct(details)
+        setForm(createFormState(details))
       }
 
       const hasBling = Boolean(nextProduct?.blingId)
@@ -266,10 +300,11 @@ export function ProductEditDialog ({
           return
         }
 
-        const syncedProduct = (syncData.product || null) as ProductDetails | null
+        const syncedProduct = (syncData.product || null) as Product | null
         if (syncedProduct) {
-          setProduct(syncedProduct)
-          setForm(createFormState(syncedProduct))
+          const details = productToDetails(syncedProduct)
+          setProduct(details)
+          setForm(createFormState(details))
         }
       }
 
@@ -511,6 +546,67 @@ export function ProductEditDialog ({
               />
               <Label htmlFor="product-is-active">Item ativo</Label>
             </div>
+
+            {product && !product.parentBlingId && variations.length > 0 && (
+              <div className="space-y-2 rounded-lg border border-border bg-muted/25 p-4">
+                <p className="text-sm font-medium text-foreground">
+                  Variações
+                  {' '}
+                  <span className="font-normal text-muted-foreground">
+                    ({variations.length})
+                  </span>
+                </p>
+                <div className="max-h-52 overflow-auto rounded-md border border-border/60 bg-background">
+                  <table className="w-full min-w-0 text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
+                        <th className="px-2 py-2 font-medium">Ordem</th>
+                        <th className="px-2 py-2 font-medium">Nome</th>
+                        <th className="px-2 py-2 font-medium">SKU</th>
+                        <th className="px-2 py-2 text-right font-medium">Venda</th>
+                        <th className="px-2 py-2 text-right font-medium" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {variations.map((v) => (
+                        <tr key={v.id} className="border-b border-border/40 last:border-0">
+                          <td className="px-2 py-2 font-mono text-xs text-muted-foreground tabular-nums">
+                            {v.catalogSortKey ?? '—'}
+                          </td>
+                          <td className="max-w-[200px] truncate px-2 py-2 font-medium text-foreground">
+                            {v.name}
+                          </td>
+                          <td className="px-2 py-2 text-muted-foreground">
+                            {v.sku || '—'}
+                          </td>
+                          <td className="px-2 py-2 text-right tabular-nums">
+                            {typeof v.salePriceCents === 'number' && v.salePriceCents > 0
+                              ? formatCurrency(v.salePriceCents / 100)
+                              : '—'}
+                          </td>
+                          <td className="px-2 py-2 text-right">
+                            {onNavigateToProductId
+                              ? (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8"
+                                    disabled={savePhase !== 'idle'}
+                                    onClick={() => onNavigateToProductId(v.id)}
+                                  >
+                                    Abrir
+                                  </Button>
+                                )
+                              : null}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             <DialogFooter>
               <Button

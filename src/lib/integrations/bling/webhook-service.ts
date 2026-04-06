@@ -3,6 +3,7 @@ import { parseBlingWebhook, mapWebhookToLocalEffect } from '@/lib/integrations/b
 import { mapBlingProductToLocal } from '@/lib/integrations/bling/mappers'
 import { blingProdutoApiPath, createBlingClientFromConnection } from '@/lib/integrations/bling/api'
 import { createProductSyncSnapshot } from '@/lib/products/bling-sync'
+import { allocateCatalogSortKeyForInsert } from '@/lib/products/catalog-sort-key'
 
 const PLATFORM_ID = 'bling'
 
@@ -329,9 +330,13 @@ export async function processBlingWebhook (id: string): Promise<{ ok: true; stat
         if (updateError) throw updateError
       } else {
         const createdBy = await getCreatedByForProductWebhook(supabase, actorUserId)
+        const catalogSortKey = await allocateCatalogSortKeyForInsert(supabase, {
+          parentBlingId: (syncBase.parent_bling_id ?? null) as string | null,
+        })
         const insertPayload: Record<string, unknown> = {
           ...syncBase,
           created_by: createdBy,
+          catalog_sort_key: catalogSortKey,
         }
         const { data: inserted, error: insertError } = await supabase
           .from('products')

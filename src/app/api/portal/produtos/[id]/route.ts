@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getPortalAuth } from '@/lib/supabase/server'
-import { deleteProduct, getProductById } from '@/lib/products/service'
+import { deleteProduct, getProductById, getProductByIdWithVariations } from '@/lib/products/service'
 import { syncProductToBling, updateProductAndSyncBling } from '@/lib/products/update-product-with-bling'
 
 type Params = Promise<{ id: string }>
@@ -19,15 +19,21 @@ export async function GET (
     return NextResponse.json({ ok: false, error: 'forbidden' }, { status: 403 })
   }
 
-  const result = await getProductById(id)
-  if (!result.ok || !('product' in result)) {
+  const result = await getProductByIdWithVariations(id)
+  if (!result.ok) {
+    const err = 'error' in result ? result.error : 'not_found'
+    const status = err === 'not_authenticated' ? 401 : 404
     return NextResponse.json({
       ok: false,
-      error: 'error' in result ? result.error ?? 'not_found' : 'not_found',
-    }, { status: 404 })
+      error: err,
+    }, { status })
   }
 
-  return NextResponse.json({ ok: true, product: result.product })
+  return NextResponse.json({
+    ok: true,
+    product: result.product,
+    variations: result.variations,
+  })
 }
 
 function parseTextField (body: Record<string, unknown>, key: string) {

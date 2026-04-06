@@ -7,16 +7,36 @@ import { ProductsListClient } from './ProductsListClient'
 import { ProdutosFilterForm } from './ProdutosFilterForm'
 import type { ProductRow } from './ProductsListClient'
 import { effectiveSearchTokens } from '@/lib/products/product-search'
+import {
+  compareFlatCatalogSort,
+  expandSearchVisibleProductIds,
+  fetchIdSortRowsInChunks,
+  fetchProductsByIdsOrdered,
+} from '@/lib/products/produtos-flat-list'
 
 export const dynamic = 'force-dynamic'
 
 type SearchParams = Promise<{ q?: string; page?: string }>
 
+const PAGE_SIZE = 100
+
+const PRODUCT_LIST_SELECT =
+  'id, bling_id, bling_sync_pending, kind, name, sku, barcode, image_url, sale_price_cents, cost_price_cents, cost_price_manual_edited_at, is_active, created_at, catalog_sort_key, parent_bling_id'
+
+function buildProdutosHref (q: string, page: number): string {
+  const params = new URLSearchParams()
+  const trimmed = q.trim()
+  if (trimmed) params.set('q', trimmed)
+  if (page > 1) params.set('page', String(page))
+  const s = params.toString()
+  return s ? `/portal/produtos?${s}` : '/portal/produtos'
+}
+
 export default async function ProdutosPage ({ searchParams }: { searchParams: SearchParams }) {
   const { q, page } = await searchParams
   const query = String(q || '').trim()
   const pageNumber = Math.max(1, Number(page) || 1)
-  const pageSize = 100
+  const pageSize = PAGE_SIZE
   const offset = (pageNumber - 1) * pageSize
 
   type Raw = {
@@ -34,6 +54,7 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
     cost_price_manual_edited_at?: string | null
     is_active?: boolean
     created_at?: string
+    catalog_sort_key?: string | null
   }
 
   type MovementRow = {
@@ -52,117 +73,101 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
 
   const supabase = await createSupabaseServerClient()
 
-  // 1) Pais paginados
-  let parentsQuery = supabase
-    .from('products')
-    .select('id, bling_id, bling_sync_pending, kind, name, sku, barcode, image_url, sale_price_cents, cost_price_cents, cost_price_manual_edited_at, is_active, created_at')
-    .is('parent_bling_id', null)
-    .eq('is_active', true)
-    .order('created_at', { ascending: false })
-
-  // Para o filtro `q`, buscar também por variações:
-  // Várias palavras: cada uma deve aparecer (AND), em qualquer ordem, em nome OU sku OU barcode.
-  // PostgREST: vários `.or()` na URL viram (or1) AND (or2) AND ...
   const searchTokens = effectiveSearchTokens(query)
   const hasSearchButNoValidTokens = Boolean(query.trim()) && searchTokens.length === 0
 
+  let flatRows: Raw[] = []
+  let totalCount = 0
+
   if (hasSearchButNoValidTokens) {
-    parentsQuery = parentsQuery.in('id', ['__no_matches__'])
+    if (pageNumber > 1) redirect(buildProdutosHref(query, 1))
+    flatRows = []
+    totalCount = 0
   } else if (searchTokens.length > 0) {
-    let directParentsQuery = supabase
-      .from('products')
-      .select('id, bling_id')
-      .is('parent_bling_id', null)
-      .eq('is_active', true)
-    for (const token of searchTokens) {
-      directParentsQuery = directParentsQuery.or(
-        `name.ilike.%${token}%,sku.ilike.%${token}%,barcode.ilike.%${token}%`,
-      )
-    }
-
-    let variationsQuery = supabase
-      .from('products')
-      .select('parent_bling_id')
-      .not('parent_bling_id', 'is', null)
-      .eq('is_active', true)
-    for (const token of searchTokens) {
-      variationsQuery = variationsQuery.or(
-        `name.ilike.%${token}%,sku.ilike.%${token}%,barcode.ilike.%${token}%`,
-      )
-    }
-
-    const [{ data: directParentsData }, { data: variationsData }] = await Promise.all([
-      directParentsQuery,
-      variationsQuery,
-    ])
-
-    const parentBlingIdsFromVariations = (variationsData ?? [])
-      .map((row: { parent_bling_id?: string | null }) => row.parent_bling_id)
-      .filter((id): id is string => typeof id === 'string' && id.length > 0)
-
-    let variationParentsIds: string[] = []
-    if (parentBlingIdsFromVariations.length > 0) {
-      const { data: variationParentsData } = await supabase
-        .from('products')
-        .select('id')
-        .is('parent_bling_id', null)
-        .eq('is_active', true)
-        .in('bling_id', parentBlingIdsFromVariations)
-
-      variationParentsIds = (variationParentsData ?? []).map((row: { id?: string }) => String(row.id))
-    }
-
-    const directParentsIds = (directParentsData ?? []).map((row: { id?: string }) => String(row.id))
-    const matchingParentIds = new Set<string>([...directParentsIds, ...variationParentsIds])
-    const matchingIdsArray = Array.from(matchingParentIds)
-
-    if (matchingIdsArray.length > 0) {
-      parentsQuery = parentsQuery.in('id', matchingIdsArray)
+    const visibleIds = await expandSearchVisibleProductIds(supabase, searchTokens)
+    if (visibleIds.size === 0) {
+      if (pageNumber > 1) redirect(buildProdutosHref(query, 1))
+      flatRows = []
+      totalCount = 0
     } else {
-      parentsQuery = parentsQuery.in('id', ['__no_matches__'])
+      const sortRows = await fetchIdSortRowsInChunks(supabase, [...visibleIds])
+      sortRows.sort(compareFlatCatalogSort)
+      totalCount = sortRows.length
+
+      const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
+      if (totalCount > 0 && pageNumber > totalPages) {
+        redirect(buildProdutosHref(query, totalPages))
+      }
+      if (totalCount === 0 && pageNumber > 1) {
+        redirect(buildProdutosHref(query, 1))
+      }
+
+      const pageSlice = sortRows.slice(offset, offset + pageSize)
+      const orderedIds = pageSlice.map((r) => r.id)
+      const full = await fetchProductsByIdsOrdered(supabase, orderedIds, PRODUCT_LIST_SELECT)
+      flatRows = full as Raw[]
+    }
+  } else {
+    const { data, count, error } = await supabase
+      .from('products')
+      .select(PRODUCT_LIST_SELECT, { count: 'exact' })
+      .eq('is_active', true)
+      .order('catalog_sort_key', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: false })
+      .range(offset, offset + pageSize - 1)
+
+    if (error) {
+      console.error('[produtos-flat-list]', error)
+      flatRows = []
+      totalCount = 0
+    } else {
+      flatRows = (data ?? []) as Raw[]
+      totalCount = typeof count === 'number' ? count : flatRows.length
+    }
+
+    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
+    if (totalCount > 0 && pageNumber > totalPages) {
+      redirect(buildProdutosHref(query, totalPages))
+    }
+    if (totalCount === 0 && pageNumber > 1) {
+      redirect(buildProdutosHref(query, 1))
     }
   }
 
-  const { data: parentProducts } = await parentsQuery
-    .range(offset, offset + pageSize - 1)
+  const parentBlingKeysOnPage = new Set<string>()
+  for (const p of flatRows) {
+    const pb = p.parent_bling_id != null ? String(p.parent_bling_id).trim() : ''
+    if (pb) parentBlingKeysOnPage.add(pb)
+  }
 
-  const parents = parentProducts ?? []
+  const parentNameByBling = new Map<string, string>()
+  if (parentBlingKeysOnPage.size > 0) {
+    const keys = [...parentBlingKeysOnPage]
+    const CHUNK = 80
+    for (let i = 0; i < keys.length; i += CHUNK) {
+      const chunk = keys.slice(i, i + CHUNK)
+      const { data: parents } = await supabase
+        .from('products')
+        .select('bling_id, name')
+        .is('parent_bling_id', null)
+        .in('bling_id', chunk)
 
-  // 2) Filhos (variações) de todos os pais desta página
-  const parentBlingIds = parents
-    .map((p: { bling_id?: string | null }) => p.bling_id)
-    .filter((id): id is string => typeof id === 'string' && id.length > 0)
-
-  let children: Raw[] = []
-  if (parentBlingIds.length > 0) {
-    let childrenQuery = supabase
-      .from('products')
-      .select('id, bling_id, bling_sync_pending, parent_bling_id, name, sku, barcode, image_url, sale_price_cents, cost_price_cents, cost_price_manual_edited_at, is_active, created_at')
-      .in('parent_bling_id', parentBlingIds)
-      .eq('is_active', true)
-
-    if (searchTokens.length > 0) {
-      for (const token of searchTokens) {
-        childrenQuery = childrenQuery.or(
-          `name.ilike.%${token}%,sku.ilike.%${token}%,barcode.ilike.%${token}%`,
-        )
+      for (const row of parents ?? []) {
+        const r = row as { bling_id?: string; name?: string }
+        if (r.bling_id != null) {
+          parentNameByBling.set(String(r.bling_id).trim(), String(r.name || '').trim())
+        }
       }
     }
-
-    const { data: childrenData } = await childrenQuery
-    children = childrenData ?? []
   }
-
-  // 3) Estoque para pais + filhos
-  const allProducts = [...parents, ...children]
 
   const stockByProductId: Record<string, number> = {}
   const lastEntryCostByProductId: Record<string, number> = {}
   const lastEntryDateByProductId: Record<string, number> = {}
   const hasStockMovementsByProductId: Record<string, boolean> = {}
 
-  if (allProducts.length > 0) {
-    const ids = allProducts.map((p: { id: string }) => p.id)
+  if (flatRows.length > 0) {
+    const ids = flatRows.map((p) => p.id)
 
     type StockSummaryRpcRow = {
       product_id: string
@@ -265,48 +270,39 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
     has_stock_movements: hasStockMovementsByProductId[p.id] ?? false,
   })
 
-  const parentRows = parents.map((p: Raw) => normalize(p))
-  const childRows = children.map((p: Raw) => normalize(p))
-
-  const byParentBlingId = new Map<string, typeof parentRows[0]>()
-  for (const p of parentRows) {
-    if (p.bling_id) {
-      byParentBlingId.set(p.bling_id, p)
+  const productsWithStock: ProductRow[] = flatRows.map((p) => {
+    const normalized = normalize(p)
+    const pb = p.parent_bling_id != null ? String(p.parent_bling_id).trim() : ''
+    const isVar = pb.length > 0
+    return {
+      ...normalized,
+      is_variation: isVar,
+      parent_name: isVar ? (parentNameByBling.get(pb) || null) : null,
     }
-  }
-
-  const childrenByParentId = new Map<string, typeof childRows>()
-  for (const child of childRows) {
-    const parentBlingId = child.parent_bling_id
-    if (!parentBlingId) continue
-    const parent = byParentBlingId.get(parentBlingId)
-    if (!parent) continue
-    const arr = childrenByParentId.get(parent.id) ?? []
-    arr.push(child)
-    childrenByParentId.set(parent.id, arr)
-  }
-
-  const productsWithStock: ProductRow[] = parentRows.flatMap((parent) => {
-    const parentRow = {
-      ...parent,
-      is_variation: false,
-      parent_name: null as string | null,
-    }
-    const vars = (childrenByParentId.get(parent.id) ?? [])
-      .sort((a, b) => {
-        const an = (a.name || '').toLowerCase()
-        const bn = (b.name || '').toLowerCase()
-        if (an < bn) return -1
-        if (an > bn) return 1
-        return 0
-      })
-      .map((child) => ({
-        ...child,
-        is_variation: true,
-        parent_name: parent.name,
-      }))
-    return [parentRow, ...vars]
   })
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
+  const pagination =
+    totalCount > 0 && totalPages > 1
+      ? {
+          page: pageNumber,
+          pageSize,
+          totalCount,
+          totalPages,
+          prevHref: pageNumber > 1 ? buildProdutosHref(query, pageNumber - 1) : null,
+          nextHref: pageNumber < totalPages ? buildProdutosHref(query, pageNumber + 1) : null,
+        }
+      : null
+
+  const rangeStart = totalCount === 0 ? 0 : offset + 1
+  const rangeEnd = Math.min(offset + flatRows.length, totalCount)
+  const paginationRangeLabel = hasSearchButNoValidTokens
+    ? 'Nenhum resultado para o termo informado'
+    : totalCount === 0
+      ? '0 resultados'
+      : totalPages > 1
+        ? `${rangeStart}–${rangeEnd} de ${totalCount}`
+        : `${totalCount} ${totalCount === 1 ? 'item' : 'itens'}`
 
   return (
     <div className="min-w-0 max-w-full space-y-4 sm:space-y-6">
@@ -315,6 +311,7 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
           <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Produtos e serviços</h1>
           <p className="text-sm text-muted-foreground">
             Catálogo central de itens utilizados nas ordens de serviço e integrações com o Bling.
+            Listagem plana por ordem de catálogo (pais e variações intercalados).
           </p>
         </div>
         <Button variant="outline" asChild className="w-full shrink-0 sm:w-auto">
@@ -328,9 +325,12 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
         </CardContent>
       </Card>
 
-      {/* key: remonta a lista ao mudar busca/página — evita menu Radix/modais presos bloqueando cliques */}
-      <ProductsListClient key={`${query}::${pageNumber}`} products={productsWithStock} />
+      <ProductsListClient
+        key={`${query}::${pageNumber}`}
+        products={productsWithStock}
+        pagination={pagination}
+        paginationRangeLabel={paginationRangeLabel}
+      />
     </div>
   )
 }
-
