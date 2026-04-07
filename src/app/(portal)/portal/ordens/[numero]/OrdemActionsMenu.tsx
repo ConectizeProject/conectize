@@ -23,7 +23,8 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { History, MessageCircle, Mail, MoreVertical, Trash2, Copy } from 'lucide-react'
+import { getPrintWindowFeatures } from '@/lib/ordem-print'
+import { History, MessageCircle, Mail, MoreVertical, Trash2, Copy, Printer } from 'lucide-react'
 import { OrderEditHistoryDialog } from './OrderEditHistoryDialog'
 import { toast } from '@/hooks/use-toast'
 import { buildOrderMessage } from '@/lib/ordem-share-message'
@@ -180,13 +181,20 @@ export function OrdemActionsMenu({
 
   return (
     <>
-      <DropdownMenu>
+      <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm" aria-label="Mais opções" className="h-9 px-3">
             <MoreVertical className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-48">
+          <DropdownMenuItem
+            onClick={() => window.open(`/api/portal/ordens/${orderId}/print`, '_blank', getPrintWindowFeatures())}
+          >
+            <Printer className="h-4 w-4 mr-2" />
+            Imprimir OS
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           {whatsappHref ? (
             <DropdownMenuItem asChild>
               <a href={whatsappHref} target="_blank" rel="noopener noreferrer">

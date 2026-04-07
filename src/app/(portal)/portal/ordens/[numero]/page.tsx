@@ -16,11 +16,18 @@ import {
 	getCustomerFromOrder,
 	getDeviceModelFromOrder,
 } from './order-detail-helpers'
+import {
+	getOrdemPortalPath,
+	parseOrdemRouteParam,
+} from '@/lib/orders/ordem-portal-path'
 
 export const dynamic = 'force-dynamic'
 
+const ORDER_SELECT =
+	'id, display_number, status, title, imei, color, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, payment_methods, customer_description, receiving_notes, warranty_template_id, warranty_text, device_model_id, brand, model, services, services_total_cents, services_cost_total_cents, created_at, updated_at, closed_at, share_token, seller_user_id, device_entry_checks, device_exit_checks, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date, zip_code, state, city, neighborhood, street, street_number, street_complement, referral_source, referral_source_other ), device_models ( id, model, device_types ( name, device_brands ( name ) ) )'
+
 type PageProps = {
-	params: Promise<{ id: string }>
+	params: Promise<{ numero: string }>
 	searchParams: Promise<{
 		ok?: string
 		error?: string
@@ -32,8 +39,10 @@ export default async function OrdemDetalhePage ({
 	params,
 	searchParams,
 }: PageProps) {
-	const { id } = await params
-	const { servicesModal } = await searchParams
+	const { numero } = await params
+	const search = await searchParams
+	const { servicesModal } = search
+	const resolved = parseOrdemRouteParam(numero)
 
 	const { user, role } = await getPortalAuth()
 	if (!user) redirect('/portal/login')
@@ -41,19 +50,34 @@ export default async function OrdemDetalhePage ({
 	const normalizedRole = role === 'customer' ? 'user' : role
 	if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
 
+	if (!resolved) {
+		return (
+			<Card>
+				<CardHeader>
+					<CardTitle>Ordem não encontrada</CardTitle>
+					<CardDescription>Verifique o número da OS ou o link.</CardDescription>
+				</CardHeader>
+				<CardContent>
+					<Button asChild variant="outline">
+						<Link href="/portal/ordens">Voltar</Link>
+					</Button>
+				</CardContent>
+			</Card>
+		)
+	}
+
 	const supabase = await createSupabaseServerClient()
+	const orderRowPromise =
+		resolved.kind === 'id'
+			? supabase.from('service_orders').select(ORDER_SELECT).eq('id', resolved.value).maybeSingle()
+			: supabase.from('service_orders').select(ORDER_SELECT).eq('display_number', resolved.value).maybeSingle()
+
 	const [
 		{ data: order },
 		deviceModels,
 		{ data: warrantyTemplates },
 	] = await Promise.all([
-		supabase
-			.from('service_orders')
-			.select(
-				'id, display_number, status, title, imei, color, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, payment_methods, customer_description, receiving_notes, warranty_template_id, warranty_text, device_model_id, brand, model, services, services_total_cents, services_cost_total_cents, created_at, updated_at, closed_at, share_token, seller_user_id, device_entry_checks, device_exit_checks, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date, zip_code, state, city, neighborhood, street, street_number, street_complement, referral_source, referral_source_other ), device_models ( id, model, device_types ( name, device_brands ( name ) ) )',
-			)
-			.eq('id', id)
-			.maybeSingle(),
+		orderRowPromise,
 		fetchDeviceModelsForSelector(supabase),
 		supabase
 			.from('warranty_templates')
@@ -68,7 +92,7 @@ export default async function OrdemDetalhePage ({
 			<Card>
 				<CardHeader>
 					<CardTitle>Ordem não encontrada</CardTitle>
-					<CardDescription>Verifique o ID e tente novamente.</CardDescription>
+					<CardDescription>Verifique o número da OS ou o link.</CardDescription>
 				</CardHeader>
 				<CardContent>
 					<Button asChild variant="outline">
@@ -77,6 +101,17 @@ export default async function OrdemDetalhePage ({
 				</CardContent>
 			</Card>
 		)
+	}
+
+	const orderForPath = order as { id: string; display_number?: number | null }
+	if (resolved.kind === 'id' && orderForPath.display_number != null) {
+		const target = getOrdemPortalPath(orderForPath)
+		const qs = new URLSearchParams()
+		if (search.ok) qs.set('ok', String(search.ok))
+		if (search.error) qs.set('error', String(search.error))
+		if (search.servicesModal) qs.set('servicesModal', String(search.servicesModal))
+		const tail = qs.toString()
+		redirect(tail ? `${target}?${tail}` : target)
 	}
 
 	const sellerUserId =

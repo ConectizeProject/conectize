@@ -83,6 +83,8 @@ const PHOTO_STAGE_CONFIG: Record<
 
 type OrderEntryPhotosProps = {
 	orderId: string;
+	/** Segmento da URL da OS (número ou UUID) para QR/link; APIs continuam usando `orderId`. */
+	portalPathSegment: string;
 	initialPhotos?: EntryPhotoItem[];
 	/** Quantidade de fotos vinda do servidor (evita request extra no mount) */
 	initialPhotoCount?: number | null;
@@ -91,16 +93,17 @@ type OrderEntryPhotosProps = {
 	photoStage?: OrderPhotosStage;
 };
 
-function getAddPhotosUrl(orderId: string, queryOpen: string): string {
+function getAddPhotosUrl(portalPathSegment: string, queryOpen: string): string {
 	if (typeof window === "undefined") {
 		return "";
 	}
 	const base = window.location.origin;
-	return `${base}/portal/ordens/${orderId}?${queryOpen}=1`;
+	return `${base}/portal/ordens/${portalPathSegment}?${queryOpen}=1`;
 }
 
 export function OrderEntryPhotos({
 	orderId,
+	portalPathSegment,
 	initialPhotos: _initialPhotos = [],
 	initialPhotoCount,
 	disabled = false,
@@ -165,12 +168,12 @@ export function OrderEntryPhotos({
 
 	useEffect(() => {
 		if (!modalOpen) return;
-		const url = getAddPhotosUrl(orderId, cfg.queryOpen);
+		const url = getAddPhotosUrl(portalPathSegment, cfg.queryOpen);
 		if (!url) return;
 		QRCode.toDataURL(url, { width: 200, margin: 1 })
 			.then(setQrDataUrl)
 			.catch(() => setQrDataUrl(null));
-	}, [modalOpen, orderId, cfg.queryOpen]);
+	}, [modalOpen, portalPathSegment, cfg.queryOpen]);
 
 	const openLightbox = useCallback((index: number) => {
 		setLightboxIndex(index);

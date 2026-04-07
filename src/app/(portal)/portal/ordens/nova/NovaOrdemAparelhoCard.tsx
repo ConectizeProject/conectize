@@ -49,10 +49,12 @@ export function NovaOrdemAparelhoCard(props: Props) {
 
 	return (
 		<Card>
-			<CardHeader>
-				<CardTitle>Informações do Aparelho</CardTitle>
+			<CardHeader className="space-y-0 p-5 pt-3 pb-3">
+				<CardTitle className="text-lg font-semibold tracking-tight">
+					Informações do Aparelho
+				</CardTitle>
 			</CardHeader>
-			<CardContent className="space-y-6">
+			<CardContent className="space-y-6 p-5 pt-3 pb-3">
 				<OrderDeviceSelector
 					formik={{
 						values: {

@@ -249,16 +249,16 @@ export default async function OrdensPage({
   )
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 px-1 sm:px-0">
       <OrdensToastClient />
-      <div className="flex items-end justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold">Ordens de serviço</h1>
-          <p className="text-sm text-muted-foreground">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold sm:text-2xl">Ordens de serviço</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
             Área interna (staff/admin).
           </p>
         </div>
-        <Button asChild>
+        <Button asChild className="w-full sm:w-auto shrink-0">
           <Link href="/portal/ordens/nova">Nova ordem</Link>
         </Button>
       </div>

@@ -1,4 +1,5 @@
 import { createSupabaseServerClient, getAuthUser } from "@/lib/supabase/server";
+import { allocateCatalogSortKeyForInsert } from "@/lib/products/catalog-sort-key";
 
 type SupabaseServerClient = Awaited<
 	ReturnType<typeof createSupabaseServerClient>
@@ -22,6 +23,8 @@ export type Product = {
 	/** Quando o custo foi alterado pelo cadastro no portal (não por sync/import). */
 	costPriceManualEditedAt: string | null;
 	isActive: boolean;
+	/** Ordenação do catálogo: raiz (12 dígitos) ou variação `raiz` + `.` + sufixo (6 dígitos). */
+	catalogSortKey: string | null;
 	createdAt: string;
 	updatedAt: string;
 };
@@ -109,6 +112,11 @@ type DeleteProductResult =
 
 type GetProductResult =
 	| { ok: true; product: Product }
+	| AuthFailure
+	| { ok: false; error: "not_found" };
+
+type GetProductWithVariationsResult =
+	| { ok: true; product: Product; variations: Product[] }
 	| AuthFailure
 	| { ok: false; error: "not_found" };
 
@@ -201,6 +209,10 @@ export async function createProduct(
 		parentProductId = parentRow?.id ? String(parentRow.id) : null;
 	}
 
+	const catalogSortKey = await allocateCatalogSortKeyForInsert(auth.supabase, {
+		parentBlingId: parentKey && parentKey !== "0" ? parentKey : null,
+	});
+
 	const payload = {
 		bling_id: input.blingId ?? null,
 		bling_sync_pending: input.blingSyncPending ?? false,
@@ -219,6 +231,7 @@ export async function createProduct(
 		cost_price_cents: normalizeMoney(input.costPriceCents),
 		is_active: input.isActive ?? true,
 		created_by: auth.userId,
+		catalog_sort_key: catalogSortKey,
 	};
 
 	const { data, error } = await auth.supabase
@@ -232,6 +245,58 @@ export async function createProduct(
 	}
 
 	return { ok: true as const, product: mapRowToProduct(data) };
+}
+
+export async function getProductByIdWithVariations(
+	id: string,
+): Promise<GetProductWithVariationsResult> {
+	const auth = await requireAuth();
+	if (!auth.ok) return { ok: false, error: "not_authenticated" };
+
+	const { data, error } = await auth.supabase
+		.from("products")
+		.select("*")
+		.eq("id", id)
+		.maybeSingle();
+
+	if (error || !data) {
+		return { ok: false as const, error: "not_found" as const };
+	}
+
+	const product = mapRowToProduct(data);
+	if (product.parentBlingId != null) {
+		return { ok: true as const, product, variations: [] };
+	}
+
+	const blingKey = product.blingId ? String(product.blingId).trim() : "";
+
+	if (blingKey) {
+		const { data: vars } = await auth.supabase
+			.from("products")
+			.select("*")
+			.eq("parent_bling_id", blingKey)
+			.eq("is_active", true)
+			.order("catalog_sort_key", { ascending: true, nullsFirst: false });
+
+		return {
+			ok: true as const,
+			product,
+			variations: (vars ?? []).map(mapRowToProduct),
+		};
+	}
+
+	const { data: byParentUuid } = await auth.supabase
+		.from("products")
+		.select("*")
+		.eq("parent_product_id", product.id)
+		.eq("is_active", true)
+		.order("catalog_sort_key", { ascending: true, nullsFirst: false });
+
+	return {
+		ok: true as const,
+		product,
+		variations: (byParentUuid ?? []).map(mapRowToProduct),
+	};
 }
 
 export async function updateProduct(
@@ -584,6 +649,11 @@ function mapRowToProduct(row: Record<string, unknown>): Product {
 			? String(rawParentBling).trim()
 			: null;
 
+	const rawCatalogSort =
+		row.catalog_sort_key != null && String(row.catalog_sort_key).trim() !== ""
+			? String(row.catalog_sort_key).trim()
+			: null;
+
 	return {
 		id: String(row.id),
 		blingId: row.bling_id ? String(row.bling_id) : null,
@@ -603,6 +673,7 @@ function mapRowToProduct(row: Record<string, unknown>): Product {
 				? row.cost_price_manual_edited_at
 				: null,
 		isActive: Boolean(row.is_active ?? true),
+		catalogSortKey: rawCatalogSort,
 		createdAt,
 		updatedAt,
 	};

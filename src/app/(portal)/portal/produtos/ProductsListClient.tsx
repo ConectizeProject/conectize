@@ -1,11 +1,21 @@
 'use client'
 
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Barcode, Loader2, RefreshCw, Tag } from 'lucide-react'
+import { Barcode, CloudUpload, Loader2, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -30,14 +40,98 @@ import {
 	getProductTableCheckboxColumnStyle,
 	type ProductRow,
 } from './product-list-shared'
+import type { PortalFieldForBling } from '@/lib/products/bling-sync'
 
 export type { ProductRow }
 
-type Props = {
-	products: ProductRow[]
+const PUSH_TO_BLING_FIELD_OPTIONS: { id: PortalFieldForBling; label: string }[] = [
+	{ id: 'name', label: 'Nome' },
+	{ id: 'description', label: 'Descrição' },
+	{ id: 'sku', label: 'SKU' },
+	{ id: 'barcode', label: 'Código de barras' },
+	{ id: 'salePriceCents', label: 'Preço de venda' },
+	{ id: 'isActive', label: 'Situação (ativo/inativo)' },
+]
+
+export type ProdutosFlatPagination = {
+	page: number
+	pageSize: number
+	totalCount: number
+	totalPages: number
+	prevHref: string | null
+	nextHref: string | null
 }
 
-export function ProductsListClient({ products }: Props) {
+function ProdutosPaginationBar ({
+	paginationRangeLabel,
+	pagination,
+	className,
+}: {
+	paginationRangeLabel: string
+	pagination: ProdutosFlatPagination | null
+	className?: string
+}) {
+	return (
+		<div
+			className={cn(
+				'flex min-w-0 flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between',
+				className,
+			)}
+		>
+			<span className="text-muted-foreground">{paginationRangeLabel}</span>
+			{pagination
+				? (
+						<div className="flex flex-wrap items-center gap-2">
+							<span className="text-muted-foreground">
+								Página
+								{' '}
+								{pagination.page}
+								{' '}
+								de
+								{' '}
+								{pagination.totalPages}
+							</span>
+							{pagination.prevHref
+								? (
+										<Button variant="outline" size="sm" className="h-8" asChild>
+											<Link href={pagination.prevHref}>Anterior</Link>
+										</Button>
+									)
+								: (
+										<Button variant="outline" size="sm" className="h-8" disabled>
+											Anterior
+										</Button>
+									)}
+							{pagination.nextHref
+								? (
+										<Button variant="outline" size="sm" className="h-8" asChild>
+											<Link href={pagination.nextHref}>Próxima</Link>
+										</Button>
+									)
+								: (
+										<Button variant="outline" size="sm" className="h-8" disabled>
+											Próxima
+										</Button>
+									)}
+						</div>
+					)
+				: null}
+		</div>
+	)
+}
+
+type Props = {
+	products: ProductRow[]
+	pagination?: ProdutosFlatPagination | null
+	/** Ex.: "1–100 de 450" */
+	paginationRangeLabel?: string | null
+}
+
+export function ProductsListClient ({
+	products,
+	pagination,
+	paginationRangeLabel,
+}: Props) {
 	const router = useRouter()
 	const [stockModalProduct, setStockModalProduct] = useState<{
 		id: string
@@ -61,7 +155,11 @@ export function ProductsListClient({ products }: Props) {
 	const [deleteSubmitting, setDeleteSubmitting] = useState(false)
 	const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
 	const [bulkBusy, setBulkBusy] = useState(false)
-	const [bulkAction, setBulkAction] = useState<'sync' | 'barcode' | 'price' | null>(null)
+	const [bulkAction, setBulkAction] = useState<'sync' | 'barcode' | 'pushPortal' | null>(null)
+	const [pushPortalDialogOpen, setPushPortalDialogOpen] = useState(false)
+	const [pushPortalFieldKeys, setPushPortalFieldKeys] = useState<Set<PortalFieldForBling>>(
+		() => new Set(PUSH_TO_BLING_FIELD_OPTIONS.map((o) => o.id)),
+	)
 	const isProductTab = filterType === 'product'
 	const syncInFlightRef = useRef(false)
 	const barcodeInFlightRef = useRef(false)
@@ -450,7 +548,7 @@ export function ProductsListClient({ products }: Props) {
 		}
 	}
 
-	async function handleBulkPushPriceToBling () {
+	function handleOpenPushPortalToBlingDialog () {
 		const ids = filteredRows
 			.filter((r) => selectedIds.has(r.id) && r.bling_id)
 			.map((r) => r.id)
@@ -462,8 +560,48 @@ export function ProductsListClient({ products }: Props) {
 			})
 			return
 		}
+		setPushPortalDialogOpen(true)
+	}
+
+	function togglePushPortalField (field: PortalFieldForBling, checked: boolean) {
+		setPushPortalFieldKeys((prev) => {
+			const next = new Set(prev)
+			if (checked) next.add(field)
+			else next.delete(field)
+			return next
+		})
+	}
+
+	function setAllPushPortalFields (checked: boolean) {
+		setPushPortalFieldKeys(
+			checked ? new Set(PUSH_TO_BLING_FIELD_OPTIONS.map((o) => o.id)) : new Set(),
+		)
+	}
+
+	async function handleConfirmPushPortalToBling () {
+		const portalFieldsChanged = PUSH_TO_BLING_FIELD_OPTIONS
+			.map((o) => o.id)
+			.filter((id) => pushPortalFieldKeys.has(id))
+		if (portalFieldsChanged.length === 0) {
+			toast({
+				variant: 'destructive',
+				title: 'Selecione ao menos um campo',
+				description: 'Marque quais dados do portal serão enviados ao Bling.',
+			})
+			return
+		}
+
+		const ids = filteredRows
+			.filter((r) => selectedIds.has(r.id) && r.bling_id)
+			.map((r) => r.id)
+		if (ids.length === 0) {
+			setPushPortalDialogOpen(false)
+			return
+		}
+
+		setPushPortalDialogOpen(false)
 		setBulkBusy(true)
-		setBulkAction('price')
+		setBulkAction('pushPortal')
 		let ok = 0
 		let fail = 0
 		try {
@@ -471,7 +609,7 @@ export function ProductsListClient({ products }: Props) {
 				const res = await fetch(`/api/portal/produtos/${productId}/sync-bling`, {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ portalFieldsChanged: ['salePriceCents'] }),
+					body: JSON.stringify({ portalFieldsChanged }),
 				})
 				const data = await res.json().catch(() => null)
 				if (res.ok && data?.ok) ok++
@@ -479,7 +617,7 @@ export function ProductsListClient({ products }: Props) {
 			}
 			toast({
 				variant: fail > 0 ? 'default' : 'success',
-				title: 'Atualizar preço no Bling',
+				title: 'Enviar dados ao Bling',
 				description: `${ok} ok${fail > 0 ? `, ${fail} falha(s)` : ''}.`,
 			})
 			setSelectedIds(new Set())
@@ -494,6 +632,15 @@ export function ProductsListClient({ products }: Props) {
 
 	return (
 		<div className="min-w-0 w-full max-w-full">
+			{paginationRangeLabel
+				? (
+						<ProdutosPaginationBar
+							paginationRangeLabel={paginationRangeLabel}
+							pagination={pagination ?? null}
+							className="mb-4"
+						/>
+					)
+				: null}
 			<nav className="mb-4 flex gap-1 border-b">
 				<button
 					type="button"
@@ -583,16 +730,16 @@ export function ProductsListClient({ products }: Props) {
 							size="sm"
 							className="h-8"
 							disabled={bulkBusy}
-							onClick={() => void handleBulkPushPriceToBling()}
+							onClick={() => handleOpenPushPortalToBlingDialog()}
 						>
-							{bulkBusy && bulkAction === 'price'
+							{bulkBusy && bulkAction === 'pushPortal'
 								? (
 									<Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
 								)
 								: (
-									<Tag className="mr-1 h-3.5 w-3.5" />
+									<CloudUpload className="mr-1 h-3.5 w-3.5" />
 								)}
-							Atualizar preço no Bling
+							Enviar dados ao Bling
 						</Button>
 					</div>
 				</div>
@@ -724,6 +871,16 @@ export function ProductsListClient({ products }: Props) {
 				</Card>
 			)}
 
+			{paginationRangeLabel
+				? (
+						<ProdutosPaginationBar
+							paginationRangeLabel={paginationRangeLabel}
+							pagination={pagination ?? null}
+							className="mt-6 border-t border-border/60 pt-4"
+						/>
+					)
+				: null}
+
 			{stockModalProduct && (
 				<StockManagementModal
 					open={!!stockModalProduct}
@@ -745,6 +902,9 @@ export function ProductsListClient({ products }: Props) {
 					if (!open) setEditingProduct(null)
 				}}
 				onSuccess={() => router.refresh()}
+				onNavigateToProductId={(id) => {
+					setEditingProduct({ id, name: '', bling_id: null })
+				}}
 			/>
 
 			<AlertDialog
@@ -818,6 +978,64 @@ export function ProductsListClient({ products }: Props) {
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>
+
+			<Dialog open={pushPortalDialogOpen} onOpenChange={setPushPortalDialogOpen}>
+				<DialogContent className="sm:max-w-md">
+					<DialogHeader>
+						<DialogTitle>Enviar dados ao Bling</DialogTitle>
+						<DialogDescription>
+							Escolha quais campos salvos no portal serão enviados ao Bling para cada item selecionado.
+							A sincronização é feita em sequência (um produto após o outro).
+						</DialogDescription>
+					</DialogHeader>
+					<div className="flex flex-wrap gap-2 py-1">
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							className="h-8"
+							onClick={() => setAllPushPortalFields(true)}
+						>
+							Marcar todos
+						</Button>
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							className="h-8"
+							onClick={() => setAllPushPortalFields(false)}
+						>
+							Desmarcar todos
+						</Button>
+					</div>
+					<div className="grid gap-3 py-2">
+						{PUSH_TO_BLING_FIELD_OPTIONS.map((opt) => (
+							<div key={opt.id} className="flex items-center gap-3">
+								<Checkbox
+									id={`push-bling-${opt.id}`}
+									checked={pushPortalFieldKeys.has(opt.id)}
+									onCheckedChange={(checked) => togglePushPortalField(opt.id, checked === true)}
+								/>
+								<Label htmlFor={`push-bling-${opt.id}`} className="text-sm font-normal leading-tight">
+									{opt.label}
+								</Label>
+							</div>
+						))}
+					</div>
+					<DialogFooter className="gap-2 sm:gap-0">
+						<Button
+							type="button"
+							variant="outline"
+							onClick={() => setPushPortalDialogOpen(false)}
+						>
+							Cancelar
+						</Button>
+						<Button type="button" onClick={() => void handleConfirmPushPortalToBling()}>
+							Enviar
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</div>
 	)
 }

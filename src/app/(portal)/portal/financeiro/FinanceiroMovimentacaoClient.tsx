@@ -51,6 +51,8 @@ type Movement = {
   transfer_id: string | null
   recurring_expense_id: string | null
   service_order_id: string | null
+  /** URL da OS no portal (número de exibição quando existir). */
+  service_order_href: string | null
   resale_device_id: string | null
   editable: boolean
 }
@@ -328,8 +330,8 @@ export function FinanceiroMovimentacaoClient() {
                     <TableRow key={m.id}>
                       <TableCell>{format(new Date(m.occurred_at + 'T12:00:00'), 'dd/MM/yyyy', { locale: ptBR })}</TableCell>
                       <TableCell>
-                        {m.service_order_id ? (
-                          <Link href={`/portal/ordens/${m.service_order_id}`} className="text-primary hover:underline">
+                        {m.service_order_href ? (
+                          <Link href={m.service_order_href} className="text-primary hover:underline">
                             {m.description}
                           </Link>
                         ) : m.resale_device_id ? (

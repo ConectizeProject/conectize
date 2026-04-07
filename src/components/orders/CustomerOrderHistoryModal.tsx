@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/table'
 import { OrderStatusBadge } from './OrderStatusBadge'
 import { formatDateTimeBr } from '@/lib/utils/format-date'
+import { getOrdemPortalPath } from '@/lib/orders/ordem-portal-path'
 import { portalFetch } from '@/lib/portal/portal-fetch'
 
 type OrderRow = {
@@ -93,9 +94,9 @@ export function CustomerOrderHistoryModal({
     }
   }, [open, customerId])
 
-  function handleView(orderId: string) {
+  function handleView(row: OrderRow) {
     onOpenChange(false)
-    router.push(`/portal/ordens/${orderId}`)
+    router.push(getOrdemPortalPath(row))
   }
 
   function handleClone(orderId: string) {
@@ -159,7 +160,7 @@ export function CustomerOrderHistoryModal({
                           variant="outline"
                           size="icon"
                           className="h-8 w-8"
-                          onClick={() => handleView(order.id)}
+                          onClick={() => handleView(order)}
                           aria-label={`Ver OS ${order.display_number ?? order.id}`}
                         >
                           <Eye className="h-4 w-4" />

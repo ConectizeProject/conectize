@@ -3,6 +3,7 @@ import { getPortalAuth } from '@/lib/supabase/server'
 import { getBlingClientForCurrentUser } from '@/lib/integrations/bling/api'
 import { mapBlingProductToLocal } from '@/lib/integrations/bling/mappers'
 import { createProductSyncSnapshot } from '@/lib/products/bling-sync'
+import { allocateCatalogSortKeyForInsert } from '@/lib/products/catalog-sort-key'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 
 type SupabaseClient = Awaited<ReturnType<typeof createSupabaseServerClient>>
@@ -157,9 +158,12 @@ export async function POST (request: Request) {
           }
         }
       } else {
+        const catalogSortKey = await allocateCatalogSortKeyForInsert(supabase, {
+          parentBlingId: payload.parent_bling_id,
+        })
         const { data: inserted, error } = await supabase
           .from('products')
-          .insert(payload)
+          .insert({ ...payload, catalog_sort_key: catalogSortKey })
           .select('id')
           .single()
 

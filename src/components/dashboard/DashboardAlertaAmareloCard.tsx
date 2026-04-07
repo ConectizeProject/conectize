@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { getOrdemPortalPath } from '@/lib/orders/ordem-portal-path'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { AlertTriangle } from 'lucide-react'
 
@@ -48,7 +49,7 @@ export function DashboardAlertaAmareloCard({ orders }: Props) {
                   aria-hidden
                 />
                 <Link
-                  href={`/portal/ordens/${o.id}`}
+                  href={getOrdemPortalPath(o)}
                   className="font-medium text-amber-900 dark:text-amber-100 hover:underline min-w-0 truncate"
                 >
                   #{o.display_number ?? o.id.slice(0, 8)} — {o.title}

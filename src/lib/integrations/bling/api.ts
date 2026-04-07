@@ -205,7 +205,6 @@ export async function getBlingConnectionForCurrentUser (): Promise<BlingConnecti
     .from('hub_connections')
     .select('id, platform_id, access_token, refresh_token, token_expires_at, metadata, created_by')
     .eq('platform_id', BLING_PLATFORM_ID)
-    .eq('created_by', userId)
     .maybeSingle()
 
   if (error || !data) {
