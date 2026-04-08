@@ -116,7 +116,7 @@ export function PortalShell(props: PortalShellProps) {
 				{ href: '/portal/ordens', label: 'Ordens de serviço', icon: ClipboardList },
 				{ href: '/portal/produtos', label: 'Produtos e serviços', icon: Package },
 				{ href: '/portal/clientes', label: 'Clientes', icon: Users },
-				{ href: '/portal/seminovos', label: 'Seminovos', icon: Smartphone },
+				{ href: '/portal/seminovos', label: 'Aparelhos para venda', icon: Smartphone },
 			]
 			: [
 				{ href: '/portal/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -125,7 +125,7 @@ export function PortalShell(props: PortalShellProps) {
 				{ href: '/portal/clientes', label: 'Clientes', icon: Users },
 				{ href: '/portal/admin/usuarios', label: 'Usuários', icon: UserCheck },
 				{ href: '/portal/hub', label: 'HUB', icon: Plug2 },
-				{ href: '/portal/seminovos', label: 'Seminovos', icon: Smartphone },
+				{ href: '/portal/seminovos', label: 'Aparelhos para venda', icon: Smartphone },
 				...(isAdmin ? [
 					{ href: '/portal/financeiro', label: 'Financeiro', icon: DollarSign },
 					{ href: '/portal/relatorios/servicos', label: 'Relatórios', icon: BarChart3 },

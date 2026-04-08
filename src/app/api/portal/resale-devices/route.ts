@@ -74,6 +74,8 @@ export async function GET(request: Request) {
       buyer_name,
       buyer_cpf,
       sale_details,
+      stock_type,
+      sale_commission_user_id,
       created_at,
       updated_at
     `)
@@ -156,6 +158,9 @@ export async function POST(request: Request) {
   const buyer_cpf = body.buyer_cpf || null
   const sale_details = body.sale_details || null
 
+  const stockTypeRaw = cleanText(body.stock_type).toLowerCase()
+  const stock_type = stockTypeRaw === 'lacrado' ? 'lacrado' : 'seminovo'
+
   const row = {
     device_model_id: device_model_id || null,
     device_name: cleanText(body.device_name) || null,
@@ -189,6 +194,7 @@ export async function POST(request: Request) {
     buyer_name: buyer_name ? cleanText(buyer_name) : null,
     buyer_cpf: buyer_cpf ? cleanText(buyer_cpf) : null,
     sale_details: sale_details ? cleanText(sale_details) : null,
+    stock_type,
   }
 
   const { data: inserted, error } = await auth.supabase

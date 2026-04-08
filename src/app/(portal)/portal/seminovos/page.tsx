@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { redirect } from 'next/navigation'
 import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import { fetchSeminovosDevices, fetchSeminovosStats } from '@/lib/seminovos/fetch-seminovos-data'
@@ -14,6 +15,7 @@ type SearchParams = Promise<{
   color?: string
   purchaseDateFrom?: string
   purchaseDateTo?: string
+  tipo?: string
 }>
 
 export default async function SeminovosPage({
@@ -29,6 +31,8 @@ export default async function SeminovosPage({
   if (normalizedRole !== 'staff' && normalizedRole !== 'admin') redirect('/portal')
 
   const params = await searchParams
+  const tipoRaw = String(params?.tipo || '').toLowerCase()
+  const stockType: 'seminovo' | 'lacrado' = tipoRaw === 'lacrados' ? 'lacrado' : 'seminovo'
   const filters = {
     q: String(params?.q || '').trim(),
     condition: String(params?.condition || '').trim(),
@@ -36,6 +40,7 @@ export default async function SeminovosPage({
     color: String(params?.color || '').trim(),
     purchaseDateFrom: isValidDate(params?.purchaseDateFrom || '') ? (params?.purchaseDateFrom || '') : '',
     purchaseDateTo: isValidDate(params?.purchaseDateTo || '') ? (params?.purchaseDateTo || '') : '',
+    stockType,
   }
 
   const supabase = await createSupabaseServerClient()
@@ -45,11 +50,13 @@ export default async function SeminovosPage({
   ])
 
   return (
-    <SeminovosListClient
-      initialDevices={devices}
-      initialStats={stats}
-      filterInitialValues={filters}
-      role={normalizedRole}
-    />
+    <Suspense fallback={<div className="p-4 text-sm text-muted-foreground">Carregando…</div>}>
+      <SeminovosListClient
+        initialDevices={devices}
+        initialStats={stats}
+        filterInitialValues={filters}
+        role={normalizedRole}
+      />
+    </Suspense>
   )
 }

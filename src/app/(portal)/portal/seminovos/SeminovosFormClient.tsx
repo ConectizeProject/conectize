@@ -38,6 +38,17 @@ import {
 } from '@/lib/seminovos/seminovos-device-actions'
 import { ArrowLeft, DollarSign, FileInput, MoreHorizontal, Plus, Store, Tag, Trash2, Undo2, UserRound } from 'lucide-react'
 import { ResaleDeviceTermsDialog } from './ResaleDeviceTermsDialog'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import {
+  buildCommissionCostDescription,
+  isCommissionCostDescription,
+  isSaleDerivedCostDescription,
+} from '@/lib/resale/resale-sale-costs'
+import {
+  commissionFromPercentOfGrossCents,
+  grossProfitBeforeCommissionCents,
+  paymentFeeCentsForSaleEntries,
+} from '@/lib/resale/resale-commission'
 
 type CostRow = { id?: string; description: string; value_cents: number }
 
@@ -86,7 +97,11 @@ type ResaleDevice = {
   buyer_name: string | null
   buyer_cpf: string | null
   sale_details: string | null
+  stock_type?: string | null
+  sale_commission_user_id?: string | null
 }
+
+type TeamUser = { id: string; email: string | null; full_name: string | null; role: string }
 
 type SalePaymentEntry = { rowKey: string; payment_method_id: string; value_cents: number | null; installments: number }
 
@@ -136,6 +151,7 @@ function getInitialFromDevice(d: ResaleDevice | null | undefined) {
     purchaseDate: d.purchase_date ?? '',
     saleDate: d.sale_date ?? '',
     costs,
+    stockType: d.stock_type === 'lacrado' ? 'lacrado' as const : 'seminovo' as const,
   }
 }
 
@@ -143,9 +159,17 @@ type Props = {
   deviceId?: string
   isCreate: boolean
   initialDevice?: ResaleDevice | null
+  defaultStockType?: 'seminovo' | 'lacrado'
+  backHref?: string
 }
 
-export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props) {
+export function SeminovosFormClient ({
+  deviceId,
+  isCreate,
+  initialDevice,
+  defaultStockType = 'seminovo',
+  backHref = '/portal/seminovos',
+}: Props) {
   const router = useRouter()
   const init = getInitialFromDevice(initialDevice)
   const hasInitial = Boolean(init)
@@ -185,13 +209,20 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
   })
   const [formSaleDate, setFormSaleDate] = useState(init?.saleDate ?? '')
   const [formCosts, setFormCosts] = useState<CostRow[]>(init?.costs ?? [emptyCost()])
+  const [formStockType, setFormStockType] = useState<'seminovo' | 'lacrado'>(init?.stockType ?? defaultStockType)
   const [showSellModal, setShowSellModal] = useState(false)
-  const [sellModalValue, setSellModalValue] = useState('')
   const [sellModalDate, setSellModalDate] = useState('')
   const [isSavingSell, setIsSavingSell] = useState(false)
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([])
   const [isLoadingPaymentMethods, setIsLoadingPaymentMethods] = useState(false)
   const [sellPaymentMethods, setSellPaymentMethods] = useState<SalePaymentEntry[]>([])
+  const [teamUsers, setTeamUsers] = useState<TeamUser[]>([])
+  const [sellCommissionEnabled, setSellCommissionEnabled] = useState(false)
+  const [sellCommissionUserId, setSellCommissionUserId] = useState('')
+  const [sellCommissionKind, setSellCommissionKind] = useState<'percent' | 'fixed'>('percent')
+  const [sellCommissionPercent, setSellCommissionPercent] = useState('')
+  const [sellCommissionFixed, setSellCommissionFixed] = useState('')
+  const [sellGenerateWarrantyTerm, setSellGenerateWarrantyTerm] = useState(false)
   const [sellBuyerName, setSellBuyerName] = useState('')
   const [sellBuyerCpf, setSellBuyerCpf] = useState('')
   const [sellSaleDetails, setSellSaleDetails] = useState('')
@@ -230,6 +261,7 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
           setFormPurchaseDate(inited.purchaseDate)
           setFormSaleDate(inited.saleDate)
           setFormCosts(inited.costs)
+          setFormStockType(inited.stockType)
         }
       }
     } finally {
@@ -257,6 +289,14 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
   useEffect(() => {
     loadPaymentMethods()
   }, [loadPaymentMethods])
+
+  const loadTeamUsers = useCallback(async () => {
+    const res = await portalFetch('/api/portal/team-users')
+    const data = await res?.json().catch(() => null)
+    if (data?.ok && Array.isArray(data.users)) {
+      setTeamUsers(data.users as TeamUser[])
+    }
+  }, [])
 
   function handleParse3utools() {
     const parsed = parse3utoolsText(threeUtoolsRaw)
@@ -342,6 +382,7 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
       purchase_date: formPurchaseDate.trim() || null,
       sale_date: formSaleDate.trim() || null,
       costs: costsPayload,
+      stock_type: formStockType,
     }
 
     setIsSaving(true)
@@ -401,14 +442,69 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
   }, [formPurchaseValue, formWholesaleValue, formSaleValue])
 
   function openSellModal() {
-    const suggested = formSaleValue || formWholesaleValue || formSoldFor || ''
-    setSellModalValue(suggested)
     setSellModalDate(new Date().toISOString().slice(0, 10))
     setSellPaymentMethods([newEmptySalePaymentRow()])
+    setSellGenerateWarrantyTerm(false)
     setSellBuyerName('')
     setSellBuyerCpf('')
-    setSellSaleDetails(formInfo || '')
+    setSellSaleDetails('')
+    setSellCommissionEnabled(false)
+    setSellCommissionUserId('')
+    setSellCommissionKind('percent')
+    setSellCommissionPercent('')
+    setSellCommissionFixed('')
+    loadTeamUsers()
     setShowSellModal(true)
+  }
+
+  function getSellPaymentsTotalCents (): number | null {
+    const valid = sellPaymentMethods.filter((e) => e.payment_method_id?.trim())
+    if (valid.length === 0) return null
+    let sum = 0
+    for (const e of valid) {
+      const v = e.value_cents
+      if (v == null || v <= 0) return null
+      sum += v
+    }
+    if (sum <= 0) return null
+    return sum
+  }
+
+  function previewCommissionCents (
+    totalSalesCents: number,
+    purchaseCents: number,
+    baseOperationalCents: number,
+    paymentFeeCents: number
+  ): number {
+    if (!sellCommissionEnabled || !sellCommissionUserId.trim()) return 0
+    if (sellCommissionKind === 'percent') {
+      const p = Number.parseFloat(sellCommissionPercent.replace(',', '.'))
+      const gross = grossProfitBeforeCommissionCents(
+        totalSalesCents,
+        purchaseCents,
+        baseOperationalCents,
+        paymentFeeCents
+      )
+      return commissionFromPercentOfGrossCents(gross, p)
+    }
+    return moneyToCentsFromMasked(sellCommissionFixed) ?? 0
+  }
+
+  function percentCommissionHintFromForm (): { commissionCents: number; grossCents: number } | null {
+    const total = getSellPaymentsTotalCents()
+    if (total == null || sellCommissionKind !== 'percent') return null
+    const p = Number.parseFloat(sellCommissionPercent.replace(',', '.'))
+    if (!Number.isFinite(p) || p <= 0) return null
+    const purchaseCents = moneyToCentsFromMasked(formPurchaseValue) ?? 0
+    const baseOperationalCents = formCosts.reduce(
+      (acc, c) => acc + (isSaleDerivedCostDescription(c.description) ? 0 : (c.value_cents ?? 0)),
+      0
+    )
+    const valid = sellPaymentMethods.filter((e) => e.payment_method_id?.trim())
+    const fee = paymentFeeCentsForSaleEntries(valid, paymentMethods)
+    const gross = grossProfitBeforeCommissionCents(total, purchaseCents, baseOperationalCents, fee)
+    const commissionCents = commissionFromPercentOfGrossCents(gross, p)
+    return { commissionCents, grossCents: gross }
   }
 
   function setSellPaymentMethodAt(i: number, upd: Partial<SalePaymentEntry>) {
@@ -445,15 +541,38 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
           : (d.payment_method_id
             ? [{ rowKey: makeSalePaymentRowKey(), payment_method_id: d.payment_method_id, value_cents: null, installments: d.payment_installments ?? 1 }]
             : [newEmptySalePaymentRow()])
-        setSellPaymentMethods(pms.length > 0 ? pms : [newEmptySalePaymentRow()])
+        let rows: SalePaymentEntry[] = pms.length > 0 ? pms : [newEmptySalePaymentRow()]
         const soldCents = d.sold_for_cents ?? null
-        const valueMasked = soldCents != null ? maskedFromCents(soldCents) : ''
-        setSellModalValue(valueMasked)
+        if (rows.length === 1 && (rows[0].value_cents == null || rows[0].value_cents === 0) && soldCents != null) {
+          rows = [{ ...rows[0], value_cents: soldCents }]
+        }
+        setSellPaymentMethods(rows)
         setSellModalDate(d.sale_date || new Date().toISOString().slice(0, 10))
+        const hasTermData =
+          Boolean((d.buyer_name && d.buyer_name.trim()) ||
+            (d.buyer_cpf && d.buyer_cpf.trim()) ||
+            (d.sale_details && d.sale_details.trim()))
+        setSellGenerateWarrantyTerm(hasTermData)
         setSellBuyerName(d.buyer_name ?? '')
         setSellBuyerCpf(formatCpfCnpj(d.buyer_cpf ?? ''))
-        setSellSaleDetails(d.sale_details ?? d.info ?? '')
+        setSellSaleDetails(d.sale_details ?? (hasTermData ? (d.info ?? '') : ''))
+        const commLine = (d.costs || []).find((c) => isCommissionCostDescription(c.description))
+        const commUserId = d.sale_commission_user_id ?? ''
+        if (commLine && commUserId) {
+          setSellCommissionEnabled(true)
+          setSellCommissionUserId(commUserId)
+          setSellCommissionKind('fixed')
+          setSellCommissionFixed(maskedFromCents(commLine.value_cents ?? 0))
+          setSellCommissionPercent('')
+        } else {
+          setSellCommissionEnabled(false)
+          setSellCommissionUserId('')
+          setSellCommissionKind('percent')
+          setSellCommissionPercent('')
+          setSellCommissionFixed('')
+        }
         loadPaymentMethods()
+        loadTeamUsers()
         setShowSellModal(true)
       }
     } catch {
@@ -463,8 +582,15 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
 
   async function handleConfirmSell() {
     if (!deviceId || isSavingSell) return
-    const valueCents = moneyToCentsFromMasked(sellModalValue)
-    if (valueCents === null) return
+    const valueCents = getSellPaymentsTotalCents()
+    if (valueCents === null) {
+      toast({
+        title: 'Valores de pagamento',
+        description: 'Informe o valor (R$) em cada forma de pagamento usada. O total da venda é a soma desses valores.',
+        variant: 'destructive',
+      })
+      return
+    }
 
     const validMethods = sellPaymentMethods.filter((e) => e.payment_method_id?.trim())
     if (validMethods.length === 0) {
@@ -478,28 +604,8 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
         return
       }
     }
-    const singleMethod = validMethods.length === 1 && (validMethods[0].value_cents == null || validMethods[0].value_cents === 0)
 
-    let paymentFeeCents = 0
-    for (const entry of validMethods) {
-      const pm = paymentMethods.find((p) => p.id === entry.payment_method_id)
-      if (!pm) continue
-      let amountCents = entry.value_cents ?? 0
-      if (singleMethod) amountCents = valueCents
-      else if (entry.value_cents == null || entry.value_cents === 0) continue
-      let feePercent = Number(pm.fee_percent) || 0
-      if (pm.type === 'credito' && Array.isArray(pm.credit_installment_fees) && pm.credit_installment_fees.length > 0) {
-        const byInstallments = pm.credit_installment_fees.find(
-          (f) => Number(f.installments) === Number(entry.installments || 1)
-        )
-        if (byInstallments && byInstallments.fee_percent != null) {
-          feePercent = Number(byInstallments.fee_percent) || 0
-        }
-      }
-      if (feePercent > 0) {
-        paymentFeeCents += Math.floor((amountCents * feePercent) / 100)
-      }
-    }
+    const paymentFeeCents = paymentFeeCentsForSaleEntries(validMethods, paymentMethods)
 
     const baseCosts = formCosts
       .filter((c) => (c.description && c.description.trim()) || (c.value_cents && c.value_cents > 0))
@@ -508,24 +614,80 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
         value_cents: c.value_cents ?? 0,
       }))
 
-    const costsWithoutPaymentFee = baseCosts.filter(
-      (c) => (c.description || '').toLowerCase() !== 'taxa forma de pagamento'
-    )
+    const costsWithoutDerived = baseCosts.filter((c) => !isSaleDerivedCostDescription(c.description))
+    const baseOperationalTotal = costsWithoutDerived.reduce((acc, c) => acc + (c.value_cents ?? 0), 0)
+    const purchaseCents = moneyToCentsFromMasked(formPurchaseValue) ?? 0
 
-    const costsPayload =
+    let costsPayload =
       paymentFeeCents > 0
         ? [
-            ...costsWithoutPaymentFee,
+            ...costsWithoutDerived,
             {
               description: 'Taxa forma de pagamento',
               value_cents: paymentFeeCents,
             },
           ]
-        : costsWithoutPaymentFee
+        : [...costsWithoutDerived]
+
+    let commissionUserIdForDb: string | null = null
+    let commissionCents = 0
+    if (sellCommissionEnabled) {
+      const uid = sellCommissionUserId.trim()
+      if (!uid) {
+        toast({ title: 'Comissão', description: 'Selecione o colaborador.', variant: 'destructive' })
+        return
+      }
+      const selectedUser = teamUsers.find((u) => u.id === uid)
+      if (!selectedUser) {
+        toast({ title: 'Comissão', description: 'Colaborador inválido.', variant: 'destructive' })
+        return
+      }
+      if (sellCommissionKind === 'percent') {
+        const p = Number.parseFloat(sellCommissionPercent.replace(',', '.'))
+        if (!Number.isFinite(p) || p <= 0) {
+          toast({ title: 'Comissão', description: 'Informe um percentual válido.', variant: 'destructive' })
+          return
+        }
+        const gross = grossProfitBeforeCommissionCents(
+          valueCents,
+          purchaseCents,
+          baseOperationalTotal,
+          paymentFeeCents
+        )
+        commissionCents = commissionFromPercentOfGrossCents(gross, p)
+      } else {
+        const fc = moneyToCentsFromMasked(sellCommissionFixed)
+        if (fc === null || fc <= 0) {
+          toast({ title: 'Comissão', description: 'Informe um valor fixo válido.', variant: 'destructive' })
+          return
+        }
+        commissionCents = fc
+      }
+      if (commissionCents <= 0) {
+        toast({
+          title: 'Comissão',
+          description:
+            sellCommissionKind === 'percent'
+              ? 'Com percentual sobre o lucro bruto, o lucro precisa ser positivo e o percentual deve gerar comissão maior que zero.'
+              : 'O valor da comissão deve ser maior que zero.',
+          variant: 'destructive',
+        })
+        return
+      }
+      commissionUserIdForDb = uid
+      const label = (selectedUser.full_name || '').trim() || selectedUser.email || 'Colaborador'
+      costsPayload = [
+        ...costsPayload,
+        {
+          description: buildCommissionCostDescription(label),
+          value_cents: commissionCents,
+        },
+      ]
+    }
 
     const salePaymentMethodsPayload = validMethods.map((e) => ({
       payment_method_id: e.payment_method_id,
-      value_cents: singleMethod ? null : (e.value_cents ?? 0),
+      value_cents: e.value_cents ?? 0,
       installments: e.installments ?? 1,
     }))
 
@@ -534,9 +696,10 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
       sold_for_cents: valueCents,
       sale_date: sellModalDate || null,
       sale_payment_methods: salePaymentMethodsPayload,
-      buyer_name: sellBuyerName.trim() || null,
-      buyer_cpf: sellBuyerCpf.trim() || null,
-      sale_details: sellSaleDetails.trim() || null,
+      sale_commission_user_id: sellCommissionEnabled ? commissionUserIdForDb : null,
+      buyer_name: sellGenerateWarrantyTerm ? sellBuyerName.trim() || null : null,
+      buyer_cpf: sellGenerateWarrantyTerm ? sellBuyerCpf.trim() || null : null,
+      sale_details: sellGenerateWarrantyTerm ? sellSaleDetails.trim() || null : null,
       costs: costsPayload,
     }
 
@@ -551,7 +714,7 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
       if (data?.ok) {
         const updated = data.device as ResaleDevice
         setFormSold(true)
-        setFormSoldFor(sellModalValue)
+        setFormSoldFor(updated.sold_for_cents != null ? maskedFromCents(updated.sold_for_cents) : '')
         setFormSaleDate(sellModalDate)
         if (updated && Array.isArray(updated.costs)) {
           const mappedCosts = updated.costs.map((c) => ({
@@ -562,11 +725,7 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
           setFormCosts(mappedCosts.length > 0 ? mappedCosts : [emptyCost()])
         }
         setShowSellModal(false)
-        const hasBuyerOrDetails =
-          (updated.buyer_name && updated.buyer_name.trim()) ||
-          (updated.buyer_cpf && updated.buyer_cpf.trim()) ||
-          (updated.sale_details && updated.sale_details.trim())
-        if (hasBuyerOrDetails) {
+        if (sellGenerateWarrantyTerm) {
           setTermsDevice(updated)
           setShowTermsDialog(true)
         }
@@ -595,6 +754,7 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
           sale_date: null,
           payment_method_id: null,
           payment_installments: null,
+          sale_payment_methods: [],
           buyer_name: null,
           buyer_cpf: null,
           sale_details: null,
@@ -606,6 +766,9 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
         setFormSoldFor('')
         setFormSaleDate('')
         setShowTermsDialog(false)
+        setFormCosts((prev) =>
+          prev.filter((c) => !isSaleDerivedCostDescription(c.description))
+        )
         toast({ description: 'Venda cancelada', duration: 2000 })
       } else {
         setErrorMessage(data?.message || 'Não foi possível cancelar.')
@@ -1022,6 +1185,19 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
             <CardDescription>Anunciado, testado, etiqueta e datas de compra/venda.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="space-y-2 max-w-xs">
+              <Label htmlFor="formStockType">Tipo de estoque</Label>
+              <select
+                id="formStockType"
+                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                value={formStockType}
+                onChange={(e) => setFormStockType(e.target.value === 'lacrado' ? 'lacrado' : 'seminovo')}
+              >
+                <option value="seminovo">Seminovo</option>
+                <option value="lacrado">Lacrado</option>
+              </select>
+              <p className="text-xs text-muted-foreground">Define em qual aba da listagem o aparelho aparece.</p>
+            </div>
             <div className="flex flex-wrap gap-6">
               <div className="flex items-center space-x-2">
                 <Checkbox id="formAdvertised" checked={formAdvertised} onCheckedChange={(v) => setFormAdvertised(Boolean(v))} />
@@ -1052,17 +1228,19 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
         {formSold && (
           <Card>
             <CardHeader>
-              <CardTitle>Valor da venda</CardTitle>
-              <CardDescription>Valor pelo qual o aparelho foi vendido e lucro real.</CardDescription>
+              <CardTitle>Resumo da venda</CardTitle>
+              <CardDescription>
+                O valor total corresponde à soma das formas de pagamento registradas na venda. O lucro real considera compra, custos, taxas e comissão.
+              </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="formSoldFor">Valor da venda</Label>
+                <Label htmlFor="formSoldFor">Total da venda</Label>
                 <Input
                   id="formSoldFor"
                   inputMode="decimal"
                   value={formSoldFor}
-                  onChange={(e) => setFormSoldFor(formatMoneyInput(e.target.value))}
+                  readOnly
                   placeholder="0,00"
                 />
               </div>
@@ -1092,34 +1270,30 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
             {isSaving ? 'Salvando…' : isCreate ? 'Cadastrar' : 'Salvar'}
           </Button>
           <Button type="button" variant="outline" asChild>
-            <Link href="/portal/seminovos">Cancelar</Link>
+            <Link href={backHref}>Cancelar</Link>
           </Button>
         </div>
       </form>
 
       <Dialog open={showSellModal} onOpenChange={(open) => !open && setShowSellModal(false)}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Marcar como vendido</DialogTitle>
             <DialogDescription>
-              Informe o valor, forma de pagamento, dados do comprador e a data da venda. Sugestão preenchida com os valores previstos.
+              O valor total da venda é a soma dos valores em cada forma de pagamento. A data da venda será registrada.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
-            <div className="space-y-2">
-              <Label>Valor da venda</Label>
-              <Input
-                value={sellModalValue}
-                onChange={(e) => setSellModalValue(formatMoneyInput(e.target.value))}
-                placeholder="0,00"
-              />
-              {(formSaleValue || formWholesaleValue) && (
-                <p className="text-xs text-muted-foreground">
-                  Sugestão: valor varejo {formSaleValue ? `R$ ${formSaleValue}` : '-'}
-                  {formWholesaleValue && formSaleValue !== formWholesaleValue && (
-                    <> • valor atacado R$ {formWholesaleValue}</>
-                  )}
-                </p>
+            <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground space-y-1">
+              <p className="font-medium text-foreground">Valores sugeridos (referência)</p>
+              {moneyToCentsFromMasked(formSaleValue) != null && (
+                <p>Varejo cadastrado: R$ {formSaleValue}</p>
+              )}
+              {moneyToCentsFromMasked(formWholesaleValue) != null && (
+                <p>Atacado cadastrado: R$ {formWholesaleValue}</p>
+              )}
+              {moneyToCentsFromMasked(formSaleValue) == null && moneyToCentsFromMasked(formWholesaleValue) == null && (
+                <p>Cadastre preços de varejo ou atacado no formulário para referência; a venda usa apenas os pagamentos abaixo.</p>
               )}
             </div>
             <div className="space-y-2">
@@ -1152,20 +1326,18 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
                         ))}
                       </select>
                     </div>
-                    {sellPaymentMethods.length > 1 && (
-                      <div className="w-24 space-y-1">
-                        <Label className="text-xs">Valor (R$)</Label>
-                        <Input
-                          value={entry.value_cents != null ? maskedFromCents(entry.value_cents) : ''}
-                          onChange={(e) => {
-                            const raw = moneyToCentsFromMasked(formatMoneyInput(e.target.value))
-                            setSellPaymentMethodAt(i, { value_cents: raw })
-                          }}
-                          placeholder="0,00"
-                          className="h-9"
-                        />
-                      </div>
-                    )}
+                    <div className="w-28 space-y-1">
+                      <Label className="text-xs">Valor (R$)</Label>
+                      <Input
+                        value={entry.value_cents != null ? maskedFromCents(entry.value_cents) : ''}
+                        onChange={(e) => {
+                          const raw = moneyToCentsFromMasked(formatMoneyInput(e.target.value))
+                          setSellPaymentMethodAt(i, { value_cents: raw })
+                        }}
+                        placeholder="0,00"
+                        className="h-9"
+                      />
+                    </div>
                     {entry.payment_method_id && (() => {
                       const pm = paymentMethods.find((p) => p.id === entry.payment_method_id)
                       const isCredit = pm?.type === 'credito'
@@ -1205,32 +1377,151 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
                 ))}
               </div>
             </div>
-            <div className="space-y-2">
-              <Label>Nome completo do comprador (opcional)</Label>
-              <Input
-                value={sellBuyerName}
-                onChange={(e) => setSellBuyerName(e.target.value)}
-                placeholder="Nome completo"
-              />
+            <div className="space-y-3 rounded-md border p-3">
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="form-sell-commission"
+                  checked={sellCommissionEnabled}
+                  onCheckedChange={(v) => setSellCommissionEnabled(v === true)}
+                />
+                <Label htmlFor="form-sell-commission" className="font-normal cursor-pointer leading-snug">
+                  Comissão (descontada do lucro da venda)
+                </Label>
+              </div>
+              {sellCommissionEnabled ? (
+                <div className="grid gap-3 sm:grid-cols-2 pl-6 border-t pt-3">
+                  <div className="space-y-1 sm:col-span-2">
+                    <Label className="text-xs">Colaborador (staff / admin)</Label>
+                    <select
+                      className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                      value={sellCommissionUserId || ''}
+                      onChange={(e) => setSellCommissionUserId(e.target.value)}
+                    >
+                      <option value="">Selecione…</option>
+                      {teamUsers.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {(u.full_name || '').trim() || u.email || u.id}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label className="text-xs">Tipo de comissão</Label>
+                    <RadioGroup
+                      value={sellCommissionKind}
+                      onValueChange={(v: 'percent' | 'fixed') => setSellCommissionKind(v)}
+                      className="flex flex-wrap gap-4"
+                    >
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="percent" id="form-comm-pct" />
+                        <Label htmlFor="form-comm-pct" className="font-normal cursor-pointer">
+                          Percentual sobre o lucro bruto
+                        </Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="fixed" id="form-comm-fix" />
+                        <Label htmlFor="form-comm-fix" className="font-normal cursor-pointer">
+                          Valor fixo (R$)
+                        </Label>
+                      </div>
+                    </RadioGroup>
+                  </div>
+                  <div className="space-y-1 sm:col-span-2">
+                    {sellCommissionKind === 'percent' ? (
+                      <>
+                        <Label className="text-xs">Percentual sobre o lucro bruto (%)</Label>
+                        <Input
+                          value={sellCommissionPercent}
+                          onChange={(e) => setSellCommissionPercent(e.target.value.replace(/[^0-9,.-]/g, ''))}
+                          placeholder="Ex: 2,5"
+                          className="h-9"
+                        />
+                        {(() => {
+                          const hint = percentCommissionHintFromForm()
+                          if (!hint) return null
+                          return (
+                            <div className="pt-0.5 space-y-0.5">
+                              <p className="text-xs text-green-600 dark:text-green-400 font-medium">
+                                Comissão: R$ {maskedFromCents(hint.commissionCents)}
+                              </p>
+                              {hint.grossCents <= 0 ? (
+                                <p className="text-xs text-muted-foreground">
+                                  Lucro bruto (venda − compra − custos − taxa) não é positivo; comissão percentual = R$ 0,00.
+                                </p>
+                              ) : null}
+                            </div>
+                          )
+                        })()}
+                      </>
+                    ) : (
+                      <>
+                        <Label className="text-xs">Valor (R$)</Label>
+                        <Input
+                          value={sellCommissionFixed}
+                          onChange={(e) => setSellCommissionFixed(formatMoneyInput(e.target.value))}
+                          placeholder="0,00"
+                          className="h-9"
+                        />
+                      </>
+                    )}
+                  </div>
+                </div>
+              ) : null}
             </div>
-            <div className="space-y-2">
-              <Label>CPF/CNPJ do comprador (opcional)</Label>
-              <Input
-                value={sellBuyerCpf}
-                onChange={(e) => setSellBuyerCpf(formatCpfCnpj(e.target.value))}
-                placeholder="CPF ou CNPJ"
-                inputMode="numeric"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Detalhes do aparelho para o termo (opcional)</Label>
-              <textarea
-                className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                value={sellSaleDetails}
-                onChange={(e) => setSellSaleDetails(e.target.value)}
-                placeholder="Este campo será exibido no termo de compra."
-                rows={3}
-              />
+            <div className="space-y-3 rounded-md border p-3">
+              <div className="flex items-start space-x-2">
+                <Checkbox
+                  id="form-sell-generate-term"
+                  className="mt-0.5"
+                  checked={sellGenerateWarrantyTerm}
+                  onCheckedChange={(v) => {
+                    const on = v === true
+                    setSellGenerateWarrantyTerm(on)
+                    if (on && !sellSaleDetails.trim() && formInfo.trim()) {
+                      setSellSaleDetails(formInfo.trim())
+                    }
+                  }}
+                />
+                <div className="space-y-0.5 leading-snug">
+                  <Label htmlFor="form-sell-generate-term" className="font-normal cursor-pointer">
+                    Gerar termo de garantia
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Só é necessário preencher nome, documento e detalhes quando for imprimir o termo.
+                  </p>
+                </div>
+              </div>
+              {sellGenerateWarrantyTerm ? (
+                <div className="space-y-3 border-t pt-3 pl-1">
+                  <div className="space-y-2">
+                    <Label>Nome completo do comprador</Label>
+                    <Input
+                      value={sellBuyerName}
+                      onChange={(e) => setSellBuyerName(e.target.value)}
+                      placeholder="Nome completo"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>CPF/CNPJ do comprador</Label>
+                    <Input
+                      value={sellBuyerCpf}
+                      onChange={(e) => setSellBuyerCpf(formatCpfCnpj(e.target.value))}
+                      placeholder="CPF ou CNPJ"
+                      inputMode="numeric"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Detalhes do aparelho no termo</Label>
+                    <textarea
+                      className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      value={sellSaleDetails}
+                      onChange={(e) => setSellSaleDetails(e.target.value)}
+                      placeholder="Texto exibido no termo de compra."
+                      rows={3}
+                    />
+                  </div>
+                </div>
+              ) : null}
             </div>
             <div className="space-y-2">
               <Label>Data da venda</Label>
@@ -1240,12 +1531,53 @@ export function SeminovosFormClient({ deviceId, isCreate, initialDevice }: Props
                 onChange={(e) => setSellModalDate(e.target.value)}
               />
             </div>
+            <div className="rounded-lg border bg-muted/50 px-4 py-3 space-y-2">
+              {(() => {
+                const totalCents = getSellPaymentsTotalCents()
+                const purchaseCents = moneyToCentsFromMasked(formPurchaseValue) ?? 0
+                const baseOperationalCents = formCosts.reduce(
+                  (acc, c) => acc + (isSaleDerivedCostDescription(c.description) ? 0 : (c.value_cents ?? 0)),
+                  0
+                )
+                const validPreview = sellPaymentMethods.filter((e) => e.payment_method_id?.trim())
+                const paymentFeePreviewCents = paymentFeeCentsForSaleEntries(validPreview, paymentMethods)
+                const commPreview =
+                  totalCents != null
+                    ? previewCommissionCents(
+                      totalCents,
+                      purchaseCents,
+                      baseOperationalCents,
+                      paymentFeePreviewCents
+                    )
+                    : 0
+                const costsCents = baseOperationalCents + paymentFeePreviewCents + commPreview
+                const lucroCents = totalCents != null ? totalCents - purchaseCents - costsCents : null
+                return (
+                  <>
+                    {totalCents != null ? (
+                      <p className="text-sm text-muted-foreground">
+                        Total da venda (soma dos pagamentos):{' '}
+                        <span className="font-medium text-foreground">R$ {maskedFromCents(totalCents)}</span>
+                      </p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Preencha os valores em cada forma de pagamento para ver o total e o lucro.</p>
+                    )}
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Lucro real estimado</p>
+                      <p className={`text-lg font-bold ${lucroCents != null ? (lucroCents >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400') : ''}`}>
+                        {lucroCents != null ? `R$ ${maskedFromCents(lucroCents)}` : '-'}
+                      </p>
+                    </div>
+                  </>
+                )
+              })()}
+            </div>
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setShowSellModal(false)} disabled={isSavingSell}>
               Cancelar
             </Button>
-            <Button type="button" onClick={handleConfirmSell} disabled={isSavingSell || !sellModalValue.trim()}>
+            <Button type="button" onClick={handleConfirmSell} disabled={isSavingSell || getSellPaymentsTotalCents() === null}>
               {isSavingSell ? 'Salvando…' : 'Confirmar venda'}
             </Button>
           </DialogFooter>

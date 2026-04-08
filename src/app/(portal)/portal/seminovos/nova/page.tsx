@@ -2,7 +2,13 @@ import { redirect } from 'next/navigation'
 import { getPortalAuth } from '@/lib/supabase/server'
 import { SeminovosFormClient } from '../SeminovosFormClient'
 
-export default async function SeminovosNovaPage() {
+type SearchParams = Promise<{ tipo?: string }>
+
+export default async function SeminovosNovaPage ({
+  searchParams,
+}: {
+  searchParams: SearchParams
+}) {
   const { user, role } = await getPortalAuth()
   if (!user) redirect('/portal/login')
 
@@ -10,5 +16,17 @@ export default async function SeminovosNovaPage() {
   if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
   if (normalizedRole !== 'staff' && normalizedRole !== 'admin') redirect('/portal')
 
-  return <SeminovosFormClient isCreate />
+  const params = await searchParams
+  const defaultStockType =
+    String(params?.tipo || '').toLowerCase() === 'lacrados' ? 'lacrado' : 'seminovo'
+  const backHref =
+    defaultStockType === 'lacrado' ? '/portal/seminovos?tipo=lacrados' : '/portal/seminovos'
+
+  return (
+    <SeminovosFormClient
+      isCreate
+      defaultStockType={defaultStockType}
+      backHref={backHref}
+    />
+  )
 }

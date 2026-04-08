@@ -36,6 +36,7 @@ type Props = {
     color: string
     purchaseDateFrom: string
     purchaseDateTo: string
+    stockType: 'seminovo' | 'lacrado'
   }
   quickFilters: {
     notTested: boolean
@@ -81,6 +82,9 @@ export function SeminovosFilterCollapsible({
       <CollapsibleContent>
         <div className="mt-3 rounded-md border bg-card p-3 sm:p-4">
           <form action="/portal/seminovos" method="get" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {initialValues.stockType === 'lacrado' ? (
+              <input type="hidden" name="tipo" value="lacrados" />
+            ) : null}
             <div className="space-y-2 sm:col-span-2">
               <Label htmlFor="seminovos-q">Busca (modelo, cor, IMEI, informações)</Label>
               <Input
@@ -186,7 +190,15 @@ export function SeminovosFilterCollapsible({
               <div className="flex items-center gap-3 flex-wrap">
                 <Button type="submit">Filtrar</Button>
                 <Button variant="outline" asChild>
-                  <Link href="/portal/seminovos">Limpar filtros</Link>
+                  <Link
+                    href={
+                      initialValues.stockType === 'lacrado'
+                        ? '/portal/seminovos?tipo=lacrados'
+                        : '/portal/seminovos'
+                    }
+                  >
+                    Limpar filtros
+                  </Link>
                 </Button>
               </div>
             </div>

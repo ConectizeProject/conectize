@@ -1,8 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { useCallback, useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -38,6 +38,7 @@ import { toast } from '@/hooks/use-toast'
 import { formatMoneyInput, maskedFromCents, moneyToCentsFromMasked } from '@/lib/utils/money'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Label } from '@/components/ui/label'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Textarea } from '@/components/ui/textarea'
 import {
 	Select,
@@ -60,6 +61,30 @@ import { DeviceBadges } from './DeviceBadges'
 import { SeminovoDeviceCard } from './SeminovoDeviceCard'
 import { SeminovosFilterCollapsible } from './SeminovosFilterCollapsible'
 import { ResaleDeviceTermsDialog } from './ResaleDeviceTermsDialog'
+import { SeminovosSubmenu } from './SeminovosSubmenu'
+import {
+	ResaleSellCommissionPanel,
+	type ResaleSellCommissionPanelRef,
+	type SellCommissionInitial,
+} from './ResaleSellCommissionPanel'
+import {
+	buildCommissionCostDescription,
+	isCommissionCostDescription,
+	isSaleDerivedCostDescription,
+} from '@/lib/resale/resale-sale-costs'
+import {
+	commissionFromPercentOfGrossCents,
+	grossProfitBeforeCommissionCents,
+	paymentFeeCentsForSaleEntries,
+} from '@/lib/resale/resale-commission'
+
+const EMPTY_SELL_COMMISSION_INITIAL: SellCommissionInitial = {
+	enabled: false,
+	userId: '',
+	kind: 'percent',
+	percentRaw: '',
+	fixedMasked: '',
+}
 
 type CostRow = { id?: string; description: string; value_cents: number }
 
@@ -106,7 +131,11 @@ type ResaleDevice = {
 	buyer_name?: string | null
 	buyer_cpf?: string | null
 	sale_details?: string | null
+	stock_type?: string | null
+	sale_commission_user_id?: string | null
 }
+
+type TeamUser = { id: string; email: string | null; full_name: string | null; role: string }
 
 type SalePaymentEntry = { rowKey: string; payment_method_id: string; value_cents: number | null; installments: number }
 
@@ -194,6 +223,11 @@ export function SeminovosListClient({
 }: SeminovosListClientProps) {
 	const isAdmin = role === 'admin'
 	const router = useRouter()
+	const searchParams = useSearchParams()
+	const novaDeviceHref =
+		searchParams.get('tipo') === 'lacrados'
+			? '/portal/seminovos/nova?tipo=lacrados'
+			: '/portal/seminovos/nova'
 	const hasFilters = Boolean(
 		filterInitialValues.q ||
 		filterInitialValues.condition ||
@@ -211,11 +245,16 @@ export function SeminovosListClient({
 	const [isSavingBulk, setIsSavingBulk] = useState(false)
 	const [editedDevices, setEditedDevices] = useState<ResaleDevice[]>([])
 	const [sellModalTarget, setSellModalTarget] = useState<ResaleDevice | null>(null)
-	const [sellValueSource, setSellValueSource] = useState<'varejo' | 'atacado' | 'custom'>('varejo')
-	const [sellValue, setSellValue] = useState('')
+	const [teamUsers, setTeamUsers] = useState<TeamUser[]>([])
+	const sellCommissionPanelRef = useRef<ResaleSellCommissionPanelRef>(null)
+	const [commissionBoot, setCommissionBoot] = useState<{ seq: number; initial: SellCommissionInitial }>({
+		seq: 0,
+		initial: EMPTY_SELL_COMMISSION_INITIAL,
+	})
 	const [sellDate, setSellDate] = useState('')
 	const [isSavingSell, setIsSavingSell] = useState(false)
 	const [sellPaymentMethods, setSellPaymentMethods] = useState<SalePaymentEntry[]>([])
+	const [sellGenerateWarrantyTerm, setSellGenerateWarrantyTerm] = useState(false)
 	const [sellBuyerName, setSellBuyerName] = useState('')
 	const [sellBuyerCpf, setSellBuyerCpf] = useState('')
 	const [sellSaleDetails, setSellSaleDetails] = useState('')
@@ -391,8 +430,6 @@ export function SeminovosListClient({
 	}
 
 	function openSellModal(d: ResaleDevice) {
-		const varejo = d.sale_value_cents ?? null
-		const atacado = d.wholesale_value_cents ?? null
 		const pms = Array.isArray(d.sale_payment_methods) && d.sale_payment_methods.length > 0
 			? d.sale_payment_methods.map((e) => ({
 				rowKey: makeSalePaymentRowKey(),
@@ -404,14 +441,14 @@ export function SeminovosListClient({
 				? [{ rowKey: makeSalePaymentRowKey(), payment_method_id: d.payment_method_id, value_cents: null, installments: d.payment_installments ?? 1 }]
 				: [newEmptySalePaymentRow()])
 		setSellPaymentMethods(pms.length > 0 ? pms : [newEmptySalePaymentRow()])
-		const source = varejo != null ? 'varejo' : atacado != null ? 'atacado' : 'custom'
-		setSellValueSource(source)
-		setSellValue(varejo != null ? centsToReais(varejo) : atacado != null ? centsToReais(atacado) : '')
 		setSellDate(new Date().toISOString().slice(0, 10))
+		setSellGenerateWarrantyTerm(false)
 		setSellBuyerName('')
 		setSellBuyerCpf('')
-		setSellSaleDetails(d.info || '')
+		setSellSaleDetails('')
+		setCommissionBoot((b) => ({ seq: b.seq + 1, initial: EMPTY_SELL_COMMISSION_INITIAL }))
 		loadPaymentMethods()
+		loadTeamUsers()
 		setSellModalTarget(d)
 	}
 
@@ -425,16 +462,33 @@ export function SeminovosListClient({
 				installments: e.installments != null ? Math.max(1, Number(e.installments)) : 1,
 			}))
 			: (d.payment_method_id
-				? [{ rowKey: makeSalePaymentRowKey(), payment_method_id: d.payment_method_id, value_cents: null, installments: d.payment_installments ?? 1 }]
+				? [{ rowKey: makeSalePaymentRowKey(), payment_method_id: d.payment_method_id, value_cents: soldCents, installments: d.payment_installments ?? 1 }]
 				: [newEmptySalePaymentRow()])
 		setSellPaymentMethods(pms.length > 0 ? pms : [newEmptySalePaymentRow()])
-		setSellValueSource('custom')
-		setSellValue(soldCents != null ? centsToReais(soldCents) : '')
 		setSellDate(d.sale_date || new Date().toISOString().slice(0, 10))
+		const hasTermData =
+			Boolean((d.buyer_name && d.buyer_name.trim()) ||
+				(d.buyer_cpf && d.buyer_cpf.trim()) ||
+				(d.sale_details && d.sale_details.trim()))
+		setSellGenerateWarrantyTerm(hasTermData)
 		setSellBuyerName(d.buyer_name ?? '')
 		setSellBuyerCpf(formatCpfCnpj(d.buyer_cpf ?? ''))
-		setSellSaleDetails(d.sale_details ?? d.info ?? '')
+		setSellSaleDetails(d.sale_details ?? (hasTermData ? (d.info ?? '') : ''))
+		const commLine = (d.costs || []).find((c) => isCommissionCostDescription(c.description))
+		const commUserId = d.sale_commission_user_id ?? ''
+		const commissionInitial: SellCommissionInitial =
+			commLine && commUserId
+				? {
+					enabled: true,
+					userId: commUserId,
+					kind: 'fixed',
+					percentRaw: '',
+					fixedMasked: maskedFromCents(commLine.value_cents ?? 0),
+				}
+				: EMPTY_SELL_COMMISSION_INITIAL
+		setCommissionBoot((b) => ({ seq: b.seq + 1, initial: commissionInitial }))
 		loadPaymentMethods()
+		loadTeamUsers()
 		setSellModalTarget(d)
 	}
 
@@ -454,16 +508,17 @@ export function SeminovosListClient({
 		setSellPaymentMethods((prev) => prev.filter((_, idx) => idx !== i))
 	}
 
-	function getSellValueCents(): number | null {
-		return moneyToCentsFromMasked(sellValue)
-	}
-
-	function getEffectiveSellValueCents(): number | null {
-		const d = sellModalTarget
-		if (!d) return getSellValueCents()
-		if (sellValueSource === 'varejo' && d.sale_value_cents != null) return d.sale_value_cents
-		if (sellValueSource === 'atacado' && d.wholesale_value_cents != null) return d.wholesale_value_cents
-		return getSellValueCents()
+	function getSellPaymentsTotalCents (): number | null {
+		const valid = sellPaymentMethods.filter((e) => e.payment_method_id?.trim())
+		if (valid.length === 0) return null
+		let sum = 0
+		for (const e of valid) {
+			const v = e.value_cents
+			if (v == null || v <= 0) return null
+			sum += v
+		}
+		if (sum <= 0) return null
+		return sum
 	}
 
 	function openCostModal(d: ResaleDevice) {
@@ -477,6 +532,14 @@ export function SeminovosListClient({
 		const data = await res?.json().catch(() => null)
 		if (data?.ok && Array.isArray(data.paymentMethods)) {
 			setPaymentMethods(data.paymentMethods)
+		}
+	}, [])
+
+	const loadTeamUsers = useCallback(async () => {
+		const res = await portalFetch('/api/portal/team-users')
+		const data = await res?.json().catch(() => null)
+		if (data?.ok && Array.isArray(data.users)) {
+			setTeamUsers(data.users as TeamUser[])
 		}
 	}, [])
 
@@ -647,8 +710,15 @@ Comprando 3 iPhones
 	async function handleConfirmSell() {
 		const d = sellModalTarget
 		if (!d || isSavingSell) return
-		const valueCents = getEffectiveSellValueCents()
-		if (valueCents === null) return
+		const valueCents = getSellPaymentsTotalCents()
+		if (valueCents === null) {
+			toast({
+				title: 'Valores de pagamento',
+				description: 'Informe o valor (R$) em cada forma de pagamento usada. O total da venda é a soma desses valores.',
+				variant: 'destructive',
+			})
+			return
+		}
 
 		const validMethods = sellPaymentMethods.filter((e) => e.payment_method_id?.trim())
 		if (validMethods.length === 0) {
@@ -662,52 +732,95 @@ Comprando 3 iPhones
 				return
 			}
 		}
-		const singleMethod = validMethods.length === 1 && (validMethods[0].value_cents == null || validMethods[0].value_cents === 0)
 
-		let paymentFeeCents = 0
-		for (const entry of validMethods) {
-			const pm = paymentMethods.find((p) => p.id === entry.payment_method_id)
-			if (!pm) continue
-			let amountCents = entry.value_cents ?? 0
-			if (singleMethod) amountCents = valueCents
-			else if (entry.value_cents == null || entry.value_cents === 0) continue
-			let feePercent = Number(pm.fee_percent) || 0
-			if (pm.type === 'credito' && Array.isArray(pm.credit_installment_fees) && pm.credit_installment_fees.length > 0) {
-				const byInstallments = pm.credit_installment_fees.find(
-					(f) => Number(f.installments) === Number(entry.installments || 1)
-				)
-				if (byInstallments && byInstallments.fee_percent != null) {
-					feePercent = Number(byInstallments.fee_percent) || 0
-				}
-			}
-			if (feePercent > 0) {
-				paymentFeeCents += Math.floor((amountCents * feePercent) / 100)
-			}
-		}
+		const paymentFeeCents = paymentFeeCentsForSaleEntries(validMethods, paymentMethods)
 
 		const baseCosts = (d.costs || []).map((c) => ({
 			description: (c.description ?? '') || null,
 			value_cents: c.value_cents ?? 0,
 		}))
 
-		const costsWithoutPaymentFee = baseCosts.filter(
-			(c) => (c.description || '').toLowerCase() !== 'taxa forma de pagamento'
-		)
+		const costsWithoutDerived = baseCosts.filter((c) => !isSaleDerivedCostDescription(c.description))
+		const baseOperationalTotal = costsWithoutDerived.reduce((acc, c) => acc + (c.value_cents ?? 0), 0)
+		const purchaseCents = d.purchase_value_cents ?? 0
 
-		const costsPayload =
+		const comm = sellCommissionPanelRef.current?.getValues()
+		const sellCommissionEnabled = comm?.enabled ?? false
+		const sellCommissionUserId = comm?.userId ?? ''
+		const sellCommissionKind = comm?.kind ?? 'percent'
+		const sellCommissionPercent = comm?.percentRaw ?? ''
+		const sellCommissionFixed = comm?.fixedMasked ?? ''
+
+		let costsPayload =
 			paymentFeeCents > 0
 				? [
-					...costsWithoutPaymentFee,
+					...costsWithoutDerived,
 					{
 						description: 'Taxa forma de pagamento',
 						value_cents: paymentFeeCents,
 					},
 				]
-				: costsWithoutPaymentFee
+				: [...costsWithoutDerived]
+
+		let commissionUserIdForDb: string | null = null
+		let commissionCents = 0
+		if (sellCommissionEnabled) {
+			const uid = sellCommissionUserId.trim()
+			if (!uid) {
+				toast({ title: 'Comissão', description: 'Selecione o colaborador.', variant: 'destructive' })
+				return
+			}
+			const selectedUser = teamUsers.find((u) => u.id === uid)
+			if (!selectedUser) {
+				toast({ title: 'Comissão', description: 'Colaborador inválido.', variant: 'destructive' })
+				return
+			}
+			if (sellCommissionKind === 'percent') {
+				const p = Number.parseFloat(sellCommissionPercent.replace(',', '.'))
+				if (!Number.isFinite(p) || p <= 0) {
+					toast({ title: 'Comissão', description: 'Informe um percentual válido.', variant: 'destructive' })
+					return
+				}
+				const gross = grossProfitBeforeCommissionCents(
+					valueCents,
+					purchaseCents,
+					baseOperationalTotal,
+					paymentFeeCents
+				)
+				commissionCents = commissionFromPercentOfGrossCents(gross, p)
+			} else {
+				const fc = moneyToCentsFromMasked(sellCommissionFixed)
+				if (fc === null || fc <= 0) {
+					toast({ title: 'Comissão', description: 'Informe um valor fixo válido.', variant: 'destructive' })
+					return
+				}
+				commissionCents = fc
+			}
+			if (commissionCents <= 0) {
+				toast({
+					title: 'Comissão',
+					description:
+						sellCommissionKind === 'percent'
+							? 'Com percentual sobre o lucro bruto, o lucro precisa ser positivo e o percentual deve gerar comissão maior que zero.'
+							: 'O valor da comissão deve ser maior que zero.',
+					variant: 'destructive',
+				})
+				return
+			}
+			commissionUserIdForDb = uid
+			const label = (selectedUser.full_name || '').trim() || selectedUser.email || 'Colaborador'
+			costsPayload = [
+				...costsPayload,
+				{
+					description: buildCommissionCostDescription(label),
+					value_cents: commissionCents,
+				},
+			]
+		}
 
 		const salePaymentMethodsPayload = validMethods.map((e) => ({
 			payment_method_id: e.payment_method_id,
-			value_cents: singleMethod ? null : (e.value_cents ?? 0),
+			value_cents: e.value_cents ?? 0,
 			installments: e.installments ?? 1,
 		}))
 
@@ -716,9 +829,10 @@ Comprando 3 iPhones
 			sold_for_cents: valueCents,
 			sale_date: sellDate || null,
 			sale_payment_methods: salePaymentMethodsPayload,
-			buyer_name: sellBuyerName.trim() || null,
-			buyer_cpf: sellBuyerCpf.trim() || null,
-			sale_details: sellSaleDetails.trim() || null,
+			sale_commission_user_id: sellCommissionEnabled ? commissionUserIdForDb : null,
+			buyer_name: sellGenerateWarrantyTerm ? sellBuyerName.trim() || null : null,
+			buyer_cpf: sellGenerateWarrantyTerm ? sellBuyerCpf.trim() || null : null,
+			sale_details: sellGenerateWarrantyTerm ? sellSaleDetails.trim() || null : null,
 			costs: costsPayload,
 		}
 
@@ -732,12 +846,8 @@ Comprando 3 iPhones
 			const data = await res?.json().catch(() => null)
 			if (data?.ok) {
 				const updated = data.device as ResaleDevice
-				const hasBuyerOrDetails =
-					(updated.buyer_name && updated.buyer_name.trim()) ||
-					(updated.buyer_cpf && updated.buyer_cpf.trim()) ||
-					(updated.sale_details && updated.sale_details.trim())
 				setSellModalTarget(null)
-				if (hasBuyerOrDetails) {
+				if (sellGenerateWarrantyTerm) {
 					setTermsDevice(updated)
 					setShowTermsDialog(true)
 				}
@@ -764,6 +874,7 @@ Comprando 3 iPhones
 					sale_date: null,
 					payment_method_id: null,
 					payment_installments: null,
+					sale_payment_methods: [],
 					buyer_name: null,
 					buyer_cpf: null,
 					sale_details: null,
@@ -824,16 +935,16 @@ Comprando 3 iPhones
 			<div className="space-y-4 px-1 sm:px-0">
 				<div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
 					<div className="min-w-0">
-						<h1 className="text-xl font-bold sm:text-2xl">Seminovos</h1>
+						<h1 className="text-xl font-bold sm:text-2xl">Aparelhos para venda</h1>
 						<p className="text-sm text-muted-foreground mt-0.5">
-							Aparelhos seminovos para revenda. Acesso exclusivo para staff e administrador.
+							Estoque para revenda. Acesso exclusivo para staff e administrador.
 						</p>
 					</div>
 					<div className="flex flex-wrap items-center gap-2">
 						{!isBulkEdit ? (
 							<>
 								<Button asChild>
-									<Link href="/portal/seminovos/nova">
+									<Link href={novaDeviceHref}>
 										<Plus className="h-4 w-4 mr-2" />
 										Cadastrar aparelho
 									</Link>
@@ -875,6 +986,8 @@ Comprando 3 iPhones
 						)}
 					</div>
 				</div>
+
+				<SeminovosSubmenu />
 
 				<SeminovosFilterCollapsible
 					defaultOpen={hasFilters}
@@ -919,7 +1032,7 @@ Comprando 3 iPhones
 								{groupedAvailable.length === 0 ? (
 									<p className="text-sm text-muted-foreground mb-4">
 										Nenhum aparelho disponível.{' '}
-										<Link href="/portal/seminovos/nova" className="text-primary underline">
+										<Link href={novaDeviceHref} className="text-primary underline">
 											Cadastrar aparelho
 										</Link>
 									</p>
@@ -1748,60 +1861,28 @@ Comprando 3 iPhones
 			</Dialog>
 
 			<Dialog open={!!sellModalTarget} onOpenChange={(open) => !open && setSellModalTarget(null)}>
-				<DialogContent>
+				<DialogContent className="max-h-[90vh] overflow-y-auto">
 					<DialogHeader>
 						<DialogTitle>Marcar como vendido</DialogTitle>
 						<DialogDescription>
-							Escolha o valor da venda ou informe manualmente. A data da venda será registrada.
+							O valor total da venda é a soma dos valores informados em cada forma de pagamento. A data da venda será registrada.
 						</DialogDescription>
 					</DialogHeader>
 					<div className="grid gap-4 py-4">
-						<div className="space-y-3">
-							<Label>Valor da venda</Label>
-							<RadioGroup
-								value={sellValueSource}
-								onValueChange={(v: 'varejo' | 'atacado' | 'custom') => {
-									setSellValueSource(v)
-									const d = sellModalTarget
-									if (!d) return
-									if (v === 'varejo' && d.sale_value_cents != null) setSellValue(centsToReais(d.sale_value_cents))
-									else if (v === 'atacado' && d.wholesale_value_cents != null) setSellValue(centsToReais(d.wholesale_value_cents))
-									else if (v === 'custom') setSellValue('')
-								}}
-								className="flex flex-col gap-2"
-							>
-								{sellModalTarget?.sale_value_cents != null && (
-									<div className="flex items-center space-x-2">
-										<RadioGroupItem value="varejo" id="sell-varejo" />
-										<Label htmlFor="sell-varejo" className="font-normal cursor-pointer">
-											Varejo – R$ {centsToReais(sellModalTarget.sale_value_cents)}
-										</Label>
-									</div>
+						{sellModalTarget ? (
+							<div className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground space-y-1">
+								<p className="font-medium text-foreground">Valores sugeridos (referência)</p>
+								{sellModalTarget.sale_value_cents != null && (
+									<p>Varejo cadastrado: R$ {centsToReais(sellModalTarget.sale_value_cents)}</p>
 								)}
-								{sellModalTarget?.wholesale_value_cents != null && (
-									<div className="flex items-center space-x-2">
-										<RadioGroupItem value="atacado" id="sell-atacado" />
-										<Label htmlFor="sell-atacado" className="font-normal cursor-pointer">
-											Atacado – R$ {centsToReais(sellModalTarget.wholesale_value_cents)}
-										</Label>
-									</div>
+								{sellModalTarget.wholesale_value_cents != null && (
+									<p>Atacado cadastrado: R$ {centsToReais(sellModalTarget.wholesale_value_cents)}</p>
 								)}
-								<div className="flex items-center space-x-2">
-									<RadioGroupItem value="custom" id="sell-custom" />
-									<Label htmlFor="sell-custom" className="font-normal cursor-pointer">
-										Outro valor
-									</Label>
-								</div>
-							</RadioGroup>
-							{(sellValueSource === 'custom' || (sellValueSource === 'varejo' && sellModalTarget?.sale_value_cents == null) || (sellValueSource === 'atacado' && sellModalTarget?.wholesale_value_cents == null)) && (
-								<Input
-									value={sellValue}
-									onChange={(e) => setSellValue(formatMoneyInput(e.target.value))}
-									placeholder="0,00"
-									className="mt-1"
-								/>
-							)}
-						</div>
+								{sellModalTarget.sale_value_cents == null && sellModalTarget.wholesale_value_cents == null && (
+									<p>Não há preços de varejo ou atacado cadastrados neste aparelho; use apenas as formas de pagamento abaixo.</p>
+								)}
+							</div>
+						) : null}
 						<div className="space-y-2">
 							<div className="flex items-center justify-between">
 								<Label>Formas de pagamento</Label>
@@ -1838,20 +1919,18 @@ Comprando 3 iPhones
 												</SelectContent>
 											</Select>
 										</div>
-										{sellPaymentMethods.length > 1 && (
-											<div className="w-24 space-y-1">
-												<Label className="text-xs">Valor (R$)</Label>
-												<Input
-													value={entry.value_cents != null ? maskedFromCents(entry.value_cents) : ''}
-													onChange={(e) => {
-														const raw = moneyToCentsFromMasked(formatMoneyInput(e.target.value))
-														setSellPaymentMethodAt(i, { value_cents: raw })
-													}}
-													placeholder="0,00"
-													className="h-9"
-												/>
-											</div>
-										)}
+										<div className="w-28 space-y-1">
+											<Label className="text-xs">Valor (R$)</Label>
+											<Input
+												value={entry.value_cents != null ? maskedFromCents(entry.value_cents) : ''}
+												onChange={(e) => {
+													const raw = moneyToCentsFromMasked(formatMoneyInput(e.target.value))
+													setSellPaymentMethodAt(i, { value_cents: raw })
+												}}
+												placeholder="0,00"
+												className="h-9"
+											/>
+										</div>
 										{entry.payment_method_id && (() => {
 											const pm = paymentMethods.find((p) => p.id === entry.payment_method_id)
 											const isCredit = pm?.type === 'credito'
@@ -1895,31 +1974,70 @@ Comprando 3 iPhones
 								))}
 							</div>
 						</div>
-						<div className="space-y-2">
-							<Label>Nome completo do comprador (opcional)</Label>
-							<Input
-								value={sellBuyerName}
-								onChange={(e) => setSellBuyerName(e.target.value)}
-								placeholder="Nome completo"
+						{sellModalTarget ? (
+							<ResaleSellCommissionPanel
+								key={commissionBoot.seq}
+								ref={sellCommissionPanelRef}
+								device={sellModalTarget}
+								sellPaymentMethods={sellPaymentMethods}
+								paymentMethods={paymentMethods}
+								teamUsers={teamUsers}
+								initial={commissionBoot.initial}
 							/>
-						</div>
-						<div className="space-y-2">
-							<Label>CPF/CNPJ do comprador (opcional)</Label>
-							<Input
-								value={sellBuyerCpf}
-								onChange={(e) => setSellBuyerCpf(formatCpfCnpj(e.target.value))}
-								placeholder="CPF ou CNPJ"
-								inputMode="numeric"
-							/>
-						</div>
-						<div className="space-y-2">
-							<Label>Detalhes do aparelho para o termo (opcional)</Label>
-							<Textarea
-								value={sellSaleDetails}
-								onChange={(e) => setSellSaleDetails(e.target.value)}
-								placeholder="Este campo será exibido no termo de compra."
-								rows={3}
-							/>
+						) : null}
+						<div className="space-y-3 rounded-md border p-3">
+							<div className="flex items-start space-x-2">
+								<Checkbox
+									id="sell-generate-term"
+									className="mt-0.5"
+									checked={sellGenerateWarrantyTerm}
+									onCheckedChange={(v) => {
+										const on = v === true
+										setSellGenerateWarrantyTerm(on)
+										if (on && !sellSaleDetails.trim() && sellModalTarget?.info?.trim()) {
+											setSellSaleDetails(sellModalTarget.info.trim())
+										}
+									}}
+								/>
+								<div className="space-y-0.5 leading-snug">
+									<Label htmlFor="sell-generate-term" className="font-normal cursor-pointer">
+										Gerar termo de garantia
+									</Label>
+									<p className="text-xs text-muted-foreground">
+										Só é necessário preencher nome, documento e detalhes quando for imprimir o termo.
+									</p>
+								</div>
+							</div>
+							{sellGenerateWarrantyTerm ? (
+								<div className="space-y-3 border-t pt-3 pl-1">
+									<div className="space-y-2">
+										<Label>Nome completo do comprador</Label>
+										<Input
+											value={sellBuyerName}
+											onChange={(e) => setSellBuyerName(e.target.value)}
+											placeholder="Nome completo"
+										/>
+									</div>
+									<div className="space-y-2">
+										<Label>CPF/CNPJ do comprador</Label>
+										<Input
+											value={sellBuyerCpf}
+											onChange={(e) => setSellBuyerCpf(formatCpfCnpj(e.target.value))}
+											placeholder="CPF ou CNPJ"
+											inputMode="numeric"
+										/>
+									</div>
+									<div className="space-y-2">
+										<Label>Detalhes do aparelho no termo</Label>
+										<Textarea
+											value={sellSaleDetails}
+											onChange={(e) => setSellSaleDetails(e.target.value)}
+											placeholder="Texto exibido no termo de compra."
+											rows={3}
+										/>
+									</div>
+								</div>
+							) : null}
 						</div>
 						<div className="space-y-2">
 							<Label htmlFor="sell-date">Data da venda</Label>
@@ -1930,48 +2048,6 @@ Comprando 3 iPhones
 								onChange={(e) => setSellDate(e.target.value)}
 							/>
 						</div>
-						{sellModalTarget && (() => {
-							const soldCents = getEffectiveSellValueCents()
-							const purchaseCents = sellModalTarget.purchase_value_cents ?? 0
-							const baseCostsCents = (sellModalTarget.costs || []).reduce(
-								(acc, c) => acc + (c.value_cents ?? 0),
-								0
-							)
-
-							const validPreview = sellPaymentMethods.filter((e) => e.payment_method_id?.trim())
-							const singlePreview = validPreview.length === 1 && (validPreview[0].value_cents == null || validPreview[0].value_cents === 0)
-							let paymentFeePreviewCents = 0
-							for (const entry of validPreview) {
-								const pm = paymentMethods.find((p) => p.id === entry.payment_method_id)
-								if (!pm) continue
-								let amountCents = entry.value_cents ?? 0
-								if (singlePreview && soldCents != null) amountCents = soldCents
-								else if (entry.value_cents == null || entry.value_cents === 0) continue
-								let feePercent = Number(pm.fee_percent) || 0
-								if (pm.type === 'credito' && Array.isArray(pm.credit_installment_fees) && pm.credit_installment_fees.length > 0) {
-									const byInstallments = pm.credit_installment_fees.find(
-										(f) => Number(f.installments) === Number(entry.installments || 1)
-									)
-									if (byInstallments && byInstallments.fee_percent != null) {
-										feePercent = Number(byInstallments.fee_percent) || 0
-									}
-								}
-								if (feePercent > 0) {
-									paymentFeePreviewCents += Math.floor((amountCents * feePercent) / 100)
-								}
-							}
-
-							const costsCents = baseCostsCents + paymentFeePreviewCents
-							const lucroCents = soldCents != null ? soldCents - purchaseCents - costsCents : null
-							return (
-								<div className="rounded-lg border bg-muted/50 px-4 py-3">
-									<p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Lucro real</p>
-									<p className={`text-lg font-bold ${lucroCents != null ? (lucroCents >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400') : ''}`}>
-										{lucroCents != null ? `R$ ${maskedFromCents(lucroCents)}` : '-'}
-									</p>
-								</div>
-							)
-						})()}
 					</div>
 					<DialogFooter>
 						<Button type="button" variant="outline" onClick={() => setSellModalTarget(null)} disabled={isSavingSell}>
@@ -1980,7 +2056,7 @@ Comprando 3 iPhones
 						<Button
 							type="button"
 							onClick={handleConfirmSell}
-							disabled={isSavingSell || getEffectiveSellValueCents() === null}
+							disabled={isSavingSell || getSellPaymentsTotalCents() === null}
 						>
 							{isSavingSell ? 'Salvando…' : 'Confirmar venda'}
 						</Button>
