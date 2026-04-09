@@ -1,5 +1,6 @@
 import nextDynamic from 'next/dynamic'
 import { redirect } from 'next/navigation'
+import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { buildRevenueSeries } from '@/lib/reports/revenue-series'
@@ -113,7 +114,7 @@ async function relatorioVendasAparelhosPageContent (sp: { from?: string; to?: st
     hasUser: Boolean(user),
     role,
   })
-  if (!user) redirect('/portal/login')
+  if (!user) await redirectToPortalLogin()
 
   if (role !== 'admin') {
     redirect('/portal/dashboard')
