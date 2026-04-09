@@ -9,14 +9,15 @@ type SearchParams = Promise<{ redirectTo?: string }>
 export default async function PortalLoginPage ({ searchParams }: { searchParams: SearchParams }) {
   const { user } = await getAuthUser()
   const { redirectTo } = await searchParams
+  const resolvedReturnPath = assertSafePortalPath(redirectTo)
 
   if (user) {
-    redirect(assertSafePortalPath(redirectTo))
+    redirect(resolvedReturnPath)
   }
 
   return (
     <Suspense fallback={<div className="min-h-screen pt-32 pb-20" />}>
-      <LoginClient />
+      <LoginClient fallbackReturnPath={resolvedReturnPath} />
     </Suspense>
   )
 }

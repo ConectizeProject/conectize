@@ -1,5 +1,3 @@
-'use client'
-
 export const SEMINOVOS_COLOR_MAP: Record<string, { bg: string; text: string }> = {
   preto: { bg: '#1a1a1a', text: '#fff' },
   negro: { bg: '#1a1a1a', text: '#fff' },
@@ -47,5 +45,57 @@ export function getSeminovosColorStyle(cor: string): { bg: string; text: string 
     if (found) return found
   }
   return { bg: '#6366f1', text: '#fff' }
+}
+
+const SEMINOVOS_COLOR_EMOJI: Record<string, string> = {
+  preto: '⚫',
+  negro: '⚫',
+  black: '⚫',
+  branco: '⚪',
+  white: '⚪',
+  prateado: '🩶',
+  silver: '🩶',
+  dourado: '🟡',
+  gold: '🟡',
+  azul: '🔵',
+  blue: '🔵',
+  verde: '🟢',
+  green: '🟢',
+  rosa: '🩷',
+  pink: '🩷',
+  vermelho: '🔴',
+  red: '🔴',
+  cinza: '⬜',
+  gray: '⬜',
+  grafite: '⬛',
+  graphite: '⬛',
+  roxo: '🟣',
+  purple: '🟣',
+  amarelo: '🟡',
+  yellow: '🟡',
+  laranja: '🟠',
+  orange: '🟠',
+  coral: '🪸',
+  midnight: '🌑',
+  'meia-noite': '🌑',
+  natural: '🟤',
+  'titânio': '🔘',
+  titanium: '🔘',
+  starlight: '✨',
+}
+
+/** Emoji representando a cor (WhatsApp / listagens). Sem cor cadastrada: 📱 */
+export function getSeminovosColorEmoji(cor: string | null | undefined): string {
+  const raw = (cor || '').trim()
+  if (!raw) return '📱'
+  const key = raw.toLowerCase().replace(/\s+/g, '-')
+  const direct = SEMINOVOS_COLOR_EMOJI[key]
+  if (direct) return direct
+  const words = key.split(/-| /)
+  for (const w of words) {
+    const found = SEMINOVOS_COLOR_EMOJI[w]
+    if (found) return found
+  }
+  return '🔷'
 }
 

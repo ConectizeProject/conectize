@@ -23,6 +23,8 @@ export type ResaleDeviceRow = {
   tested: boolean
   label: string | null
   stock_type?: string | null
+  image_url?: string | null
+  image_storage_path?: string | null
   sold: boolean
   actual_profit_cents: number | null
   purchase_date: string | null
@@ -80,6 +82,8 @@ export async function fetchSeminovosDevices(
       tested,
       label,
       stock_type,
+      image_url,
+      image_storage_path,
       sold,
       actual_profit_cents,
       purchase_date,
