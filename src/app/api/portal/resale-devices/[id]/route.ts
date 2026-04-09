@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
+import { attachResaleDeviceDisplayImage } from '@/lib/seminovos/resale-device-display-image'
 import { normalizeSalePaymentMethodsForPersistence } from '@/lib/resale/sale-payment-methods'
 import { stripSaleDerivedCosts } from '@/lib/resale/resale-sale-costs'
 
@@ -41,6 +42,8 @@ const DEVICE_SELECT = `
   sale_details,
   stock_type,
   sale_commission_user_id,
+  image_url,
+  image_storage_path,
   created_at,
   updated_at
 `
@@ -151,6 +154,11 @@ function buildPatchRow (
       : null
   }
 
+  if (body.image_url !== undefined) {
+    const u = cleanText(body.image_url)
+    row.image_url = u ? u.slice(0, 2048) : null
+  }
+
   if ('sale_payment_methods' in body) {
     const normalized = normalizeSalePaymentMethodsForPersistence(body.sale_payment_methods)
     if (normalized !== undefined) {
@@ -202,8 +210,11 @@ async function loadDeviceWithCosts (supabase: PortalSupabase, deviceId: string) 
     .select('id, description, value_cents')
     .eq('resale_device_id', deviceId)
 
+  const merged = { ...device, costs: costsData || [] }
+  const enriched = await attachResaleDeviceDisplayImage(supabase, merged)
+
   return {
-    device: { ...device, costs: costsData || [] } as Record<string, unknown>,
+    device: enriched as Record<string, unknown>,
     error: null as null,
   }
 }
@@ -242,27 +253,14 @@ export async function GET (
     return NextResponse.json({ ok: false, error: 'invalid_id' }, { status: 400 })
   }
 
-  const { data: device, error } = await auth.supabase
-    .from('resale_devices')
-    .select(DEVICE_SELECT)
-    .eq('id', deviceId)
-    .maybeSingle()
-
-  if (error) {
-    return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
-  }
-  if (!device) {
+  const loaded = await loadDeviceWithCosts(auth.supabase, deviceId)
+  if (!loaded.device) {
     return NextResponse.json({ ok: false, error: 'not_found' }, { status: 404 })
   }
 
-  const { data: costsData } = await auth.supabase
-    .from('resale_device_costs')
-    .select('id, description, value_cents')
-    .eq('resale_device_id', deviceId)
-
   return NextResponse.json({
     ok: true,
-    device: { ...device, costs: costsData || [] },
+    device: loaded.device,
   })
 }
 
@@ -302,6 +300,16 @@ export async function PATCH (
 
   const existing = existingRow as Record<string, unknown>
   const row = buildPatchRow(b, existing)
+
+  const RESALE_PHOTO_BUCKET = 'resale-device-photos'
+  if (b.image_url !== undefined) {
+    const newUrl = cleanText(b.image_url) || null
+    const oldPath = (existing.image_storage_path as string | null | undefined)?.trim()
+    if (newUrl && oldPath) {
+      await auth.supabase.storage.from(RESALE_PHOTO_BUCKET).remove([oldPath])
+      row.image_storage_path = null
+    }
+  }
 
   if (b.sold === false) {
     Object.assign(row, {
@@ -404,6 +412,17 @@ export async function DELETE (
   const deviceId = parseOptionalUuid(rawId)
   if (!deviceId) {
     return NextResponse.json({ ok: false, error: 'invalid_id' }, { status: 400 })
+  }
+
+  const { data: before } = await auth.supabase
+    .from('resale_devices')
+    .select('image_storage_path')
+    .eq('id', deviceId)
+    .maybeSingle()
+
+  const photoPath = (before as { image_storage_path?: string | null } | null)?.image_storage_path?.trim()
+  if (photoPath) {
+    await auth.supabase.storage.from('resale-device-photos').remove([photoPath])
   }
 
   const { error } = await auth.supabase.from('resale_devices').delete().eq('id', deviceId)

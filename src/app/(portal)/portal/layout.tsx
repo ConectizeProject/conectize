@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation'
+import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { getPortalAuth } from '@/lib/supabase/server'
 import { PortalShell } from './PortalShell'
 
@@ -18,7 +18,7 @@ export default async function PortalLayout({
 }) {
   const { user, role, fullName } = await getPortalAuth()
   if (!user) {
-    redirect('/portal/login?redirectTo=/portal')
+    await redirectToPortalLogin()
   }
 
   return (

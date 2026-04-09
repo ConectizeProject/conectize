@@ -1,11 +1,12 @@
 import { redirect } from 'next/navigation'
+import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 import { FormasPagamentoClient } from '@/app/(portal)/portal/admin/dados-empresa/formas-pagamento/FormasPagamentoClient'
 
 export default async function FormasPagamentoPage () {
   const supabase = await createSupabaseServerClient()
   const { user } = await getAuthUser()
-  if (!user) redirect('/portal/login')
+  if (!user) await redirectToPortalLogin()
 
   const { data: me } = await supabase
     .from('users')

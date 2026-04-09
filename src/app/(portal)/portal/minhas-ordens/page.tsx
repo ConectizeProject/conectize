@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
+import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { OrderStatusBadge } from '@/components/orders'
@@ -14,7 +15,7 @@ export default async function MinhasOrdensPage() {
   const { user } = await getAuthUser()
 
   //todo: deve ser feito de forma mais segura, com middleware, em um contxto mais global, contemplando todas as rotas protegidas
-  if (!user) redirect('/portal/login')
+  if (!user) await redirectToPortalLogin()
 
   const { data: appUser } = await supabase
     .from('users')

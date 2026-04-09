@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { redirect, notFound } from 'next/navigation'
+import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import { Button } from '@/components/ui/button'
 import { ClienteDetailClient } from './ClienteDetailClient'
@@ -12,7 +13,7 @@ type Params = Promise<{ id: string }>
 export default async function ClienteDetailPage({ params }: { params: Params }) {
   const { id } = await params
   const { user, role } = await getPortalAuth()
-  if (!user) redirect('/portal/login')
+  if (!user) await redirectToPortalLogin()
 
   const normalizedRole = role === 'customer' ? 'user' : role
   if (normalizedRole === 'user') redirect('/portal/minhas-ordens')

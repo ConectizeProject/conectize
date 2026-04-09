@@ -10,6 +10,7 @@ import { getOrdemPortalPath, getOrdemPortalPathSegment } from '@/lib/orders/orde
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 import { previsaoToISO } from '@/lib/utils/previsao-ordem'
 import { redirect } from 'next/navigation'
+import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 
 function normalizeDocument(value: string) {
   return value.replace(/\D/g, '').trim()
@@ -56,7 +57,7 @@ export async function createOrderAction(formData: FormData) {
   }
 
   const { user, role } = await getPortalAuth()
-  if (!user) redirect('/portal/login')
+  if (!user) await redirectToPortalLogin()
 
   const normalizedRole = role === 'customer' ? 'user' : role
   if (normalizedRole === 'user') redirect('/portal/minhas-ordens')

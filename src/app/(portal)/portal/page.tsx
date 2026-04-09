@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
@@ -7,7 +8,7 @@ export default async function PortalHomePage() {
   const supabase = await createSupabaseServerClient()
   const { user } = await getAuthUser()
   if (!user) {
-    redirect('/portal/login?redirectTo=/portal')
+    await redirectToPortalLogin()
   }
 
   const { data: appUser } = await supabase

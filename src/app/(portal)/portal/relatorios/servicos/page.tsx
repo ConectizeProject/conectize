@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -64,7 +65,7 @@ export default async function RelatorioServicosPage({
   searchParams: SearchParams
 }) {
   const { user, role } = await getPortalAuth()
-  if (!user) redirect('/portal/login')
+  if (!user) await redirectToPortalLogin()
 
   if (role !== 'admin') {
     redirect('/portal/dashboard')

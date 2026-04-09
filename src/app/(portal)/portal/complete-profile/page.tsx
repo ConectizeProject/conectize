@@ -1,4 +1,5 @@
 ﻿import { redirect } from 'next/navigation'
+import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -16,7 +17,7 @@ export default async function CompleteProfilePage ({
   const { data } = await supabase.auth.getUser()
   const user = data?.user
 
-  if (!user) redirect('/portal/login')
+  if (!user) await redirectToPortalLogin()
   const isEmailConfirmed = Boolean(user.email_confirmed_at)
 
   const { data: appUser } = await supabase

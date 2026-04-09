@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
+import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import { Button } from '@/components/ui/button'
 import { OrdensFilterCollapsible } from './OrdensFilterCollapsible'
@@ -86,7 +87,7 @@ export default async function OrdensPage({
   const quickNoPayment = String(noPayment || '').trim() === '1'
 
   const { user, role } = await getPortalAuth()
-  if (!user) redirect('/portal/login')
+  if (!user) await redirectToPortalLogin()
 
   const normalizedRole = role === 'customer' ? 'user' : role
   if (normalizedRole === 'user') redirect('/portal/minhas-ordens')

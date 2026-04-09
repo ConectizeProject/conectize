@@ -76,6 +76,8 @@ export async function GET(request: Request) {
       sale_details,
       stock_type,
       sale_commission_user_id,
+      image_url,
+      image_storage_path,
       created_at,
       updated_at
     `)
@@ -195,6 +197,10 @@ export async function POST(request: Request) {
     buyer_cpf: buyer_cpf ? cleanText(buyer_cpf) : null,
     sale_details: sale_details ? cleanText(sale_details) : null,
     stock_type,
+    image_url: (() => {
+      const u = cleanText(body.image_url)
+      return u ? u.slice(0, 2048) : null
+    })(),
   }
 
   const { data: inserted, error } = await auth.supabase

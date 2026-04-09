@@ -1,8 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
-import { Package, Smartphone } from 'lucide-react'
+import { usePathname, useSearchParams } from 'next/navigation'
+import { LayoutGrid, Package, Smartphone } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const submenuItems = [
@@ -11,8 +11,14 @@ const submenuItems = [
 ]
 
 export function SeminovosSubmenu () {
+  const pathname = usePathname()
   const sp = useSearchParams()
   const current = sp.get('tipo') === 'lacrados' ? 'lacrados' : 'seminovos'
+  const onOperacional = pathname === '/portal/seminovos'
+  const onVarejo = pathname.startsWith('/portal/seminovos/varejo')
+
+  const varejoHref =
+    current === 'lacrados' ? '/portal/seminovos/varejo?tipo=lacrados' : '/portal/seminovos/varejo'
 
   function hrefFor (tipo: 'seminovos' | 'lacrados') {
     const n = new URLSearchParams(sp.toString())
@@ -23,10 +29,10 @@ export function SeminovosSubmenu () {
   }
 
   return (
-    <nav className="flex gap-1 border-b">
+    <nav className="flex flex-wrap gap-1 border-b">
       {submenuItems.map((item) => {
         const Icon = item.icon
-        const isActive = item.tipo === current
+        const isActive = onOperacional && item.tipo === current
         return (
           <Link
             key={item.tipo}
@@ -42,6 +48,17 @@ export function SeminovosSubmenu () {
           </Link>
         )
       })}
+      <Link
+        href={varejoHref}
+        className={cn(
+          'flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+          'hover:text-foreground',
+          onVarejo ? 'text-foreground border-primary' : 'text-muted-foreground border-transparent hover:border-muted',
+        )}
+      >
+        <LayoutGrid className="h-4 w-4" />
+        Lista varejo
+      </Link>
     </nav>
   )
 }

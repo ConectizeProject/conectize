@@ -1,5 +1,6 @@
 import { Suspense } from 'react'
 import { redirect } from 'next/navigation'
+import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import { fetchSeminovosDevices, fetchSeminovosStats } from '@/lib/seminovos/fetch-seminovos-data'
 import { SeminovosListClient } from './SeminovosListClient'
@@ -24,7 +25,7 @@ export default async function SeminovosPage({
   searchParams: SearchParams
 }) {
   const { user, role } = await getPortalAuth()
-  if (!user) redirect('/portal/login')
+  if (!user) await redirectToPortalLogin()
 
   const normalizedRole = role === 'customer' ? 'user' : role
   if (normalizedRole === 'user') redirect('/portal/minhas-ordens')

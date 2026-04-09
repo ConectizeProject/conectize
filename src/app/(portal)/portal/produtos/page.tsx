@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
+import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { getPortalAuth, createSupabaseServerClient } from '@/lib/supabase/server'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -66,7 +67,7 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
   }
 
   const { user, role } = await getPortalAuth()
-  if (!user) redirect('/portal/login')
+  if (!user) await redirectToPortalLogin()
 
   const normalizedRole = role === 'customer' ? 'user' : role
   if (normalizedRole === 'user' || !normalizedRole) redirect('/portal/minhas-ordens')

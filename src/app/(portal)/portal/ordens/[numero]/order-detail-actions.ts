@@ -23,6 +23,7 @@ import { getOrdemPortalPath } from '@/lib/orders/ordem-portal-path'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 import { previsaoToISO } from '@/lib/utils/previsao-ordem'
 import { redirect } from 'next/navigation'
+import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 
 export async function updateOrderAction (formData: FormData) {
 	const formOrderId = String(formData.get('orderId') || '').trim()
@@ -91,7 +92,7 @@ export async function updateOrderAction (formData: FormData) {
 	}
 
 	const { user, role } = await getPortalAuth()
-	if (!user) redirect('/portal/login')
+	if (!user) await redirectToPortalLogin()
 
 	const normalizedRole = role === 'customer' ? 'user' : role
 	if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
@@ -365,7 +366,7 @@ export async function deleteOrderAction (formData: FormData) {
 	if (!orderId) redirect('/portal/ordens?error=dados_invalidos')
 
 	const { user, role } = await getPortalAuth()
-	if (!user) redirect('/portal/login')
+	if (!user) await redirectToPortalLogin()
 
 	const normalizedRole = role === 'customer' ? 'user' : role
 	if (normalizedRole === 'user') redirect('/portal/minhas-ordens')

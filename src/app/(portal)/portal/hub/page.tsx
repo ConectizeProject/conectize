@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 import { HubClient } from './HubClient'
 import { HubToastClient } from './HubToastClient'
@@ -8,7 +9,7 @@ export const dynamic = 'force-dynamic'
 export default async function HubPage() {
   const supabase = await createSupabaseServerClient()
   const { user } = await getAuthUser()
-  if (!user) redirect('/portal/login')
+  if (!user) await redirectToPortalLogin()
 
   const { data: appUser } = await supabase
     .from('users')
