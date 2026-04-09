@@ -44,19 +44,6 @@ const RevenueChartTabs = nextDynamic(
 
 export const dynamic = 'force-dynamic'
 
-const VA_DEBUG =
-  process.env.NODE_ENV === 'development' || process.env.DEBUG_VENDAS_APARELHOS === '1'
-
-function vaLog (t0: number, msg: string, extra?: Record<string, unknown>) {
-  if (!VA_DEBUG) return
-  const ms = Date.now() - t0
-  if (extra && Object.keys(extra).length > 0) {
-    console.log(`[vendas-aparelhos +${ms}ms] ${msg}`, extra)
-  } else {
-    console.log(`[vendas-aparelhos +${ms}ms] ${msg}`)
-  }
-}
-
 type SearchParams = Promise<{
   from?: string
   to?: string
@@ -103,17 +90,7 @@ export default async function RelatorioVendasAparelhosPage ({
 }
 
 async function relatorioVendasAparelhosPageContent (sp: { from?: string; to?: string }) {
-  const t0 = Date.now()
-  vaLog(
-    t0,
-    'RSC iniciou (se nada disto aparecer no terminal, o gargalo é compilação Turbopack da rota, antes do servidor)',
-  )
-
   const { user, role } = await getPortalAuth()
-  vaLog(t0, 'getPortalAuth concluído', {
-    hasUser: Boolean(user),
-    role,
-  })
   if (!user) await redirectToPortalLogin()
 
   if (role !== 'admin') {
@@ -121,15 +98,12 @@ async function relatorioVendasAparelhosPageContent (sp: { from?: string; to?: st
   }
 
   const { fromStr, toStr } = getCurrentMonthRangeOrSearch(sp.from, sp.to)
-  vaLog(t0, 'searchParams / intervalo', { fromStr, toStr })
 
   const supabase = await createSupabaseServerClient()
-  vaLog(t0, 'createSupabaseServerClient concluído')
 
   const fromSql = fromStr
   const toSql = toStr
 
-  vaLog(t0, 'antes da query resale_devices (sold + sale_date)')
   const { data: soldDevices, error: soldError } = await supabase
     .from('resale_devices')
     .select(
@@ -144,22 +118,14 @@ async function relatorioVendasAparelhosPageContent (sp: { from?: string; to?: st
   }
 
   const list = (soldDevices || []) as ResaleDeviceRow[]
-  vaLog(t0, 'depois da query resale_devices', {
-    rowCount: list.length,
-    error: soldError?.message ?? null,
-  })
 
   const modelIds = [...new Set(list.map((d) => d.device_model_id).filter(Boolean))] as string[]
 
   let modelsRaw: ModelRawRow[] = []
   if (modelIds.length > 0) {
-    vaLog(t0, 'início device_models por chunks', {
-      distinctModelIds: modelIds.length,
-    })
     const chunkSize = 100
     for (let i = 0; i < modelIds.length; i += chunkSize) {
       const slice = modelIds.slice(i, i + chunkSize)
-      vaLog(t0, `device_models chunk ${i / chunkSize + 1}`, { idsInChunk: slice.length })
       const { data: chunk, error: modelsError } = await supabase
         .from('device_models')
         .select('id, model, device_types ( name, device_brands ( name ) )')
@@ -170,9 +136,6 @@ async function relatorioVendasAparelhosPageContent (sp: { from?: string; to?: st
       }
       modelsRaw = modelsRaw.concat((chunk || []) as ModelRawRow[])
     }
-    vaLog(t0, 'device_models todos os chunks concluídos', { modelsLoaded: modelsRaw.length })
-  } else {
-    vaLog(t0, 'sem device_model_id nas vendas; device_models não consultado')
   }
   const models: DeviceModel[] = (modelsRaw || []).map((d: ModelRawRow) => {
     const dt = Array.isArray(d.device_types) ? d.device_types[0] : d.device_types
@@ -321,7 +284,6 @@ async function relatorioVendasAparelhosPageContent (sp: { from?: string; to?: st
   const topByGross = buildTopModels(list, modelsMap, 'gross', 10)
   const topByNet = buildTopModels(list, modelsMap, 'net', 10)
 
-  vaLog(t0, 'agregações (revenueSeries, tops) concluídas; a montar JSX / enviar RSC')
   return (
     <div className="space-y-6">
       <VendasAparelhosPeriodBar fromStr={fromStr} toStr={toStr} />

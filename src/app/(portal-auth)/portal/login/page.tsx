@@ -1,6 +1,5 @@
 import { Suspense } from 'react'
 import { redirect } from 'next/navigation'
-import { logPortalRedirect } from '@/lib/auth/portal-redirect-log'
 import { assertSafePortalPath } from '@/lib/auth/safe-redirect'
 import { getAuthUser } from '@/lib/supabase/server'
 import { LoginClient } from './LoginClient'
@@ -11,12 +10,6 @@ export default async function PortalLoginPage ({ searchParams }: { searchParams:
   const { user } = await getAuthUser()
   const { redirectTo } = await searchParams
   const resolvedReturnPath = assertSafePortalPath(redirectTo)
-
-  logPortalRedirect('loginPage(server)', {
-    redirectToQuery: redirectTo ?? '(sem query)',
-    resolvedReturnPath,
-    hasSession: Boolean(user),
-  })
 
   if (user) {
     redirect(resolvedReturnPath)

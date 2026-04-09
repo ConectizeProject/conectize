@@ -37,6 +37,7 @@ export async function GET(request: Request) {
   const color = String(searchParams.get('color') || '').trim()
   const purchaseDateFrom = String(searchParams.get('purchaseDateFrom') || '').trim()
   const purchaseDateTo = String(searchParams.get('purchaseDateTo') || '').trim()
+  const stockType = String(searchParams.get('stockType') || '').trim()
 
   const soldFilter = soldParam === 'true' ? true : false
 
@@ -108,6 +109,9 @@ export async function GET(request: Request) {
   }
   if (purchaseDateTo && /^\d{4}-\d{2}-\d{2}$/.test(purchaseDateTo)) {
     query = query.lte('purchase_date', purchaseDateTo)
+  }
+  if (stockType === 'seminovo' || stockType === 'lacrado') {
+    query = query.eq('stock_type', stockType)
   }
 
   const { data: devices, error } = await query.order('created_at', { ascending: false })

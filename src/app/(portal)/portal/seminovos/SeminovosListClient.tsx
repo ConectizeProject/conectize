@@ -121,7 +121,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DeviceBadges } from "./DeviceBadges";
 import { ResaleDeviceTermsDialog } from "./ResaleDeviceTermsDialog";
 import {
@@ -235,6 +235,22 @@ function sortSoldDevices(list: ResaleDevice[]): ResaleDevice[] {
 		if (dateA !== dateB) return dateB.localeCompare(dateA);
 		return (a.id || "").localeCompare(b.id || "");
 	});
+}
+
+function buildResaleDevicesListQuery(
+	filters: SeminovosFilters,
+	sold: boolean,
+): string {
+	const p = new URLSearchParams();
+	p.set("sold", sold ? "true" : "false");
+	p.set("stockType", filters.stockType);
+	if (filters.q) p.set("q", filters.q);
+	if (filters.condition) p.set("condition", filters.condition);
+	if (filters.storageGb) p.set("storageGb", filters.storageGb);
+	if (filters.color) p.set("color", filters.color);
+	if (filters.purchaseDateFrom) p.set("purchaseDateFrom", filters.purchaseDateFrom);
+	if (filters.purchaseDateTo) p.set("purchaseDateTo", filters.purchaseDateTo);
+	return p.toString();
 }
 
 type WhatsAppModelRow = {
@@ -433,7 +449,8 @@ export function SeminovosListClient({
 	const loadSoldDevices = useCallback(async () => {
 		setIsLoadingSold(true);
 		try {
-			const res = await portalFetch("/api/portal/resale-devices?sold=true");
+			const qs = buildResaleDevicesListQuery(filterInitialValues, true);
+			const res = await portalFetch(`/api/portal/resale-devices?${qs}`);
 			const data = await res?.json().catch(() => null);
 			if (data?.ok && Array.isArray(data.devices)) {
 				setSoldDevices(data.devices);
@@ -443,7 +460,16 @@ export function SeminovosListClient({
 		} finally {
 			setIsLoadingSold(false);
 		}
-	}, []);
+	}, [filterInitialValues]);
+
+	const filterInitialKey = useMemo(
+		() => JSON.stringify(filterInitialValues),
+		[filterInitialValues],
+	);
+
+	useEffect(() => {
+		setSoldDevices([]);
+	}, [filterInitialKey]);
 
 	useEffect(() => {
 		if (soldCollapsibleOpen && soldDevices.length === 0 && !isLoadingSold) {
@@ -486,6 +512,22 @@ export function SeminovosListClient({
 		if (filterWithInfo && !d.info) return false;
 		return true;
 	});
+
+	const filteredSoldDevices = useMemo(() => {
+		return soldDevices.filter((d) => {
+			if (filterNotTested && d.tested) return false;
+			if (filterNotAdvertised && d.advertised) return false;
+			if (filterNoLabel && d.label) return false;
+			if (filterWithInfo && !d.info) return false;
+			return true;
+		});
+	}, [
+		soldDevices,
+		filterNotTested,
+		filterNotAdvertised,
+		filterNoLabel,
+		filterWithInfo,
+	]);
 
 	const groupedAvailable = groupDevicesByModel(filteredDevices);
 	const flatAvailable = groupedAvailable.flatMap((g) => g.devices);
@@ -2232,15 +2274,11 @@ ${devicesBlockCliente}
 				</Card>
 
 				<Card>
-					<CardHeader>
-						<Collapsible
-							open={soldCollapsibleOpen}
-							onOpenChange={(open) => {
-								setSoldCollapsibleOpen(open);
-								if (open && soldDevices.length === 0 && !isLoadingSold)
-									loadSoldDevices();
-							}}
-						>
+					<Collapsible
+						open={soldCollapsibleOpen}
+						onOpenChange={setSoldCollapsibleOpen}
+					>
+						<CardHeader className="pb-3 sm:pb-6">
 							<CollapsibleTrigger className="flex w-full items-center justify-between gap-3 text-left py-2 min-h-[3rem] touch-manipulation">
 								<div className="min-w-0">
 									<CardTitle className="text-base sm:text-lg">
@@ -2260,20 +2298,26 @@ ${devicesBlockCliente}
 									)}
 								</span>
 							</CollapsibleTrigger>
-							<CollapsibleContent>
+						</CardHeader>
+						<CollapsibleContent asChild>
+							<CardContent className="px-3 sm:px-6 pt-0">
 								{soldCollapsibleOpen && (
-									<CardContent className="pt-0">
+									<>
 										{isLoadingSold ? (
 											<p className="text-sm text-muted-foreground py-4">
 												Carregando vendidos…
 											</p>
 										) : soldDevices.length === 0 ? (
 											<p className="text-sm text-muted-foreground py-4">
-												Nenhum aparelho vendido.
+												Nenhum aparelho vendido com os filtros atuais.
+											</p>
+										) : filteredSoldDevices.length === 0 ? (
+											<p className="text-sm text-muted-foreground py-4">
+												Nenhum resultado com os filtros rápidos ativos.
 											</p>
 										) : (
 											<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-												{sortSoldDevices(soldDevices).map((d) => (
+												{sortSoldDevices(filteredSoldDevices).map((d) => (
 													<SeminovoDeviceCard
 														key={d.id}
 														device={d}
@@ -2367,11 +2411,11 @@ ${devicesBlockCliente}
 												))}
 											</div>
 										)}
-									</CardContent>
+									</>
 								)}
-							</CollapsibleContent>
-						</Collapsible>
-					</CardHeader>
+							</CardContent>
+						</CollapsibleContent>
+					</Collapsible>
 				</Card>
 			</div>
 

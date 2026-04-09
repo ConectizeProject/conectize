@@ -1,7 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { BLING_API_V3_BASE_URL } from '@/lib/integrations/bling/constants'
 
-const BLING_API_BASE_URL = 'https://www.bling.com.br/Api/v3'
+const BLING_API_BASE_URL = BLING_API_V3_BASE_URL
 const BLING_PLATFORM_ID = 'bling'
 
 export type HubConnection = {

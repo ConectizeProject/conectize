@@ -1,5 +1,4 @@
 import { PORTAL_INTENDED_PATH_HEADER } from "@/lib/auth/portal-intended-path";
-import { logPortalRedirect } from "@/lib/auth/portal-redirect-log";
 import { assertSafePortalPath } from "@/lib/auth/safe-redirect";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -22,13 +21,6 @@ export async function redirectToPortalLogin(): Promise<never> {
 	const raw = (fromHeader || "").trim() || undefined;
 	const target = raw ? normalizeLoginRedirectTarget(raw) : "/portal";
 	const loginPath = `/portal/login?redirectTo=${encodeURIComponent(target)}`;
-
-	logPortalRedirect("redirectToPortalLogin(fallback)", {
-		fromHeader: fromHeader ?? "(ausente)",
-		chosen: raw ?? "(fallback /portal)",
-		normalizedTarget: target,
-		loginPath,
-	});
 
 	redirect(loginPath);
 }

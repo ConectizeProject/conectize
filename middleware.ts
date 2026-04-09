@@ -1,6 +1,5 @@
 import { assertSafePortalPath } from '@/lib/auth/safe-redirect'
 import { PORTAL_INTENDED_PATH_HEADER } from '@/lib/auth/portal-intended-path'
-import { logPortalRedirect } from '@/lib/auth/portal-redirect-log'
 import { getSupabaseEnv } from '@/lib/supabase/env'
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
@@ -27,15 +26,6 @@ export async function middleware (request: NextRequest) {
 		pathname.startsWith('/portal')
 			? `${pathname}${request.nextUrl.search}`
 			: ''
-
-	if (pathname.startsWith('/portal')) {
-		logPortalRedirect('middleware:request', {
-			method: request.method,
-			pathname,
-			search: request.nextUrl.search || '(empty)',
-			intendedPath: intendedPath || '(not set)',
-		})
-	}
 
 	function buildRequestHeaders (): Headers {
 		const h = new Headers(request.headers)
@@ -93,11 +83,6 @@ export async function middleware (request: NextRequest) {
 		loginUrl.pathname = '/portal/login'
 		loginUrl.search = ''
 		loginUrl.searchParams.set('redirectTo', safeIntended)
-
-		logPortalRedirect('middleware:redirect-login', {
-			loginUrl: loginUrl.toString(),
-			safeIntended,
-		})
 
 		const redirectRes = NextResponse.redirect(loginUrl)
 		copySetCookies(response, redirectRes)
