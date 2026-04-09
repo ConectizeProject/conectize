@@ -26,3 +26,14 @@ export function buildCommissionCostDescription (userDisplayName: string): string
   const name = (userDisplayName || '').trim() || 'Colaborador'
   return `${COMMISSION_COST_PREFIX} – ${name}`
 }
+
+/** Extrai o nome do colaborador da descrição da linha de custo (ex.: "Comissão venda – João"). */
+export function parseCommissionWorkerLabelFromDescription (
+  description: string | null | undefined,
+): string | null {
+  const d = (description || '').trim()
+  if (!d.startsWith(COMMISSION_COST_PREFIX)) return null
+  const rest = d.slice(COMMISSION_COST_PREFIX.length).trim()
+  const m = /^[–-]\s*(.+)$/.exec(rest)
+  return m ? m[1].trim() : (rest || null)
+}
