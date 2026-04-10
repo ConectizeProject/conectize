@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { requireAdmin } from '@/lib/auth/portal-api'
+import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 
 export async function addCustomerPortalMemberAction (formData: FormData) {
   const auth = await requireAdmin()
@@ -12,16 +13,16 @@ export async function addCustomerPortalMemberAction (formData: FormData) {
 
   const supabase = auth.supabase
   const customerId = String(formData.get('customerId') || '').trim()
-  const emailRaw = String(formData.get('userEmail') || '').trim().toLowerCase()
+  const userId = parseOptionalUuid(formData.get('userId'))
 
-  if (!customerId || !emailRaw) {
+  if (!customerId || !userId) {
     redirect(`/portal/clientes/${customerId}?memberError=invalido`)
   }
 
   const { data: target, error: userErr } = await supabase
     .from('users')
     .select('id, email, role')
-    .ilike('email', emailRaw)
+    .eq('id', userId)
     .maybeSingle()
 
   if (userErr || !target) {
@@ -34,7 +35,7 @@ export async function addCustomerPortalMemberAction (formData: FormData) {
 
   const { error: insErr } = await supabase.from('customer_portal_members').insert({
     customer_id: customerId,
-    user_id: target.id,
+    user_id: userId,
   })
 
   if (insErr) {

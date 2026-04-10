@@ -1,7 +1,6 @@
 import { addCustomerPortalMemberAction, removeCustomerPortalMemberAction } from './portal-member-actions'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
 export type PortalMemberRow = {
@@ -13,36 +12,73 @@ export type PortalMemberRow = {
   created_at: string
 }
 
+export type SelectableRetailer = {
+  id: string
+  email: string | null
+  full_name: string | null
+}
+
 type Props = {
   customerId: string
   members: PortalMemberRow[]
+  selectableRetailers: SelectableRetailer[]
 }
 
-export function PortalMembersAdminCard ({ customerId, members }: Props) {
+function formatRetailerLabel (u: SelectableRetailer): string {
+  const name = (u.full_name || '').trim()
+  const mail = (u.email || '').trim()
+  if (name && mail) return `${name} (${mail})`
+  if (mail) return mail
+  return u.id.slice(0, 8)
+}
+
+export function PortalMembersAdminCard ({
+  customerId,
+  members,
+  selectableRetailers,
+}: Props) {
+  const hasOptions = selectableRetailers.length > 0
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>Portal lojista (B2B)</CardTitle>
         <CardDescription>
-          Usuários com perfil lojista vinculados a este cadastro podem ver OS, varejo e financeiro da
-          loja. O e-mail deve ser de uma conta já existente com papel “lojista”.
+          Escolha um usuário com papel lojista para vincular a esta loja. Só aparecem contas ainda sem
+          vínculo ou já listadas abaixo após vincular.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         <form action={addCustomerPortalMemberAction} className="flex flex-col gap-3 sm:flex-row sm:items-end">
           <input type="hidden" name="customerId" value={customerId} />
-          <div className="space-y-2 flex-1 max-w-md">
-            <Label htmlFor="portal-member-email">E-mail do usuário lojista</Label>
-            <Input
-              id="portal-member-email"
-              name="userEmail"
-              type="email"
-              autoComplete="off"
-              placeholder="nome@empresa.com.br"
+          <div className="space-y-2 flex-1 max-w-lg">
+            <Label htmlFor="portal-member-user">Usuário lojista</Label>
+            <select
+              id="portal-member-user"
+              name="userId"
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               required
-            />
+              disabled={!hasOptions}
+              defaultValue=""
+            >
+              <option value="" disabled>
+                {hasOptions ? 'Selecione um usuário…' : 'Nenhum lojista disponível para vincular'}
+              </option>
+              {selectableRetailers.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {formatRetailerLabel(u)}
+                </option>
+              ))}
+            </select>
+            {!hasOptions ? (
+              <p className="text-xs text-muted-foreground">
+                Crie usuários com papel Lojista em Admin → Usuários ou remova o vínculo de outra loja.
+              </p>
+            ) : null}
           </div>
-          <Button type="submit">Vincular</Button>
+          <Button type="submit" disabled={!hasOptions}>
+            Vincular
+          </Button>
         </form>
 
         {members.length === 0 ? (

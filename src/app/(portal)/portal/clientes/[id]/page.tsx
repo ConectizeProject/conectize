@@ -74,6 +74,36 @@ export default async function ClienteDetailPage ({
     })
   }
 
+  let selectableRetailers: Array<{ id: string; email: string | null; full_name: string | null }> = []
+  if (isAdmin) {
+    const [{ data: retailers }, { data: allMemberships }] = await Promise.all([
+      supabase
+        .from('users')
+        .select('id, email, full_name, role')
+        .eq('role', 'retailer')
+        .order('email', { ascending: true }),
+      supabase.from('customer_portal_members').select('user_id, customer_id'),
+    ])
+
+    const memberUserIdsThis = new Set(portalMembers.map((m) => m.user_id))
+    const linkedOtherShop = new Set(
+      (allMemberships ?? [])
+        .filter((m: { customer_id: string }) => m.customer_id !== customer.id)
+        .map((m: { user_id: string }) => m.user_id),
+    )
+
+    selectableRetailers = (retailers ?? [])
+      .filter(
+        (u: { id: string }) =>
+          !memberUserIdsThis.has(u.id) && !linkedOtherShop.has(u.id),
+      )
+      .map((u: { id: string; email: string | null; full_name: string | null }) => ({
+        id: u.id,
+        email: u.email,
+        full_name: u.full_name,
+      }))
+  }
+
   const displayName = customer.is_company
     ? (customer.company_name || customer.trade_name || customer.full_name || 'Empresa')
     : (customer.full_name || 'Cliente')
@@ -127,7 +157,11 @@ export default async function ClienteDetailPage ({
       ) : null}
 
       {isAdmin ? (
-        <PortalMembersAdminCard customerId={customer.id} members={portalMembers} />
+        <PortalMembersAdminCard
+          customerId={customer.id}
+          members={portalMembers}
+          selectableRetailers={selectableRetailers}
+        />
       ) : null}
 
       <ClienteDetailClient
