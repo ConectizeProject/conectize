@@ -77,6 +77,8 @@ type Props = {
 	isAdmin: boolean
 	/** Abre o modal avançado de serviços quando `?servicesModal=1` */
 	openServicesModalInitially: boolean
+	/** Lojista B2B: somente leitura, sem dados internos da equipe */
+	readOnly?: boolean
 }
 
 export function OrdemDetalhePageContent (props: Props) {
@@ -97,12 +99,16 @@ export function OrdemDetalhePageContent (props: Props) {
 		role,
 		isAdmin,
 		openServicesModalInitially,
+		readOnly = false,
 	} = props
 
+	const isPortalReadOnly = readOnly
 	const isFinalized = isFinalizedOrderStatus(order.status)
-	const formDisabled = isFinalized && role !== 'admin'
+	const formDisabled =
+		isPortalReadOnly || (isFinalized && role !== 'admin')
 	const canEditDeviceModelWhenFinalized = isAdmin && isFinalized
-	const deviceModelDisabled = isFinalized && !canEditDeviceModelWhenFinalized
+	const deviceModelDisabled =
+		isPortalReadOnly || (isFinalized && !canEditDeviceModelWhenFinalized)
 
 	return (
 		<div className="max-w-4xl space-y-6 pb-24">
@@ -115,35 +121,45 @@ export function OrdemDetalhePageContent (props: Props) {
 
 				<div className="flex items-start justify-between gap-4 flex-wrap">
 					<h1 className="text-2xl font-bold">
-						Editar Ordem #{order.display_number ?? order.id}
+						{isPortalReadOnly ? 'Ordem' : 'Editar Ordem'} #{order.display_number ?? order.id}
 					</h1>
 
 					<div className="flex items-center gap-2 flex-wrap justify-end">
-						<OrdemLabelPrintButton orderId={order.id} />
-						<OrdemActionsMenu
-							orderId={order.id}
-							publicOrderPath={
-								order.share_token ? `/os/${order.share_token}` : null
-							}
-							displayNumber={order.display_number ?? order.id}
-							title={order.title}
-							customerName={
-								customer?.is_company
-									? String(customer?.company_name ?? '')
-									: String(customer?.full_name ?? '')
-							}
-							device={deviceString || '-'}
-							status={order.status}
-							estimatedReadyAt={order.estimated_ready_at ?? null}
-							mobilePhone={customer?.mobile_phone as string | undefined}
-							email={customer?.email as string | undefined}
-							isFinalized={isFinalized}
-							canDelete={role === 'admin'}
-							deleteOrderAction={deleteOrderAction}
-							isAdmin={isAdmin}
-							deviceExitChecks={order.device_exit_checks ?? null}
-							exitPhotoCount={exitPhotoCount}
-						/>
+						{!isPortalReadOnly ? (
+							<>
+								<OrdemLabelPrintButton orderId={order.id} />
+								<OrdemActionsMenu
+									orderId={order.id}
+									publicOrderPath={
+										order.share_token ? `/os/${order.share_token}` : null
+									}
+									displayNumber={order.display_number ?? order.id}
+									title={order.title}
+									customerName={
+										customer?.is_company
+											? String(customer?.company_name ?? '')
+											: String(customer?.full_name ?? '')
+									}
+									device={deviceString || '-'}
+									status={order.status}
+									estimatedReadyAt={order.estimated_ready_at ?? null}
+									mobilePhone={customer?.mobile_phone as string | undefined}
+									email={customer?.email as string | undefined}
+									isFinalized={isFinalized}
+									canDelete={role === 'admin'}
+									deleteOrderAction={deleteOrderAction}
+									isAdmin={isAdmin}
+									deviceExitChecks={order.device_exit_checks ?? null}
+									exitPhotoCount={exitPhotoCount}
+								/>
+							</>
+						) : order.share_token ? (
+							<Button variant="outline" size="sm" asChild>
+								<Link href={`/os/${order.share_token}`} target="_blank" rel="noreferrer">
+									Ver página pública
+								</Link>
+							</Button>
+						) : null}
 					</div>
 				</div>
 
@@ -401,21 +417,23 @@ export function OrdemDetalhePageContent (props: Props) {
 						statusInputName="status"
 					/>
 
-					<Card>
-						<CardHeader className="p-5">
-							<CardTitle>Informações sobre a assistência</CardTitle>
-						</CardHeader>
-						<CardContent className="p-5 pt-0">
-							<OrderAssistanceChat
-								orderId={order.id}
-								assistanceAiContext={{
-									device: deviceString || undefined,
-									customerDescription: String(order.customer_description || ''),
-									receivingNotes: String(order.receiving_notes || ''),
-								}}
-							/>
-						</CardContent>
-					</Card>
+					{!isPortalReadOnly ? (
+						<Card>
+							<CardHeader className="p-5">
+								<CardTitle>Informações sobre a assistência</CardTitle>
+							</CardHeader>
+							<CardContent className="p-5 pt-0">
+								<OrderAssistanceChat
+									orderId={order.id}
+									assistanceAiContext={{
+										device: deviceString || undefined,
+										customerDescription: String(order.customer_description || ''),
+										receivingNotes: String(order.receiving_notes || ''),
+									}}
+								/>
+							</CardContent>
+						</Card>
+					) : null}
 
 					{Array.isArray(warrantyTemplates) && warrantyTemplates.length > 0 ? (
 						<Card>
@@ -445,22 +463,24 @@ export function OrdemDetalhePageContent (props: Props) {
 						disabled={formDisabled}
 					/>
 
-					<Card>
-						<CardHeader className="p-5">
-							<CardTitle>Descrição interna</CardTitle>
-							<CardDescription>
-								Anotações visíveis só para a equipe (não aparecem para o
-								cliente).
-							</CardDescription>
-						</CardHeader>
-						<CardContent className="p-5 pt-0">
-							<OrderInternalCommentsChat
-								orderId={order.id}
-								disabled={formDisabled}
-								deviceContext={deviceString || undefined}
-							/>
-						</CardContent>
-					</Card>
+					{!isPortalReadOnly ? (
+						<Card>
+							<CardHeader className="p-5">
+								<CardTitle>Descrição interna</CardTitle>
+								<CardDescription>
+									Anotações visíveis só para a equipe (não aparecem para o
+									cliente).
+								</CardDescription>
+							</CardHeader>
+							<CardContent className="p-5 pt-0">
+								<OrderInternalCommentsChat
+									orderId={order.id}
+									disabled={formDisabled}
+									deviceContext={deviceString || undefined}
+								/>
+							</CardContent>
+						</Card>
+					) : null}
 
 					<OrderFormActionBar>
 						<Button
@@ -468,8 +488,8 @@ export function OrdemDetalhePageContent (props: Props) {
 							asChild
 							className="font-medium text-muted-foreground hover:text-foreground"
 						>
-							<Link href="/portal/ordens">
-								{isFinalized ? 'Voltar à lista' : 'Voltar'}
+							<Link href={isPortalReadOnly ? '/portal/minhas-ordens' : '/portal/ordens'}>
+								{isPortalReadOnly ? 'Voltar às ordens' : isFinalized ? 'Voltar à lista' : 'Voltar'}
 							</Link>
 						</Button>
 						{!formDisabled && <UpdateOrderSubmitButton />}

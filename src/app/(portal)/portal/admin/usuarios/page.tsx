@@ -4,7 +4,13 @@ import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 import { UsuariosClient } from './UsuariosClient'
 
 function isValidRole (value: string) {
-  return value === 'user' || value === 'customer' || value === 'staff' || value === 'admin'
+  return (
+    value === 'user' ||
+    value === 'customer' ||
+    value === 'staff' ||
+    value === 'admin' ||
+    value === 'retailer'
+  )
 }
 
 async function updateRoleAction (formData: FormData) {

@@ -98,6 +98,20 @@ export async function updateOrderAction (formData: FormData) {
 	if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
 
 	const supabase = await createSupabaseServerClient()
+
+	if (normalizedRole === 'retailer') {
+		const { data: ref } = await supabase
+			.from('service_orders')
+			.select('display_number')
+			.eq('id', formOrderId)
+			.maybeSingle()
+		const ordemPathEarly = getOrdemPortalPath({
+			id: formOrderId,
+			display_number: ref?.display_number ?? null,
+		})
+		redirect(`${ordemPathEarly}?error=sem_permissao`)
+	}
+
 	const { data: existing, error: fetchExistingError } = await supabase
 		.from('service_orders')
 		.select(

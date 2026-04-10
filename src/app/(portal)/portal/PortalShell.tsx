@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { BarChart3, Building2, ChevronDown, ClipboardList, DollarSign, Home, LayoutDashboard, LogOut, Moon, Plug2, Settings, Sun, UserCheck, Smartphone, Users, Package } from 'lucide-react'
+import { BarChart3, Building2, ChevronDown, ClipboardList, DollarSign, Home, LayoutDashboard, LayoutGrid, LogOut, Moon, Plug2, Settings, Sun, UserCheck, Smartphone, Users, Package } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
 	DropdownMenu,
@@ -103,6 +103,7 @@ export function PortalShell(props: PortalShellProps) {
 	const normalizedRole = props.role === 'customer' ? 'user' : props.role
 	const isAdmin = props.role === 'admin'
 	const isBasicUser = normalizedRole === 'user' || !normalizedRole
+	const isRetailer = normalizedRole === 'retailer'
 	const isStaff = normalizedRole === 'staff'
 	const displayName = props.userName || props.userEmail
 
@@ -110,7 +111,13 @@ export function PortalShell(props: PortalShellProps) {
 		? [
 			{ href: '/portal/minhas-ordens', label: 'Minhas ordens', icon: ClipboardList },
 		]
-		: isStaff
+		: isRetailer
+			? [
+				{ href: '/portal/minhas-ordens', label: 'Minhas ordens', icon: ClipboardList },
+				{ href: '/portal/seminovos/varejo', label: 'Lista varejo', icon: LayoutGrid },
+				{ href: '/portal/financeiro-lojista', label: 'Financeiro', icon: DollarSign },
+			]
+			: isStaff
 			? [
 				{ href: '/portal/dashboard', label: 'Dashboard', icon: LayoutDashboard },
 				{ href: '/portal/ordens', label: 'Ordens de serviço', icon: ClipboardList },
@@ -128,6 +135,7 @@ export function PortalShell(props: PortalShellProps) {
 				{ href: '/portal/seminovos', label: 'Aparelhos para venda', icon: Smartphone },
 				...(isAdmin ? [
 					{ href: '/portal/financeiro', label: 'Financeiro', icon: DollarSign },
+					{ href: '/portal/admin/financeiro-lojas', label: 'Financeiro lojas', icon: Building2 },
 					{ href: '/portal/relatorios/servicos', label: 'Relatórios', icon: BarChart3 },
 				] : []),
 			]

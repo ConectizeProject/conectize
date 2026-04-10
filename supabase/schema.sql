@@ -75,7 +75,7 @@ alter table public.users
   drop constraint if exists users_role_check;
 
 alter table public.users
-  add constraint users_role_check check (role in ('user', 'staff', 'admin'));
+  add constraint users_role_check check (role in ('user', 'staff', 'admin', 'retailer'));
 
 -- CPF deve pertencer a 1 conta (quando preenchido)
 create unique index if not exists users_cpf_unique

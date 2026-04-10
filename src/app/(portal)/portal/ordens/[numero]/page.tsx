@@ -51,6 +51,8 @@ export default async function OrdemDetalhePage ({
 	const normalizedRole = role === 'customer' ? 'user' : role
 	if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
 
+	const isPortalReadOnly = normalizedRole === 'retailer'
+
 	if (!resolved) {
 		return (
 			<Card>
@@ -60,7 +62,7 @@ export default async function OrdemDetalhePage ({
 				</CardHeader>
 				<CardContent>
 					<Button asChild variant="outline">
-						<Link href="/portal/ordens">Voltar</Link>
+						<Link href={isPortalReadOnly ? '/portal/minhas-ordens' : '/portal/ordens'}>Voltar</Link>
 					</Button>
 				</CardContent>
 			</Card>
@@ -97,7 +99,7 @@ export default async function OrdemDetalhePage ({
 				</CardHeader>
 				<CardContent>
 					<Button asChild variant="outline">
-						<Link href="/portal/ordens">Voltar</Link>
+						<Link href={isPortalReadOnly ? '/portal/minhas-ordens' : '/portal/ordens'}>Voltar</Link>
 					</Button>
 				</CardContent>
 			</Card>
@@ -207,6 +209,7 @@ export default async function OrdemDetalhePage ({
 			role={role}
 			isAdmin={isAdmin}
 			openServicesModalInitially={openServicesModalInitially}
+			readOnly={isPortalReadOnly}
 		/>
 	)
 }

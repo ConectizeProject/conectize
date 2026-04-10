@@ -126,15 +126,43 @@ export async function proxy(request: NextRequest) {
     }
 
     const isBasicUser = role === 'user' || role === 'customer' || !role
+    const isRetailer = role === 'retailer'
 
     // Logged in
     if (pathname === '/portal') {
-      url.pathname = isBasicUser ? '/portal/minhas-ordens' : '/portal/dashboard'
+      const goMinhasOrdens = isBasicUser || isRetailer
+      url.pathname = goMinhasOrdens ? '/portal/minhas-ordens' : '/portal/dashboard'
       url.search = ''
       const redirect = NextResponse.redirect(url)
       redirect.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')
       copyCookiesToResponse(response, redirect)
       return redirect
+    }
+
+    // Lojista B2B: OS próprias, varejo, vitrine, financeiro lojista, dados
+    if (isRetailer) {
+      const allowedRetailer =
+        pathname === '/portal/minhas-ordens' ||
+        pathname.startsWith('/portal/minhas-ordens/') ||
+        pathname === '/portal/complete-profile' ||
+        pathname.startsWith('/portal/complete-profile/') ||
+        pathname.startsWith('/portal/ordens/') ||
+        pathname === '/portal/seminovos/varejo' ||
+        pathname.startsWith('/portal/seminovos/varejo/') ||
+        /^\/portal\/seminovos\/[^/]+\/vitrine\/?$/.test(pathname) ||
+        pathname === '/portal/financeiro-lojista' ||
+        pathname.startsWith('/portal/financeiro-lojista/')
+
+      if (!allowedRetailer && !isPublicPortalPath) {
+        url.pathname = '/portal/minhas-ordens'
+        url.search = ''
+        const redirect = NextResponse.redirect(url)
+        redirect.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')
+        copyCookiesToResponse(response, redirect)
+        return redirect
+      }
+
+      return response
     }
 
     // Cliente: só pode ver as próprias OS (+ completar perfil)

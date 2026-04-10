@@ -36,12 +36,14 @@ function filterByEmail (users: UserRow[], emailFilter: string): UserRow[] {
 function roleLabel (role: string) {
   if (role === 'admin') return 'Admin'
   if (role === 'staff') return 'Staff'
+  if (role === 'retailer') return 'Lojista'
   return 'Usuário'
 }
 
 function roleVariant (role: string): 'default' | 'secondary' | 'outline' {
   if (role === 'admin') return 'default'
   if (role === 'staff') return 'secondary'
+  if (role === 'retailer') return 'secondary'
   return 'outline'
 }
 
@@ -158,7 +160,7 @@ export function UsuariosClient ({
     if (usersLoaded) return
     setUsersLoading(true)
     try {
-      const res = await fetch('/api/portal/admin/usuarios?roles=user,customer')
+      const res = await fetch('/api/portal/admin/usuarios?roles=user,customer,retailer')
       const data = await res.json()
       if (data?.ok && Array.isArray(data.users)) {
         setUsers(data.users)
@@ -192,7 +194,7 @@ export function UsuariosClient ({
       <CardHeader>
         <CardTitle>Usuários</CardTitle>
         <CardDescription>
-          Roles: user, staff, admin. Admins e staff carregados. Usuários carregam ao expandir.
+          Papéis: usuário, lojista, staff, admin. Admins e staff carregados. Demais usuários ao expandir.
         </CardDescription>
         <div className="pt-2">
           <Label htmlFor="email-filter" className="sr-only">
@@ -325,6 +327,7 @@ export function UsuariosClient ({
                     className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                   >
                     <option value="user">Usuário</option>
+                    <option value="retailer">Lojista (B2B)</option>
                     <option value="staff">Staff</option>
                     <option value="admin">Admin</option>
                   </select>

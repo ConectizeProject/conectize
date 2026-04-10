@@ -10,7 +10,12 @@ const submenuItems = [
   { tipo: 'lacrados' as const, label: 'Lacrados', icon: Package },
 ]
 
-export function SeminovosSubmenu () {
+type SeminovosSubmenuProps = {
+  /** Lojista B2B: só troca seminovo/lacrado na URL do varejo (sem listagem operacional). */
+  retailerMode?: boolean
+}
+
+export function SeminovosSubmenu ({ retailerMode = false }: SeminovosSubmenuProps) {
   const pathname = usePathname()
   const sp = useSearchParams()
   const current = sp.get('tipo') === 'lacrados' ? 'lacrados' : 'seminovos'
@@ -26,6 +31,46 @@ export function SeminovosSubmenu () {
     else n.set('tipo', 'lacrados')
     const q = n.toString()
     return q ? `/portal/seminovos?${q}` : '/portal/seminovos'
+  }
+
+  function hrefForVarejoTipo (tipo: 'seminovos' | 'lacrados') {
+    return tipo === 'lacrados'
+      ? '/portal/seminovos/varejo?tipo=lacrados'
+      : '/portal/seminovos/varejo'
+  }
+
+  if (retailerMode) {
+    return (
+      <nav className="flex flex-wrap gap-1 border-b">
+        {submenuItems.map((item) => {
+          const Icon = item.icon
+          const isActive = onVarejo && item.tipo === current
+          return (
+            <Link
+              key={item.tipo}
+              href={hrefForVarejoTipo(item.tipo)}
+              className={cn(
+                'flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+                'hover:text-foreground',
+                isActive ? 'text-foreground border-primary' : 'text-muted-foreground border-transparent hover:border-muted',
+              )}
+            >
+              <Icon className="h-4 w-4" />
+              {item.label}
+            </Link>
+          )
+        })}
+        <span
+          className={cn(
+            'flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px pointer-events-none',
+            onVarejo ? 'text-foreground border-primary' : 'text-muted-foreground border-transparent',
+          )}
+        >
+          <LayoutGrid className="h-4 w-4" />
+          Lista varejo
+        </span>
+      </nav>
+    )
   }
 
   return (

@@ -32,7 +32,13 @@ export default async function SeminovoVitrinePage ({ params }: Props) {
 
   const normalizedRole = role === 'customer' ? 'user' : role
   if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
-  if (normalizedRole !== 'staff' && normalizedRole !== 'admin') redirect('/portal')
+  const canAccessVitrine =
+    normalizedRole === 'staff' ||
+    normalizedRole === 'admin' ||
+    normalizedRole === 'retailer'
+  if (!canAccessVitrine) redirect('/portal')
+
+  const isRetailer = normalizedRole === 'retailer'
 
   const { id } = await params
   if (!id) notFound()
@@ -81,9 +87,11 @@ export default async function SeminovoVitrinePage ({ params }: Props) {
         <Button variant="ghost" size="sm" className="text-muted-foreground" asChild>
           <Link href={varejoListaHref}>← Lista varejo</Link>
         </Button>
-        <Button variant="outline" size="sm" asChild>
-          <Link href={`/portal/seminovos/${id}`}>Editar cadastro</Link>
-        </Button>
+        {!isRetailer ? (
+          <Button variant="outline" size="sm" asChild>
+            <Link href={`/portal/seminovos/${id}`}>Editar cadastro</Link>
+          </Button>
+        ) : null}
       </div>
 
       <Card className="group overflow-hidden transition-shadow duration-200 hover:shadow-md hover:border-primary/30">
