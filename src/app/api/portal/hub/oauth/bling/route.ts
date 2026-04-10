@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { requireAdmin } from '@/lib/auth/portal-api'
+import { BLING_API_V3_BASE_URL } from '@/lib/integrations/bling/constants'
 
-const BLING_AUTHORIZE_URL = 'https://www.bling.com.br/Api/v3/oauth/authorize'
+const BLING_AUTHORIZE_URL = `${BLING_API_V3_BASE_URL}/oauth/authorize`
 
 function normalizeUrl (value: string) {
   return value.trim().replace(/\/$/, '')

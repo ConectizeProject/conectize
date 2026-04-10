@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
+import { attachResaleDeviceDisplayImage } from '@/lib/seminovos/resale-device-display-image'
 import { normalizeSalePaymentMethodsForPersistence } from '@/lib/resale/sale-payment-methods'
+import { stripSaleDerivedCosts } from '@/lib/resale/resale-sale-costs'
 
 type PortalSupabase = Awaited<ReturnType<typeof createSupabaseServerClient>>
 
@@ -38,6 +40,10 @@ const DEVICE_SELECT = `
   buyer_name,
   buyer_cpf,
   sale_details,
+  stock_type,
+  sale_commission_user_id,
+  image_url,
+  image_storage_path,
   created_at,
   updated_at
 `
@@ -137,6 +143,22 @@ function buildPatchRow (
   if (body.buyer_cpf !== undefined) row.buyer_cpf = body.buyer_cpf ? cleanText(body.buyer_cpf) : null
   if (body.sale_details !== undefined) row.sale_details = body.sale_details ? cleanText(body.sale_details) : null
 
+  if (body.stock_type !== undefined) {
+    const s = cleanText(body.stock_type).toLowerCase()
+    if (s === 'seminovo' || s === 'lacrado') row.stock_type = s
+  }
+
+  if (body.sale_commission_user_id !== undefined) {
+    row.sale_commission_user_id = body.sale_commission_user_id
+      ? parseOptionalUuid(body.sale_commission_user_id)
+      : null
+  }
+
+  if (body.image_url !== undefined) {
+    const u = cleanText(body.image_url)
+    row.image_url = u ? u.slice(0, 2048) : null
+  }
+
   if ('sale_payment_methods' in body) {
     const normalized = normalizeSalePaymentMethodsForPersistence(body.sale_payment_methods)
     if (normalized !== undefined) {
@@ -188,9 +210,31 @@ async function loadDeviceWithCosts (supabase: PortalSupabase, deviceId: string) 
     .select('id, description, value_cents')
     .eq('resale_device_id', deviceId)
 
+  const merged = { ...device, costs: costsData || [] }
+  const enriched = await attachResaleDeviceDisplayImage(supabase, merged)
+
   return {
-    device: { ...device, costs: costsData || [] } as Record<string, unknown>,
+    device: enriched as Record<string, unknown>,
     error: null as null,
+  }
+}
+
+async function rewriteResaleCostsKeepingBaseOnly (
+  supabase: PortalSupabase,
+  deviceId: string
+) {
+  const { data: cur } = await supabase
+    .from('resale_device_costs')
+    .select('description, value_cents')
+    .eq('resale_device_id', deviceId)
+  const keep = stripSaleDerivedCosts(cur || [])
+  await supabase.from('resale_device_costs').delete().eq('resale_device_id', deviceId)
+  for (const c of keep) {
+    await supabase.from('resale_device_costs').insert({
+      resale_device_id: deviceId,
+      description: c.description,
+      value_cents: c.value_cents ?? 0,
+    })
   }
 }
 
@@ -209,27 +253,14 @@ export async function GET (
     return NextResponse.json({ ok: false, error: 'invalid_id' }, { status: 400 })
   }
 
-  const { data: device, error } = await auth.supabase
-    .from('resale_devices')
-    .select(DEVICE_SELECT)
-    .eq('id', deviceId)
-    .maybeSingle()
-
-  if (error) {
-    return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
-  }
-  if (!device) {
+  const loaded = await loadDeviceWithCosts(auth.supabase, deviceId)
+  if (!loaded.device) {
     return NextResponse.json({ ok: false, error: 'not_found' }, { status: 404 })
   }
 
-  const { data: costsData } = await auth.supabase
-    .from('resale_device_costs')
-    .select('id, description, value_cents')
-    .eq('resale_device_id', deviceId)
-
   return NextResponse.json({
     ok: true,
-    device: { ...device, costs: costsData || [] },
+    device: loaded.device,
   })
 }
 
@@ -270,6 +301,26 @@ export async function PATCH (
   const existing = existingRow as Record<string, unknown>
   const row = buildPatchRow(b, existing)
 
+  const RESALE_PHOTO_BUCKET = 'resale-device-photos'
+  if (b.image_url !== undefined) {
+    const newUrl = cleanText(b.image_url) || null
+    const oldPath = (existing.image_storage_path as string | null | undefined)?.trim()
+    if (newUrl && oldPath) {
+      await auth.supabase.storage.from(RESALE_PHOTO_BUCKET).remove([oldPath])
+      row.image_storage_path = null
+    }
+  }
+
+  if (b.sold === false) {
+    Object.assign(row, {
+      sale_payment_methods: [],
+      payment_method_id: null,
+      payment_installments: null,
+      sale_commission_user_id: null,
+      actual_profit_cents: null,
+    })
+  }
+
   if (Object.keys(row).length === 0 && !Array.isArray(b.costs)) {
     const loaded = await loadDeviceWithCosts(auth.supabase, deviceId)
     if (!loaded.device) {
@@ -302,6 +353,10 @@ export async function PATCH (
       console.error('[resale-devices PATCH]', upErr)
       return NextResponse.json({ ok: false, message: 'Não foi possível salvar.' }, { status: 500 })
     }
+  }
+
+  if (b.sold === false && !Array.isArray(b.costs)) {
+    await rewriteResaleCostsKeepingBaseOnly(auth.supabase, deviceId)
   }
 
   if (Array.isArray(b.costs)) {
@@ -357,6 +412,17 @@ export async function DELETE (
   const deviceId = parseOptionalUuid(rawId)
   if (!deviceId) {
     return NextResponse.json({ ok: false, error: 'invalid_id' }, { status: 400 })
+  }
+
+  const { data: before } = await auth.supabase
+    .from('resale_devices')
+    .select('image_storage_path')
+    .eq('id', deviceId)
+    .maybeSingle()
+
+  const photoPath = (before as { image_storage_path?: string | null } | null)?.image_storage_path?.trim()
+  if (photoPath) {
+    await auth.supabase.storage.from('resale-device-photos').remove([photoPath])
   }
 
   const { error } = await auth.supabase.from('resale_devices').delete().eq('id', deviceId)

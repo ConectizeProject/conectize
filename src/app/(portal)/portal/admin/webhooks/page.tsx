@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { getPortalAuth, createSupabaseServerClient } from '@/lib/supabase/server'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { WebhooksListClient, type WebhookRow } from './WebhooksListClient'
@@ -9,7 +10,7 @@ type SearchParams = Promise<{ status?: string; event_type?: string; platform?: s
 
 export default async function AdminWebhooksPage ({ searchParams }: { searchParams: SearchParams }) {
   const { user, role } = await getPortalAuth()
-  if (!user) redirect('/portal/login')
+  if (!user) await redirectToPortalLogin()
   const normalizedRole = role === 'customer' ? 'user' : role
   if (normalizedRole !== 'admin') redirect('/portal/ordens')
 

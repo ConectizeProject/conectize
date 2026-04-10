@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 import { UsuariosClient } from './UsuariosClient'
 
@@ -20,7 +21,7 @@ async function updateRoleAction (formData: FormData) {
 
   const supabase = await createSupabaseServerClient()
   const { user } = await getAuthUser()
-  if (!user) redirect('/portal/login')
+  if (!user) await redirectToPortalLogin()
 
   const { data: me, error: meRoleError } = await supabase
     .from('users')
@@ -62,7 +63,7 @@ export default async function AdminUsuariosPage ({
 
   const supabase = await createSupabaseServerClient()
   const { user } = await getAuthUser()
-  if (!user) redirect('/portal/login')
+  if (!user) await redirectToPortalLogin()
 
   const { data: me, error: meRoleError } = await supabase
     .from('users')

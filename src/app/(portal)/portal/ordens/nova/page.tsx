@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import { fetchDeviceModelsForSelector } from '@/lib/portal/device-models-server'
 import { fetchPaymentMethodsCatalogForPortal } from '@/lib/portal/payment-methods-server'
@@ -14,7 +15,7 @@ export default async function NovaOrdemPage({
   const { error, duplicate } = await searchParams
 
   const { user, role, fullName } = await getPortalAuth()
-  if (!user) redirect('/portal/login')
+  if (!user) await redirectToPortalLogin()
 
   const normalizedRole = role === 'customer' ? 'user' : role
   if (normalizedRole === 'user') redirect('/portal/minhas-ordens')

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
+import { BLING_API_V3_BASE_URL } from '@/lib/integrations/bling/constants'
 
-const BLING_TOKEN_URL = 'https://www.bling.com.br/Api/v3/oauth/token'
+const BLING_TOKEN_URL = `${BLING_API_V3_BASE_URL}/oauth/token`
 const PLATFORM_ID = 'bling'
 
 function normalizeUrl (value: string) {

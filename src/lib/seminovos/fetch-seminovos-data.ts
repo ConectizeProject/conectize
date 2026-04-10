@@ -22,6 +22,11 @@ export type ResaleDeviceRow = {
   advertised: boolean
   tested: boolean
   label: string | null
+  stock_type?: string | null
+  image_url?: string | null
+  image_storage_path?: string | null
+  /** Preenchido no servidor (URL assinada ou externa) para listagens. */
+  display_image_url?: string | null
   sold: boolean
   actual_profit_cents: number | null
   purchase_date: string | null
@@ -47,6 +52,7 @@ export type SeminovosFilters = {
   color: string
   purchaseDateFrom: string
   purchaseDateTo: string
+  stockType: 'seminovo' | 'lacrado'
 }
 
 export async function fetchSeminovosDevices(
@@ -77,6 +83,9 @@ export async function fetchSeminovosDevices(
       advertised,
       tested,
       label,
+      stock_type,
+      image_url,
+      image_storage_path,
       sold,
       actual_profit_cents,
       purchase_date,
@@ -86,7 +95,9 @@ export async function fetchSeminovosDevices(
     `)
     .eq('sold', false)
 
-  const { q, condition, storageGb, color, purchaseDateFrom, purchaseDateTo } = filters
+  const { q, condition, storageGb, color, purchaseDateFrom, purchaseDateTo, stockType } = filters
+
+  query = query.eq('stock_type', stockType)
 
   if (q) {
     const escaped = q.replace(/%/g, '\\%').replace(/_/g, '\\_')

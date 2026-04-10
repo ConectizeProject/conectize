@@ -37,6 +37,7 @@ export async function GET(request: Request) {
   const color = String(searchParams.get('color') || '').trim()
   const purchaseDateFrom = String(searchParams.get('purchaseDateFrom') || '').trim()
   const purchaseDateTo = String(searchParams.get('purchaseDateTo') || '').trim()
+  const stockType = String(searchParams.get('stockType') || '').trim()
 
   const soldFilter = soldParam === 'true' ? true : false
 
@@ -74,6 +75,10 @@ export async function GET(request: Request) {
       buyer_name,
       buyer_cpf,
       sale_details,
+      stock_type,
+      sale_commission_user_id,
+      image_url,
+      image_storage_path,
       created_at,
       updated_at
     `)
@@ -104,6 +109,9 @@ export async function GET(request: Request) {
   }
   if (purchaseDateTo && /^\d{4}-\d{2}-\d{2}$/.test(purchaseDateTo)) {
     query = query.lte('purchase_date', purchaseDateTo)
+  }
+  if (stockType === 'seminovo' || stockType === 'lacrado') {
+    query = query.eq('stock_type', stockType)
   }
 
   const { data: devices, error } = await query.order('created_at', { ascending: false })
@@ -156,6 +164,9 @@ export async function POST(request: Request) {
   const buyer_cpf = body.buyer_cpf || null
   const sale_details = body.sale_details || null
 
+  const stockTypeRaw = cleanText(body.stock_type).toLowerCase()
+  const stock_type = stockTypeRaw === 'lacrado' ? 'lacrado' : 'seminovo'
+
   const row = {
     device_model_id: device_model_id || null,
     device_name: cleanText(body.device_name) || null,
@@ -189,6 +200,11 @@ export async function POST(request: Request) {
     buyer_name: buyer_name ? cleanText(buyer_name) : null,
     buyer_cpf: buyer_cpf ? cleanText(buyer_cpf) : null,
     sale_details: sale_details ? cleanText(sale_details) : null,
+    stock_type,
+    image_url: (() => {
+      const u = cleanText(body.image_url)
+      return u ? u.slice(0, 2048) : null
+    })(),
   }
 
   const { data: inserted, error } = await auth.supabase

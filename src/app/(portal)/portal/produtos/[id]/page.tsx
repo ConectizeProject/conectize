@@ -1,4 +1,5 @@
 import { redirect, notFound } from 'next/navigation'
+import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { getPortalAuth } from '@/lib/supabase/server'
 import {
   getProductWithStock,
@@ -23,7 +24,7 @@ type Params = Promise<{ id: string }>
 export default async function ProdutoDetalhePage ({ params }: { params: Params }) {
   const { id } = await params
   const { user, role } = await getPortalAuth()
-  if (!user) redirect('/portal/login')
+  if (!user) await redirectToPortalLogin()
   const normalizedRole = role === 'customer' ? 'user' : role
   if (normalizedRole === 'user' || !normalizedRole) redirect('/portal/minhas-ordens')
 

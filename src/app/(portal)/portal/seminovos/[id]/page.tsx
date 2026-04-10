@@ -1,5 +1,7 @@
 import { redirect, notFound } from 'next/navigation'
+import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
+import { attachResaleDeviceDisplayImage } from '@/lib/seminovos/resale-device-display-image'
 import { SeminovosFormClient } from '../SeminovosFormClient'
 
 type Props = {
@@ -8,7 +10,7 @@ type Props = {
 
 export default async function SeminovosEditPage({ params }: Props) {
   const { user, role } = await getPortalAuth()
-  if (!user) redirect('/portal/login')
+  if (!user) await redirectToPortalLogin()
 
   const normalizedRole = role === 'customer' ? 'user' : role
   if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
@@ -25,7 +27,15 @@ export default async function SeminovosEditPage({ params }: Props) {
 
   if (deviceError || !device) notFound()
 
-  const initialDevice = { ...device, costs: costs ?? [] }
+  const withCosts = { ...device, costs: costs ?? [] }
+  const initialDevice = await attachResaleDeviceDisplayImage(supabase, withCosts)
 
-  return <SeminovosFormClient deviceId={id} isCreate={false} initialDevice={initialDevice} />
+  return (
+    <SeminovosFormClient
+      deviceId={id}
+      isCreate={false}
+      initialDevice={initialDevice}
+      initialDisplayImageUrl={initialDevice.display_image_url}
+    />
+  )
 }

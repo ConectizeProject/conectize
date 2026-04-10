@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { getPortalAuth } from '@/lib/supabase/server'
 import { FinanceiroSubmenu } from './FinanceiroSubmenu'
 
@@ -8,7 +9,7 @@ export default async function FinanceiroLayout({
   children: React.ReactNode
 }) {
   const { user, role } = await getPortalAuth()
-  if (!user) redirect('/portal/login')
+  if (!user) await redirectToPortalLogin()
   if (role !== 'admin') redirect('/portal/ordens')
 
   return (

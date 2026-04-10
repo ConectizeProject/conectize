@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -15,7 +16,7 @@ async function updateCompanyAction(formData: FormData) {
 
   const supabase = await createSupabaseServerClient()
   const { user } = await getAuthUser()
-  if (!user) redirect('/portal/login')
+  if (!user) await redirectToPortalLogin()
 
   const { data: me } = await supabase
     .from('users')
@@ -63,7 +64,7 @@ export default async function DadosEmpresaPage({
 }) {
   const supabase = await createSupabaseServerClient()
   const { user } = await getAuthUser()
-  if (!user) redirect('/portal/login')
+  if (!user) await redirectToPortalLogin()
 
   const { data: me } = await supabase
     .from('users')

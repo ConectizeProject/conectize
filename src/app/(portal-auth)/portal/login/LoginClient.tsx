@@ -18,7 +18,12 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Loader2, Mail } from 'lucide-react'
 
-export function LoginClient() {
+type LoginClientProps = {
+  /** Fallback quando a query `redirectTo` some no primeiro paint (servidor sem param). */
+  fallbackReturnPath?: string
+}
+
+export function LoginClient ({ fallbackReturnPath = '/portal' }: LoginClientProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -32,10 +37,11 @@ export function LoginClient() {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false)
   const [isMagicLinkLoading, setIsMagicLinkLoading] = useState(false)
 
-  const redirectTo = useMemo(
-    () => assertSafePortalPath(searchParams.get('redirectTo')),
-    [searchParams],
-  )
+  const redirectTo = useMemo(() => {
+    const q = searchParams.get('redirectTo')
+    if (q) return assertSafePortalPath(q)
+    return assertSafePortalPath(fallbackReturnPath)
+  }, [searchParams, fallbackReturnPath])
 
   const supabase = useSupabaseBrowserClient()
 

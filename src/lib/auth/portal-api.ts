@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 
 export type PortalStaffRole = 'staff' | 'admin'
@@ -96,7 +97,7 @@ export async function requireAdmin (): Promise<PortalAuthFailure | PortalAuthAdm
 export async function requireAdminPage () {
   const auth = await requireAdmin()
   if (auth.ok === false) {
-    if (auth.status === 401) redirect('/portal/login')
+    if (auth.status === 401) await redirectToPortalLogin()
     redirect('/portal/ordens')
   }
   return auth.supabase

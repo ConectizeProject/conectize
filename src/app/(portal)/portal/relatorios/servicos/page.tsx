@@ -1,15 +1,16 @@
+import { Suspense } from 'react'
 import { redirect } from 'next/navigation'
+import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { buildRevenueSeries } from '@/lib/reports/revenue-series'
 import { RevenueChartTabs } from '@/components/reports/RevenueChartTabs'
-import { QuickDatePresets } from '@/components/reports/QuickDatePresets'
+import { VendasAparelhosPeriodBar } from '@/components/reports/VendasAparelhosPeriodBar'
 import { RelatorioServicosStatusSelect, RelatorioServicosQuickFilter } from '@/components/reports/RelatorioServicosFilters'
 import { RelatorioServicosCustomerSelect } from '@/components/reports/RelatorioServicosCustomerSelect'
 import { RelatorioServicosList } from '@/components/reports/RelatorioServicosList'
 import { RelatorioServicosPdfButton } from '@/components/reports/RelatorioServicosPdfButton'
-import { DateRangePicker } from '@/components/ui/date-range-picker'
 import { RelatorioServicosSituacao } from '@/components/reports/RelatorioServicosSituacao'
 import { maskedFromCents } from '@/lib/utils/money'
 import { formatDateBr } from '@/lib/utils/format-date'
@@ -64,7 +65,7 @@ export default async function RelatorioServicosPage({
   searchParams: SearchParams
 }) {
   const { user, role } = await getPortalAuth()
-  if (!user) redirect('/portal/login')
+  if (!user) await redirectToPortalLogin()
 
   if (role !== 'admin') {
     redirect('/portal/dashboard')
@@ -73,7 +74,7 @@ export default async function RelatorioServicosPage({
   const sp = await searchParams
   const { from, to, statusGroup = '', status, customerId } = sp
   const faturamentoFiltroKey = resolveFaturamentoFiltro(sp)
-  const { fromDate, toDate, fromStr, toStr } = getDateRange(from, to, 30)
+  const { fromDate, toDate, fromStr, toStr } = getDateRange(from, to)
 
   const statusArray = Array.isArray(status) ? status.filter(Boolean) : status ? [status].filter(Boolean) : []
 
@@ -353,29 +354,28 @@ export default async function RelatorioServicosPage({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold">Serviços</h2>
-        <p className="text-sm text-muted-foreground">
-          Visão consolidada das ordens de serviço no período selecionado.
-        </p>
-      </div>
+      <Suspense
+        fallback={(
+          <div
+            className="h-10 max-w-full animate-pulse rounded-md bg-muted/80"
+            aria-hidden
+          />
+        )}
+      >
+        <VendasAparelhosPeriodBar
+          fromStr={fromStr}
+          toStr={toStr}
+          mergeSearchParams
+        />
+      </Suspense>
 
-      <form className="grid gap-4 md:grid-cols-4 items-end">
+      <form className="grid gap-4 md:grid-cols-4 md:items-end" method="get">
+        <input type="hidden" name="from" value={fromStr} />
+        <input type="hidden" name="to" value={toStr} />
         {statusGroup ? <input type="hidden" name="statusGroup" value={statusGroup} /> : null}
         {statusArray.map((s) => <input key={s} type="hidden" name="status" value={s} />)}
         <div className="md:col-span-3 space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium">
-                Período
-              </label>
-              <DateRangePicker
-                defaultFrom={fromStr}
-                defaultTo={toStr}
-                nameFrom="from"
-                nameTo="to"
-              />
-            </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div className="flex flex-col gap-1.5">
               <label className="text-sm font-medium">
                 Status
@@ -386,36 +386,143 @@ export default async function RelatorioServicosPage({
               initialCustomerId={customerId}
               initialCustomerName={customerName}
             />
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="faturamentoFiltro" className="text-sm font-medium">
+                Filtro por valores (cobrado / custo)
+              </label>
+              <select
+                id="faturamentoFiltro"
+                name="faturamentoFiltro"
+                defaultValue={faturamentoFiltroKey === 'todos' ? '' : faturamentoFiltroKey}
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <option value="">Todos</option>
+                <option value="ambos_zero">Sem cobrado e sem custo (ambos R$ 0)</option>
+                <option value="custo_zero_com_cobrado">Custo R$ 0 com valor cobrado</option>
+              </select>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-4 items-center">
-            <QuickDatePresets />
+          <div className="flex flex-wrap items-center gap-4">
             <RelatorioServicosQuickFilter />
           </div>
-          <div className="flex flex-col gap-1.5 max-w-xl">
-            <label htmlFor="faturamentoFiltro" className="text-sm font-medium">
-              Filtro por valores (cobrado / custo)
-            </label>
-            <select
-              id="faturamentoFiltro"
-              name="faturamentoFiltro"
-              defaultValue={faturamentoFiltroKey === 'todos' ? '' : faturamentoFiltroKey}
-              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            >
-              <option value="">Todos</option>
-              <option value="ambos_zero">Sem cobrado e sem custo (ambos R$ 0)</option>
-              <option value="custo_zero_com_cobrado">Custo R$ 0 com valor cobrado</option>
-            </select>
-            <p className="text-xs text-muted-foreground leading-snug">
-              Reflete apenas na tabela e no PDF; gráficos e totais do período continuam com todas as ordens filtradas por data/status.
-            </p>
-          </div>
+          <p className="max-w-xl text-xs leading-snug text-muted-foreground">
+            O filtro por valores reflete apenas na tabela e no PDF; gráficos e totais do período continuam com todas as ordens filtradas por data/status.
+          </p>
         </div>
-        <div className="flex gap-2 justify-end">
+        <div className="flex justify-end gap-2 md:justify-end">
           <Button type="submit" variant="secondary">
             Atualizar
           </Button>
         </div>
       </form>
+
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7">
+        <div className="rounded-lg border bg-card p-4 text-center shadow-sm">
+          <div className="mb-0.5 flex min-h-[1.25rem] items-center justify-center gap-1 text-xs tabular-nums">
+            {openCountDiff > 0 && (
+              <span className="font-medium text-green-600 dark:text-green-400">↑ {openCountDiff}</span>
+            )}
+            {openCountDiff < 0 && (
+              <span className="font-medium text-red-600 dark:text-red-400">↓ {openCountDiff}</span>
+            )}
+            {openCountDiff === 0 && (
+              <span className="text-muted-foreground">0</span>
+            )}
+          </div>
+          <div className="text-xl font-bold tabular-nums">{openCount}</div>
+          <div className="mt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Ordens abertas</div>
+        </div>
+        <div className="rounded-lg border bg-card p-4 text-center shadow-sm">
+          <div className="mb-0.5 flex min-h-[1.25rem] items-center justify-center gap-1 text-xs tabular-nums">
+            {closedFinalizedDiff > 0 && (
+              <span className="font-medium text-green-600 dark:text-green-400">↑ {closedFinalizedDiff}</span>
+            )}
+            {closedFinalizedDiff < 0 && (
+              <span className="font-medium text-red-600 dark:text-red-400">↓ {closedFinalizedDiff}</span>
+            )}
+            {closedFinalizedDiff === 0 && (
+              <span className="text-muted-foreground">0</span>
+            )}
+          </div>
+          <div className="text-xl font-bold tabular-nums">{closedFinalizedCount}</div>
+          <div className="mt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Ordens finalizadas</div>
+        </div>
+        <div className="rounded-lg border bg-card p-4 text-center shadow-sm">
+          <div className="mb-0.5 flex min-h-[1.25rem] items-center justify-center gap-1 text-xs tabular-nums">
+            {avgSlaDiff < 0 && (
+              <span className="font-medium text-green-600 dark:text-green-400">↓ {avgSlaDiff.toFixed(1)} h</span>
+            )}
+            {avgSlaDiff > 0 && (
+              <span className="font-medium text-red-600 dark:text-red-400">↑ {avgSlaDiff.toFixed(1)} h</span>
+            )}
+            {avgSlaDiff === 0 && (
+              <span className="text-muted-foreground">0 h</span>
+            )}
+          </div>
+          <div className="text-xl font-bold tabular-nums">{avgSlaHours.toFixed(1)} h</div>
+          <div className="mt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">SLA médio</div>
+        </div>
+        <div className="rounded-lg border bg-card p-4 text-center shadow-sm">
+          <div className="mb-0.5 flex min-h-[1.25rem] items-center justify-center gap-1 text-xs tabular-nums">
+            {grossDiff > 0 && (
+              <span className="font-medium text-green-600 dark:text-green-400">↑ R$ {maskedFromCents(grossDiff)}</span>
+            )}
+            {grossDiff < 0 && (
+              <span className="font-medium text-red-600 dark:text-red-400">↓ R$ {maskedFromCents(grossDiff)}</span>
+            )}
+            {grossDiff === 0 && (
+              <span className="text-muted-foreground">R$ 0</span>
+            )}
+          </div>
+          <div className="text-xl font-bold tabular-nums">R$ {maskedFromCents(grossCents)}</div>
+          <div className="mt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Faturamento bruto</div>
+        </div>
+        <div className="rounded-lg border bg-card p-4 text-center shadow-sm">
+          <div className="mb-0.5 flex min-h-[1.25rem] items-center justify-center gap-1 text-xs tabular-nums">
+            {netDiff > 0 && (
+              <span className="font-medium text-green-600 dark:text-green-400">↑ R$ {maskedFromCents(netDiff)}</span>
+            )}
+            {netDiff < 0 && (
+              <span className="font-medium text-red-600 dark:text-red-400">↓ R$ {maskedFromCents(netDiff)}</span>
+            )}
+            {netDiff === 0 && (
+              <span className="text-muted-foreground">R$ 0</span>
+            )}
+          </div>
+          <div className="text-xl font-bold tabular-nums">R$ {maskedFromCents(netCents)}</div>
+          <div className="mt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Faturamento líquido</div>
+        </div>
+        <div className="rounded-lg border bg-card p-4 text-center shadow-sm">
+          <div className="mb-0.5 flex min-h-[1.25rem] items-center justify-center gap-1 text-xs tabular-nums">
+            {marginDiff > 0 && (
+              <span className="font-medium text-green-600 dark:text-green-400">↑ {marginDiff.toFixed(1)} p.p.</span>
+            )}
+            {marginDiff < 0 && (
+              <span className="font-medium text-red-600 dark:text-red-400">↓ {marginDiff.toFixed(1)} p.p.</span>
+            )}
+            {marginDiff === 0 && (
+              <span className="text-muted-foreground">0 p.p.</span>
+            )}
+          </div>
+          <div className="text-xl font-bold tabular-nums">{marginPercent.toFixed(1)}%</div>
+          <div className="mt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Margem</div>
+        </div>
+        <div className="rounded-lg border bg-card p-4 text-center shadow-sm">
+          <div className="mb-0.5 flex min-h-[1.25rem] items-center justify-center gap-1 text-xs tabular-nums">
+            {avgGrossPerDayDiff > 0 && (
+              <span className="font-medium text-green-600 dark:text-green-400">↑ R$ {maskedFromCents(avgGrossPerDayDiff)}</span>
+            )}
+            {avgGrossPerDayDiff < 0 && (
+              <span className="font-medium text-red-600 dark:text-red-400">↓ R$ {maskedFromCents(avgGrossPerDayDiff)}</span>
+            )}
+            {avgGrossPerDayDiff === 0 && (
+              <span className="text-muted-foreground">R$ 0</span>
+            )}
+          </div>
+          <div className="text-xl font-bold tabular-nums">R$ {maskedFromCents(avgGrossPerDayCents)}</div>
+          <div className="mt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Faturamento médio/dia</div>
+        </div>
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_260px] items-stretch">
         <div className="min-w-0 flex flex-col">
@@ -433,114 +540,6 @@ export default async function RelatorioServicosPage({
           items={situacaoItems}
           totalCount={closedList.length}
         />
-      </div>
-
-      <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7">
-        <div className="rounded-lg border bg-card p-4 shadow-sm">
-          <div className="text-xs mb-0.5 flex items-center gap-1 tabular-nums">
-            {openCountDiff > 0 && (
-              <span className="text-green-600 dark:text-green-400 font-medium">↑ {openCountDiff}</span>
-            )}
-            {openCountDiff < 0 && (
-              <span className="text-red-600 dark:text-red-400 font-medium">↓ {openCountDiff}</span>
-            )}
-            {openCountDiff === 0 && (
-              <span className="text-muted-foreground">0</span>
-            )}
-          </div>
-          <div className="text-xl font-bold tabular-nums">{openCount}</div>
-          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mt-1">Ordens abertas</div>
-        </div>
-        <div className="rounded-lg border bg-card p-4 shadow-sm">
-          <div className="text-xs mb-0.5 flex items-center gap-1 tabular-nums">
-            {closedFinalizedDiff > 0 && (
-              <span className="text-green-600 dark:text-green-400 font-medium">↑ {closedFinalizedDiff}</span>
-            )}
-            {closedFinalizedDiff < 0 && (
-              <span className="text-red-600 dark:text-red-400 font-medium">↓ {closedFinalizedDiff}</span>
-            )}
-            {closedFinalizedDiff === 0 && (
-              <span className="text-muted-foreground">0</span>
-            )}
-          </div>
-          <div className="text-xl font-bold tabular-nums">{closedFinalizedCount}</div>
-          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mt-1">Ordens finalizadas</div>
-        </div>
-        <div className="rounded-lg border bg-card p-4 shadow-sm">
-          <div className="text-xs mb-0.5 flex items-center gap-1 tabular-nums">
-            {avgSlaDiff < 0 && (
-              <span className="text-green-600 dark:text-green-400 font-medium">↓ {avgSlaDiff.toFixed(1)} h</span>
-            )}
-            {avgSlaDiff > 0 && (
-              <span className="text-red-600 dark:text-red-400 font-medium">↑ {avgSlaDiff.toFixed(1)} h</span>
-            )}
-            {avgSlaDiff === 0 && (
-              <span className="text-muted-foreground">0 h</span>
-            )}
-          </div>
-          <div className="text-xl font-bold tabular-nums">{avgSlaHours.toFixed(1)} h</div>
-          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mt-1">SLA médio</div>
-        </div>
-        <div className="rounded-lg border bg-card p-4 shadow-sm">
-          <div className="text-xs mb-0.5 flex items-center gap-1 tabular-nums">
-            {grossDiff > 0 && (
-              <span className="text-green-600 dark:text-green-400 font-medium">↑ R$ {maskedFromCents(grossDiff)}</span>
-            )}
-            {grossDiff < 0 && (
-              <span className="text-red-600 dark:text-red-400 font-medium">↓ R$ {maskedFromCents(grossDiff)}</span>
-            )}
-            {grossDiff === 0 && (
-              <span className="text-muted-foreground">R$ 0</span>
-            )}
-          </div>
-          <div className="text-xl font-bold tabular-nums">R$ {maskedFromCents(grossCents)}</div>
-          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mt-1">Faturamento bruto</div>
-        </div>
-        <div className="rounded-lg border bg-card p-4 shadow-sm">
-          <div className="text-xs mb-0.5 flex items-center gap-1 tabular-nums">
-            {netDiff > 0 && (
-              <span className="text-green-600 dark:text-green-400 font-medium">↑ R$ {maskedFromCents(netDiff)}</span>
-            )}
-            {netDiff < 0 && (
-              <span className="text-red-600 dark:text-red-400 font-medium">↓ R$ {maskedFromCents(netDiff)}</span>
-            )}
-            {netDiff === 0 && (
-              <span className="text-muted-foreground">R$ 0</span>
-            )}
-          </div>
-          <div className="text-xl font-bold tabular-nums">R$ {maskedFromCents(netCents)}</div>
-          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mt-1">Faturamento líquido</div>
-        </div>
-        <div className="rounded-lg border bg-card p-4 shadow-sm">
-          <div className="text-xs mb-0.5 flex items-center gap-1 tabular-nums">
-            {marginDiff > 0 && (
-              <span className="text-green-600 dark:text-green-400 font-medium">↑ {marginDiff.toFixed(1)} p.p.</span>
-            )}
-            {marginDiff < 0 && (
-              <span className="text-red-600 dark:text-red-400 font-medium">↓ {marginDiff.toFixed(1)} p.p.</span>
-            )}
-            {marginDiff === 0 && (
-              <span className="text-muted-foreground">0 p.p.</span>
-            )}
-          </div>
-          <div className="text-xl font-bold tabular-nums">{marginPercent.toFixed(1)}%</div>
-          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mt-1">Margem</div>
-        </div>
-        <div className="rounded-lg border bg-card p-4 shadow-sm">
-          <div className="text-xs mb-0.5 flex items-center gap-1 tabular-nums">
-            {avgGrossPerDayDiff > 0 && (
-              <span className="text-green-600 dark:text-green-400 font-medium">↑ R$ {maskedFromCents(avgGrossPerDayDiff)}</span>
-            )}
-            {avgGrossPerDayDiff < 0 && (
-              <span className="text-red-600 dark:text-red-400 font-medium">↓ R$ {maskedFromCents(avgGrossPerDayDiff)}</span>
-            )}
-            {avgGrossPerDayDiff === 0 && (
-              <span className="text-muted-foreground">R$ 0</span>
-            )}
-          </div>
-          <div className="text-xl font-bold tabular-nums">R$ {maskedFromCents(avgGrossPerDayCents)}</div>
-          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mt-1">Faturamento médio/dia</div>
-        </div>
       </div>
 
       {allOrders.length > 0 ? (
@@ -668,10 +667,11 @@ function computePaymentFeesAndNet(
   return { payment_fees_cents: paymentFeesCents, net_received_cents: netReceivedCents, payment_fees_breakdown: breakdown }
 }
 
-function getDateRange(from?: string, to?: string, fallbackDays = 30) {
+/** Sem query na URL: mês civil atual (UTC) do dia 1 até hoje — alinhado ao relatório de vendas de aparelhos. */
+function getDateRange(from?: string, to?: string) {
   const now = new Date()
   const fallbackTo = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
-  const fallbackFrom = new Date(fallbackTo.getTime() - (fallbackDays - 1) * 86400000)
+  const fallbackFrom = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
 
   const fromDate = parseDateParam(from) || fallbackFrom
   const toDate = parseDateParam(to) || fallbackTo

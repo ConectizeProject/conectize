@@ -1,12 +1,46 @@
+import nextDynamic from 'next/dynamic'
 import { redirect } from 'next/navigation'
+import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
 import { buildRevenueSeries } from '@/lib/reports/revenue-series'
-import { RevenueChartTabs } from '@/components/reports/RevenueChartTabs'
-import { QuickDatePresets } from '@/components/reports/QuickDatePresets'
-import { DateRangePicker } from '@/components/ui/date-range-picker'
+import {
+  isCommissionCostDescription,
+  parseCommissionWorkerLabelFromDescription,
+} from '@/lib/resale/resale-sale-costs'
+import { VendasAparelhosComissoesLista } from '@/components/reports/VendasAparelhosComissoesLista'
 import { maskedFromCents } from '@/lib/utils/money'
+
+/** Chunk separado: calendário + presets — reduz grafo do Turbopack na página. */
+const VendasAparelhosPeriodBar = nextDynamic(
+  () =>
+    import('@/components/reports/VendasAparelhosPeriodBar').then((m) => ({
+      default: m.VendasAparelhosPeriodBar,
+    })),
+  {
+    loading: () => (
+      <div
+        className="flex h-10 max-w-full animate-pulse items-center gap-2 overflow-hidden rounded-md bg-muted/80 px-2"
+        aria-busy="true"
+      />
+    ),
+  },
+)
+
+const RevenueChartTabs = nextDynamic(
+  () =>
+    import('@/components/reports/RevenueChartTabs').then((m) => ({ default: m.RevenueChartTabs })),
+  {
+    loading: () => (
+      <div
+        className="flex h-80 w-full items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 text-sm text-muted-foreground"
+        aria-busy="true"
+      >
+        Carregando gráfico…
+      </div>
+    ),
+  },
+)
 
 export const dynamic = 'force-dynamic'
 
@@ -37,6 +71,13 @@ type ResaleDeviceRow = {
   device_model_id?: string | null
   device_name?: string | null
   model?: string | null
+  sale_commission_user_id?: string | null
+}
+
+type ResaleCostRow = {
+  resale_device_id: string
+  description: string | null
+  value_cents: number | null
 }
 
 export default async function RelatorioVendasAparelhosPage ({
@@ -44,35 +85,58 @@ export default async function RelatorioVendasAparelhosPage ({
 }: {
   searchParams: SearchParams
 }) {
+  const sp = await searchParams
+  return relatorioVendasAparelhosPageContent(sp)
+}
+
+async function relatorioVendasAparelhosPageContent (sp: { from?: string; to?: string }) {
   const { user, role } = await getPortalAuth()
-  if (!user) redirect('/portal/login')
+  if (!user) await redirectToPortalLogin()
 
   if (role !== 'admin') {
     redirect('/portal/dashboard')
   }
 
-  const { from, to } = await searchParams
-  const { fromStr, toStr } = getCurrentMonthRangeOrSearch(from, to)
+  const { fromStr, toStr } = getCurrentMonthRangeOrSearch(sp.from, sp.to)
 
   const supabase = await createSupabaseServerClient()
 
   const fromSql = fromStr
   const toSql = toStr
 
-  const [{ data: soldDevices }, { data: modelsRaw }] = await Promise.all([
-    supabase
-      .from('resale_devices')
-      .select('id, sold_for_cents, actual_profit_cents, sale_date, device_model_id, device_name, model')
-      .eq('sold', true)
-      .gte('sale_date', fromSql)
-      .lte('sale_date', toSql),
-    supabase
-      .from('device_models')
-      .select('id, model, device_types ( name, device_brands ( name ) )')
-      .limit(5000),
-  ])
+  const { data: soldDevices, error: soldError } = await supabase
+    .from('resale_devices')
+    .select(
+      'id, sold_for_cents, actual_profit_cents, sale_date, device_model_id, device_name, model, sale_commission_user_id',
+    )
+    .eq('sold', true)
+    .gte('sale_date', fromSql)
+    .lte('sale_date', toSql)
+
+  if (soldError && process.env.NODE_ENV === 'development') {
+    console.warn('[relatório vendas-aparelhos] resale_devices:', soldError.message)
+  }
 
   const list = (soldDevices || []) as ResaleDeviceRow[]
+
+  const modelIds = [...new Set(list.map((d) => d.device_model_id).filter(Boolean))] as string[]
+
+  let modelsRaw: ModelRawRow[] = []
+  if (modelIds.length > 0) {
+    const chunkSize = 100
+    for (let i = 0; i < modelIds.length; i += chunkSize) {
+      const slice = modelIds.slice(i, i + chunkSize)
+      const { data: chunk, error: modelsError } = await supabase
+        .from('device_models')
+        .select('id, model, device_types ( name, device_brands ( name ) )')
+        .in('id', slice)
+
+      if (modelsError && process.env.NODE_ENV === 'development') {
+        console.warn('[relatório vendas-aparelhos] device_models:', modelsError.message)
+      }
+      modelsRaw = modelsRaw.concat((chunk || []) as ModelRawRow[])
+    }
+  }
   const models: DeviceModel[] = (modelsRaw || []).map((d: ModelRawRow) => {
     const dt = Array.isArray(d.device_types) ? d.device_types[0] : d.device_types
     const br = dt?.device_brands
@@ -85,6 +149,114 @@ export default async function RelatorioVendasAparelhosPage ({
     }
   })
   const modelsMap = buildModelsMap(models)
+
+  const deviceCommission = new Map<string, { cents: number; labelHint: string | null }>()
+  if (list.length > 0) {
+    const idList = list.map((d) => d.id)
+    const costChunk = 100
+    for (let i = 0; i < idList.length; i += costChunk) {
+      const slice = idList.slice(i, i + costChunk)
+      const { data: costRows, error: costsError } = await supabase
+        .from('resale_device_costs')
+        .select('resale_device_id, description, value_cents')
+        .in('resale_device_id', slice)
+
+      if (costsError && process.env.NODE_ENV === 'development') {
+        console.warn('[relatório vendas-aparelhos] resale_device_costs:', costsError.message)
+      }
+
+      for (const row of (costRows || []) as ResaleCostRow[]) {
+        if (!isCommissionCostDescription(row.description)) continue
+        const v = Number(row.value_cents) || 0
+        if (v <= 0) continue
+        const id = row.resale_device_id
+        const prev = deviceCommission.get(id) ?? { cents: 0, labelHint: null }
+        prev.cents += v
+        if (!prev.labelHint) {
+          prev.labelHint = parseCommissionWorkerLabelFromDescription(row.description)
+        }
+        deviceCommission.set(id, prev)
+      }
+    }
+  }
+
+  type CommissionAgg = { cents: number; userId: string | null; fallbackLabel: string }
+  type CommissionDeviceLine = {
+    deviceId: string
+    label: string
+    saleDate: string | null
+    commissionCents: number
+  }
+  const commissionAggs = new Map<string, CommissionAgg>()
+  const commissionDevicesByGroup = new Map<string, CommissionDeviceLine[]>()
+  for (const d of list) {
+    const info = deviceCommission.get(d.id)
+    if (!info || info.cents <= 0) continue
+    const uid = (d.sale_commission_user_id || '').trim() || null
+    const mapKey = uid ?? `n:${(info.labelHint || 'Colaborador').trim()}`
+    const cur = commissionAggs.get(mapKey) ?? {
+      cents: 0,
+      userId: uid,
+      fallbackLabel: info.labelHint || 'Colaborador',
+    }
+    cur.cents += info.cents
+    commissionAggs.set(mapKey, cur)
+
+    const modelRow = d.device_model_id ? modelsMap[d.device_model_id] ?? null : null
+    const deviceLabel = buildModelLabel(modelRow, d.device_name ?? null, d.model ?? null).trim() || '(Sem identificação)'
+    const line: CommissionDeviceLine = {
+      deviceId: d.id,
+      label: deviceLabel,
+      saleDate: d.sale_date ?? null,
+      commissionCents: info.cents,
+    }
+    const lines = commissionDevicesByGroup.get(mapKey) ?? []
+    lines.push(line)
+    commissionDevicesByGroup.set(mapKey, lines)
+  }
+
+  for (const lines of commissionDevicesByGroup.values()) {
+    lines.sort((a, b) => {
+      const da = a.saleDate || ''
+      const db = b.saleDate || ''
+      if (da !== db) return db.localeCompare(da)
+      return b.commissionCents - a.commissionCents
+    })
+  }
+
+  const commissionUserIds = [
+    ...new Set(
+      [...commissionAggs.values()]
+        .map((a) => a.userId)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ]
+  const userNameById: Record<string, string> = {}
+  if (commissionUserIds.length > 0) {
+    const { data: usersRows } = await supabase
+      .from('users')
+      .select('id, full_name, email')
+      .in('id', commissionUserIds)
+    for (const u of usersRows || []) {
+      const id = u.id as string
+      const name = String((u as { full_name?: string | null }).full_name || '').trim()
+      const email = String((u as { email?: string | null }).email || '').trim()
+      userNameById[id] = name || email || id
+    }
+  }
+
+  const commissionRows = [...commissionAggs.entries()]
+    .map(([groupKey, a]) => ({
+      groupKey,
+      displayName: a.userId
+        ? (userNameById[a.userId] ?? a.userId)
+        : a.fallbackLabel,
+      cents: a.cents,
+      devices: commissionDevicesByGroup.get(groupKey) ?? [],
+    }))
+    .sort((x, y) => y.cents - x.cents)
+
+  const totalCommissionCents = commissionRows.reduce((s, r) => s + r.cents, 0)
 
   const salesCount = list.length
 
@@ -114,83 +286,50 @@ export default async function RelatorioVendasAparelhosPage ({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold">Venda de aparelhos</h2>
-        <p className="text-sm text-muted-foreground">
-          Visão consolidada das vendas de aparelhos seminovos no período selecionado.
-        </p>
-      </div>
+      <VendasAparelhosPeriodBar fromStr={fromStr} toStr={toStr} />
 
-      <form className="grid gap-4 md:grid-cols-4 items-end">
-        <div className="md:col-span-3 space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium">
-                Período
-              </label>
-              <DateRangePicker
-                defaultFrom={fromStr}
-                defaultTo={toStr}
-                nameFrom="from"
-                nameTo="to"
-              />
-            </div>
-          </div>
-          <QuickDatePresets />
-        </div>
-        <div className="flex gap-2 justify-end">
-          <Button type="submit" variant="secondary">
-            Atualizar
-          </Button>
-        </div>
-      </form>
-
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
         <Card>
-          <CardHeader>
-            <CardTitle>Quantidade de vendas</CardTitle>
-            <CardDescription>No período selecionado</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">{salesCount}</div>
+          <CardContent className="pt-5 pb-4 text-center">
+            <div className="text-2xl font-bold tabular-nums text-emerald-600 sm:text-3xl dark:text-emerald-400">
+              {salesCount}
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground sm:text-sm">
+              Vendas
+            </p>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle>Valor bruto</CardTitle>
-            <CardDescription>Somatório de vendas</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">
+          <CardContent className="pt-5 pb-4 text-center">
+            <div className="break-words text-2xl font-bold tabular-nums text-emerald-600 sm:text-3xl dark:text-emerald-400">
               R$ {maskedFromCents(grossCents)}
             </div>
+            <p className="mt-1 text-xs text-muted-foreground sm:text-sm">
+              Valor bruto
+            </p>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle>Valor líquido</CardTitle>
-            <CardDescription>Lucro consolidado</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">
+          <CardContent className="pt-5 pb-4 text-center">
+            <div className="break-words text-2xl font-bold tabular-nums text-emerald-600 sm:text-3xl dark:text-emerald-400">
               R$ {maskedFromCents(netCents)}
             </div>
+            <p className="mt-1 text-xs text-muted-foreground sm:text-sm">
+              Valor líquido
+            </p>
           </CardContent>
         </Card>
-      </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
         <Card>
-          <CardHeader>
-            <CardTitle>Margem</CardTitle>
-            <CardDescription>Lucro / faturamento bruto</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">
+          <CardContent className="pt-5 pb-4 text-center">
+            <div className="text-2xl font-bold tabular-nums text-emerald-600 sm:text-3xl dark:text-emerald-400">
               {marginPercent.toFixed(1)}%
             </div>
+            <p className="mt-1 text-xs text-muted-foreground sm:text-sm">
+              Margem
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -273,6 +412,29 @@ export default async function RelatorioVendasAparelhosPage ({
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Comissões no período</CardTitle>
+          <CardDescription>
+            Valores registrados como custo de comissão nas vendas (linhas “Comissão venda” por aparelho).
+            {' '}
+            Clique no colaborador para ver os aparelhos que compõem o total.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {commissionRows.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Nenhuma comissão encontrada neste intervalo.
+            </p>
+          ) : (
+            <VendasAparelhosComissoesLista
+              rows={commissionRows}
+              totalCents={totalCommissionCents}
+            />
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }

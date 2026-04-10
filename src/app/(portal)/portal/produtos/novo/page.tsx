@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { getPortalAuth } from '@/lib/supabase/server'
 import { ProductForm } from '../ProductForm'
 import { createProduct } from '@/lib/products/service'
@@ -7,7 +8,7 @@ export const dynamic = 'force-dynamic'
 
 export default async function NovoProdutoPage () {
   const { user, role } = await getPortalAuth()
-  if (!user) redirect('/portal/login')
+  if (!user) await redirectToPortalLogin()
   const normalizedRole = role === 'customer' ? 'user' : role
   if (normalizedRole === 'user' || !normalizedRole) redirect('/portal/minhas-ordens')
 

@@ -10,6 +10,7 @@ import { fetchDeviceModelsForSelector } from '@/lib/portal/device-models-server'
 import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
+import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { OrdemDetalhePageContent } from './OrdemDetalhePageContent'
 import type { ServiceOrderDetail } from './service-order-detail-types'
 import {
@@ -45,7 +46,7 @@ export default async function OrdemDetalhePage ({
 	const resolved = parseOrdemRouteParam(numero)
 
 	const { user, role } = await getPortalAuth()
-	if (!user) redirect('/portal/login')
+	if (!user) await redirectToPortalLogin()
 
 	const normalizedRole = role === 'customer' ? 'user' : role
 	if (normalizedRole === 'user') redirect('/portal/minhas-ordens')

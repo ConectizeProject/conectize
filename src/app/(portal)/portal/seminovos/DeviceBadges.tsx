@@ -1,7 +1,7 @@
 'use client'
 
 import { Copy } from 'lucide-react'
-import { getSeminovosColorStyle } from '@/lib/seminovos/colors'
+import { getSeminovosColorEmoji, getSeminovosColorStyle } from '@/lib/seminovos/colors'
 import { toast } from '@/hooks/use-toast'
 
 type DeviceBadgesProps = {
@@ -45,9 +45,10 @@ export function DeviceBadges({ deviceName, storageGb, color, battery, condition,
       <p className="text-[11px] text-muted-foreground flex items-center gap-1.5 flex-wrap">
         {cor && colorStyle && (
           <span
-            className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold"
+            className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-bold"
             style={{ backgroundColor: colorStyle.bg, color: colorStyle.text }}
           >
+            <span aria-hidden>{getSeminovosColorEmoji(cor)}</span>
             {cor}
           </span>
         )}
