@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { MoreHorizontal } from 'lucide-react'
+import { MoreHorizontal, Smartphone } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
 	DropdownMenu,
@@ -34,6 +34,7 @@ export type SeminovoDeviceCardDevice = {
 	buyer_name?: string | null
 	buyer_cpf?: string | null
 	sale_details?: string | null
+	display_image_url?: string | null
 }
 
 function centsToReais(cents: number | null | undefined): string {
@@ -58,10 +59,12 @@ export function SeminovoDeviceCard({
 }: SeminovoDeviceCardProps) {
 	const totalCostsCents = (d.costs || []).reduce((acc, c) => acc + (c.value_cents ?? 0), 0)
 	const aparelhoTitle = [d.device_name, d.storage_gb, d.color, d.battery, d.condition].filter(Boolean).join(' | ')
+	const displayUrl = d.display_image_url
+	const imgOk = Boolean(displayUrl?.trim())
 
 	const cardClassName = variant === 'sold'
-		? 'relative rounded-lg border bg-card overflow-hidden bg-muted/30'
-		: `relative rounded-lg border bg-card overflow-hidden ${d.sold ? 'opacity-75' : ''}`
+		? 'group relative rounded-lg border bg-card overflow-hidden bg-muted/30 transition-shadow duration-200 hover:shadow-md hover:border-primary/25'
+		: `group relative rounded-lg border bg-card overflow-hidden transition-shadow duration-200 hover:shadow-md hover:border-primary/30 ${d.sold ? 'opacity-75' : ''}`
 
 	return (
 		<div className={cardClassName}>
@@ -70,74 +73,89 @@ export function SeminovoDeviceCard({
 				className="absolute inset-0 z-0"
 				aria-label={`Abrir aparelho ${aparelhoTitle || d.device_name || d.id}`}
 			/>
-			<div className="relative z-10 p-4 pointer-events-none [&_button]:pointer-events-auto">
-				<div className="flex items-start justify-between gap-1.5 mb-2">
-					<div className="min-w-0">
-						<DeviceBadges
-							deviceName={d.device_name}
-							storageGb={d.storage_gb}
-							color={d.color}
-							battery={d.battery}
-							condition={d.condition}
-							imei={d.imei}
+			<div className="relative z-10 flex flex-col pointer-events-none [&_button]:pointer-events-auto">
+				<div className="relative aspect-square w-full shrink-0 overflow-hidden bg-muted">
+					{imgOk ? (
+						<img
+							src={displayUrl!}
+							alt=""
+							className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
 						/>
-					</div>
-					<DropdownMenu>
-						<DropdownMenuTrigger asChild>
-							<Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" aria-label="Ações">
-								<MoreHorizontal className="h-4 w-4" />
-							</Button>
-						</DropdownMenuTrigger>
-						<DropdownMenuContent align="end">
-							{renderMenu(d)}
-						</DropdownMenuContent>
-					</DropdownMenu>
+					) : (
+						<div className="flex h-full w-full items-center justify-center text-muted-foreground">
+							<Smartphone className="h-14 w-14 opacity-35" aria-hidden />
+						</div>
+					)}
 				</div>
-				<div className="space-y-1.5 text-sm">
-					{d.info ? (
-						<div>
-							<span className="text-muted-foreground text-xs block mb-0.5">Info</span>
-							<p className="text-xs line-clamp-2 text-muted-foreground">{d.info}</p>
+				<div className="p-4">
+					<div className="flex items-start justify-between gap-1.5 mb-2">
+						<div className="min-w-0">
+							<DeviceBadges
+								deviceName={d.device_name}
+								storageGb={d.storage_gb}
+								color={d.color}
+								battery={d.battery}
+								condition={d.condition}
+								imei={d.imei}
+							/>
 						</div>
-					) : null}
-					<div className="grid grid-cols-2 gap-x-4 gap-y-1 pt-1 border-t border-border/60">
-						<div>
-							<span className="text-muted-foreground text-xs">Compra</span>
-							<p className="font-medium">
-								{showPurchaseValue && d.purchase_value_cents != null ? `R$ ${centsToReais(d.purchase_value_cents)}` : '—'}
-							</p>
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" aria-label="Ações">
+									<MoreHorizontal className="h-4 w-4" />
+								</Button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end">
+								{renderMenu(d)}
+							</DropdownMenuContent>
+						</DropdownMenu>
+					</div>
+					<div className="space-y-1.5 text-sm">
+						{d.info ? (
+							<div>
+								<span className="text-muted-foreground text-xs block mb-0.5">Info</span>
+								<p className="text-xs line-clamp-2 text-muted-foreground">{d.info}</p>
+							</div>
+						) : null}
+						<div className="grid grid-cols-2 gap-x-4 gap-y-1 pt-1 border-t border-border/60">
+							<div>
+								<span className="text-muted-foreground text-xs">Compra</span>
+								<p className="font-medium">
+									{showPurchaseValue && d.purchase_value_cents != null ? `R$ ${centsToReais(d.purchase_value_cents)}` : '—'}
+								</p>
+							</div>
+							<div>
+								<span className="text-muted-foreground text-xs">Custos</span>
+								<p className="font-medium">{totalCostsCents > 0 ? `R$ ${centsToReais(totalCostsCents)}` : '—'}</p>
+							</div>
+							{variant === 'available' ? (
+								<>
+									<div>
+										<span className="text-muted-foreground text-xs">Varejo</span>
+										<p className="font-medium">{d.sale_value_cents != null ? `R$ ${centsToReais(d.sale_value_cents)}` : '—'}</p>
+									</div>
+									<div>
+										<span className="text-muted-foreground text-xs">Atacado</span>
+										<p className="font-medium">{showWholesaleValue && d.wholesale_value_cents != null ? `R$ ${centsToReais(d.wholesale_value_cents)}` : '—'}</p>
+									</div>
+									<div className="col-span-2">
+										<span className="text-muted-foreground text-xs">Data compra</span>
+										<p className="font-medium">{d.purchase_date ? formatDateBr(d.purchase_date) : '—'}</p>
+									</div>
+								</>
+							) : (
+								<>
+									<div>
+										<span className="text-muted-foreground text-xs">Vendido</span>
+										<p className="font-medium">{d.sold_for_cents != null ? `R$ ${centsToReais(d.sold_for_cents)}` : '—'}</p>
+									</div>
+									<div>
+										<span className="text-muted-foreground text-xs">Data venda</span>
+										<p className="font-medium">{d.sale_date ? formatDateBr(d.sale_date) : '—'}</p>
+									</div>
+								</>
+							)}
 						</div>
-						<div>
-							<span className="text-muted-foreground text-xs">Custos</span>
-							<p className="font-medium">{totalCostsCents > 0 ? `R$ ${centsToReais(totalCostsCents)}` : '—'}</p>
-						</div>
-						{variant === 'available' ? (
-							<>
-								<div>
-									<span className="text-muted-foreground text-xs">Varejo</span>
-									<p className="font-medium">{d.sale_value_cents != null ? `R$ ${centsToReais(d.sale_value_cents)}` : '—'}</p>
-								</div>
-								<div>
-									<span className="text-muted-foreground text-xs">Atacado</span>
-									<p className="font-medium">{showWholesaleValue && d.wholesale_value_cents != null ? `R$ ${centsToReais(d.wholesale_value_cents)}` : '—'}</p>
-								</div>
-								<div className="col-span-2">
-									<span className="text-muted-foreground text-xs">Data compra</span>
-									<p className="font-medium">{d.purchase_date ? formatDateBr(d.purchase_date) : '—'}</p>
-								</div>
-							</>
-						) : (
-							<>
-								<div>
-									<span className="text-muted-foreground text-xs">Vendido</span>
-									<p className="font-medium">{d.sold_for_cents != null ? `R$ ${centsToReais(d.sold_for_cents)}` : '—'}</p>
-								</div>
-								<div>
-									<span className="text-muted-foreground text-xs">Data venda</span>
-									<p className="font-medium">{d.sale_date ? formatDateBr(d.sale_date) : '—'}</p>
-								</div>
-							</>
-						)}
 					</div>
 				</div>
 			</div>

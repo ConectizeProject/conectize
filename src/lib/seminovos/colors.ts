@@ -29,10 +29,23 @@ export const SEMINOVOS_COLOR_MAP: Record<string, { bg: string; text: string }> =
   coral: { bg: '#fb7185', text: '#fff' },
   midnight: { bg: '#1e3a5f', text: '#fff' },
   'meia-noite': { bg: '#1e3a5f', text: '#fff' },
+  /** Titânio natural / Natural Titanium — cinza quente (não confundir com “natural” sozinho). */
+  'natural-titanium': { bg: '#9b9a98', text: '#fff' },
+  'titânio-natural': { bg: '#9b9a98', text: '#fff' },
+  'titanio-natural': { bg: '#9b9a98', text: '#fff' },
+  /** Titânio do deserto — tom mais dourado que o titânio padrão. */
+  'desert-titanium': { bg: '#c9a04c', text: '#1a1a1a' },
+  'desert-titânio': { bg: '#c9a04c', text: '#1a1a1a' },
+  'desert-titanio': { bg: '#c9a04c', text: '#1a1a1a' },
+  'titânio-deserto': { bg: '#c9a04c', text: '#1a1a1a' },
+  'titanio-deserto': { bg: '#c9a04c', text: '#1a1a1a' },
+  'titânio-do-deserto': { bg: '#c9a04c', text: '#1a1a1a' },
+  'titanio-do-deserto': { bg: '#c9a04c', text: '#1a1a1a' },
   natural: { bg: '#d8d8b8', text: '#1a1a1a' },
   'titânio': { bg: '#71717a', text: '#fff' },
   titanium: { bg: '#71717a', text: '#fff' },
-  starlight: { bg: '#e5e0d8', text: '#2c2825' },
+  /** Starlight — leitura branca / off-white. */
+  starlight: { bg: '#f4f4f5', text: '#18181b' },
 }
 
 export function getSeminovosColorStyle(cor: string): { bg: string; text: string } {
@@ -78,10 +91,20 @@ const SEMINOVOS_COLOR_EMOJI: Record<string, string> = {
   coral: '🪸',
   midnight: '🌑',
   'meia-noite': '🌑',
+  'natural-titanium': '🩶',
+  'titânio-natural': '🩶',
+  'titanio-natural': '🩶',
+  'desert-titanium': '🟨',
+  'desert-titânio': '🟨',
+  'desert-titanio': '🟨',
+  'titânio-deserto': '🟨',
+  'titanio-deserto': '🟨',
+  'titânio-do-deserto': '🟨',
+  'titanio-do-deserto': '🟨',
   natural: '🟤',
   'titânio': '🔘',
   titanium: '🔘',
-  starlight: '✨',
+  starlight: '⚪',
 }
 
 /** Emoji representando a cor (WhatsApp / listagens). Sem cor cadastrada: 📱 */

@@ -192,6 +192,7 @@ type ResaleDevice = {
 	sale_details?: string | null;
 	stock_type?: string | null;
 	sale_commission_user_id?: string | null;
+	display_image_url?: string | null;
 };
 
 type TeamUser = {
@@ -365,15 +366,6 @@ export function SeminovosListClient({
 		searchParams.get("tipo") === "lacrados"
 			? "/portal/seminovos/varejo?tipo=lacrados"
 			: "/portal/seminovos/varejo";
-	const hasFilters = Boolean(
-		filterInitialValues.q ||
-		filterInitialValues.condition ||
-		filterInitialValues.storageGb ||
-		filterInitialValues.color ||
-		filterInitialValues.purchaseDateFrom ||
-		filterInitialValues.purchaseDateTo,
-	);
-
 	const [devices, setDevices] = useState<ResaleDevice[]>(
 		initialDevices as ResaleDevice[],
 	);
@@ -431,7 +423,6 @@ export function SeminovosListClient({
 	const [simulateValue, setSimulateValue] = useState("");
 	const [soldDevices, setSoldDevices] = useState<ResaleDevice[]>([]);
 	const [soldCollapsibleOpen, setSoldCollapsibleOpen] = useState(false);
-	const [overviewCollapsibleOpen, setOverviewCollapsibleOpen] = useState(false);
 	const [isLoadingSold, setIsLoadingSold] = useState(false);
 	const [stats, setStats] = useState<SeminovosStats | null>(initialStats);
 	const [termsDevice, setTermsDevice] = useState<ResaleDevice | null>(null);
@@ -1318,7 +1309,14 @@ ${devicesBlockCliente}
 				<SeminovosSubmenu />
 
 				<SeminovosFilterCollapsible
-					defaultOpen={hasFilters}
+					key={[
+						filterInitialValues.condition,
+						filterInitialValues.storageGb,
+						filterInitialValues.color,
+						filterInitialValues.purchaseDateFrom,
+						filterInitialValues.purchaseDateTo,
+						filterInitialValues.stockType,
+					].join('|')}
 					initialValues={filterInitialValues}
 					quickFilters={{
 						notTested: filterNotTested,
@@ -1332,26 +1330,14 @@ ${devicesBlockCliente}
 					}}
 				/>
 
-				{isAdmin && (
-					<Collapsible
-						open={overviewCollapsibleOpen}
-						onOpenChange={setOverviewCollapsibleOpen}
-					>
-						<CollapsibleTrigger className="flex w-full items-center justify-between rounded-md border bg-card px-3 py-3 sm:py-2.5 text-sm font-medium hover:bg-muted/50 transition-colors touch-manipulation min-h-[2.75rem]">
-							<span className="flex items-center gap-2">
-								<ChevronDown
-									className={`h-4 w-4 transition-transform ${overviewCollapsibleOpen ? "" : "-rotate-90"}`}
-								/>
-								Visão geral da operação
-							</span>
-						</CollapsibleTrigger>
-						<CollapsibleContent>
-							<div className="mt-3 rounded-md border bg-card p-3 sm:p-4">
-								<ResumoFinanceiro devices={devices} stats={stats} showValues />
-							</div>
-						</CollapsibleContent>
-					</Collapsible>
-				)}
+				{isAdmin ? (
+					<ResumoFinanceiro
+						devices={devices}
+						stats={stats}
+						showValues
+						variant="overview-only"
+					/>
+				) : null}
 
 				<Card>
 					<CardHeader className="pb-3 sm:pb-6">
@@ -3068,6 +3054,8 @@ type ResumoProps = {
 	devices: ResaleDevice[];
 	stats: SeminovosStats | null;
 	showValues: boolean;
+	/** Resumo enxuto na visão geral (admin). */
+	variant?: "full" | "overview-only";
 };
 
 function formatVariacao(
@@ -3081,7 +3069,12 @@ function formatVariacao(
 	return { text, positive };
 }
 
-function ResumoFinanceiro({ devices, stats, showValues }: ResumoProps) {
+function ResumoFinanceiro({
+	devices,
+	stats,
+	showValues,
+	variant = "full",
+}: ResumoProps) {
 	const qtd = devices.length;
 	const estoqueCents = devices.reduce(
 		(acc, d) => acc + (d.purchase_value_cents ?? 0),
@@ -3119,6 +3112,13 @@ function ResumoFinanceiro({ devices, stats, showValues }: ResumoProps) {
 	const totalComVendas = qtd + vendasMesQty;
 	const taxaConversao =
 		totalComVendas > 0 ? (vendasMesQty / totalComVendas) * 100 : 0;
+
+	const vendasMesQtyLabel =
+		vendasMesQty === 0
+			? "0 vendas"
+			: vendasMesQty === 1
+				? "1 venda"
+				: `${vendasMesQty} vendas`;
 
 	const hoje = new Date();
 	const diasEmEstoque = devices
@@ -3170,7 +3170,7 @@ function ResumoFinanceiro({ devices, stats, showValues }: ResumoProps) {
 			hideValue: true,
 		},
 		{
-			title: "Tempo médio em estoque",
+			title: "Tempo de estoque",
 			value: tempoMedioEstoqueDias > 0 ? `${tempoMedioEstoqueDias} dias` : "-",
 			sub:
 				diasEmEstoque.length > 0
@@ -3229,11 +3229,11 @@ function ResumoFinanceiro({ devices, stats, showValues }: ResumoProps) {
 			hideValue: false,
 		},
 		{
-			title: "Vendas no mês",
+			title: "Vendas esse mês",
 			value: `R$ ${centsToReais(vendasMesCents)}`,
 			sub: variacaoVendas
-				? `${variacaoVendas.text} vs mês ant`
-				: `${vendasMesQty} venda(s)`,
+				? `${vendasMesQtyLabel} · ${variacaoVendas.text} vs mês ant.`
+				: vendasMesQtyLabel,
 			icon: DollarSign,
 			color:
 				"bg-amber-500/20 border-amber-500/40 text-amber-800 dark:text-amber-300",
@@ -3259,38 +3259,77 @@ function ResumoFinanceiro({ devices, stats, showValues }: ResumoProps) {
 		},
 	];
 
-	return (
-		<div className="space-y-4">
-			<div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-2 sm:gap-3">
-				{blocks.map((b) => {
-					const Icon = b.icon;
-					return (
-						<div
-							key={b.title}
-							className={`rounded-xl border-2 px-3 py-2.5 sm:px-4 sm:py-3.5 min-h-[72px] sm:min-h-[88px] flex flex-col justify-center transition-colors ${b.color}`}
-						>
-							<div className="flex items-center gap-2 mb-1">
-								<Icon className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0 opacity-90" />
-								<p className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider opacity-90 truncate">
-									{b.title}
-								</p>
-							</div>
-							{showValues || !b.hideValue ? (
-								<>
-									<p className="text-base sm:text-lg font-bold leading-tight break-words">
-										{b.value}
-									</p>
-									{b.sub != null && (
-										<p className="text-[11px] mt-0.5 opacity-85">{b.sub}</p>
-									)}
-								</>
-							) : (
-								<Skeleton className="h-7 w-24 mt-1" />
-							)}
+	const ticketMedioCompraEVendaBlock = {
+		title: "Ticket médio (compra e venda)",
+		value: `Compra: R$ ${centsToReais(ticketMedioCents)}`,
+		sub:
+			vendasMesQty > 0
+				? `Venda: R$ ${centsToReais(ticketMedioVendaCents)}`
+				: "Venda: —",
+		icon: BarChart3,
+		color:
+			"bg-slate-500/20 border-slate-500/40 text-slate-800 dark:text-slate-300",
+		hideValue: true,
+	};
+
+	const disponiveisBlock = blocks.find((b) => b.title === "Disponíveis");
+	const tempoEstoqueBlock = blocks.find((b) => b.title === "Tempo de estoque");
+	const vendasMesBlock = blocks.find((b) => b.title === "Vendas esse mês");
+
+	const blocksToRender =
+		variant === "overview-only" &&
+		disponiveisBlock &&
+		tempoEstoqueBlock &&
+		vendasMesBlock
+			? [
+					disponiveisBlock,
+					ticketMedioCompraEVendaBlock,
+					tempoEstoqueBlock,
+					vendasMesBlock,
+				]
+			: blocks;
+
+	const gridClassName =
+		variant === "overview-only"
+			? "grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3"
+			: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-2 sm:gap-3";
+
+	const grid = (
+		<div className={gridClassName}>
+			{blocksToRender.map((b) => {
+				const Icon = b.icon;
+				return (
+					<div
+						key={b.title}
+						className={`rounded-xl border-2 px-3 py-2.5 sm:px-4 sm:py-3.5 min-h-[72px] sm:min-h-[88px] flex flex-col justify-center transition-colors ${b.color}`}
+					>
+						<div className="flex items-center gap-2 mb-1">
+							<Icon className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0 opacity-90" />
+							<p className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider opacity-90 truncate">
+								{b.title}
+							</p>
 						</div>
-					);
-				})}
-			</div>
+						{showValues || !b.hideValue ? (
+							<>
+								<p className="text-base sm:text-lg font-bold leading-tight break-words">
+									{b.value}
+								</p>
+								{b.sub != null && (
+									<p className="text-[11px] mt-0.5 opacity-85">{b.sub}</p>
+								)}
+							</>
+						) : (
+							<Skeleton className="h-7 w-24 mt-1" />
+						)}
+					</div>
+				);
+			})}
 		</div>
 	);
+
+	if (variant === "overview-only") {
+		return grid;
+	}
+
+	return <div className="space-y-4">{grid}</div>;
 }

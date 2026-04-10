@@ -25,6 +25,8 @@ export type ResaleDeviceRow = {
   stock_type?: string | null
   image_url?: string | null
   image_storage_path?: string | null
+  /** Preenchido no servidor (URL assinada ou externa) para listagens. */
+  display_image_url?: string | null
   sold: boolean
   actual_profit_cents: number | null
   purchase_date: string | null

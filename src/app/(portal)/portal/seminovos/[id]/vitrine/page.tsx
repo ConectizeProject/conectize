@@ -4,7 +4,10 @@ import { Smartphone } from 'lucide-react'
 import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import { fetchPaymentMethodsCatalogForPortal } from '@/lib/portal/payment-methods-server'
-import { buildInstallmentTableRows } from '@/lib/resale/credit-installment-max-fee'
+import {
+  buildInstallmentTableRows,
+  getInstallmentRowForCount,
+} from '@/lib/resale/credit-installment-max-fee'
 import { getResaleDeviceDisplayImageUrl } from '@/lib/seminovos/resale-device-display-image'
 import { maskedFromCents } from '@/lib/utils/money'
 import { getSeminovosColorEmoji } from '@/lib/seminovos/colors'
@@ -35,15 +38,14 @@ export default async function SeminovoVitrinePage ({ params }: Props) {
   if (!id) notFound()
 
   const supabase = await createSupabaseServerClient()
-  const [{ data: device, error: deviceError }, { data: company }, paymentMethods] = await Promise.all([
+  const [{ data: device, error: deviceError }, paymentMethods] = await Promise.all([
     supabase
       .from('resale_devices')
       .select(
-        'id, device_name, model, color, storage_gb, battery, condition, info, sale_value_cents, stock_type, sold, image_url, image_storage_path',
+        'id, device_name, model, color, storage_gb, battery, condition, sale_value_cents, stock_type, sold, image_url, image_storage_path',
       )
       .eq('id', id)
       .maybeSingle(),
-    supabase.from('company_settings').select('name').eq('id', 1).maybeSingle(),
     fetchPaymentMethodsCatalogForPortal(supabase),
   ])
 
@@ -54,6 +56,11 @@ export default async function SeminovoVitrinePage ({ params }: Props) {
     saleCents != null && saleCents > 0
       ? buildInstallmentTableRows(saleCents, paymentMethods, 12)
       : []
+
+  const row12 =
+    !device.sold && saleCents != null && saleCents > 0
+      ? getInstallmentRowForCount(saleCents, paymentMethods, 12)
+      : null
 
   const stockLabel = device.stock_type === 'lacrado' ? 'Lacrado' : 'Seminovo'
   const title = (device.device_name || device.model || 'Aparelho').trim() || 'Aparelho'
@@ -70,32 +77,24 @@ export default async function SeminovoVitrinePage ({ params }: Props) {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-3 py-6 sm:px-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Visão cliente final
-          </p>
-          <h1 className="text-2xl font-bold tracking-tight">{company?.name ?? 'Loja'}</h1>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="ghost" size="sm" className="text-muted-foreground" asChild>
-            <Link href={varejoListaHref}>← Lista varejo</Link>
-          </Button>
-          <Button variant="outline" size="sm" asChild>
-            <Link href={`/portal/seminovos/${id}`}>Editar cadastro</Link>
-          </Button>
-        </div>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button variant="ghost" size="sm" className="text-muted-foreground" asChild>
+          <Link href={varejoListaHref}>← Lista varejo</Link>
+        </Button>
+        <Button variant="outline" size="sm" asChild>
+          <Link href={`/portal/seminovos/${id}`}>Editar cadastro</Link>
+        </Button>
       </div>
 
-      <Card className="overflow-hidden">
+      <Card className="group overflow-hidden transition-shadow duration-200 hover:shadow-md hover:border-primary/30">
         <CardContent className="p-0">
           <div className="grid gap-0 md:grid-cols-[minmax(200px,320px)_1fr]">
-            <div className="relative aspect-square w-full bg-muted md:min-h-[320px] md:aspect-auto">
+            <div className="relative aspect-square w-full overflow-hidden bg-muted md:min-h-[320px] md:aspect-auto">
               {imageOk ? (
                 <img
                   src={displayImageUrl!}
                   alt=""
-                  className="h-full w-full object-cover"
+                  className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
                 />
               ) : (
                 <div className="flex h-full min-h-[240px] flex-col items-center justify-center gap-2 p-6 text-muted-foreground">
@@ -143,22 +142,28 @@ export default async function SeminovoVitrinePage ({ params }: Props) {
                   </div>
                 ) : null}
               </dl>
-              {device.info ? (
-                <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
-                  <p className="text-xs font-medium text-muted-foreground mb-1">Detalhes</p>
-                  <p className="whitespace-pre-wrap text-foreground/90">{device.info}</p>
-                </div>
-              ) : null}
-              <div className="border-t pt-4">
+              <div className="border-t border-border/80 pt-4">
                 {device.sold ? (
                   <p className="text-sm font-medium text-muted-foreground">Este aparelho já foi vendido.</p>
                 ) : saleCents != null && saleCents > 0 ? (
-                  <p className="text-lg font-semibold">
-                    <span className="text-muted-foreground font-normal text-sm block sm:inline sm:mr-2">
-                      Valor à vista (referência)
-                    </span>
-                    R$ {maskedFromCents(saleCents)}
-                  </p>
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      À vista
+                    </p>
+                    <p className="text-2xl font-bold tabular-nums tracking-tight sm:text-[1.75rem]">
+                      R$ {maskedFromCents(saleCents)}
+                    </p>
+                    {row12 ? (
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        ou 12 x de{' '}
+                        <span className="font-semibold tabular-nums text-foreground">
+                          R$ {maskedFromCents(row12.installmentValueCents)}
+                        </span>
+                      </p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Cadastre valor de varejo</p>
+                    )}
+                  </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">Valor de varejo não cadastrado.</p>
                 )}
@@ -173,9 +178,9 @@ export default async function SeminovoVitrinePage ({ params }: Props) {
           <CardHeader>
             <CardTitle>Cartão de crédito</CardTitle>
             <CardDescription>
-              Simulação de 1× a 12× usando a <strong className="text-foreground">maior taxa</strong>{' '}
-              cadastrada entre as formas de pagamento tipo crédito. O valor à vista acima é o que a loja
-              pretende receber; no cartão, o cliente paga o total com taxa embutida.
+              Simulação de 1× a 12× com base nas formas de pagamento em cartão cadastradas. O valor à vista
+              acima é a referência da loja; no cartão, os valores consideram os encargos de cada opção de
+              parcelamento.
             </CardDescription>
           </CardHeader>
           <CardContent className="overflow-x-auto">
@@ -183,7 +188,7 @@ export default async function SeminovoVitrinePage ({ params }: Props) {
               <TableHeader>
                 <TableRow>
                   <TableHead>Parcelas</TableHead>
-                  <TableHead>Taxa (maior)</TableHead>
+                  <TableHead>Taxa</TableHead>
                   <TableHead>Total no cartão</TableHead>
                   <TableHead className="text-right">Valor da parcela</TableHead>
                 </TableRow>

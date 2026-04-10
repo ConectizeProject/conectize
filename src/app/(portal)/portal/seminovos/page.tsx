@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import { fetchSeminovosDevices, fetchSeminovosStats } from '@/lib/seminovos/fetch-seminovos-data'
+import { attachResaleDeviceDisplayImage } from '@/lib/seminovos/resale-device-display-image'
 import { SeminovosListClient } from './SeminovosListClient'
 
 function isValidDate(value: string): boolean {
@@ -45,10 +46,14 @@ export default async function SeminovosPage({
   }
 
   const supabase = await createSupabaseServerClient()
-  const [devices, stats] = await Promise.all([
+  const [devicesRaw, stats] = await Promise.all([
     fetchSeminovosDevices(supabase, filters),
     fetchSeminovosStats(supabase),
   ])
+
+  const devices = await Promise.all(
+    devicesRaw.map((d) => attachResaleDeviceDisplayImage(supabase, d)),
+  )
 
   return (
     <Suspense fallback={<div className="p-4 text-sm text-muted-foreground">Carregando…</div>}>
