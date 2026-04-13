@@ -9,6 +9,7 @@ export type ServiceOrderDetail = {
   title: string
   imei: string | null
   color: string | null
+  device_location: string | null
   is_warranty: boolean | null
   estimated_ready_at: string | null
   passcode_type: string | null

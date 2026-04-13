@@ -58,7 +58,7 @@ export function OsPublicEntryPhotos ({ photos, className }: OsPublicEntryPhotosP
     <>
       <div className={cn('space-y-3', className)}>
         <h3 className="text-sm font-medium">Fotos do aparelho no momento da entrada</h3>
-        <ul className="grid grid-cols-4 sm:grid-cols-5 gap-2">
+        <ul className="grid grid-cols-6 sm:grid-cols-8 gap-1.5">
           {photos.map((photo, index) => (
             <li key={photo.id} className="list-none">
               <button

@@ -121,6 +121,9 @@ export function OrderEntryPhotos({
 	const [deletingId, setDeletingId] = useState<string | null>(null);
 	const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
 	const [isDragOver, setIsDragOver] = useState(false);
+	const [thumbsLoading, setThumbsLoading] = useState(
+		() => (initialPhotoCount ?? 0) > 0,
+	);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const searchParams = useSearchParams();
 	const uploading = uploadQueue.some((u) => u.status === "uploading");
@@ -136,24 +139,36 @@ export function OrderEntryPhotos({
 		}
 	}, [orderId, cfg.apiPath]);
 
-	const fetchPhotos = useCallback(async () => {
-		const res = await portalFetch(
-			`/api/portal/ordens/${orderId}/${cfg.apiPath}`,
-		);
-		if (!res.ok) return;
-		const data = await res.json().catch(() => null);
-		if (data?.ok && Array.isArray(data.photos)) {
-			setPhotos(data.photos);
-			setPhotoCount(data.photos.length);
-		}
-	}, [orderId, cfg.apiPath]);
+	const fetchPhotos = useCallback(
+		async (withThumbsLoading = false) => {
+			if (withThumbsLoading) setThumbsLoading(true);
+			try {
+				const res = await portalFetch(
+					`/api/portal/ordens/${orderId}/${cfg.apiPath}`,
+				);
+				if (!res.ok) return;
+				const data = await res.json().catch(() => null);
+				if (data?.ok && Array.isArray(data.photos)) {
+					setPhotos(data.photos);
+					setPhotoCount(data.photos.length);
+				}
+			} finally {
+				if (withThumbsLoading) setThumbsLoading(false);
+			}
+		},
+		[orderId, cfg.apiPath],
+	);
 
 	useEffect(() => {
 		if (initialPhotoCount === undefined || initialPhotoCount === null) fetchCount();
 	}, [fetchCount, initialPhotoCount]);
 
 	useEffect(() => {
-		if (modalOpen) fetchPhotos();
+		void fetchPhotos((initialPhotoCount ?? 0) > 0);
+	}, [fetchPhotos, initialPhotoCount]);
+
+	useEffect(() => {
+		if (modalOpen) void fetchPhotos(false);
 	}, [modalOpen, fetchPhotos]);
 
 	useEffect(() => {
@@ -257,7 +272,7 @@ export function OrderEntryPhotos({
 				}
 			}
 
-			await fetchPhotos();
+			await fetchPhotos(false);
 			const toRemove = newItems.map((n) => n.key);
 			setUploadQueue((prev) => {
 				prev.forEach((u) => {
@@ -310,7 +325,7 @@ export function OrderEntryPhotos({
 					{ method: "DELETE" },
 				);
 				if (res.ok) {
-					await fetchPhotos();
+					await fetchPhotos(false);
 					toast({
 						variant: "success",
 						title: cfg.toastDeletedTitle,
@@ -398,6 +413,53 @@ export function OrderEntryPhotos({
 				</div>
 			</div>
 
+			{(thumbsLoading && (initialPhotoCount ?? 0) > 0 && photos.length === 0) ||
+			photos.length > 0 ? (
+				<ul className="grid grid-cols-6 sm:grid-cols-8 gap-1.5">
+					{thumbsLoading &&
+						photos.length === 0 &&
+						(initialPhotoCount ?? 0) > 0 &&
+						Array.from({
+							length: Math.min(initialPhotoCount ?? 0, 10),
+						}).map((_, i) => (
+							<li
+								key={`thumb-skel-${i}`}
+								className="list-none aspect-square rounded-lg border border-border bg-muted animate-pulse"
+								aria-hidden
+							/>
+						))}
+					{photos.map((photo, index) => (
+						<li key={photo.id} className="list-none">
+							<button
+								type="button"
+								onClick={(e) => {
+									e.preventDefault();
+									e.stopPropagation();
+									openLightbox(index);
+								}}
+								className="relative block w-full aspect-square rounded-lg border border-border bg-muted overflow-hidden hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 cursor-pointer"
+								aria-label="Ver foto em tamanho maior"
+							>
+								{photo.url ? (
+									<Image
+										src={photo.url}
+										alt=""
+										fill
+										className="object-cover pointer-events-none"
+										sizes="(max-width: 640px) 14vw, 11vw"
+										unoptimized
+									/>
+								) : (
+									<span className="absolute inset-0 flex items-center justify-center text-muted-foreground text-xs pointer-events-none">
+										<Loader2 className="h-5 w-5 animate-spin" />
+									</span>
+								)}
+							</button>
+						</li>
+					))}
+				</ul>
+			) : null}
+
 			<Dialog open={modalOpen} onOpenChange={setModalOpen}>
 				<DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
 					<DialogHeader>
@@ -419,7 +481,7 @@ export function OrderEntryPhotos({
 							</div>
 						)}
 
-						<ul className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+						<ul className="grid grid-cols-6 sm:grid-cols-8 gap-1.5">
 							{photos.map((photo, index) => (
 								<li
 									key={photo.id}
@@ -437,7 +499,7 @@ export function OrderEntryPhotos({
 												alt=""
 												fill
 												className="object-cover"
-												sizes="(max-width: 640px) 50vw, 33vw"
+												sizes="(max-width: 640px) 14vw, 11vw"
 												unoptimized
 											/>
 										) : (

@@ -280,7 +280,7 @@ function serializeScalar (key: string, value: unknown): string {
   }
   if (typeof value === 'object') return JSON.stringify(value)
   if (typeof value === 'string') {
-    const t = ['title', 'imei', 'color', 'customer_description', 'receiving_notes', 'warranty_text', 'brand', 'model', 'passcode_text', 'passcode_pattern'].includes(key)
+    const t = ['title', 'imei', 'color', 'device_location', 'customer_description', 'receiving_notes', 'warranty_text', 'brand', 'model', 'passcode_text', 'passcode_pattern'].includes(key)
     return t ? value.trim() : value
   }
   return String(value)
@@ -401,6 +401,7 @@ export const ORDER_EDIT_FIELD_LABELS: Record<string, string> = {
   status: 'Status',
   imei: 'IMEI / serial',
   color: 'Cor',
+  device_location: 'Localização do aparelho',
   is_warranty: 'Serviço em garantia',
   estimated_ready_at: 'Previsão',
   passcode_type: 'Tipo de senha',

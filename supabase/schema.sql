@@ -445,6 +445,7 @@ alter table public.service_orders
   add column if not exists passcode_pattern text,
   add column if not exists customer_description text,
   add column if not exists receiving_notes text,
+  add column if not exists device_location text,
   add column if not exists payment_method_id uuid,
   add column if not exists installments integer,
   add column if not exists services jsonb,
