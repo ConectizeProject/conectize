@@ -1,81 +1,78 @@
 import { NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 
-function cleanText(value: string) {
-  return String(value || '').trim()
+function cleanText (value: string) {
+	return String(value || '').trim()
 }
 
-export async function GET(request: Request) {
-  const auth = await requireStaffOrAdmin()
-  if (auth.ok === false) {
-    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
-  }
-  const url = new URL(request.url)
-  const brandId = cleanText(String(url.searchParams.get('brandId') || ''))
-  const query = auth.supabase
-    .from('device_types')
-    .select('id, brand_id, name, device_brands ( id, name )')
-    .order('name', { ascending: true })
-  if (brandId) {
-    query.eq('brand_id', brandId)
-  }
-  const { data, error } = await query
-  if (error) {
-    console.error('[device-types GET]', error)
-    const message = process.env.NODE_ENV === 'development' ? error.message : 'db_error'
-    return NextResponse.json({ ok: false, error: 'db_error', message }, { status: 500 })
-  }
-  type Row = {
-    id: string
-    brand_id?: string | null
-    name?: string | null
-    device_brands?: { name?: string | null } | { name?: string | null }[] | null
-  }
-  const rows = (data || []).map((row: Row) => {
-    const b = row.device_brands
-    const brandName = Array.isArray(b) ? b[0]?.name : b?.name
-    return {
-      id: row.id,
-      brand_id: row.brand_id,
-      name: row.name,
-      brand_name: brandName ?? null,
-    }
-  })
-  return NextResponse.json({ ok: true, deviceTypes: rows })
+export async function PATCH (
+	request: Request,
+	{ params }: { params: Promise<{ id: string }> },
+) {
+	const auth = await requireStaffOrAdmin()
+	if (auth.ok === false) {
+		return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
+	}
+	const { id: rawId } = await params
+	const id = parseOptionalUuid(rawId)
+	if (!id) {
+		return NextResponse.json({ ok: false, error: 'invalid_id' }, { status: 400 })
+	}
+	const body = await request.json().catch(() => null)
+	const brandId = String(body?.brandId || body?.brand_id || '').trim()
+	const name = cleanText(String(body?.name || ''))
+	if (!brandId || !name) {
+		return NextResponse.json({ ok: false, error: 'invalid_payload' }, { status: 400 })
+	}
+	const { data, error } = await auth.supabase
+		.from('device_types')
+		.update({ brand_id: brandId, name })
+		.eq('id', id)
+		.select('id, brand_id, name')
+		.maybeSingle()
+	if (error) {
+		if (error.code === '23505') {
+			return NextResponse.json({ ok: false, error: 'duplicate_name' }, { status: 409 })
+		}
+		if (error.code === '23503') {
+			return NextResponse.json({ ok: false, error: 'invalid_brand' }, { status: 400 })
+		}
+		console.error('[device-types PATCH]', error)
+		return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+	}
+	if (!data) {
+		return NextResponse.json({ ok: false, error: 'not_found' }, { status: 404 })
+	}
+	return NextResponse.json({ ok: true, deviceType: data })
 }
 
-export async function POST(request: Request) {
-  const auth = await requireStaffOrAdmin()
-  if (auth.ok === false) {
-    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
-  }
-  const body = await request.json().catch(() => null)
-  const brandId = (body?.brandId || body?.brand_id || '').trim()
-  const name = cleanText(body?.name)
-  if (!brandId || !name) {
-    return NextResponse.json({ ok: false, error: 'invalid_payload' }, { status: 400 })
-  }
-  const { data: inserted, error } = await auth.supabase
-    .from('device_types')
-    .insert({ brand_id: brandId, name })
-    .select('id, brand_id, name')
-    .single()
-  if (error) {
-    if (error.code === '23505') {
-      const { data: existing } = await auth.supabase
-        .from('device_types')
-        .select('id, brand_id, name')
-        .eq('brand_id', brandId)
-        .eq('name', name)
-        .maybeSingle()
-      if (existing) {
-        return NextResponse.json({ ok: true, deviceType: existing, existed: true })
-      }
-    }
-    if (error.code === '23503') {
-      return NextResponse.json({ ok: false, error: 'invalid_brand' }, { status: 400 })
-    }
-    return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
-  }
-  return NextResponse.json({ ok: true, deviceType: inserted, existed: false })
+export async function DELETE (
+	_request: Request,
+	{ params }: { params: Promise<{ id: string }> },
+) {
+	const auth = await requireStaffOrAdmin()
+	if (auth.ok === false) {
+		return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
+	}
+	const { id: rawId } = await params
+	const id = parseOptionalUuid(rawId)
+	if (!id) {
+		return NextResponse.json({ ok: false, error: 'invalid_id' }, { status: 400 })
+	}
+	const { data: deleted, error } = await auth.supabase
+		.from('device_types')
+		.delete()
+		.eq('id', id)
+		.select('id')
+		.maybeSingle()
+	if (error) {
+		console.error('[device-types DELETE]', error)
+		const message = process.env.NODE_ENV === 'development' ? error.message : undefined
+		return NextResponse.json({ ok: false, error: 'db_error', message }, { status: 500 })
+	}
+	if (!deleted) {
+		return NextResponse.json({ ok: false, error: 'not_found' }, { status: 404 })
+	}
+	return NextResponse.json({ ok: true })
 }

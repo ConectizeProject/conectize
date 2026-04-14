@@ -91,6 +91,7 @@ export async function GET (
       brand,
       model,
       color,
+      device_location,
       imei,
       is_warranty,
       estimated_ready_at,
@@ -178,6 +179,7 @@ export async function GET (
     deviceType,
     imei: String(o.imei ?? ''),
     color: String(o.color ?? ''),
+    deviceLocation: String(o.device_location ?? ''),
     isWarranty: Boolean(o.is_warranty),
     estimatedReadyAt: estimatedReadyAtForDuplicateForm(
       o.estimated_ready_at ? String(o.estimated_ready_at) : null,

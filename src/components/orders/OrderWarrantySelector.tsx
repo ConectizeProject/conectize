@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
@@ -29,22 +29,12 @@ export function OrderWarrantySelector ({
   disabled,
 }: Props) {
   const activeTemplates = templates.filter((t) => t.is_active ?? true)
-  const defaultTemplate = activeTemplates.find((t) => t.is_default) || null
 
   const [selectedId, setSelectedId] = useState<string>(() => {
     if (initialTemplateId) return initialTemplateId
-    if (!initialText && defaultTemplate) return defaultTemplate.id
     return '__none__'
   })
-  const [text, setText] = useState<string>(() => initialText || (defaultTemplate?.body ?? ''))
-
-  useEffect(() => {
-    if (!initialTemplateId && !initialText && defaultTemplate) {
-      setSelectedId(defaultTemplate.id)
-      setText(defaultTemplate.body)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  const [text, setText] = useState<string>(() => initialText || '')
 
   function handleTemplateChange (value: string) {
     setSelectedId(value)

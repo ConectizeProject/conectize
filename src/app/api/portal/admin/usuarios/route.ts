@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
   const roles = rolesParam
     .split(',')
     .map((r) => r.trim().toLowerCase())
-    .filter((r) => ['admin', 'staff', 'user', 'customer'].includes(r))
+    .filter((r) => ['admin', 'staff', 'user', 'customer', 'retailer'].includes(r))
 
   // Map to DB roles: customer -> user
   const dbRoles = [...new Set(roles.map((r) => (r === 'customer' ? 'user' : r)))]
@@ -25,6 +25,9 @@ export async function GET(request: NextRequest) {
     targetRoles = targetRoles.filter((r) => r !== 'user')
     targetRoles.push('user', 'customer')
     targetRoles = [...new Set(targetRoles)]
+  }
+  if (dbRoles.includes('retailer')) {
+    targetRoles = [...new Set([...targetRoles, 'retailer'])]
   }
 
   const { data: users, error } = await auth.supabase

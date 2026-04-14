@@ -179,6 +179,7 @@ export function NovaOrdemClient(props: Props) {
 					deviceType: o.deviceType ?? "",
 					imei: o.imei ?? "",
 					color: o.color ?? "",
+					deviceLocation: o.deviceLocation ?? "",
 					isWarranty: Boolean(o.isWarranty),
 					estimatedReadyAt: o.estimatedReadyAt ?? "",
 					passcodeType: o.passcodeType ?? "none",
@@ -334,6 +335,7 @@ export function NovaOrdemClient(props: Props) {
 		fd.append("status", values.status);
 		fd.append("imei", values.imei);
 		fd.append("color", values.color);
+		fd.append("deviceLocation", values.deviceLocation);
 		fd.append("estimatedReadyAt", values.estimatedReadyAt);
 		fd.append("customerDescription", values.customerDescription);
 		fd.append("internalInitialComment", values.internalInitialComment);

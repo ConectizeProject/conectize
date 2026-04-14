@@ -25,7 +25,7 @@ import {
 export const dynamic = 'force-dynamic'
 
 const ORDER_SELECT =
-	'id, display_number, status, title, imei, color, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, payment_methods, customer_description, receiving_notes, warranty_template_id, warranty_text, device_model_id, brand, model, services, services_total_cents, services_cost_total_cents, created_at, updated_at, closed_at, share_token, seller_user_id, device_entry_checks, device_exit_checks, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date, zip_code, state, city, neighborhood, street, street_number, street_complement, referral_source, referral_source_other ), device_models ( id, model, device_types ( name, device_brands ( name ) ) )'
+	'id, display_number, status, title, imei, color, device_location, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, payment_methods, customer_description, receiving_notes, warranty_template_id, warranty_text, device_model_id, brand, model, services, services_total_cents, services_cost_total_cents, created_at, updated_at, closed_at, share_token, seller_user_id, device_entry_checks, device_exit_checks, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date, zip_code, state, city, neighborhood, street, street_number, street_complement, referral_source, referral_source_other ), device_models ( id, model, device_types ( name, device_brands ( name ) ) )'
 
 type PageProps = {
 	params: Promise<{ numero: string }>
@@ -51,6 +51,8 @@ export default async function OrdemDetalhePage ({
 	const normalizedRole = role === 'customer' ? 'user' : role
 	if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
 
+	const isPortalReadOnly = normalizedRole === 'retailer'
+
 	if (!resolved) {
 		return (
 			<Card>
@@ -60,7 +62,7 @@ export default async function OrdemDetalhePage ({
 				</CardHeader>
 				<CardContent>
 					<Button asChild variant="outline">
-						<Link href="/portal/ordens">Voltar</Link>
+						<Link href={isPortalReadOnly ? '/portal/minhas-ordens' : '/portal/ordens'}>Voltar</Link>
 					</Button>
 				</CardContent>
 			</Card>
@@ -97,7 +99,7 @@ export default async function OrdemDetalhePage ({
 				</CardHeader>
 				<CardContent>
 					<Button asChild variant="outline">
-						<Link href="/portal/ordens">Voltar</Link>
+						<Link href={isPortalReadOnly ? '/portal/minhas-ordens' : '/portal/ordens'}>Voltar</Link>
 					</Button>
 				</CardContent>
 			</Card>
@@ -207,6 +209,7 @@ export default async function OrdemDetalhePage ({
 			role={role}
 			isAdmin={isAdmin}
 			openServicesModalInitially={openServicesModalInitially}
+			readOnly={isPortalReadOnly}
 		/>
 	)
 }

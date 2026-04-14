@@ -13,6 +13,7 @@ export type FormValues = {
 	deviceType: string;
 	imei: string;
 	color: string;
+	deviceLocation: string;
 	isWarranty: boolean;
 	estimatedReadyAt: string;
 	passcodeType: string;
@@ -42,6 +43,7 @@ export const initialFormValues: FormValues = {
 	deviceType: "",
 	imei: "",
 	color: "",
+	deviceLocation: "",
 	isWarranty: false,
 	estimatedReadyAt: "",
 	passcodeType: "none",

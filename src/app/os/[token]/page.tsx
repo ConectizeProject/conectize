@@ -9,8 +9,7 @@ import { formatCentsBr } from '@/lib/utils/format-money'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
 import { OsPublicEntryPhotos } from './OsPublicEntryPhotos'
-import { ENTRY_CHECK_ITEMS } from '@/lib/orders/entry-check-items'
-import { Check, Minus, X } from 'lucide-react'
+import { OsPublicDeviceChecksSection } from './OsPublicDeviceChecksSection'
 
 export const dynamic = 'force-dynamic'
 
@@ -170,7 +169,7 @@ export default async function OrdemPublicaPage({
 	const [{ data: order }, { data: _company }, { data: paymentMethodsCatalog }] = await Promise.all([
 		supabase
 			.from('service_orders')
-			.select('id, display_number, status, title, imei, is_warranty, estimated_ready_at, customer_description, receiving_notes, warranty_text, services, payment_methods, brand, model, device_model_id, created_at, updated_at, closed_at, device_entry_checks, customers ( cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date ), device_models ( id, model, device_types ( name, device_brands ( name ) ) )')
+			.select('id, display_number, status, title, imei, device_location, is_warranty, estimated_ready_at, customer_description, receiving_notes, warranty_text, services, payment_methods, brand, model, device_model_id, created_at, updated_at, closed_at, device_entry_checks, device_exit_checks, customers ( cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date ), device_models ( id, model, device_types ( name, device_brands ( name ) ) )')
 			.eq('share_token', token)
 			.maybeSingle(),
 		supabase
@@ -282,10 +281,15 @@ export default async function OrdemPublicaPage({
 	const hasWarrantyText = Boolean(order.warranty_text?.trim())
 	const hasPaymentMethods = paymentMethodsDisplay.length > 0
 	const entryChecksData = parseEntryChecks(order.device_entry_checks)
-	const notTested = entryChecksData.status !== 'operante'
+	const exitChecksData = parseEntryChecks(order.device_exit_checks)
+	const notTestedEntry = entryChecksData.status !== 'operante'
 	const hasEntryChecks =
-		notTested ||
+		notTestedEntry ||
 		Object.keys(entryChecksData.checks).length > 0
+	const notTestedExit = exitChecksData.status !== 'operante'
+	const hasExitChecks =
+		notTestedExit ||
+		Object.keys(exitChecksData.checks).length > 0
 	const hasEntryPhotos = entryPhotos.length > 0
 
 	return (
@@ -320,6 +324,9 @@ export default async function OrdemPublicaPage({
 								<CardDescription>
 									Dispositivo: {deviceDisplay}
 									{order.imei ? ` • IMEI/Série: ${order.imei}` : ''}
+									{order.device_location?.trim()
+										? ` • Localização: ${order.device_location.trim()}`
+										: ''}
 									{order.is_warranty ? ' • Garantia: Sim' : ''}
 								</CardDescription>
 							</CardHeader>
@@ -356,55 +363,19 @@ export default async function OrdemPublicaPage({
 								)}
 
 								{hasEntryChecks && (
-									<div className="space-y-3">
-										<h3 className="text-sm font-medium">Itens testados no momento da abertura</h3>
-										{notTested ? (
-											<p className="text-sm text-amber-600 dark:text-amber-400">
-												Não foi possível testar o aparelho (estava desligado ou com display apagado/danificado).
-											</p>
-										) : (
-											<>
-												{Object.keys(entryChecksData.checks).length === 0 ? (
-													<p className="text-sm text-muted-foreground">Nenhum teste registrado.</p>
-												) : (
-													<ul className="space-y-1.5">
-														{ENTRY_CHECK_ITEMS.map((item) => {
-															const value = entryChecksData.checks[item.key]
-															if (value === undefined) return null
-															return (
-																<li
-																	key={item.key}
-																	className="flex items-center justify-between gap-2 text-sm rounded-md border border-border px-3 py-2 bg-muted/20"
-																>
-																	<span className="text-foreground">{item.label}</span>
-																	<span className="shrink-0 flex items-center gap-1">
-																		{value === 'ok' && (
-																			<>
-																				<Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" aria-hidden />
-																				<span className="text-emerald-600 dark:text-emerald-400">OK</span>
-																			</>
-																		)}
-																		{value === 'fail' && (
-																			<>
-																				<X className="h-4 w-4 text-destructive" aria-hidden />
-																				<span className="text-destructive">Não OK</span>
-																			</>
-																		)}
-																		{value === 'na' && (
-																			<>
-																				<Minus className="h-4 w-4 text-muted-foreground" aria-hidden />
-																				<span className="text-muted-foreground">Não se aplica</span>
-																			</>
-																		)}
-																	</span>
-																</li>
-															)
-														})}
-													</ul>
-												)}
-											</>
-										)}
-									</div>
+									<OsPublicDeviceChecksSection
+										title="Itens testados no momento da abertura"
+										momentShort="abertura"
+										parsed={entryChecksData}
+									/>
+								)}
+
+								{hasExitChecks && (
+									<OsPublicDeviceChecksSection
+										title="Itens testados no momento da saída"
+										momentShort="saída"
+										parsed={exitChecksData}
+									/>
 								)}
 
 								{hasServices && (

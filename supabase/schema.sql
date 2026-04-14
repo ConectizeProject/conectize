@@ -75,7 +75,7 @@ alter table public.users
   drop constraint if exists users_role_check;
 
 alter table public.users
-  add constraint users_role_check check (role in ('user', 'staff', 'admin'));
+  add constraint users_role_check check (role in ('user', 'staff', 'admin', 'retailer'));
 
 -- CPF deve pertencer a 1 conta (quando preenchido)
 create unique index if not exists users_cpf_unique
@@ -445,6 +445,7 @@ alter table public.service_orders
   add column if not exists passcode_pattern text,
   add column if not exists customer_description text,
   add column if not exists receiving_notes text,
+  add column if not exists device_location text,
   add column if not exists payment_method_id uuid,
   add column if not exists installments integer,
   add column if not exists services jsonb,

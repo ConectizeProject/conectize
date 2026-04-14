@@ -52,8 +52,13 @@ async function SeminovosVarejoListInner({
 
 	const normalizedRole = role === "customer" ? "user" : role;
 	if (normalizedRole === "user") redirect("/portal/minhas-ordens");
-	if (normalizedRole !== "staff" && normalizedRole !== "admin")
-		redirect("/portal");
+	const canAccessVarejo =
+		normalizedRole === "staff" ||
+		normalizedRole === "admin" ||
+		normalizedRole === "retailer";
+	if (!canAccessVarejo) redirect("/portal");
+
+	const isRetailer = normalizedRole === "retailer";
 
 	const params = await searchParams;
 	const tipoRaw = String(params?.tipo || "").toLowerCase();
@@ -100,19 +105,26 @@ async function SeminovosVarejoListInner({
 						no cartão. Toque para abrir a vitrine completa.
 					</p>
 				</div>
-				<Button variant="outline" size="sm" className="shrink-0 w-fit" asChild>
-					<Link href={operacionalHref}>Voltar à listagem operacional</Link>
-				</Button>
+				{!isRetailer ? (
+					<Button variant="outline" size="sm" className="shrink-0 w-fit" asChild>
+						<Link href={operacionalHref}>Voltar à listagem operacional</Link>
+					</Button>
+				) : null}
 			</div>
 
-			<SeminovosSubmenu />
+			<SeminovosSubmenu retailerMode={isRetailer} />
 
 			{devicesWithDisplay.length === 0 ? (
 				<div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-					Nenhum aparelho disponível nesta categoria.{" "}
-					<Link href={operacionalHref} className="text-primary underline">
-						Ver listagem operacional
-					</Link>
+					Nenhum aparelho disponível nesta categoria.
+					{!isRetailer ? (
+						<>
+							{" "}
+							<Link href={operacionalHref} className="text-primary underline">
+								Ver listagem operacional
+							</Link>
+						</>
+					) : null}
 				</div>
 			) : (
 				<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">

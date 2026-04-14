@@ -4,6 +4,7 @@ import {
   isExitConsiderationsEmpty,
   shouldRequireExitConsiderationsOnStatusChange,
 } from '@/lib/orders/exit-considerations'
+import { isOrderWarrantyTermsUnset } from '@/lib/orders/order-warranty-terms'
 import {
   FINALIZED_ORDER_STATUS_SET,
   ORDER_STATUS_SET,
@@ -19,6 +20,7 @@ export type ApplyOrderStatusChangeResult =
         | 'not_found'
         | 'db_error'
         | 'exit_considerations_incomplete'
+        | 'warranty_terms_missing'
     }
 
 /**
@@ -33,9 +35,17 @@ export async function applyOrderStatusChange (
     editorUserId: string
     /** Após o usuário confirmar no diálogo que deseja finalizar sem saída registrada */
     skipExitConsiderationsCheck?: boolean
+    /** Após confirmar finalizar sem modelo/texto de garantia */
+    skipWarrantyTermsCheck?: boolean
   },
 ): Promise<ApplyOrderStatusChangeResult> {
-  const { orderId, nextStatus, editorUserId, skipExitConsiderationsCheck } = params
+  const {
+    orderId,
+    nextStatus,
+    editorUserId,
+    skipExitConsiderationsCheck,
+    skipWarrantyTermsCheck,
+  } = params
 
   if (!ORDER_STATUS_SET.has(nextStatus)) {
     return { ok: false, error: 'invalid_status' }
@@ -43,7 +53,9 @@ export async function applyOrderStatusChange (
 
   const { data: existing, error: fetchErr } = await supabase
     .from('service_orders')
-    .select('status, services, closed_at, device_exit_checks')
+    .select(
+      'status, services, closed_at, device_exit_checks, warranty_template_id, warranty_text',
+    )
     .eq('id', orderId)
     .maybeSingle()
 
@@ -79,6 +91,25 @@ export async function applyOrderStatusChange (
       return { ok: false, error: 'exit_considerations_incomplete' }
     }
   }
+
+  if (
+    !skipWarrantyTermsCheck &&
+    shouldRequireExitConsiderationsOnStatusChange(previousStatus, nextStatus)
+  ) {
+    const row = existing as {
+      warranty_template_id?: string | null
+      warranty_text?: string | null
+    }
+    if (
+      isOrderWarrantyTermsUnset({
+        warranty_template_id: row.warranty_template_id,
+        warranty_text: row.warranty_text,
+      })
+    ) {
+      return { ok: false, error: 'warranty_terms_missing' }
+    }
+  }
+
   const updatePayload: Record<string, unknown> = { status: nextStatus }
   if (FINALIZED_ORDER_STATUS_SET.has(nextStatus)) {
     updatePayload.closed_at = new Date().toISOString()

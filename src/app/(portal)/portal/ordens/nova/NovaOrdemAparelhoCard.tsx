@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Field, useFormikContext } from "formik";
 import type { FormValues } from "./nova-ordem-form";
@@ -237,6 +238,18 @@ export function NovaOrdemAparelhoCard(props: Props) {
 							placeholder="Ex: Preto, Prateado"
 						/>
 					</div>
+				</div>
+
+				<div className="space-y-2">
+					<Label htmlFor="deviceLocation">Localização do aparelho</Label>
+					<Field
+						as={Textarea}
+						id="deviceLocation"
+						name="deviceLocation"
+						rows={3}
+						placeholder="Ex: Bancada 2, gaveta A, laboratório…"
+						className="resize-y min-h-[4.5rem]"
+					/>
 				</div>
 			</CardContent>
 		</Card>

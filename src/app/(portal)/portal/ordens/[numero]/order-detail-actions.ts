@@ -31,6 +31,7 @@ export async function updateOrderAction (formData: FormData) {
 	const status = String(formData.get('status') || '').trim()
 	const imei = String(formData.get('imei') || '').trim()
 	const color = String(formData.get('color') || '').trim()
+	const deviceLocation = String(formData.get('deviceLocation') || '').trim()
 	const isWarranty = Boolean(formData.get('isWarranty'))
 	const estimatedReadyAtRaw = String(
 		formData.get('estimatedReadyAt') || '',
@@ -98,10 +99,24 @@ export async function updateOrderAction (formData: FormData) {
 	if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
 
 	const supabase = await createSupabaseServerClient()
+
+	if (normalizedRole === 'retailer') {
+		const { data: ref } = await supabase
+			.from('service_orders')
+			.select('display_number')
+			.eq('id', formOrderId)
+			.maybeSingle()
+		const ordemPathEarly = getOrdemPortalPath({
+			id: formOrderId,
+			display_number: ref?.display_number ?? null,
+		})
+		redirect(`${ordemPathEarly}?error=sem_permissao`)
+	}
+
 	const { data: existing, error: fetchExistingError } = await supabase
 		.from('service_orders')
 		.select(
-			`display_number, status, services, title, imei, color, is_warranty, estimated_ready_at,
+			`display_number, status, services, title, imei, color, device_location, is_warranty, estimated_ready_at,
 				passcode_type, passcode_text, passcode_pattern,
 				payment_methods, customer_description, receiving_notes,
 				warranty_template_id, warranty_text, device_model_id, brand, model,
@@ -176,6 +191,7 @@ export async function updateOrderAction (formData: FormData) {
 		status,
 		imei: imei || null,
 		color: color || null,
+		device_location: deviceLocation || null,
 		is_warranty: isWarranty,
 		estimated_ready_at: estimatedReadyAt,
 		passcode_type:
@@ -306,6 +322,7 @@ export type UpdateOrderStatusActionResult =
 				| 'not_found'
 				| 'db_error'
 				| 'exit_considerations_incomplete'
+				| 'warranty_terms_missing'
 	  }
 
 /**
@@ -338,18 +355,27 @@ export async function updateOrderStatusAction (
 	const confirmRaw = String(formData.get('confirmIncompleteExit') || '').trim()
 	const skipExitConsiderationsCheck =
 		confirmRaw === '1' || confirmRaw.toLowerCase() === 'true'
+	const confirmWarrantyRaw = String(
+		formData.get('confirmFinalizeWithoutWarranty') || '',
+	).trim()
+	const skipWarrantyTermsCheck =
+		confirmWarrantyRaw === '1' || confirmWarrantyRaw.toLowerCase() === 'true'
 
 	const applied = await applyOrderStatusChange(supabase, {
 		orderId,
 		nextStatus: status,
 		editorUserId: user.id,
 		skipExitConsiderationsCheck,
+		skipWarrantyTermsCheck,
 	})
 
 	if (applied.ok) return { ok: true }
 	if (applied.ok === false) {
 		if (applied.error === 'exit_considerations_incomplete') {
 			return { ok: false, error: 'exit_considerations_incomplete' }
+		}
+		if (applied.error === 'warranty_terms_missing') {
+			return { ok: false, error: 'warranty_terms_missing' }
 		}
 		if (applied.error === 'not_found') {
 			return { ok: false, error: 'not_found' }

@@ -166,6 +166,7 @@ export type OrdemPrintData = {
   }
   device: string
   imei: string | null
+  deviceLocation: string | null
   isWarranty: boolean
   estimatedReadyAt: string | null
   customerDescription: string | null
@@ -360,6 +361,7 @@ export function buildOrdemPrintHtml(
   <div class="section">
     <h2>Equipamento</h2>
     <div class="row"><span>${data.device}${data.imei ? ` • IMEI: ${data.imei}` : ''}</span></div>
+    ${data.deviceLocation?.trim() ? `<div class="row"><span class="label">Localização</span><span class="value">${escapeHtml(data.deviceLocation.trim())}</span></div>` : ''}
   </div>
 
   ${data.customerDescription ? `<div class="section"><h2>Descrição</h2><div class="block">${escapeHtml(data.customerDescription)}</div></div>` : ''}

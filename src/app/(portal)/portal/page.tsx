@@ -19,8 +19,9 @@ export default async function PortalHomePage() {
 
   const role = appUser?.role || 'user'
   const isBasicUser = role === 'user' || role === 'customer' || !role
+  const isRetailer = role === 'retailer'
 
-  if (isBasicUser) redirect('/portal/minhas-ordens')
+  if (isBasicUser || isRetailer) redirect('/portal/minhas-ordens')
   redirect('/portal/dashboard')
 }
 

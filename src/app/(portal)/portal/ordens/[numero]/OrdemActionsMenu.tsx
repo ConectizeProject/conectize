@@ -34,6 +34,7 @@ import {
   isExitConsiderationsEmpty,
   shouldRequireExitConsiderationsOnStatusChange,
 } from '@/lib/orders/exit-considerations'
+import { isOrderWarrantyTermsUnset } from '@/lib/orders/order-warranty-terms'
 import { updateOrderStatusAction } from './order-detail-actions'
 
 type Props = {
@@ -54,6 +55,8 @@ type Props = {
   isAdmin?: boolean
   deviceExitChecks: unknown
   exitPhotoCount: number
+  warrantyTemplateId: string | null
+  warrantyText: string | null
 }
 
 export function OrdemActionsMenu({
@@ -73,6 +76,8 @@ export function OrdemActionsMenu({
   isAdmin = false,
   deviceExitChecks,
   exitPhotoCount,
+  warrantyTemplateId,
+  warrantyText,
 }: Props) {
   const router = useRouter()
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -84,6 +89,10 @@ export function OrdemActionsMenu({
   const [deleteSubmitting, setDeleteSubmitting] = useState(false)
   const [exitConsiderationsOpen, setExitConsiderationsOpen] = useState(false)
   const [pendingFinalizeStatus, setPendingFinalizeStatus] = useState<string | null>(null)
+  const [finalizeBlockers, setFinalizeBlockers] = useState<{
+    exit: boolean
+    warranty: boolean
+  } | null>(null)
 
   useEffect(() => {
     if (publicOrderPath && typeof window !== 'undefined') {
@@ -124,17 +133,33 @@ export function OrdemActionsMenu({
 
   async function handleStatusChange(
     newStatus: string,
-    options?: { confirmIncompleteExit?: boolean },
+    options?: {
+      confirmIncompleteExit?: boolean
+      confirmFinalizeWithoutWarranty?: boolean
+    },
   ) {
     const confirmIncompleteExit = options?.confirmIncompleteExit === true
+    const confirmFinalizeWithoutWarranty =
+      options?.confirmFinalizeWithoutWarranty === true
     if (
       !confirmIncompleteExit &&
-      shouldRequireExitConsiderationsOnStatusChange(status, newStatus) &&
-      isExitConsiderationsEmpty(deviceExitChecks, exitPhotoCount)
+      !confirmFinalizeWithoutWarranty &&
+      shouldRequireExitConsiderationsOnStatusChange(status, newStatus)
     ) {
-      setPendingFinalizeStatus(newStatus)
-      setExitConsiderationsOpen(true)
-      return
+      const exitEmpty = isExitConsiderationsEmpty(
+        deviceExitChecks,
+        exitPhotoCount,
+      )
+      const warrantyUnset = isOrderWarrantyTermsUnset({
+        warranty_template_id: warrantyTemplateId,
+        warranty_text: warrantyText,
+      })
+      if (exitEmpty || warrantyUnset) {
+        setPendingFinalizeStatus(newStatus)
+        setFinalizeBlockers({ exit: exitEmpty, warranty: warrantyUnset })
+        setExitConsiderationsOpen(true)
+        return
+      }
     }
 
     setStatusUpdating(true)
@@ -145,10 +170,20 @@ export function OrdemActionsMenu({
       if (confirmIncompleteExit) {
         fd.set('confirmIncompleteExit', '1')
       }
+      if (confirmFinalizeWithoutWarranty) {
+        fd.set('confirmFinalizeWithoutWarranty', '1')
+      }
       const result = await updateOrderStatusAction(fd)
       if (result.ok === false) {
         if (result.error === 'exit_considerations_incomplete') {
           setPendingFinalizeStatus(newStatus)
+          setFinalizeBlockers({ exit: true, warranty: false })
+          setExitConsiderationsOpen(true)
+          return
+        }
+        if (result.error === 'warranty_terms_missing') {
+          setPendingFinalizeStatus(newStatus)
+          setFinalizeBlockers({ exit: false, warranty: true })
           setExitConsiderationsOpen(true)
           return
         }
@@ -157,6 +192,7 @@ export function OrdemActionsMenu({
       }
       setExitConsiderationsOpen(false)
       setPendingFinalizeStatus(null)
+      setFinalizeBlockers(null)
       toast({
         variant: 'success',
         title: 'Status atualizado',
@@ -292,15 +328,37 @@ export function OrdemActionsMenu({
         open={exitConsiderationsOpen}
         onOpenChange={(open) => {
           setExitConsiderationsOpen(open)
-          if (!open) setPendingFinalizeStatus(null)
+          if (!open) {
+            setPendingFinalizeStatus(null)
+            setFinalizeBlockers(null)
+          }
         }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Considerações da assistência não preenchidas</AlertDialogTitle>
-            <AlertDialogDescription>
-              Não há checklist de saída nem fotos de saída registrados nesta OS. Em geral isso
-              ajuda a comparar o aparelho na entrega com o recebimento. Deseja finalizar mesmo assim?
+            <AlertDialogTitle>
+              {finalizeBlockers?.exit && finalizeBlockers?.warranty
+                ? 'Antes de finalizar'
+                : finalizeBlockers?.warranty
+                  ? 'Sem termos de garantia'
+                  : 'Considerações da assistência não preenchidas'}
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm text-muted-foreground">
+                {finalizeBlockers?.exit ? (
+                  <p>
+                    Não há checklist de saída nem fotos de saída registrados nesta OS. Em geral
+                    isso ajuda a comparar o aparelho na entrega com o recebimento.
+                  </p>
+                ) : null}
+                {finalizeBlockers?.warranty ? (
+                  <p>
+                    Não há modelo nem texto de garantia nesta ordem. Na impressão e no link
+                    público não será exibido termo de garantia para o cliente. Deseja finalizar
+                    assim mesmo?
+                  </p>
+                ) : null}
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -309,10 +367,14 @@ export function OrdemActionsMenu({
               onClick={(e) => {
                 e.preventDefault()
                 const next = pendingFinalizeStatus
-                if (!next) return
-                void handleStatusChange(next, { confirmIncompleteExit: true })
+                const blockers = finalizeBlockers
+                if (!next || !blockers) return
+                void handleStatusChange(next, {
+                  confirmIncompleteExit: blockers.exit,
+                  confirmFinalizeWithoutWarranty: blockers.warranty,
+                })
               }}
-              disabled={statusUpdating || !pendingFinalizeStatus}
+              disabled={statusUpdating || !pendingFinalizeStatus || !finalizeBlockers}
             >
               {statusUpdating ? 'Salvando…' : 'Sim, finalizar'}
             </AlertDialogAction>

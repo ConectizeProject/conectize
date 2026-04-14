@@ -25,6 +25,7 @@ export async function createOrderAction(formData: FormData) {
   const deviceModelId = parseOptionalUuid(formData.get('deviceModelId'))
   const imei = String(formData.get('imei') || '').trim()
   const color = String(formData.get('color') || '').trim()
+  const deviceLocation = String(formData.get('deviceLocation') || '').trim()
   const customerDescription = String(formData.get('customerDescription') || '').trim()
   const internalInitialComment = String(formData.get('internalInitialComment') || '').trim()
   const receivingNotes = String(formData.get('receivingNotes') || '').trim()
@@ -99,6 +100,7 @@ export async function createOrderAction(formData: FormData) {
       device_model_id: deviceModelId,
       imei: imei || null,
       color: color || null,
+      device_location: deviceLocation || null,
       is_warranty: isWarranty,
       estimated_ready_at: estimatedReadyAt,
       passcode_type: (passcodeType === 'text' || passcodeType === 'pattern') ? passcodeType : null,

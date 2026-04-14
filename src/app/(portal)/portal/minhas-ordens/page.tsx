@@ -1,7 +1,7 @@
 import Link from 'next/link'
-import { redirect } from 'next/navigation'
 import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
+import { resolvePortalCustomer } from '@/lib/portal/resolve-portal-customer'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { OrderStatusBadge } from '@/components/orders'
 import { getOrdemPortalPath } from '@/lib/orders/ordem-portal-path'
@@ -14,7 +14,6 @@ export default async function MinhasOrdensPage() {
   const supabase = await createSupabaseServerClient()
   const { user } = await getAuthUser()
 
-  //todo: deve ser feito de forma mais segura, com middleware, em um contxto mais global, contemplando todas as rotas protegidas
   if (!user) await redirectToPortalLogin()
 
   const { data: appUser } = await supabase
@@ -24,16 +23,32 @@ export default async function MinhasOrdensPage() {
     .maybeSingle()
 
   const role = appUser?.role || 'user'
+  const normalizedRole = role === 'customer' ? 'user' : role
 
-  const { data: customer } = await supabase
-    .from('customers')
-    .select('id, cpf, full_name')
-    .eq('auth_user_id', user.id)
-    .maybeSingle()
+  const { customer, effectiveTaxId, source } = await resolvePortalCustomer(supabase, user.id)
+
+  if (normalizedRole === 'retailer' && source === 'none') {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold">Minhas ordens de serviço</h1>
+          <p className="text-sm text-muted-foreground">
+            Conta lojista sem vínculo a uma loja.
+          </p>
+        </div>
+        <Alert>
+          <AlertTitle>Vínculo pendente</AlertTitle>
+          <AlertDescription>
+            Peça ao administrador da Conectize para vincular seu usuário ao cadastro da sua loja.
+          </AlertDescription>
+        </Alert>
+      </div>
+    )
+  }
 
   const effectiveCpf = customer?.cpf || appUser?.cpf || null
 
-  if (role === 'user' && !effectiveCpf) {
+  if (normalizedRole === 'user' && !effectiveCpf) {
     return (
       <div className="space-y-6">
         <div>
@@ -62,12 +77,25 @@ export default async function MinhasOrdensPage() {
     .select('id, display_number, status, title, created_at, updated_at')
     .order('created_at', { ascending: false })
 
+  const displayLabel =
+    customer?.company_name ||
+    customer?.trade_name ||
+    customer?.full_name ||
+    'Cliente'
+
+  const docLabel =
+    customer?.is_company ? 'CNPJ' : 'CPF'
+
+  const docFormatted = effectiveTaxId ? formatCpfCnpj(effectiveTaxId) : '-'
+
+  const isRetailer = normalizedRole === 'retailer'
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Minhas ordens de serviço</h1>
         <p className="text-sm text-muted-foreground">
-          {customer?.full_name ? customer.full_name : 'Cliente'} • CPF {effectiveCpf ? formatCpfCnpj(effectiveCpf) : '-'}
+          {displayLabel} • {docLabel} {docFormatted}
         </p>
       </div>
 
@@ -75,7 +103,9 @@ export default async function MinhasOrdensPage() {
         <CardHeader>
           <CardTitle>Ordens</CardTitle>
           <CardDescription>
-            Aqui aparecem as ordens vinculadas ao seu CPF.
+            {isRetailer
+              ? 'Ordens de serviço da sua loja.'
+              : 'Aqui aparecem as ordens vinculadas ao seu CPF.'}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -112,7 +142,11 @@ export default async function MinhasOrdensPage() {
             <div className="flex flex-col items-center justify-center py-12 px-4">
               <img src="/empty-ordens.svg" alt="" className="w-36 h-36 mx-auto mb-5 object-contain" aria-hidden />
               <p className="text-base font-medium text-muted-foreground">Nenhuma OS encontrada</p>
-              <p className="text-sm text-muted-foreground/80 mt-1.5 max-w-xs text-center">Suas ordens de serviço aparecerão aqui quando forem vinculadas ao seu CPF.</p>
+              <p className="text-sm text-muted-foreground/80 mt-1.5 max-w-xs text-center">
+                {isRetailer
+                  ? 'As ordens da loja aparecerão aqui quando forem cadastradas.'
+                  : 'Suas ordens de serviço aparecerão aqui quando forem vinculadas ao seu CPF.'}
+              </p>
             </div>
           )}
         </CardContent>
@@ -120,5 +154,3 @@ export default async function MinhasOrdensPage() {
     </div>
   )
 }
-
-

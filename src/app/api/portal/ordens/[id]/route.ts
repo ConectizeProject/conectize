@@ -32,6 +32,10 @@ export async function PATCH (
     typeof body === 'object' &&
     body !== null &&
     (body as { confirmIncompleteExit?: unknown }).confirmIncompleteExit === true
+  const confirmFinalizeWithoutWarranty =
+    typeof body === 'object' &&
+    body !== null &&
+    (body as { confirmFinalizeWithoutWarranty?: unknown }).confirmFinalizeWithoutWarranty === true
 
   if (!status || !ORDER_STATUS_SET.has(status)) {
     return NextResponse.json({ ok: false, error: 'invalid_status' }, { status: 400 })
@@ -42,6 +46,7 @@ export async function PATCH (
     nextStatus: status,
     editorUserId: auth.userId,
     skipExitConsiderationsCheck: confirmIncompleteExit,
+    skipWarrantyTermsCheck: confirmFinalizeWithoutWarranty,
   })
 
   if (result.ok === false) {
@@ -55,6 +60,12 @@ export async function PATCH (
     if (err === 'exit_considerations_incomplete') {
       return NextResponse.json(
         { ok: false, error: 'exit_considerations_incomplete' },
+        { status: 409 },
+      )
+    }
+    if (err === 'warranty_terms_missing') {
+      return NextResponse.json(
+        { ok: false, error: 'warranty_terms_missing' },
         { status: 409 },
       )
     }
