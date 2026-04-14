@@ -5,6 +5,34 @@ type SupabaseServerClient = Awaited<
 	ReturnType<typeof createSupabaseServerClient>
 >;
 
+const UUID_RE =
+	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const PARTS_FAMILY_SET = new Set([
+	"display",
+	"glass",
+	"battery",
+	"connector",
+]);
+
+function normalizeOptionalUuid(value: unknown): string | null | undefined {
+	if (value === undefined) return undefined;
+	if (value === null) return null;
+	const s = String(value).trim().toLowerCase();
+	if (!s) return null;
+	return UUID_RE.test(s) ? s : null;
+}
+
+function normalizePartsFamilyColumn(
+	value: unknown,
+): string | null | undefined {
+	if (value === undefined) return undefined;
+	if (value === null) return null;
+	const s = String(value).trim().toLowerCase();
+	if (!s) return null;
+	return PARTS_FAMILY_SET.has(s) ? s : null;
+}
+
 export type Product = {
 	id: string;
 	blingId: string | null;
@@ -19,6 +47,8 @@ export type Product = {
 	description: string | null;
 	imageUrl?: string | null;
 	salePriceCents: number | null;
+	pricingTagId: string | null;
+	partsFamily: string | null;
 	costPriceCents: number | null;
 	/** Quando o custo foi alterado pelo cadastro no portal (não por sync/import). */
 	costPriceManualEditedAt: string | null;
@@ -53,6 +83,8 @@ export type CreateProductInput = {
 	description?: string | null;
 	imageUrl?: string | null;
 	salePriceCents?: number | null;
+	pricingTagId?: string | null;
+	partsFamily?: string | null;
 	costPriceCents?: number | null;
 	isActive?: boolean;
 };
@@ -150,6 +182,11 @@ type GetProductWithStockResult =
 	| AuthFailure
 	| { ok: false; error: "not_found" | "db_error" };
 
+type ReplaceCompatibleModelsResult =
+	| { ok: true }
+	| AuthFailure
+	| { ok: false; error: "db_error" };
+
 async function requireAuth(): Promise<AuthSuccess | AuthFailure> {
 	const supabase = await createSupabaseServerClient();
 	const { user } = await getAuthUser();
@@ -213,6 +250,9 @@ export async function createProduct(
 		parentBlingId: parentKey && parentKey !== "0" ? parentKey : null,
 	});
 
+	const pricingTagId = normalizeOptionalUuid(input.pricingTagId);
+	const partsFamily = normalizePartsFamilyColumn(input.partsFamily);
+
 	const payload = {
 		bling_id: input.blingId ?? null,
 		bling_sync_pending: input.blingSyncPending ?? false,
@@ -228,6 +268,10 @@ export async function createProduct(
 				? String(input.imageUrl).trim()
 				: null,
 		sale_price_cents: normalizeMoney(input.salePriceCents),
+		...(pricingTagId !== undefined
+			? { pricing_tag_id: pricingTagId }
+			: {}),
+		...(partsFamily !== undefined ? { parts_family: partsFamily } : {}),
 		cost_price_cents: normalizeMoney(input.costPriceCents),
 		is_active: input.isActive ?? true,
 		created_by: auth.userId,
@@ -333,6 +377,12 @@ export async function updateProduct(
 	if (input.salePriceCents !== undefined) {
 		patch.sale_price_cents = normalizeMoney(input.salePriceCents);
 	}
+	if (input.pricingTagId !== undefined) {
+		patch.pricing_tag_id = normalizeOptionalUuid(input.pricingTagId) ?? null;
+	}
+	if (input.partsFamily !== undefined) {
+		patch.parts_family = normalizePartsFamilyColumn(input.partsFamily) ?? null;
+	}
 	if (input.costPriceCents !== undefined) {
 		patch.cost_price_cents = normalizeMoney(input.costPriceCents);
 	}
@@ -418,6 +468,75 @@ export async function deleteProduct(id: string): Promise<DeleteProductResult> {
 	}
 
 	return { ok: true as const };
+}
+
+export async function replaceProductCompatibleDeviceModels(
+	productId: string,
+	deviceModelIds: string[],
+): Promise<ReplaceCompatibleModelsResult> {
+	const auth = await requireAuth();
+	if (!auth.ok) return { ok: false, error: "not_authenticated" };
+
+	const unique = [
+		...new Set(
+			deviceModelIds
+				.map((id) => String(id || "").trim().toLowerCase())
+				.filter((id) => UUID_RE.test(id)),
+		),
+	];
+
+	const { error: delErr } = await auth.supabase
+		.from("product_compatible_device_models")
+		.delete()
+		.eq("product_id", productId);
+
+	if (delErr) {
+		return { ok: false as const, error: "db_error" as const };
+	}
+
+	if (unique.length === 0) {
+		return { ok: true as const };
+	}
+
+	const rows = unique.map((device_model_id) => ({
+		product_id: productId,
+		device_model_id,
+	}));
+
+	const { error: insErr } = await auth.supabase
+		.from("product_compatible_device_models")
+		.insert(rows);
+
+	if (insErr) {
+		return { ok: false as const, error: "db_error" as const };
+	}
+
+	return { ok: true as const };
+}
+
+export async function listProductCompatibleDeviceModelIds(
+	productId: string,
+): Promise<
+	| { ok: true; deviceModelIds: string[] }
+	| AuthFailure
+	| { ok: false; error: "db_error" }
+> {
+	const auth = await requireAuth();
+	if (!auth.ok) return { ok: false, error: "not_authenticated" };
+
+	const { data, error } = await auth.supabase
+		.from("product_compatible_device_models")
+		.select("device_model_id")
+		.eq("product_id", productId);
+
+	if (error || !data) {
+		return { ok: false as const, error: "db_error" as const };
+	}
+
+	const deviceModelIds = data.map((row) =>
+		String((row as { device_model_id: string }).device_model_id),
+	);
+	return { ok: true as const, deviceModelIds };
 }
 
 export async function getProductById(id: string): Promise<GetProductResult> {
@@ -654,6 +773,17 @@ function mapRowToProduct(row: Record<string, unknown>): Product {
 			? String(row.catalog_sort_key).trim()
 			: null;
 
+	const rawTag = row.pricing_tag_id;
+	const pricingTagId =
+		rawTag != null && String(rawTag).trim() !== "" && UUID_RE.test(String(rawTag).trim())
+			? String(rawTag).trim().toLowerCase()
+			: null;
+	const rawPf = row.parts_family;
+	const partsFamily =
+		rawPf != null && PARTS_FAMILY_SET.has(String(rawPf).trim().toLowerCase())
+			? String(rawPf).trim().toLowerCase()
+			: null;
+
 	return {
 		id: String(row.id),
 		blingId: row.bling_id ? String(row.bling_id) : null,
@@ -667,6 +797,8 @@ function mapRowToProduct(row: Record<string, unknown>): Product {
 		description: row.description ? String(row.description).trim() : null,
 		imageUrl: row.image_url ? String(row.image_url) : null,
 		salePriceCents: parseRowCents(row.sale_price_cents),
+		pricingTagId,
+		partsFamily,
 		costPriceCents: parseRowCents(row.cost_price_cents),
 		costPriceManualEditedAt:
 			typeof row.cost_price_manual_edited_at === "string"

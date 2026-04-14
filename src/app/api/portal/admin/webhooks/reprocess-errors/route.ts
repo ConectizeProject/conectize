@@ -41,12 +41,18 @@ export async function POST () {
 
   for (const id of ids) {
     const res = await processBlingWebhook(id)
-    if (res.ok) {
-      processed += 1
-    } else {
-      failed += 1
-      const msg = String(res.error_message || '').trim()
-      if (msg) errors.push(msg)
+    switch (res.ok) {
+      case true:
+        processed += 1
+        break
+      case false: {
+        failed += 1
+        const msg = String(res.error_message || '').trim()
+        if (msg) errors.push(msg)
+        break
+      }
+      default:
+        break
     }
   }
 

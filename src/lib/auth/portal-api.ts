@@ -26,6 +26,21 @@ export type PortalAuthAdminSuccess = {
   userId: string
 }
 
+export type PortalAuthRetailerSuccess = {
+  ok: true
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
+  userId: string
+}
+
+/**
+ * Staff **ou** lojista (útil quando uma rota precisa aceitar ambos com ramos distintos).
+ * Para catálogo / tabela de preços, o projeto prefere **rotas separadas**
+ * (`requireStaffOrAdmin` vs `requireRetailer`) para DTOs e campos diferentes.
+ */
+export type PortalAuthStaffOrRetailerSuccess =
+  | ({ kind: 'staff' } & PortalAuthStaffSuccess)
+  | ({ kind: 'retailer' } & PortalAuthRetailerSuccess)
+
 /**
  * Normaliza papel do portal: `customer` é tratado como usuário final (mesmo que `user`).
  */
@@ -60,6 +75,77 @@ export async function requireStaffOrAdmin (): Promise<PortalAuthFailure | Portal
 
   return {
     ok: true as const,
+    supabase,
+    role: normalized as PortalStaffRole,
+    userId: user.id,
+    authorDisplayName,
+    isAdmin: normalized === 'admin',
+  }
+}
+
+/**
+ * API routes: exige sessão e papel **lojista** (`retailer`).
+ */
+export async function requireRetailer (): Promise<PortalAuthFailure | PortalAuthRetailerSuccess> {
+  const supabase = await createSupabaseServerClient()
+  const { user } = await getAuthUser()
+  if (!user) {
+    return { ok: false as const, status: 401, error: 'not_authenticated' }
+  }
+
+  const { data: appUser } = await supabase
+    .from('users')
+    .select('role')
+    .eq('id', user.id)
+    .maybeSingle()
+
+  const normalized = normalizePortalRole(appUser?.role)
+  if (normalized !== 'retailer') {
+    return { ok: false as const, status: 403, error: 'forbidden' }
+  }
+
+  return {
+    ok: true as const,
+    supabase,
+    userId: user.id,
+  }
+}
+
+export async function requireStaffAdminOrRetailer (): Promise<
+  PortalAuthFailure | PortalAuthStaffOrRetailerSuccess
+> {
+  const supabase = await createSupabaseServerClient()
+  const { user } = await getAuthUser()
+  if (!user) {
+    return { ok: false as const, status: 401, error: 'not_authenticated' }
+  }
+
+  const { data: appUser } = await supabase
+    .from('users')
+    .select('role, full_name, email')
+    .eq('id', user.id)
+    .maybeSingle()
+
+  const normalized = normalizePortalRole(appUser?.role)
+  if (normalized === 'retailer') {
+    return {
+      ok: true as const,
+      kind: 'retailer',
+      supabase,
+      userId: user.id,
+    }
+  }
+
+  if (normalized !== 'staff' && normalized !== 'admin') {
+    return { ok: false as const, status: 403, error: 'forbidden' }
+  }
+
+  const authorDisplayName =
+    String(appUser?.full_name || appUser?.email || '').trim() || '(Sem nome)'
+
+  return {
+    ok: true as const,
+    kind: 'staff',
     supabase,
     role: normalized as PortalStaffRole,
     userId: user.id,

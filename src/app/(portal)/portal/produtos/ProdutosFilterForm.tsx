@@ -8,9 +8,11 @@ import { Button } from '@/components/ui/button'
 type ProdutosFilterFormProps = {
   initialQ: string
   kind: 'product' | 'service'
+  /** Mantém `?tab=gestao` ao filtrar na área staff (abas de produtos). */
+  withGestaoTab?: boolean
 }
 
-export function ProdutosFilterForm ({ initialQ, kind }: ProdutosFilterFormProps) {
+export function ProdutosFilterForm ({ initialQ, kind, withGestaoTab }: ProdutosFilterFormProps) {
   const router = useRouter()
   const [value, setValue] = useState(initialQ)
 
@@ -22,17 +24,22 @@ export function ProdutosFilterForm ({ initialQ, kind }: ProdutosFilterFormProps)
     e.preventDefault()
     const q = value.trim()
     const params = new URLSearchParams()
+    if (withGestaoTab) params.set('tab', 'gestao')
     if (kind === 'service') params.set('kind', 'service')
     if (q) params.set('q', q)
     const qs = params.toString()
-    const href = qs ? `/portal/produtos?${qs}` : '/portal/produtos'
+    const href = qs ? `/portal/produtos?${qs}` : (withGestaoTab ? '/portal/produtos?tab=gestao' : '/portal/produtos')
     router.replace(href)
     router.refresh()
   }
 
   function handleClear () {
     setValue('')
-    router.replace(kind === 'service' ? '/portal/produtos?kind=service' : '/portal/produtos')
+    const clearParams = new URLSearchParams()
+    if (withGestaoTab) clearParams.set('tab', 'gestao')
+    if (kind === 'service') clearParams.set('kind', 'service')
+    const clearQs = clearParams.toString()
+    router.replace(clearQs ? `/portal/produtos?${clearQs}` : (withGestaoTab ? '/portal/produtos?tab=gestao' : '/portal/produtos'))
     router.refresh()
   }
 

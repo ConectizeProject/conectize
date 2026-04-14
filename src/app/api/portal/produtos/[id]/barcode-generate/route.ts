@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getPortalAuth } from '@/lib/supabase/server'
+import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 import { getProductById } from '@/lib/products/service'
 import { updateProductAndSyncBling } from '@/lib/products/update-product-with-bling'
 
@@ -27,14 +27,9 @@ export async function POST (
   { params }: { params: Params },
 ) {
   const { id } = await params
-  const { user, role } = await getPortalAuth()
-  if (!user) {
-    return NextResponse.json({ ok: false, error: 'not_authenticated' }, { status: 401 })
-  }
-
-  const normalizedRole = role === 'customer' ? 'user' : role
-  if (normalizedRole === 'user' || !normalizedRole) {
-    return NextResponse.json({ ok: false, error: 'forbidden' }, { status: 403 })
+  const auth = await requireStaffOrAdmin()
+  if (auth.ok === false) {
+    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 
   const productRes = await getProductById(id)

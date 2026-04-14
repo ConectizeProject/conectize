@@ -36,13 +36,18 @@ export async function POST (
   }
 
   const result = await processBlingWebhook(webhookId)
-  if (!result.ok) {
-    return NextResponse.json(
-      { ok: false, error: 'process_failed', error_message: result.error_message },
-      { status: 200 },
-    )
+  switch (result.ok) {
+    case true:
+      return NextResponse.json({ ok: true, status: result.status })
+    case false:
+      return NextResponse.json(
+        { ok: false, error: 'process_failed', error_message: result.error_message },
+        { status: 200 },
+      )
+    default: {
+      const _exhaustive: never = result
+      return NextResponse.json({ ok: false, error: 'unknown' }, { status: 500 })
+    }
   }
-
-  return NextResponse.json({ ok: true, status: result.status })
 }
 

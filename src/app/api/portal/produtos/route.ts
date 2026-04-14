@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getPortalAuth } from '@/lib/supabase/server'
+import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 import { addStockMovement, createProduct } from '@/lib/products/service'
 
 function parseMoneyToCents (raw: unknown): number | null {
@@ -17,13 +17,9 @@ function parseNonNegativeNumber (raw: unknown): number | null {
 }
 
 export async function POST (request: NextRequest) {
-  const { user, role } = await getPortalAuth()
-  if (!user) {
-    return NextResponse.json({ ok: false, error: 'not_authenticated' }, { status: 401 })
-  }
-  const normalizedRole = role === 'customer' ? 'user' : role
-  if (normalizedRole === 'user' || !normalizedRole) {
-    return NextResponse.json({ ok: false, error: 'forbidden' }, { status: 403 })
+  const auth = await requireStaffOrAdmin()
+  if (auth.ok === false) {
+    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 
   const body = await request.json().catch(() => null) as Record<string, unknown> | null
