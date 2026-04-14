@@ -1,8 +1,6 @@
-import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { getPortalAuth, createSupabaseServerClient } from '@/lib/supabase/server'
-import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { ProductsListClient } from './ProductsListClient'
 import { ProdutosFilterForm } from './ProdutosFilterForm'
@@ -17,26 +15,28 @@ import {
 
 export const dynamic = 'force-dynamic'
 
-type SearchParams = Promise<{ q?: string; page?: string }>
+type SearchParams = Promise<{ q?: string; page?: string; kind?: string }>
 
 const PAGE_SIZE = 100
 
 const PRODUCT_LIST_SELECT =
   'id, bling_id, bling_sync_pending, kind, name, sku, barcode, image_url, sale_price_cents, cost_price_cents, cost_price_manual_edited_at, is_active, created_at, catalog_sort_key, parent_bling_id'
 
-function buildProdutosHref (q: string, page: number): string {
+function buildProdutosHref (q: string, page: number, kind: 'product' | 'service'): string {
   const params = new URLSearchParams()
   const trimmed = q.trim()
   if (trimmed) params.set('q', trimmed)
+  if (kind === 'service') params.set('kind', 'service')
   if (page > 1) params.set('page', String(page))
   const s = params.toString()
   return s ? `/portal/produtos?${s}` : '/portal/produtos'
 }
 
 export default async function ProdutosPage ({ searchParams }: { searchParams: SearchParams }) {
-  const { q, page } = await searchParams
+  const { q, page, kind } = await searchParams
   const query = String(q || '').trim()
   const pageNumber = Math.max(1, Number(page) || 1)
+  const kindFilter: 'product' | 'service' = String(kind || '').trim() === 'service' ? 'service' : 'product'
   const pageSize = PAGE_SIZE
   const offset = (pageNumber - 1) * pageSize
 
@@ -81,13 +81,13 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
   let totalCount = 0
 
   if (hasSearchButNoValidTokens) {
-    if (pageNumber > 1) redirect(buildProdutosHref(query, 1))
+    if (pageNumber > 1) redirect(buildProdutosHref(query, 1, kindFilter))
     flatRows = []
     totalCount = 0
-  } else if (searchTokens.length > 0) {
+  } else if (searchTokens.length > 0 && kindFilter === 'product') {
     const visibleIds = await expandSearchVisibleProductIds(supabase, searchTokens)
     if (visibleIds.size === 0) {
-      if (pageNumber > 1) redirect(buildProdutosHref(query, 1))
+      if (pageNumber > 1) redirect(buildProdutosHref(query, 1, kindFilter))
       flatRows = []
       totalCount = 0
     } else {
@@ -97,10 +97,10 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
 
       const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
       if (totalCount > 0 && pageNumber > totalPages) {
-        redirect(buildProdutosHref(query, totalPages))
+        redirect(buildProdutosHref(query, totalPages, kindFilter))
       }
       if (totalCount === 0 && pageNumber > 1) {
-        redirect(buildProdutosHref(query, 1))
+        redirect(buildProdutosHref(query, 1, kindFilter))
       }
 
       const pageSlice = sortRows.slice(offset, offset + pageSize)
@@ -108,14 +108,55 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
       const full = await fetchProductsByIdsOrdered(supabase, orderedIds, PRODUCT_LIST_SELECT)
       flatRows = full as Raw[]
     }
+  } else if (searchTokens.length > 0 && kindFilter === 'service') {
+    let serviceQuery = supabase
+      .from('products')
+      .select(PRODUCT_LIST_SELECT, { count: 'exact' })
+      .eq('is_active', true)
+      .eq('kind', 'service')
+      .order('catalog_sort_key', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: false })
+      .range(offset, offset + pageSize - 1)
+
+    for (const token of searchTokens) {
+      serviceQuery = serviceQuery.or(
+        `name.ilike.%${token}%,sku.ilike.%${token}%,barcode.ilike.%${token}%`,
+      )
+    }
+
+    const { data, count, error } = await serviceQuery
+    if (error) {
+      console.error('[servicos-flat-list]', error)
+      flatRows = []
+      totalCount = 0
+    } else {
+      flatRows = (data ?? []) as Raw[]
+      totalCount = typeof count === 'number' ? count : flatRows.length
+    }
+
+    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
+    if (totalCount > 0 && pageNumber > totalPages) {
+      redirect(buildProdutosHref(query, totalPages, kindFilter))
+    }
+    if (totalCount === 0 && pageNumber > 1) {
+      redirect(buildProdutosHref(query, 1, kindFilter))
+    }
   } else {
-    const { data, count, error } = await supabase
+    let queryBuilder = supabase
       .from('products')
       .select(PRODUCT_LIST_SELECT, { count: 'exact' })
       .eq('is_active', true)
       .order('catalog_sort_key', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: false })
       .range(offset, offset + pageSize - 1)
+
+    if (kindFilter === 'service') {
+      queryBuilder = queryBuilder.eq('kind', 'service')
+    } else {
+      queryBuilder = queryBuilder.neq('kind', 'service')
+    }
+
+    const { data, count, error } = await queryBuilder
 
     if (error) {
       console.error('[produtos-flat-list]', error)
@@ -128,10 +169,10 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
 
     const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
     if (totalCount > 0 && pageNumber > totalPages) {
-      redirect(buildProdutosHref(query, totalPages))
+      redirect(buildProdutosHref(query, totalPages, kindFilter))
     }
     if (totalCount === 0 && pageNumber > 1) {
-      redirect(buildProdutosHref(query, 1))
+      redirect(buildProdutosHref(query, 1, kindFilter))
     }
   }
 
@@ -290,8 +331,8 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
           pageSize,
           totalCount,
           totalPages,
-          prevHref: pageNumber > 1 ? buildProdutosHref(query, pageNumber - 1) : null,
-          nextHref: pageNumber < totalPages ? buildProdutosHref(query, pageNumber + 1) : null,
+          prevHref: pageNumber > 1 ? buildProdutosHref(query, pageNumber - 1, kindFilter) : null,
+          nextHref: pageNumber < totalPages ? buildProdutosHref(query, pageNumber + 1, kindFilter) : null,
         }
       : null
 
@@ -315,22 +356,24 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
             Listagem plana por ordem de catálogo (pais e variações intercalados).
           </p>
         </div>
-        <Button variant="outline" asChild className="w-full shrink-0 sm:w-auto">
-          <Link href="/portal/produtos/novo">Novo produto/serviço</Link>
-        </Button>
       </div>
 
       <Card className="min-w-0 max-w-full">
         <CardContent className="min-w-0 pt-4 sm:pt-6">
-          <ProdutosFilterForm key={query} initialQ={query} />
+          <ProdutosFilterForm key={`${kindFilter}:${query}`} initialQ={query} kind={kindFilter} />
         </CardContent>
       </Card>
 
       <ProductsListClient
-        key={`${query}::${pageNumber}`}
+        key={`${kindFilter}::${query}::${pageNumber}`}
         products={productsWithStock}
         pagination={pagination}
         paginationRangeLabel={paginationRangeLabel}
+        initialFilterType={kindFilter}
+        tabHrefs={{
+          products: buildProdutosHref(query, 1, 'product'),
+          services: buildProdutosHref(query, 1, 'service'),
+        }}
       />
     </div>
   )

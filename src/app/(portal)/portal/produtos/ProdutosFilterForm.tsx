@@ -7,9 +7,10 @@ import { Button } from '@/components/ui/button'
 
 type ProdutosFilterFormProps = {
   initialQ: string
+  kind: 'product' | 'service'
 }
 
-export function ProdutosFilterForm ({ initialQ }: ProdutosFilterFormProps) {
+export function ProdutosFilterForm ({ initialQ, kind }: ProdutosFilterFormProps) {
   const router = useRouter()
   const [value, setValue] = useState(initialQ)
 
@@ -21,6 +22,7 @@ export function ProdutosFilterForm ({ initialQ }: ProdutosFilterFormProps) {
     e.preventDefault()
     const q = value.trim()
     const params = new URLSearchParams()
+    if (kind === 'service') params.set('kind', 'service')
     if (q) params.set('q', q)
     const qs = params.toString()
     const href = qs ? `/portal/produtos?${qs}` : '/portal/produtos'
@@ -30,7 +32,7 @@ export function ProdutosFilterForm ({ initialQ }: ProdutosFilterFormProps) {
 
   function handleClear () {
     setValue('')
-    router.replace('/portal/produtos')
+    router.replace(kind === 'service' ? '/portal/produtos?kind=service' : '/portal/produtos')
     router.refresh()
   }
 

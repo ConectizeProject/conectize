@@ -1,6 +1,15 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -82,6 +91,9 @@ export function CreateCustomerDialog(props: Props) {
 
   const [isSaving, setIsSaving] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false)
+  const [existingCustomerIdToUpdate, setExistingCustomerIdToUpdate] = useState<string | null>(null)
+  const [duplicatePending, setDuplicatePending] = useState<null | 'fetch' | 'patch'>(null)
 
   const [document, setDocument] = useState('')
   const [isCompany, setIsCompany] = useState(false)
@@ -204,45 +216,97 @@ export function CreateCustomerDialog(props: Props) {
     return documentDigits.length === 11 && Boolean(fullName.trim())
   }, [companyName, documentDigits.length, fullName, isCompany])
 
+  function buildRequestBody(patchCustomerId?: string) {
+    const id =
+      patchCustomerId ?? (isEdit ? String(props.customer?.id || '') : undefined)
+    return {
+      ...(id ? { id } : {}),
+      isCompany,
+      document: documentDigits,
+      fullName: fullName.trim(),
+      companyName: companyName.trim(),
+      tradeName: tradeName.trim(),
+      email: email.trim(),
+      mobilePhone: mobilePhone.trim(),
+      contactPhone: contactPhone.trim(),
+      contactNotes: contactNotes.trim(),
+      zipCode: onlyDigits(zipCode).slice(0, 8),
+      state: state.trim(),
+      city: city.trim(),
+      neighborhood: neighborhood.trim(),
+      street: street.trim(),
+      streetNumber: streetNumber.trim(),
+      streetComplement: streetComplement.trim(),
+      birthDate: birthDate.trim(),
+      referralSource: referralSource.trim(),
+      referralSourceOther: referralSourceOther.trim(),
+    }
+  }
+
+  function emitCreatedAndClose(customerId: string) {
+    const addressFull = buildAddressFull({
+      zipCode: onlyDigits(zipCode).slice(0, 8),
+      state,
+      city,
+      neighborhood,
+      street,
+      streetNumber,
+      streetComplement
+    })
+
+    props.onCreated({
+      id: customerId,
+      cpf: isCompany ? null : documentDigits,
+      cnpj: isCompany ? documentDigits : null,
+      is_company: isCompany,
+      full_name: fullName.trim() || null,
+      company_name: companyName.trim() || null,
+      trade_name: tradeName.trim() || null,
+      email: email.trim() || null,
+      mobile_phone: mobilePhone.trim() || null,
+      contact_phone: contactPhone.trim() || null,
+      contact_notes: contactNotes.trim() || null,
+      address_full: addressFull || null,
+      zip_code: onlyDigits(zipCode).slice(0, 8) || null,
+      state: state.trim() || null,
+      city: city.trim() || null,
+      neighborhood: neighborhood.trim() || null,
+      street: street.trim() || null,
+      street_number: streetNumber.trim() || null,
+      street_complement: streetComplement.trim() || null,
+      birth_date: birthDate.trim() || null,
+      referral_source: referralSource.trim() || null,
+      referral_source_other: referralSourceOther.trim() || null,
+    })
+
+    props.onOpenChange(false)
+  }
+
   async function handleSave() {
     if (!canSave) return
     setIsSaving(true)
     setErrorMessage(null)
 
     try {
-      const payload = {
-        id: isEdit ? String(props.customer?.id || '') : undefined,
-        isCompany,
-        document: documentDigits,
-        fullName: fullName.trim(),
-        companyName: companyName.trim(),
-        tradeName: tradeName.trim(),
-        email: email.trim(),
-        mobilePhone: mobilePhone.trim(),
-        contactPhone: contactPhone.trim(),
-        contactNotes: contactNotes.trim(),
-        zipCode: onlyDigits(zipCode).slice(0, 8),
-        state: state.trim(),
-        city: city.trim(),
-        neighborhood: neighborhood.trim(),
-        street: street.trim(),
-        streetNumber: streetNumber.trim(),
-        streetComplement: streetComplement.trim(),
-        birthDate: birthDate.trim(),
-        referralSource: referralSource.trim(),
-        referralSourceOther: referralSourceOther.trim(),
-      }
-
       const res = await portalFetch('/api/portal/customers', {
         method: isEdit ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(buildRequestBody()),
       })
 
       const data = await res.json().catch(() => null)
       if (!res.ok || !data?.ok || !data?.id) {
         if (data?.error === 'already_exists') {
-          setErrorMessage('Este cliente já está cadastrado.')
+          const existingId =
+            data.existingCustomerId != null
+              ? String(data.existingCustomerId)
+              : ''
+          if (existingId) {
+            setExistingCustomerIdToUpdate(existingId)
+            setDuplicateDialogOpen(true)
+            return
+          }
+          setErrorMessage('Este CPF/CNPJ já está cadastrado.')
           return
         }
         if (data?.error === 'document_locked') {
@@ -253,42 +317,7 @@ export function CreateCustomerDialog(props: Props) {
         return
       }
 
-      const addressFull = buildAddressFull({
-        zipCode: onlyDigits(zipCode).slice(0, 8),
-        state,
-        city,
-        neighborhood,
-        street,
-        streetNumber,
-        streetComplement
-      })
-
-      props.onCreated({
-        id: String(data.id),
-        cpf: isCompany ? null : documentDigits,
-        cnpj: isCompany ? documentDigits : null,
-        is_company: isCompany,
-        full_name: fullName.trim() || null,
-        company_name: companyName.trim() || null,
-        trade_name: tradeName.trim() || null,
-        email: email.trim() || null,
-        mobile_phone: mobilePhone.trim() || null,
-        contact_phone: contactPhone.trim() || null,
-        contact_notes: contactNotes.trim() || null,
-        address_full: addressFull || null,
-        zip_code: onlyDigits(zipCode).slice(0, 8) || null,
-        state: state.trim() || null,
-        city: city.trim() || null,
-        neighborhood: neighborhood.trim() || null,
-        street: street.trim() || null,
-        street_number: streetNumber.trim() || null,
-        street_complement: streetComplement.trim() || null,
-        birth_date: birthDate.trim() || null,
-        referral_source: referralSource.trim() || null,
-        referral_source_other: referralSourceOther.trim() || null,
-      })
-
-      props.onOpenChange(false)
+      emitCreatedAndClose(String(data.id))
     } catch {
       setErrorMessage('Não foi possível criar o cliente.')
     } finally {
@@ -296,7 +325,151 @@ export function CreateCustomerDialog(props: Props) {
     }
   }
 
+  async function handleConfirmUpdateExistingCustomer() {
+    const customerId = existingCustomerIdToUpdate
+    if (!customerId) return
+    setDuplicatePending('patch')
+    setErrorMessage(null)
+    setDuplicateDialogOpen(false)
+
+    try {
+      const res = await portalFetch('/api/portal/customers', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildRequestBody(customerId)),
+      })
+
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok || !data?.id) {
+        if (data?.error === 'document_locked') {
+          setErrorMessage('CPF/CNPJ não pode ser alterado após cadastrado.')
+          return
+        }
+        setErrorMessage('Não foi possível atualizar o cliente.')
+        return
+      }
+
+      emitCreatedAndClose(String(data.id))
+    } catch {
+      setErrorMessage('Não foi possível atualizar o cliente.')
+    } finally {
+      setDuplicatePending(null)
+    }
+  }
+
+  async function handleUseExistingCustomerFromBase() {
+    const customerId = existingCustomerIdToUpdate
+    if (!customerId) return
+    setDuplicatePending('fetch')
+    setErrorMessage(null)
+    setDuplicateDialogOpen(false)
+
+    try {
+      const res = await portalFetch(
+        `/api/portal/customers/${encodeURIComponent(customerId)}`,
+      )
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok || !data?.customer) {
+        setErrorMessage('Não foi possível carregar o cadastro existente.')
+        return
+      }
+
+      const c = data.customer as Record<string, unknown>
+      props.onCreated({
+        id: String(c.id),
+        cpf: c.cpf != null ? String(c.cpf) : null,
+        cnpj: c.cnpj != null ? String(c.cnpj) : null,
+        is_company: Boolean(c.is_company),
+        full_name: c.full_name != null ? String(c.full_name) : null,
+        company_name: c.company_name != null ? String(c.company_name) : null,
+        trade_name: c.trade_name != null ? String(c.trade_name) : null,
+        email: c.email != null ? String(c.email) : null,
+        phone: c.phone != null ? String(c.phone) : null,
+        mobile_phone: c.mobile_phone != null ? String(c.mobile_phone) : null,
+        contact_phone: c.contact_phone != null ? String(c.contact_phone) : null,
+        contact_notes: c.contact_notes != null ? String(c.contact_notes) : null,
+        address_full: c.address_full != null ? String(c.address_full) : null,
+        zip_code: c.zip_code != null ? String(c.zip_code) : null,
+        state: c.state != null ? String(c.state) : null,
+        city: c.city != null ? String(c.city) : null,
+        neighborhood: c.neighborhood != null ? String(c.neighborhood) : null,
+        street: c.street != null ? String(c.street) : null,
+        street_number: c.street_number != null ? String(c.street_number) : null,
+        street_complement: c.street_complement != null ? String(c.street_complement) : null,
+        birth_date: c.birth_date != null ? String(c.birth_date) : null,
+        referral_source: c.referral_source != null ? String(c.referral_source) : null,
+        referral_source_other: c.referral_source_other != null ? String(c.referral_source_other) : null,
+      })
+      props.onOpenChange(false)
+    } catch {
+      setErrorMessage('Não foi possível carregar o cadastro existente.')
+    } finally {
+      setDuplicatePending(null)
+    }
+  }
+
   return (
+    <>
+    <AlertDialog
+      open={duplicateDialogOpen}
+      onOpenChange={(open) => {
+        setDuplicateDialogOpen(open)
+        if (!open) setExistingCustomerIdToUpdate(null)
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {isCompany ? 'CNPJ já cadastrado' : 'CPF já cadastrado'}
+          </AlertDialogTitle>
+          <AlertDialogDescription className="sr-only">
+            Documento já existe na base. Você pode usar o cadastro salvo ou atualizar com os
+            dados deste formulário.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="space-y-2 text-sm text-muted-foreground">
+          <p>
+            Já existe um cliente com este documento na base. Escolha uma opção:
+          </p>
+          <ul className="list-disc space-y-1 pl-4">
+            <li>
+              <span className="font-medium text-foreground">Usar dados da base</span>
+              {' — '}
+              segue com o cadastro já salvo no sistema (o que você digitou agora não será
+              aplicado).
+            </li>
+            <li>
+              <span className="font-medium text-foreground">Atualizar cadastro</span>
+              {' — '}
+              substitui os dados do cliente pelas informações deste formulário.
+            </li>
+          </ul>
+        </div>
+        <AlertDialogFooter className="flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+          <AlertDialogCancel type="button" className="w-full sm:w-auto">
+            Voltar ao formulário
+          </AlertDialogCancel>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full sm:w-auto"
+            onClick={() => void handleUseExistingCustomerFromBase()}
+            disabled={duplicatePending !== null}
+          >
+            {duplicatePending === 'fetch' ? 'Carregando…' : 'Usar dados da base'}
+          </Button>
+          <Button
+            type="button"
+            className="w-full sm:w-auto"
+            onClick={() => void handleConfirmUpdateExistingCustomer()}
+            disabled={duplicatePending !== null}
+          >
+            {duplicatePending === 'patch' ? 'Salvando…' : 'Atualizar com o formulário'}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent className="max-w-3xl">
         <DialogHeader>
@@ -476,5 +649,6 @@ export function CreateCustomerDialog(props: Props) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    </>
   )
 }

@@ -15,7 +15,9 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -125,12 +127,19 @@ type Props = {
 	pagination?: ProdutosFlatPagination | null
 	/** Ex.: "1–100 de 450" */
 	paginationRangeLabel?: string | null
+	initialFilterType?: 'product' | 'service'
+	tabHrefs?: {
+		products: string
+		services: string
+	}
 }
 
 export function ProductsListClient ({
 	products,
 	pagination,
 	paginationRangeLabel,
+	initialFilterType = 'product',
+	tabHrefs,
 }: Props) {
 	const router = useRouter()
 	const [stockModalProduct, setStockModalProduct] = useState<{
@@ -139,7 +148,7 @@ export function ProductsListClient ({
 		costPriceCents?: number | null
 		currentStock: number
 	} | null>(null)
-	const [filterType, setFilterType] = useState<'product' | 'service'>('product')
+	const [filterType, setFilterType] = useState<'product' | 'service'>(initialFilterType)
 	const [editingProduct, setEditingProduct] = useState<Pick<ProductRow, 'id' | 'name' | 'bling_id'> | null>(null)
 	const [syncingId, setSyncingId] = useState<string | null>(null)
 	const [barcodeGeneratingId, setBarcodeGeneratingId] = useState<string | null>(null)
@@ -157,6 +166,19 @@ export function ProductsListClient ({
 	const [bulkBusy, setBulkBusy] = useState(false)
 	const [bulkAction, setBulkAction] = useState<'sync' | 'barcode' | 'pushPortal' | null>(null)
 	const [pushPortalDialogOpen, setPushPortalDialogOpen] = useState(false)
+	const [createDialogOpen, setCreateDialogOpen] = useState(false)
+	const [createSubmitting, setCreateSubmitting] = useState(false)
+	const [createForm, setCreateForm] = useState({
+		name: '',
+		sku: '',
+		barcode: '',
+		description: '',
+		salePrice: '',
+		costPrice: '',
+		initialStock: '0',
+		isActive: true,
+		kind: 'product' as 'product' | 'service',
+	})
 	const [pushPortalFieldKeys, setPushPortalFieldKeys] = useState<Set<PortalFieldForBling>>(
 		() => new Set(PUSH_TO_BLING_FIELD_OPTIONS.map((o) => o.id)),
 	)
@@ -167,6 +189,19 @@ export function ProductsListClient ({
 	useEffect(() => {
 		setSelectedIds(new Set())
 	}, [filterType])
+
+	useEffect(() => {
+		if (!createDialogOpen) return
+		setCreateForm((prev) => ({
+			...prev,
+			kind: isProductTab ? 'product' : 'service',
+			initialStock: isProductTab ? prev.initialStock : '0',
+		}))
+	}, [createDialogOpen, isProductTab])
+
+	useEffect(() => {
+		setFilterType(initialFilterType)
+	}, [initialFilterType])
 
 	useEffect(() => {
 		if (!barcodeOptimistic) return
@@ -630,6 +665,70 @@ export function ProductsListClient ({
 		}
 	}
 
+	function openCreateDialog () {
+		setCreateForm({
+			name: '',
+			sku: '',
+			barcode: '',
+			description: '',
+			salePrice: '',
+			costPrice: '',
+			initialStock: '0',
+			isActive: true,
+			kind: isProductTab ? 'product' : 'service',
+		})
+		setCreateDialogOpen(true)
+	}
+
+	async function handleCreateProductOrService () {
+		if (createSubmitting) return
+		if (!createForm.name.trim()) {
+			toast({ variant: 'destructive', title: 'Nome é obrigatório' })
+			return
+		}
+		setCreateSubmitting(true)
+		try {
+			const res = await fetch('/api/portal/produtos', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					name: createForm.name,
+					sku: createForm.sku,
+					barcode: createForm.barcode,
+					description: createForm.description,
+					salePrice: createForm.salePrice,
+					costPrice: createForm.costPrice,
+					initialStock: createForm.kind === 'service' ? '0' : createForm.initialStock,
+					isActive: createForm.isActive,
+					kind: createForm.kind,
+				}),
+			})
+			const data = await res.json().catch(() => null)
+			if (!res.ok || !data?.ok) {
+				toast({
+					variant: 'destructive',
+					title: 'Erro ao criar',
+					description: data?.error || 'Tente novamente.',
+				})
+				return
+			}
+			toast({
+				variant: 'success',
+				title: createForm.kind === 'service' ? 'Serviço criado' : 'Produto criado',
+			})
+			setCreateDialogOpen(false)
+			router.refresh()
+		} catch {
+			toast({
+				variant: 'destructive',
+				title: 'Erro ao criar',
+				description: 'Tente novamente.',
+			})
+		} finally {
+			setCreateSubmitting(false)
+		}
+	}
+
 	return (
 		<div className="min-w-0 w-full max-w-full">
 			{paginationRangeLabel
@@ -642,31 +741,68 @@ export function ProductsListClient ({
 					)
 				: null}
 			<nav className="mb-4 flex gap-1 border-b">
-				<button
-					type="button"
-					onClick={() => setFilterType('product')}
-					className={cn(
-						'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
-						filterType === 'product'
-							? 'text-foreground border-primary'
-							: 'text-muted-foreground border-transparent hover:text-foreground hover:border-muted'
+				{tabHrefs
+					? (
+						<>
+							<Link
+								href={tabHrefs.products}
+								className={cn(
+									'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+									filterType === 'product'
+										? 'text-foreground border-primary'
+										: 'text-muted-foreground border-transparent hover:text-foreground hover:border-muted'
+								)}
+							>
+								Produtos
+							</Link>
+							<Link
+								href={tabHrefs.services}
+								className={cn(
+									'px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors sm:px-4',
+									filterType === 'service'
+										? 'text-foreground border-primary'
+										: 'text-muted-foreground border-transparent hover:text-foreground hover:border-muted'
+								)}
+							>
+								Serviços
+							</Link>
+						</>
+					)
+					: (
+						<>
+							<button
+								type="button"
+								onClick={() => setFilterType('product')}
+								className={cn(
+									'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+									filterType === 'product'
+										? 'text-foreground border-primary'
+										: 'text-muted-foreground border-transparent hover:text-foreground hover:border-muted'
+								)}
+							>
+								Produtos
+							</button>
+							<button
+								type="button"
+								onClick={() => setFilterType('service')}
+								className={cn(
+									'px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors sm:px-4',
+									filterType === 'service'
+										? 'text-foreground border-primary'
+										: 'text-muted-foreground border-transparent hover:text-foreground hover:border-muted'
+								)}
+							>
+								Serviços
+							</button>
+						</>
 					)}
-				>
-					Produtos
-				</button>
-				<button
-					type="button"
-					onClick={() => setFilterType('service')}
-					className={cn(
-						'px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors sm:px-4',
-						filterType === 'service'
-							? 'text-foreground border-primary'
-							: 'text-muted-foreground border-transparent hover:text-foreground hover:border-muted'
-					)}
-				>
-					Serviços
-				</button>
 			</nav>
+
+			<div className="mb-4 flex justify-end">
+				<Button type="button" variant="outline" onClick={openCreateDialog}>
+					Novo produto/serviço
+				</Button>
+			</div>
 
 			{selectedCount > 0 && (
 				<div
@@ -781,23 +917,21 @@ export function ProductsListClient ({
 										<colgroup>
 											<col style={{ width: `${productTableCheckboxColumnWidthPx}px` }} />
 											{/* Soma das % ≈ 100% da tabela para o espaço extra não ir para a 1ª coluna */}
-											<col style={{ width: '34%' }} />
+											<col style={{ width: '37%' }} />
 											<col style={{ width: '9%' }} />
 											<col style={{ width: '12%' }} />
 											<col style={{ width: '7%' }} />
-											<col style={{ width: '11%' }} />
-											<col style={{ width: '9%' }} />
-											<col style={{ width: '11%' }} />
+											<col style={{ width: '13%' }} />
+											<col style={{ width: '10%' }} />
 											<col style={{ width: `${productTableActionsColumnWidthPx}px` }} />
 										</colgroup>
 									) : (
 										<colgroup>
 											<col style={{ width: `${productTableCheckboxColumnWidthPx}px` }} />
-											<col style={{ width: '42%' }} />
-											<col style={{ width: '11%' }} />
-											<col style={{ width: '16%' }} />
-											<col style={{ width: '14%' }} />
-											<col style={{ width: '16%' }} />
+											<col style={{ width: '48%' }} />
+											<col style={{ width: '13%' }} />
+											<col style={{ width: '18%' }} />
+											<col style={{ width: '20%' }} />
 											<col style={{ width: `${productTableActionsColumnWidthPx}px` }} />
 										</colgroup>
 									)}
@@ -827,7 +961,6 @@ export function ProductsListClient ({
 											{isProductTab && (
 												<th className="min-w-0 py-2 px-2 text-right font-medium">Custo</th>
 											)}
-											<th className="min-w-0 py-2 px-2 text-center font-medium">Origem</th>
 											<th className="min-w-0 py-2 pl-2 text-right font-medium">Ações</th>
 										</tr>
 									</thead>
@@ -1032,6 +1165,146 @@ export function ProductsListClient ({
 						</Button>
 						<Button type="button" onClick={() => void handleConfirmPushPortalToBling()}>
 							Enviar
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+
+			<Dialog
+				open={createDialogOpen}
+				onOpenChange={(open) => {
+					if (!createSubmitting) setCreateDialogOpen(open)
+				}}
+			>
+				<DialogContent className="sm:max-w-xl">
+					<DialogHeader>
+						<DialogTitle>Novo produto/serviço</DialogTitle>
+						<DialogDescription>
+							Cadastre um item sem sair da listagem.
+						</DialogDescription>
+					</DialogHeader>
+					<div className="space-y-4">
+						<div className="space-y-2">
+							<Label htmlFor="create-kind">Tipo</Label>
+							<select
+								id="create-kind"
+								value={createForm.kind}
+								onChange={(event) => {
+									const nextKind = event.target.value === 'service' ? 'service' : 'product'
+									setCreateForm((prev) => ({
+										...prev,
+										kind: nextKind,
+										initialStock: nextKind === 'service' ? '0' : prev.initialStock,
+									}))
+								}}
+								className="w-full h-10 rounded-md border border-input px-3 py-2 text-sm bg-background"
+								disabled={createSubmitting}
+							>
+								<option value="product">Produto</option>
+								<option value="service">Serviço</option>
+							</select>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor="create-name">Nome *</Label>
+							<Input
+								id="create-name"
+								value={createForm.name}
+								onChange={(event) => setCreateForm((prev) => ({ ...prev, name: event.target.value }))}
+								disabled={createSubmitting}
+								placeholder="Nome do item"
+							/>
+						</div>
+						<div className="grid gap-4 sm:grid-cols-2">
+							<div className="space-y-2">
+								<Label htmlFor="create-sku">SKU</Label>
+								<Input
+									id="create-sku"
+									value={createForm.sku}
+									onChange={(event) => setCreateForm((prev) => ({ ...prev, sku: event.target.value }))}
+									disabled={createSubmitting}
+								/>
+							</div>
+							<div className="space-y-2">
+								<Label htmlFor="create-barcode">Código de barras</Label>
+								<Input
+									id="create-barcode"
+									value={createForm.barcode}
+									onChange={(event) => setCreateForm((prev) => ({ ...prev, barcode: event.target.value }))}
+									disabled={createSubmitting}
+								/>
+							</div>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor="create-description">Descrição</Label>
+							<Textarea
+								id="create-description"
+								value={createForm.description}
+								onChange={(event) => setCreateForm((prev) => ({ ...prev, description: event.target.value }))}
+								disabled={createSubmitting}
+								rows={3}
+							/>
+						</div>
+						<div className="grid gap-4 sm:grid-cols-2">
+							<div className="space-y-2">
+								<Label htmlFor="create-sale-price">Preço de venda (R$)</Label>
+								<Input
+									id="create-sale-price"
+									type="number"
+									step="0.01"
+									min="0"
+									value={createForm.salePrice}
+									onChange={(event) => setCreateForm((prev) => ({ ...prev, salePrice: event.target.value }))}
+									disabled={createSubmitting}
+								/>
+							</div>
+							<div className="space-y-2">
+								<Label htmlFor="create-cost-price">Custo (R$)</Label>
+								<Input
+									id="create-cost-price"
+									type="number"
+									step="0.01"
+									min="0"
+									value={createForm.costPrice}
+									onChange={(event) => setCreateForm((prev) => ({ ...prev, costPrice: event.target.value }))}
+									disabled={createSubmitting}
+								/>
+							</div>
+						</div>
+						{createForm.kind === 'product'
+							? (
+								<div className="space-y-2">
+									<Label htmlFor="create-initial-stock">Estoque inicial</Label>
+									<Input
+										id="create-initial-stock"
+										type="number"
+										min="0"
+										value={createForm.initialStock}
+										onChange={(event) => setCreateForm((prev) => ({ ...prev, initialStock: event.target.value }))}
+										disabled={createSubmitting}
+									/>
+								</div>
+							)
+							: null}
+						<label className="flex items-center gap-2 text-sm">
+							<Checkbox
+								checked={createForm.isActive}
+								onCheckedChange={(checked) => setCreateForm((prev) => ({ ...prev, isActive: checked === true }))}
+								disabled={createSubmitting}
+							/>
+							Ativo
+						</label>
+					</div>
+					<DialogFooter>
+						<Button
+							type="button"
+							variant="outline"
+							onClick={() => setCreateDialogOpen(false)}
+							disabled={createSubmitting}
+						>
+							Cancelar
+						</Button>
+						<Button type="button" onClick={() => void handleCreateProductOrService()} disabled={createSubmitting}>
+							{createSubmitting ? 'Salvando...' : 'Salvar'}
 						</Button>
 					</DialogFooter>
 				</DialogContent>

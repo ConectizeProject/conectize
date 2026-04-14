@@ -187,7 +187,7 @@ export function OrderDeviceInfoSection(props: OrderDeviceInfoSectionProps) {
 		order.color,
 	)
 	const imeiDisplay = String(order.imei || '').trim() || '—'
-	const locationDisplay = String(order.device_location || '').trim() || '—'
+	const locationDisplay = String(order.device_location || '').trim()
 	const passParts = buildPasscodeSummaryParts(order)
 
 	if (!useCollapsible) {
@@ -251,12 +251,14 @@ export function OrderDeviceInfoSection(props: OrderDeviceInfoSectionProps) {
 							</div>
 						</div>
 					</div>
-					<div className="min-w-0 space-y-1 text-sm">
-						<div className="text-muted-foreground">Localização do aparelho</div>
-						<div className="font-medium text-foreground break-words whitespace-pre-wrap">
-							{locationDisplay}
+					{locationDisplay ? (
+						<div className="min-w-0 space-y-1 text-sm">
+							<div className="text-muted-foreground">Localização do aparelho</div>
+							<div className="font-medium text-foreground break-words whitespace-pre-wrap">
+								{locationDisplay}
+							</div>
 						</div>
-					</div>
+					) : null}
 				</div>
 
 				<div className={cn(!editing && 'hidden')}>
