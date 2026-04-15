@@ -10,6 +10,7 @@ import {
   type StockMovementType,
 } from '@/lib/products/service'
 import { pushStockMovementToBling } from '@/lib/integrations/bling/push-stock-movement'
+import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -123,7 +124,14 @@ export default async function ProdutoDetalhePage ({ params }: { params: Params }
           </p>
         </div>
 
-        <ProductDetailActions productId={id} hasBling={Boolean(product.blingId)} />
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="secondary" size="sm" asChild>
+            <Link href={`/portal/produtos?tab=gestao&edit=${encodeURIComponent(id)}`}>
+              Editar cadastro
+            </Link>
+          </Button>
+          <ProductDetailActions productId={id} hasBling={Boolean(product.blingId)} />
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">

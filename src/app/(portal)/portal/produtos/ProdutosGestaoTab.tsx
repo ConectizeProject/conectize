@@ -11,6 +11,7 @@ import {
   fetchIdSortRowsInChunks,
   fetchProductsByIdsOrdered,
 } from '@/lib/products/produtos-flat-list'
+import { resolveListDisplayCostCents } from '@/lib/products/list-display-cost'
 
 const PAGE_SIZE = 100
 
@@ -31,9 +32,11 @@ type ProdutosGestaoTabProps = {
   q: string
   page: string
   kind: string
+  /** Abre a modal de edição ao carregar (ex.: link da página de detalhes ou URL antiga /:id/editar). */
+  initialEditProductId?: string
 }
 
-export async function ProdutosGestaoTab ({ q, page, kind }: ProdutosGestaoTabProps) {
+export async function ProdutosGestaoTab ({ q, page, kind, initialEditProductId }: ProdutosGestaoTabProps) {
   const query = String(q || '').trim()
   const pageNumber = Math.max(1, Number(page) || 1)
   const kindFilter: 'product' | 'service' = String(kind || '').trim() === 'service' ? 'service' : 'product'
@@ -267,27 +270,6 @@ export async function ProdutosGestaoTab ({ q, page, kind }: ProdutosGestaoTabPro
     }
   }
 
-  function listDisplayCostCents (p: Raw): number | null {
-    const rowCost = typeof p.cost_price_cents === 'number' ? p.cost_price_cents : null
-    const manualMs = p.cost_price_manual_edited_at
-      ? new Date(p.cost_price_manual_edited_at).getTime()
-      : 0
-    const entryCents = lastEntryCostByProductId[p.id]
-    const entryMs = lastEntryDateByProductId[p.id] ?? 0
-    const hasEntry =
-      typeof entryCents === 'number' &&
-      entryCents > 0 &&
-      Number.isFinite(entryMs) &&
-      entryMs > 0
-
-    if (hasEntry && entryMs > manualMs) {
-      return entryCents
-    }
-    if (rowCost != null) return rowCost
-    if (typeof entryCents === 'number' && entryCents > 0) return entryCents
-    return null
-  }
-
   const normalize = (p: Raw) => ({
     id: p.id,
     bling_id: p.bling_id ?? null,
@@ -299,7 +281,12 @@ export async function ProdutosGestaoTab ({ q, page, kind }: ProdutosGestaoTabPro
     barcode: p.barcode ?? null,
     image_url: p.image_url ?? null,
     sale_price_cents: p.sale_price_cents ?? null,
-    cost_price_cents: listDisplayCostCents(p),
+    cost_price_cents: resolveListDisplayCostCents({
+      costPriceCents: p.cost_price_cents,
+      costPriceManualEditedAt: p.cost_price_manual_edited_at,
+      lastEntryUnitValueCents: lastEntryCostByProductId[p.id],
+      lastEntryTimeMs: lastEntryDateByProductId[p.id] ?? null,
+    }),
     is_active: p.is_active ?? true,
     created_at: p.created_at,
     current_stock: stockByProductId[p.id] ?? 0,
@@ -354,6 +341,7 @@ export async function ProdutosGestaoTab ({ q, page, kind }: ProdutosGestaoTabPro
         pagination={pagination}
         paginationRangeLabel={paginationRangeLabel}
         initialFilterType={kindFilter}
+        initialEditProductId={initialEditProductId}
         tabHrefs={{
           products: buildProdutosGestaoHref(query, 1, 'product'),
           services: buildProdutosGestaoHref(query, 1, 'service'),

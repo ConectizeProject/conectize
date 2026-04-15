@@ -4,7 +4,6 @@ import {
   PARSE_INVALID,
   parseMarginBps,
   parseMinCents,
-  parsePartsFamily,
 } from '@/lib/pricing/pricing-api-parse'
 
 type Params = Promise<{ id: string }>
@@ -34,14 +33,6 @@ export async function PATCH (
     patch.name = name
   }
 
-  if (Object.prototype.hasOwnProperty.call(body, 'partsFamily')) {
-    const partsFamily = parsePartsFamily(body.partsFamily)
-    if (partsFamily === PARSE_INVALID) {
-      return NextResponse.json({ ok: false, error: 'partsFamily_invalid' }, { status: 400 })
-    }
-    patch.parts_family = partsFamily
-  }
-
   if (Object.prototype.hasOwnProperty.call(body, 'marginBps')) {
     const marginBps = parseMarginBps(body.marginBps)
     if (marginBps === PARSE_INVALID) {
@@ -68,7 +59,7 @@ export async function PATCH (
     .from('pricing_tags')
     .update(patch)
     .eq('id', id)
-    .select('id, name, parts_family, margin_bps, min_suggested_sale_cents, created_at, updated_at')
+    .select('id, name, margin_bps, min_suggested_sale_cents, created_at, updated_at')
     .maybeSingle()
 
   if (error) {

@@ -4,7 +4,6 @@ import {
   PARSE_INVALID,
   parseMarginBps,
   parseMinCents,
-  parsePartsFamily,
 } from '@/lib/pricing/pricing-api-parse'
 
 export async function GET () {
@@ -15,7 +14,7 @@ export async function GET () {
 
   const { data, error } = await auth.supabase
     .from('pricing_tags')
-    .select('id, name, parts_family, margin_bps, min_suggested_sale_cents, created_at, updated_at')
+    .select('id, name, margin_bps, min_suggested_sale_cents, created_at, updated_at')
     .order('name', { ascending: true })
 
   if (error) {
@@ -42,11 +41,6 @@ export async function POST (request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'name_required' }, { status: 400 })
   }
 
-  const partsFamily = parsePartsFamily(body.partsFamily)
-  if (partsFamily === PARSE_INVALID) {
-    return NextResponse.json({ ok: false, error: 'partsFamily_invalid' }, { status: 400 })
-  }
-
   const marginBps = parseMarginBps(body.marginBps)
   if (marginBps === PARSE_INVALID) {
     return NextResponse.json({ ok: false, error: 'marginBps_invalid' }, { status: 400 })
@@ -58,14 +52,13 @@ export async function POST (request: NextRequest) {
   }
 
   const insert: Record<string, unknown> = { name }
-  if (partsFamily !== undefined) insert.parts_family = partsFamily
   if (marginBps !== undefined) insert.margin_bps = marginBps
   if (minSuggestedSaleCents !== undefined) insert.min_suggested_sale_cents = minSuggestedSaleCents
 
   const { data, error } = await auth.supabase
     .from('pricing_tags')
     .insert(insert)
-    .select('id, name, parts_family, margin_bps, min_suggested_sale_cents, created_at, updated_at')
+    .select('id, name, margin_bps, min_suggested_sale_cents, created_at, updated_at')
     .single()
 
   if (error) {

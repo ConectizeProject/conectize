@@ -8,29 +8,12 @@ type SupabaseServerClient = Awaited<
 const UUID_RE =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-const PARTS_FAMILY_SET = new Set([
-	"display",
-	"glass",
-	"battery",
-	"connector",
-]);
-
 function normalizeOptionalUuid(value: unknown): string | null | undefined {
 	if (value === undefined) return undefined;
 	if (value === null) return null;
 	const s = String(value).trim().toLowerCase();
 	if (!s) return null;
 	return UUID_RE.test(s) ? s : null;
-}
-
-function normalizePartsFamilyColumn(
-	value: unknown,
-): string | null | undefined {
-	if (value === undefined) return undefined;
-	if (value === null) return null;
-	const s = String(value).trim().toLowerCase();
-	if (!s) return null;
-	return PARTS_FAMILY_SET.has(s) ? s : null;
 }
 
 export type Product = {
@@ -48,7 +31,6 @@ export type Product = {
 	imageUrl?: string | null;
 	salePriceCents: number | null;
 	pricingTagId: string | null;
-	partsFamily: string | null;
 	costPriceCents: number | null;
 	/** Quando o custo foi alterado pelo cadastro no portal (não por sync/import). */
 	costPriceManualEditedAt: string | null;
@@ -84,7 +66,6 @@ export type CreateProductInput = {
 	imageUrl?: string | null;
 	salePriceCents?: number | null;
 	pricingTagId?: string | null;
-	partsFamily?: string | null;
 	costPriceCents?: number | null;
 	isActive?: boolean;
 };
@@ -251,7 +232,6 @@ export async function createProduct(
 	});
 
 	const pricingTagId = normalizeOptionalUuid(input.pricingTagId);
-	const partsFamily = normalizePartsFamilyColumn(input.partsFamily);
 
 	const payload = {
 		bling_id: input.blingId ?? null,
@@ -271,7 +251,6 @@ export async function createProduct(
 		...(pricingTagId !== undefined
 			? { pricing_tag_id: pricingTagId }
 			: {}),
-		...(partsFamily !== undefined ? { parts_family: partsFamily } : {}),
 		cost_price_cents: normalizeMoney(input.costPriceCents),
 		is_active: input.isActive ?? true,
 		created_by: auth.userId,
@@ -379,9 +358,6 @@ export async function updateProduct(
 	}
 	if (input.pricingTagId !== undefined) {
 		patch.pricing_tag_id = normalizeOptionalUuid(input.pricingTagId) ?? null;
-	}
-	if (input.partsFamily !== undefined) {
-		patch.parts_family = normalizePartsFamilyColumn(input.partsFamily) ?? null;
 	}
 	if (input.costPriceCents !== undefined) {
 		patch.cost_price_cents = normalizeMoney(input.costPriceCents);
@@ -512,6 +488,73 @@ export async function replaceProductCompatibleDeviceModels(
 	}
 
 	return { ok: true as const };
+}
+
+/** Modelos compatíveis com rótulo para formulário do portal (marca · tipo · modelo). */
+export async function getProductCompatibleModelsForForm(
+	productId: string,
+): Promise<
+	| { ok: true; entries: { id: string; label: string }[] }
+	| AuthFailure
+	| { ok: false; error: "db_error" }
+> {
+	const auth = await requireAuth();
+	if (!auth.ok) return { ok: false, error: "not_authenticated" };
+
+	const { data: pcRows, error } = await auth.supabase
+		.from("product_compatible_device_models")
+		.select(
+			`
+      device_model_id,
+      device_models (
+        id,
+        model,
+        device_types (
+          name,
+          device_brands ( name )
+        )
+      )
+    `,
+		)
+		.eq("product_id", productId);
+
+	if (error) {
+		return { ok: false as const, error: "db_error" as const };
+	}
+
+	const entries: { id: string; label: string }[] = [];
+	for (const row of pcRows || []) {
+		const r = row as {
+			device_model_id?: string;
+			device_models?: unknown;
+		};
+		const mid = r.device_model_id ? String(r.device_model_id) : "";
+		const dmRaw = r.device_models;
+		const dm = Array.isArray(dmRaw) ? dmRaw[0] : dmRaw;
+		if (!mid || !dm || typeof dm !== "object") continue;
+		const dmo = dm as { model?: string | null; device_types?: unknown };
+		const dtRaw = dmo.device_types;
+		const dt = Array.isArray(dtRaw) ? dtRaw[0] : dtRaw;
+		const dto =
+			dt && typeof dt === "object"
+				? (dt as { name?: string | null; device_brands?: unknown })
+				: null;
+		const brRaw = dto?.device_brands;
+		const br = Array.isArray(brRaw) ? brRaw[0] : brRaw;
+		const bro =
+			br && typeof br === "object"
+				? (br as { name?: string | null })
+				: null;
+		const parts = [bro?.name, dto?.name, dmo.model]
+			.filter(Boolean)
+			.map((x) => String(x).trim());
+		entries.push({
+			id: mid,
+			label: parts.join(" · ") || mid,
+		});
+	}
+
+	return { ok: true as const, entries };
 }
 
 export async function listProductCompatibleDeviceModelIds(
@@ -778,11 +821,6 @@ function mapRowToProduct(row: Record<string, unknown>): Product {
 		rawTag != null && String(rawTag).trim() !== "" && UUID_RE.test(String(rawTag).trim())
 			? String(rawTag).trim().toLowerCase()
 			: null;
-	const rawPf = row.parts_family;
-	const partsFamily =
-		rawPf != null && PARTS_FAMILY_SET.has(String(rawPf).trim().toLowerCase())
-			? String(rawPf).trim().toLowerCase()
-			: null;
 
 	return {
 		id: String(row.id),
@@ -798,7 +836,6 @@ function mapRowToProduct(row: Record<string, unknown>): Product {
 		imageUrl: row.image_url ? String(row.image_url) : null,
 		salePriceCents: parseRowCents(row.sale_price_cents),
 		pricingTagId,
-		partsFamily,
 		costPriceCents: parseRowCents(row.cost_price_cents),
 		costPriceManualEditedAt:
 			typeof row.cost_price_manual_edited_at === "string"

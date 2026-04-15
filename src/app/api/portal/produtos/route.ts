@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
-import { addStockMovement, createProduct } from '@/lib/products/service'
+import { addStockMovement, createProduct, replaceProductCompatibleDeviceModels } from '@/lib/products/service'
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function parseMoneyToCents (raw: unknown): number | null {
   if (raw == null || raw === '') return null
@@ -49,6 +52,19 @@ export async function POST (request: NextRequest) {
   }
   const initialStock = initialStockRaw ?? 0
 
+  let pricingTagId: string | null | undefined
+  if (Object.prototype.hasOwnProperty.call(body, 'pricingTagId')) {
+    const raw = body.pricingTagId
+    if (raw === null || raw === '') pricingTagId = null
+    else {
+      const s = String(raw).trim().toLowerCase()
+      if (!UUID_RE.test(s)) {
+        return NextResponse.json({ ok: false, error: 'pricingTagId_invalid' }, { status: 400 })
+      }
+      pricingTagId = s
+    }
+  }
+
   const created = await createProduct({
     name,
     kind,
@@ -58,6 +74,7 @@ export async function POST (request: NextRequest) {
     salePriceCents,
     costPriceCents,
     isActive: body.isActive !== false,
+    ...(pricingTagId !== undefined ? { pricingTagId } : {}),
   })
 
   if (!created.ok || !('product' in created)) {
@@ -79,6 +96,22 @@ export async function POST (request: NextRequest) {
         ok: false,
         error: 'stock_movement_failed',
       }, { status: 500 })
+    }
+  }
+
+  if (Array.isArray(body.compatibleModelIds) && body.compatibleModelIds.length > 0) {
+    const ids = [
+      ...new Set(
+        body.compatibleModelIds
+          .map((x) => String(x || '').trim().toLowerCase())
+          .filter((x) => UUID_RE.test(x)),
+      ),
+    ]
+    if (ids.length > 0) {
+      const linkRes = await replaceProductCompatibleDeviceModels(created.product.id, ids)
+      if (!linkRes.ok) {
+        return NextResponse.json({ ok: false, error: 'compatible_models_failed' }, { status: 500 })
+      }
     }
   }
 

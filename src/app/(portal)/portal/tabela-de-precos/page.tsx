@@ -21,7 +21,7 @@ export default async function TabelaPrecosLojistaPage () {
       <div className="space-y-1">
         <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Tabela de preços</h1>
         <p className="text-sm text-muted-foreground">
-          Visão comercial somente leitura: preços de lista e valores sugeridos para revenda, com filtros por aparelho.
+          Visão comercial somente leitura: escolha um modelo de aparelho e consulte preços de lista e valores sugeridos por tag.
         </p>
       </div>
       <TabelaPrecosLojistaClient />

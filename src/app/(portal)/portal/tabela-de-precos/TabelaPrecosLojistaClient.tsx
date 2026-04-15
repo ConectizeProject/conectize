@@ -1,19 +1,27 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Loader2 } from 'lucide-react'
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from '@/components/ui/accordion'
-import { Button } from '@/components/ui/button'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Loader2, X } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 
-type DeviceBrand = { id: string; name: string | null }
-type DeviceType = { id: string; name: string | null }
-type DeviceModel = { id: string; model: string | null }
+type DeviceCatalogRow = {
+  id: string
+  brand: string | null
+  device_type: string | null
+  model: string | null
+}
+
+type SelectedDevice = { id: string; label: string }
 
 type CatalogRow = {
   productId: string
@@ -22,16 +30,8 @@ type CatalogRow = {
   salePriceCents: number | null
   suggestedSaleCents: number | null
   pricingTagName: string | null
-  partsFamily: string | null
   deviceModelLabel: string | null
   brandName: string | null
-}
-
-const FAMILY_LABEL: Record<string, string> = {
-  display: 'Display',
-  glass: 'Vidro',
-  battery: 'Bateria',
-  connector: 'Conector',
 }
 
 function formatBrl (cents: number | null) {
@@ -40,80 +40,91 @@ function formatBrl (cents: number | null) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
-type GroupBlock = {
-  key: string
-  titleTag: string
-  titleFamily: string
-  rows: CatalogRow[]
+function LojistaValuesCell ({
+  salePriceCents,
+  suggestedSaleCents,
+}: {
+  salePriceCents: number | null
+  suggestedSaleCents: number | null
+}) {
+  return (
+    <div className="flex flex-col items-end gap-1.5 tabular-nums">
+      <div className="flex flex-col items-end gap-0.5">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Lista</span>
+        <span className="text-sm font-medium text-foreground">{formatBrl(salePriceCents)}</span>
+      </div>
+      <div className="flex flex-col items-end gap-0.5">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Sugerido</span>
+        <span className="text-base font-semibold text-primary">{formatBrl(suggestedSaleCents)}</span>
+      </div>
+    </div>
+  )
 }
 
 export function TabelaPrecosLojistaClient () {
-  const [brands, setBrands] = useState<DeviceBrand[]>([])
-  const [types, setTypes] = useState<DeviceType[]>([])
-  const [models, setModels] = useState<DeviceModel[]>([])
-  const [brandId, setBrandId] = useState('')
-  const [deviceTypeId, setDeviceTypeId] = useState('')
-  const [deviceModelId, setDeviceModelId] = useState('')
+  const [deviceCatalog, setDeviceCatalog] = useState<DeviceCatalogRow[]>([])
+  const [catalogLoading, setCatalogLoading] = useState(true)
+  const [deviceQuery, setDeviceQuery] = useState('')
+  const [suggestions, setSuggestions] = useState<{ value: string; label: string }[]>([])
+  const blurRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const deviceInputRef = useRef<HTMLInputElement | null>(null)
+  const pendingFocusSearchRef = useRef(false)
+
+  const [selectedDevice, setSelectedDevice] = useState<SelectedDevice | null>(null)
+
   const [rows, setRows] = useState<CatalogRow[]>([])
-  const [loadingMeta, setLoadingMeta] = useState(true)
   const [loadingRows, setLoadingRows] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const loadMeta = useCallback(async (bid: string | null, tid: string | null) => {
-    setLoadingMeta(true)
-    setError(null)
-    const qs = new URLSearchParams()
-    if (bid) qs.set('brandId', bid)
-    if (tid) qs.set('deviceTypeId', tid)
-    const res = await fetch(`/api/portal/lojista/device-filters?${qs.toString()}`)
-    const json = await res.json().catch(() => null)
-    setLoadingMeta(false)
-    if (!res.ok || !json?.ok) {
-      setError('Não foi possível carregar filtros de aparelho.')
-      return
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      setCatalogLoading(true)
+      const res = await fetch('/api/portal/lojista/device-models?limit=2000')
+      const json = await res.json().catch(() => null)
+      if (cancelled || !res.ok || !json?.ok) {
+        setDeviceCatalog([])
+        setCatalogLoading(false)
+        return
+      }
+      setDeviceCatalog((json.deviceModels || []) as DeviceCatalogRow[])
+      setCatalogLoading(false)
+    })()
+    return () => {
+      cancelled = true
     }
-    setBrands((json.deviceBrands || []) as DeviceBrand[])
-    if (json.deviceTypes) setTypes(json.deviceTypes as DeviceType[])
-    else setTypes([])
-    if (json.deviceModels) setModels(json.deviceModels as DeviceModel[])
-    else setModels([])
   }, [])
 
-  useEffect(() => {
-    void loadMeta(null, null)
-  }, [loadMeta])
+  const deviceOptions = useMemo(
+    () =>
+      deviceCatalog
+        .map((d) => ({
+          value: d.id,
+          label: [d.brand, d.device_type, d.model].filter(Boolean).join(' ') || d.id,
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR')),
+    [deviceCatalog],
+  )
 
   useEffect(() => {
-    if (!brandId) {
-      setTypes([])
-      setDeviceTypeId('')
-      setModels([])
-      setDeviceModelId('')
+    const q = deviceQuery.trim().toLowerCase()
+    if (q.length < 2) {
+      setSuggestions([])
       return
     }
-    void (async () => {
-      await loadMeta(brandId, null)
-    })()
-  }, [brandId, loadMeta])
-
-  useEffect(() => {
-    if (!deviceTypeId) {
-      setModels([])
-      setDeviceModelId('')
-      return
-    }
-    void (async () => {
-      await loadMeta(brandId, deviceTypeId)
-    })()
-  }, [deviceTypeId, brandId, loadMeta])
+    setSuggestions(deviceOptions.filter((o) => o.label.toLowerCase().includes(q)).slice(0, 50))
+  }, [deviceQuery, deviceOptions])
 
   const fetchPrices = useCallback(async () => {
+    if (!selectedDevice?.id) {
+      setRows([])
+      setLoadingRows(false)
+      return
+    }
     setLoadingRows(true)
     setError(null)
     const qs = new URLSearchParams()
-    if (brandId) qs.set('brandId', brandId)
-    if (deviceTypeId) qs.set('deviceTypeId', deviceTypeId)
-    if (deviceModelId) qs.set('deviceModelId', deviceModelId)
+    qs.set('deviceModelId', selectedDevice.id)
     const res = await fetch(`/api/portal/lojista/catalogo-precos?${qs.toString()}`)
     const json = await res.json().catch(() => null)
     setLoadingRows(false)
@@ -130,102 +141,152 @@ export function TabelaPrecosLojistaClient () {
       salePriceCents: typeof r.salePriceCents === 'number' ? r.salePriceCents : null,
       suggestedSaleCents: typeof r.suggestedSaleCents === 'number' ? r.suggestedSaleCents : null,
       pricingTagName: r.pricingTagName != null ? String(r.pricingTagName) : null,
-      partsFamily: r.partsFamily != null ? String(r.partsFamily) : null,
       deviceModelLabel: r.deviceModelLabel != null ? String(r.deviceModelLabel) : null,
       brandName: r.brandName != null ? String(r.brandName) : null,
     })))
-  }, [brandId, deviceTypeId, deviceModelId])
+  }, [selectedDevice])
 
   useEffect(() => {
     void fetchPrices()
   }, [fetchPrices])
 
-  const groups = useMemo((): GroupBlock[] => {
-    const map = new Map<string, CatalogRow[]>()
-    for (const r of rows) {
-      const tag = (r.pricingTagName || 'Sem tag').trim() || 'Sem tag'
-      const famRaw = (r.partsFamily || '').trim().toLowerCase()
-      const famLabel = famRaw ? (FAMILY_LABEL[famRaw] || famRaw) : 'Família geral'
-      const key = `${tag}__${famRaw || '_'}`
-      const list = map.get(key) || []
-      list.push(r)
-      map.set(key, list)
-    }
-    return [...map.entries()].map(([key, gRows]) => {
-      const first = gRows[0]
-      const tag = (first.pricingTagName || 'Sem tag').trim() || 'Sem tag'
-      const famRaw = (first.partsFamily || '').trim().toLowerCase()
-      const famLabel = famRaw ? (FAMILY_LABEL[famRaw] || famRaw) : 'Família geral'
-      return { key, titleTag: tag, titleFamily: famLabel, rows: gRows }
-    }).sort((a, b) => a.titleTag.localeCompare(b.titleTag, 'pt') || a.titleFamily.localeCompare(b.titleFamily, 'pt'))
-  }, [rows])
+  function handlePick (opt: { value: string; label: string }) {
+    setSelectedDevice({ id: opt.value, label: opt.label })
+    setDeviceQuery('')
+    setSuggestions([])
+  }
 
-  const defaultAccordion = groups.length > 0 ? [groups[0].key] : undefined
+  function clearDevice () {
+    pendingFocusSearchRef.current = false
+    setSelectedDevice(null)
+    setDeviceQuery('')
+    setSuggestions([])
+    setRows([])
+    setError(null)
+  }
+
+  function beginEditDeviceSearch () {
+    if (!selectedDevice) return
+    pendingFocusSearchRef.current = true
+    const label = selectedDevice.label
+    setSelectedDevice(null)
+    setDeviceQuery(label)
+  }
+
+  useLayoutEffect(() => {
+    if (!pendingFocusSearchRef.current) return
+    if (selectedDevice != null) return
+    pendingFocusSearchRef.current = false
+    const el = deviceInputRef.current
+    if (!el) return
+    el.focus()
+    el.select()
+  }, [selectedDevice])
+
+  const sortedRows = useMemo(() => {
+    const copy = [...rows]
+    copy.sort((a, b) => {
+      const tagA = (a.pricingTagName || 'Sem tag').trim()
+      const tagB = (b.pricingTagName || 'Sem tag').trim()
+      const c = tagA.localeCompare(tagB, 'pt-BR')
+      if (c !== 0) return c
+      return a.productName.localeCompare(b.productName, 'pt-BR')
+    })
+    return copy
+  }, [rows])
 
   return (
     <div className="space-y-4">
       <Card className="min-w-0 max-w-full">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-lg">Filtros por aparelho</CardTitle>
+          <CardTitle className="text-lg">Aparelho</CardTitle>
           <CardDescription>
-            Marca, tipo e modelo em cascata. Os preços são atualizados automaticamente ao mudar os filtros.
+            Selecione um modelo para carregar os preços (busca por marca, tipo ou nome do modelo — mínimo 2 caracteres).
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
-            <label className="flex min-w-[12rem] flex-1 flex-col gap-1 text-sm">
-              <span className="text-muted-foreground">Marca</span>
-              <select
-                className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-                value={brandId}
-                disabled={loadingMeta}
-                onChange={(e) => {
-                  setBrandId(e.target.value)
-                  setDeviceTypeId('')
-                  setDeviceModelId('')
-                }}
-              >
-                <option value="">Todas</option>
-                {brands.map((b) => (
-                  <option key={b.id} value={b.id}>{String(b.name || '').trim() || b.id}</option>
-                ))}
-              </select>
-            </label>
-            <label className="flex min-w-[12rem] flex-1 flex-col gap-1 text-sm">
-              <span className="text-muted-foreground">Tipo</span>
-              <select
-                className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-                value={deviceTypeId}
-                disabled={!brandId}
-                onChange={(e) => {
-                  setDeviceTypeId(e.target.value)
-                  setDeviceModelId('')
-                }}
-              >
-                <option value="">Todos</option>
-                {types.map((t) => (
-                  <option key={t.id} value={t.id}>{String(t.name || '').trim() || t.id}</option>
-                ))}
-              </select>
-            </label>
-            <label className="flex min-w-[12rem] flex-1 flex-col gap-1 text-sm">
-              <span className="text-muted-foreground">Modelo</span>
-              <select
-                className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-                value={deviceModelId}
-                disabled={!deviceTypeId}
-                onChange={(e) => setDeviceModelId(e.target.value)}
-              >
-                <option value="">Todos</option>
-                {models.map((m) => (
-                  <option key={m.id} value={m.id}>{String(m.model || '').trim() || m.id}</option>
-                ))}
-              </select>
-            </label>
-            <Button type="button" variant="outline" size="sm" className="h-9 shrink-0" onClick={() => void fetchPrices()} disabled={loadingRows}>
-              {loadingRows ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Atualizar'}
-            </Button>
-          </div>
+        <CardContent className="space-y-3">
+          {selectedDevice ? (
+            <div className="space-y-2">
+              <Label>Modelo selecionado</Label>
+              <div className="flex min-h-10 items-center gap-2 rounded-md border border-primary/25 bg-primary/5 text-sm shadow-sm">
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 cursor-text truncate px-3 py-2 text-left font-medium text-foreground outline-none ring-offset-background hover:bg-primary/10 focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={beginEditDeviceSearch}
+                  title="Clique para editar a busca"
+                >
+                  {selectedDevice.label}
+                </button>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-md p-2 text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    clearDevice()
+                  }}
+                  aria-label="Limpar modelo"
+                >
+                  <X className="h-4 w-4" aria-hidden />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="relative space-y-2">
+              <Label htmlFor="tabela-device-search">Selecionar modelo</Label>
+              <div className="relative">
+                <Input
+                  ref={deviceInputRef}
+                  id="tabela-device-search"
+                  placeholder="Marca, tipo ou modelo (mín. 2 caracteres)…"
+                  value={deviceQuery}
+                  onChange={(e) => setDeviceQuery(e.target.value)}
+                  onBlur={() => {
+                    blurRef.current = setTimeout(() => setSuggestions([]), 150)
+                  }}
+                  onFocus={() => {
+                    if (blurRef.current) {
+                      clearTimeout(blurRef.current)
+                      blurRef.current = null
+                    }
+                  }}
+                  disabled={catalogLoading}
+                  autoComplete="off"
+                />
+                {catalogLoading ? (
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                    Carregando…
+                  </span>
+                ) : null}
+                {suggestions.length > 0 ? (
+                  <ul className="absolute z-20 mt-1 max-h-52 w-full list-none overflow-auto rounded-md border bg-popover p-0 py-1 shadow-md">
+                    {suggestions.map((opt) => (
+                      <li key={opt.value}>
+                        <button
+                          type="button"
+                          className="w-full px-3 py-2 text-left text-sm hover:bg-muted"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => handlePick(opt)}
+                        >
+                          {opt.label}
+                        </button>
+                      </li>
+                    ))}
+                    {suggestions.length === 50 ? (
+                      <li className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
+                        Lista limitada a 50 itens — refine a busca.
+                      </li>
+                    ) : null}
+                  </ul>
+                ) : null}
+              </div>
+              {!catalogLoading && deviceQuery.trim().length > 0 && deviceQuery.trim().length < 2 ? (
+                <p className="text-xs text-muted-foreground">Mínimo 2 caracteres.</p>
+              ) : null}
+              {!catalogLoading && deviceQuery.trim().length >= 2 && suggestions.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Nenhum modelo encontrado.</p>
+              ) : null}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -233,60 +294,59 @@ export function TabelaPrecosLojistaClient () {
 
       <Card className="min-w-0 max-w-full border-muted">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-lg">Catálogo comercial</CardTitle>
+          <CardTitle className="text-lg">Preços por tag</CardTitle>
           <CardDescription>
-            Agrupado por tag de precificação e família. Somente leitura — sem custos nem cadastro.
+            Coluna Lojista: preço de lista e sugerido ao consumidor (regras da tag e do seu cadastro). Somente leitura.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {loadingRows && rows.length === 0 ? (
+          {!selectedDevice ? (
+            <p className="py-10 text-center text-sm text-muted-foreground">
+              Selecione um modelo de aparelho acima para consultar os preços.
+            </p>
+          ) : loadingRows && rows.length === 0 ? (
             <div className="flex justify-center py-12 text-muted-foreground">
               <Loader2 className="h-8 w-8 animate-spin" />
             </div>
-          ) : null}
-          {!loadingRows && rows.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">Nenhum item para os filtros atuais.</p>
-          ) : null}
-          {groups.length > 0 ? (
-            <Accordion type="multiple" defaultValue={defaultAccordion} className="w-full">
-              {groups.map((g) => (
-                <AccordionItem key={g.key} value={g.key} className="border-b border-border/80">
-                  <AccordionTrigger className="text-left text-sm font-semibold hover:no-underline sm:text-base">
-                    <span className="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2">
-                      <span>{g.titleTag}</span>
-                      <span className="text-xs font-normal text-muted-foreground sm:text-sm">{g.titleFamily}</span>
-                      <span className="text-xs font-normal tabular-nums text-muted-foreground">({g.rows.length})</span>
-                    </span>
-                  </AccordionTrigger>
-                  <AccordionContent>
-                    <div className="grid gap-3 pb-2 pt-1 sm:grid-cols-2 xl:grid-cols-3">
-                      {g.rows.map((r, idx) => (
-                        <Card key={`${r.productId}-${idx}`} className="shadow-sm">
-                          <CardHeader className="space-y-1 p-4 pb-2">
-                            <CardTitle className="text-sm font-semibold leading-snug">{r.productName}</CardTitle>
-                            <CardDescription className="text-xs">
-                              {[r.brandName, r.deviceModelLabel].filter(Boolean).join(' · ') || '—'}
-                              {r.productKind ? ` · ${r.productKind}` : ''}
-                            </CardDescription>
-                          </CardHeader>
-                          <CardContent className="flex flex-wrap gap-4 p-4 pt-0 text-sm">
-                            <div>
-                              <div className="text-xs text-muted-foreground">Lista</div>
-                              <div className="font-medium tabular-nums">{formatBrl(r.salePriceCents)}</div>
-                            </div>
-                            <div>
-                              <div className="text-xs text-muted-foreground">Sugerido</div>
-                              <div className="font-medium tabular-nums text-primary">{formatBrl(r.suggestedSaleCents)}</div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-              ))}
-            </Accordion>
-          ) : null}
+          ) : !loadingRows && sortedRows.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              Nenhum item cadastrado para este modelo.
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Tag</TableHead>
+                    <TableHead>Produto</TableHead>
+                    <TableHead className="text-right">Lojista</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sortedRows.map((r) => {
+                    const tag = (r.pricingTagName || 'Sem tag').trim() || 'Sem tag'
+                    return (
+                      <TableRow key={r.productId}>
+                        <TableCell className="align-top font-medium">{tag}</TableCell>
+                        <TableCell className="max-w-[16rem] align-top">
+                          <div className="font-medium leading-snug">{r.productName}</div>
+                          {r.productKind ? (
+                            <div className="mt-0.5 text-xs text-muted-foreground">{r.productKind}</div>
+                          ) : null}
+                        </TableCell>
+                        <TableCell className="align-top">
+                          <LojistaValuesCell
+                            salePriceCents={r.salePriceCents}
+                            suggestedSaleCents={r.suggestedSaleCents}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

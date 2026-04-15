@@ -8,7 +8,7 @@ import { PricingTagsStaffTab } from './PricingTagsStaffTab'
 
 export const dynamic = 'force-dynamic'
 
-type SearchParams = Promise<{ q?: string; page?: string; kind?: string; tab?: string }>
+type SearchParams = Promise<{ q?: string; page?: string; kind?: string; tab?: string; edit?: string }>
 
 function parseStaffTab (raw: string | undefined): ProdutosStaffTabId {
   const t = String(raw || '').trim().toLowerCase()
@@ -27,6 +27,7 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
   if (normalizedRole !== 'staff' && normalizedRole !== 'admin') redirect('/portal/minhas-ordens')
 
   const tab = parseStaffTab(sp.tab)
+  const initialEditProductId = String(sp.edit || '').trim() || undefined
 
   return (
     <div className="min-w-0 max-w-full space-y-4 sm:space-y-6">
@@ -42,7 +43,12 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
       <ProdutosStaffTabsNav activeTab={tab} />
 
       {tab === 'gestao' ? (
-        <ProdutosGestaoTab q={String(sp.q || '')} page={String(sp.page || '')} kind={String(sp.kind || '')} />
+        <ProdutosGestaoTab
+          q={String(sp.q || '')}
+          page={String(sp.page || '')}
+          kind={String(sp.kind || '')}
+          initialEditProductId={initialEditProductId}
+        />
       ) : null}
       {tab === 'precos' ? <StaffPrecosTabClient /> : null}
       {tab === 'tags' ? <PricingTagsStaffTab /> : null}

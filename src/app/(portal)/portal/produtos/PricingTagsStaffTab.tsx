@@ -22,22 +22,24 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { toast } from '@/hooks/use-toast'
+import {
+  marginBpsToPercentString,
+  parsePercentInputToMarginBps,
+  sanitizeMarginPercentInput,
+} from '@/lib/pricing/margin-percent'
+import { formatMoneyInput, maskedFromCents, moneyToCentsFromMasked } from '@/lib/utils/money'
 
 type PricingTag = {
   id: string
   name: string
-  parts_family: string | null
   margin_bps: number | null
   min_suggested_sale_cents: number | null
 }
 
-const FAMILY_OPTIONS = [
-  { value: '', label: '(nenhuma)' },
-  { value: 'display', label: 'Display' },
-  { value: 'glass', label: 'Vidro' },
-  { value: 'battery', label: 'Bateria' },
-  { value: 'connector', label: 'Conector' },
-]
+function formatBrlFromCents (cents: number | null) {
+  if (cents == null) return '—'
+  return (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
 
 type RetailerRow = { id: string; email: string | null; full_name: string | null }
 
@@ -57,8 +59,8 @@ function PricingTagOverridesStaffSection ({ pricingTags }: { pricingTags: Pricin
   const [editOverride, setEditOverride] = useState<OverrideRow | null>(null)
   const [retailerUserId, setRetailerUserId] = useState('')
   const [pricingTagId, setPricingTagId] = useState('')
-  const [marginBps, setMarginBps] = useState('')
-  const [minCents, setMinCents] = useState('')
+  const [marginPercentInput, setMarginPercentInput] = useState('')
+  const [minReaisInput, setMinReaisInput] = useState('')
   const [saving, setSaving] = useState(false)
 
   const tagNameById = useCallback((id: string) => {
@@ -102,8 +104,8 @@ function PricingTagOverridesStaffSection ({ pricingTags }: { pricingTags: Pricin
     setEditOverride(null)
     setRetailerUserId('')
     setPricingTagId('')
-    setMarginBps('')
-    setMinCents('')
+    setMarginPercentInput('')
+    setMinReaisInput('')
     setDialogOpen(true)
   }
 
@@ -111,8 +113,8 @@ function PricingTagOverridesStaffSection ({ pricingTags }: { pricingTags: Pricin
     setEditOverride(o)
     setRetailerUserId(o.retailer_user_id)
     setPricingTagId(o.pricing_tag_id)
-    setMarginBps(o.margin_bps != null ? String(o.margin_bps) : '')
-    setMinCents(o.min_suggested_sale_cents != null ? String(o.min_suggested_sale_cents) : '')
+    setMarginPercentInput(marginBpsToPercentString(o.margin_bps))
+    setMinReaisInput(maskedFromCents(o.min_suggested_sale_cents))
     setDialogOpen(true)
   }
 
@@ -123,14 +125,20 @@ function PricingTagOverridesStaffSection ({ pricingTags }: { pricingTags: Pricin
         return
       }
     }
+    const marginParsed = parsePercentInputToMarginBps(marginPercentInput)
+    if (marginParsed === 'invalid') {
+      toast({ title: 'Margem inválida', description: 'Use um percentual entre 0 e 100 (ex.: 50 ou 50,5).', variant: 'destructive' })
+      return
+    }
+    const minParsed = moneyToCentsFromMasked(minReaisInput)
     setSaving(true)
     if (editOverride) {
       const res = await fetch(`/api/portal/staff/pricing-tag-overrides/${editOverride.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          marginBps: marginBps.trim() === '' ? null : Number(marginBps),
-          minSuggestedSaleCents: minCents.trim() === '' ? null : Number(minCents),
+          marginBps: marginParsed,
+          minSuggestedSaleCents: minParsed,
         }),
       })
       const json = await res.json().catch(() => null)
@@ -147,8 +155,8 @@ function PricingTagOverridesStaffSection ({ pricingTags }: { pricingTags: Pricin
         body: JSON.stringify({
           retailerUserId: retailerUserId,
           pricingTagId: pricingTagId,
-          marginBps: marginBps.trim() === '' ? null : Number(marginBps),
-          minSuggestedSaleCents: minCents.trim() === '' ? null : Number(minCents),
+          marginBps: marginParsed,
+          minSuggestedSaleCents: minParsed,
         }),
       })
       const json = await res.json().catch(() => null)
@@ -201,8 +209,8 @@ function PricingTagOverridesStaffSection ({ pricingTags }: { pricingTags: Pricin
                 <TableRow>
                   <TableHead>Tag</TableHead>
                   <TableHead>Lojista</TableHead>
-                  <TableHead className="text-right">Margem (bps)</TableHead>
-                  <TableHead className="text-right">Mínimo (¢)</TableHead>
+                  <TableHead className="text-right">Margem</TableHead>
+                  <TableHead className="text-right">Mínimo (R$)</TableHead>
                   <TableHead className="w-[100px]" />
                 </TableRow>
               </TableHeader>
@@ -222,8 +230,10 @@ function PricingTagOverridesStaffSection ({ pricingTags }: { pricingTags: Pricin
                       <TableCell className="text-muted-foreground text-sm">
                         {r ? retailerLabel(r) : o.retailer_user_id}
                       </TableCell>
-                      <TableCell className="text-right tabular-nums">{o.margin_bps ?? '—'}</TableCell>
-                      <TableCell className="text-right tabular-nums">{o.min_suggested_sale_cents ?? '—'}</TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {o.margin_bps != null ? `${marginBpsToPercentString(o.margin_bps)}%` : '—'}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">{formatBrlFromCents(o.min_suggested_sale_cents)}</TableCell>
                       <TableCell className="flex gap-1">
                         <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditOverride(o)} aria-label="Editar override">
                           <Pencil className="h-4 w-4" />
@@ -287,12 +297,32 @@ function PricingTagOverridesStaffSection ({ pricingTags }: { pricingTags: Pricin
               </p>
             )}
             <div className="grid gap-1">
-              <Label htmlFor="ov-margin">Margem (bps)</Label>
-              <Input id="ov-margin" inputMode="numeric" value={marginBps} onChange={(e) => setMarginBps(e.target.value)} placeholder="vazio = herdar da tag" />
+              <Label htmlFor="ov-margin">Margem (%)</Label>
+              <div className="relative">
+                <Input
+                  id="ov-margin"
+                  inputMode="decimal"
+                  className="pr-8"
+                  value={marginPercentInput}
+                  onChange={(e) => setMarginPercentInput(sanitizeMarginPercentInput(e.target.value))}
+                  placeholder="herda da tag se vazio"
+                />
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">%</span>
+              </div>
             </div>
             <div className="grid gap-1">
-              <Label htmlFor="ov-min">Piso sugerido (centavos)</Label>
-              <Input id="ov-min" inputMode="numeric" value={minCents} onChange={(e) => setMinCents(e.target.value)} placeholder="opcional" />
+              <Label htmlFor="ov-min">Valor mínimo (R$)</Label>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">R$</span>
+                <Input
+                  id="ov-min"
+                  inputMode="numeric"
+                  className="pl-10 tabular-nums"
+                  value={minReaisInput}
+                  onChange={(e) => setMinReaisInput(formatMoneyInput(e.target.value))}
+                  placeholder="0,00"
+                />
+              </div>
             </div>
           </div>
           <DialogFooter>
@@ -313,9 +343,8 @@ export function PricingTagsStaffTab () {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<PricingTag | null>(null)
   const [name, setName] = useState('')
-  const [partsFamily, setPartsFamily] = useState('')
-  const [marginBps, setMarginBps] = useState('')
-  const [minCents, setMinCents] = useState('')
+  const [marginPercentInput, setMarginPercentInput] = useState('')
+  const [minReaisInput, setMinReaisInput] = useState('')
   const [saving, setSaving] = useState(false)
 
   const loadTags = useCallback(async () => {
@@ -338,18 +367,16 @@ export function PricingTagsStaffTab () {
   function openCreate () {
     setEditing(null)
     setName('')
-    setPartsFamily('')
-    setMarginBps('')
-    setMinCents('')
+    setMarginPercentInput('')
+    setMinReaisInput('')
     setDialogOpen(true)
   }
 
   function openEdit (t: PricingTag) {
     setEditing(t)
     setName(t.name || '')
-    setPartsFamily(t.parts_family || '')
-    setMarginBps(t.margin_bps != null ? String(t.margin_bps) : '')
-    setMinCents(t.min_suggested_sale_cents != null ? String(t.min_suggested_sale_cents) : '')
+    setMarginPercentInput(marginBpsToPercentString(t.margin_bps))
+    setMinReaisInput(maskedFromCents(t.min_suggested_sale_cents))
     setDialogOpen(true)
   }
 
@@ -359,12 +386,17 @@ export function PricingTagsStaffTab () {
       toast({ title: 'Nome obrigatório', variant: 'destructive' })
       return
     }
+    const marginParsed = parsePercentInputToMarginBps(marginPercentInput)
+    if (marginParsed === 'invalid') {
+      toast({ title: 'Margem inválida', description: 'Use um percentual entre 0 e 100 (ex.: 50 ou 50,5).', variant: 'destructive' })
+      return
+    }
+    const minParsed = moneyToCentsFromMasked(minReaisInput)
     setSaving(true)
     const payload: Record<string, unknown> = {
       name: trimmedName,
-      partsFamily: partsFamily || null,
-      marginBps: marginBps.trim() === '' ? null : Number(marginBps),
-      minSuggestedSaleCents: minCents.trim() === '' ? null : Number(minCents),
+      marginBps: marginParsed,
+      minSuggestedSaleCents: minParsed,
     }
     const url = editing
       ? `/api/portal/staff/pricing-tags/${editing.id}`
@@ -408,7 +440,7 @@ export function PricingTagsStaffTab () {
         <div className="space-y-1">
           <CardTitle className="text-lg">Tags de precificação</CardTitle>
           <CardDescription>
-            Regras globais de margem (sobre preço de venda) e piso mínimo sugerido; usadas no catálogo comercial.
+            Margem de participação sobre o preço final a partir do custo; valor mínimo em reais (piso). Usadas no catálogo comercial.
           </CardDescription>
         </div>
         <Button type="button" size="sm" onClick={openCreate}>
@@ -427,16 +459,15 @@ export function PricingTagsStaffTab () {
               <TableHeader>
                 <TableRow>
                   <TableHead>Nome</TableHead>
-                  <TableHead>Família</TableHead>
-                  <TableHead className="text-right">Margem (bps)</TableHead>
-                  <TableHead className="text-right">Mínimo (¢)</TableHead>
+                  <TableHead className="text-right">Margem</TableHead>
+                  <TableHead className="text-right">Mínimo (R$)</TableHead>
                   <TableHead className="w-[100px]" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {tags.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center text-muted-foreground">
+                    <TableCell colSpan={4} className="text-center text-muted-foreground">
                       Nenhuma tag cadastrada.
                     </TableCell>
                   </TableRow>
@@ -444,9 +475,10 @@ export function PricingTagsStaffTab () {
                 {tags.map((t) => (
                   <TableRow key={t.id}>
                     <TableCell className="font-medium">{t.name}</TableCell>
-                    <TableCell className="text-muted-foreground">{t.parts_family || '—'}</TableCell>
-                    <TableCell className="text-right tabular-nums">{t.margin_bps ?? '—'}</TableCell>
-                    <TableCell className="text-right tabular-nums">{t.min_suggested_sale_cents ?? '—'}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {t.margin_bps != null ? `${marginBpsToPercentString(t.margin_bps)}%` : '—'}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">{formatBrlFromCents(t.min_suggested_sale_cents)}</TableCell>
                     <TableCell className="flex gap-1">
                       <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(t)} aria-label="Editar">
                         <Pencil className="h-4 w-4" />
@@ -474,24 +506,34 @@ export function PricingTagsStaffTab () {
               <Input id="pt-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex.: Troca de display" />
             </div>
             <div className="grid gap-1">
-              <Label>Família</Label>
-              <select
-                className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-                value={partsFamily}
-                onChange={(e) => setPartsFamily(e.target.value)}
-              >
-                {FAMILY_OPTIONS.map((o) => (
-                  <option key={o.value || 'none'} value={o.value}>{o.label}</option>
-                ))}
-              </select>
+              <Label htmlFor="pt-margin">Margem (%)</Label>
+              <p className="text-xs text-muted-foreground">Participação sobre o preço de venda: (preço − custo) ÷ preço.</p>
+              <div className="relative">
+                <Input
+                  id="pt-margin"
+                  inputMode="decimal"
+                  className="pr-8"
+                  value={marginPercentInput}
+                  onChange={(e) => setMarginPercentInput(sanitizeMarginPercentInput(e.target.value))}
+                  placeholder="ex.: 50"
+                />
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">%</span>
+              </div>
             </div>
             <div className="grid gap-1">
-              <Label htmlFor="pt-margin">Margem (bps, 0–9999)</Label>
-              <Input id="pt-margin" inputMode="numeric" value={marginBps} onChange={(e) => setMarginBps(e.target.value)} placeholder="ex.: 2500" />
-            </div>
-            <div className="grid gap-1">
-              <Label htmlFor="pt-min">Piso sugerido (centavos)</Label>
-              <Input id="pt-min" inputMode="numeric" value={minCents} onChange={(e) => setMinCents(e.target.value)} placeholder="opcional" />
+              <Label htmlFor="pt-min">Valor mínimo (R$)</Label>
+              <p className="text-xs text-muted-foreground">Se o preço calculado ficar abaixo, usa este piso.</p>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">R$</span>
+                <Input
+                  id="pt-min"
+                  inputMode="numeric"
+                  className="pl-10 tabular-nums"
+                  value={minReaisInput}
+                  onChange={(e) => setMinReaisInput(formatMoneyInput(e.target.value))}
+                  placeholder="0,00"
+                />
+              </div>
             </div>
           </div>
           <DialogFooter>

@@ -43,6 +43,7 @@ type Props = {
 	onGenerateBarcode: (id: string) => void
 	onSyncFromBling: (id: string) => void
 	onDelete: (product: ProductRow) => void
+	onEditProduct: (product: ProductRow) => void
 }
 
 export const ProductListTableRow = memo(function ProductListTableRow ({
@@ -60,6 +61,7 @@ export const ProductListTableRow = memo(function ProductListTableRow ({
 	onGenerateBarcode,
 	onSyncFromBling,
 	onDelete,
+	onEditProduct,
 }: Props) {
 	const handleCheckboxChange = useCallback(
 		(checked: boolean) => {
@@ -239,8 +241,13 @@ export const ProductListTableRow = memo(function ProductListTableRow ({
 						</Button>
 					</DropdownMenuTrigger>
 					<DropdownMenuContent align="end">
-						<DropdownMenuItem asChild>
-							<Link href={`/portal/produtos/${product.id}/editar`}>Editar</Link>
+						<DropdownMenuItem
+							onSelect={(event) => {
+								event.preventDefault()
+								onEditProduct(product)
+							}}
+						>
+							Editar
 						</DropdownMenuItem>
 						<DropdownMenuItem asChild>
 							<Link href={`/portal/produtos/${product.id}`}>Ver detalhes</Link>

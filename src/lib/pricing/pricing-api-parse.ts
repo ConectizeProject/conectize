@@ -1,8 +1,6 @@
 export type ParseInvalid = { readonly _tag: 'invalid' }
 export const PARSE_INVALID: ParseInvalid = { _tag: 'invalid' }
 
-export const PARTS_FAMILIES = new Set(['display', 'glass', 'battery', 'connector'])
-
 export function parseUuid (raw: unknown): string | null {
   const v = String(raw || '').trim().toLowerCase()
   if (!v) return null
@@ -12,14 +10,6 @@ export function parseUuid (raw: unknown): string | null {
 
 export function parseUuidParam (raw: string | null): string | null {
   return parseUuid(raw)
-}
-
-export function parsePartsFamily (raw: unknown): string | null | undefined | ParseInvalid {
-  if (raw === undefined) return undefined
-  if (raw === null || raw === '') return null
-  const v = String(raw).trim().toLowerCase()
-  if (!PARTS_FAMILIES.has(v)) return PARSE_INVALID
-  return v
 }
 
 export function parseMarginBps (raw: unknown): number | null | undefined | ParseInvalid {

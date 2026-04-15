@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Barcode, CloudUpload, Loader2, RefreshCw } from 'lucide-react'
+import { Barcode, CloudUpload, Loader2, PencilLine, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -15,9 +15,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -29,6 +27,7 @@ import {
 	AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { toast } from '@/hooks/use-toast'
+import { BulkEditProductsModal } from './BulkEditProductsModal'
 import { StockManagementModal } from './StockManagementModal'
 import { cn } from '@/lib/utils'
 import { ProductEditDialog } from './ProductEditDialog'
@@ -132,6 +131,8 @@ type Props = {
 		products: string
 		services: string
 	}
+	/** Query `?edit=` — abre a modal de edição e remove o parâmetro da URL. */
+	initialEditProductId?: string
 }
 
 export function ProductsListClient ({
@@ -139,6 +140,7 @@ export function ProductsListClient ({
 	pagination,
 	paginationRangeLabel,
 	initialFilterType = 'product',
+	initialEditProductId,
 	tabHrefs,
 }: Props) {
 	const router = useRouter()
@@ -165,20 +167,10 @@ export function ProductsListClient ({
 	const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
 	const [bulkBusy, setBulkBusy] = useState(false)
 	const [bulkAction, setBulkAction] = useState<'sync' | 'barcode' | 'pushPortal' | null>(null)
+	const [bulkEditOpen, setBulkEditOpen] = useState(false)
+	const [bulkEditProductIds, setBulkEditProductIds] = useState<string[]>([])
 	const [pushPortalDialogOpen, setPushPortalDialogOpen] = useState(false)
 	const [createDialogOpen, setCreateDialogOpen] = useState(false)
-	const [createSubmitting, setCreateSubmitting] = useState(false)
-	const [createForm, setCreateForm] = useState({
-		name: '',
-		sku: '',
-		barcode: '',
-		description: '',
-		salePrice: '',
-		costPrice: '',
-		initialStock: '0',
-		isActive: true,
-		kind: 'product' as 'product' | 'service',
-	})
 	const [pushPortalFieldKeys, setPushPortalFieldKeys] = useState<Set<PortalFieldForBling>>(
 		() => new Set(PUSH_TO_BLING_FIELD_OPTIONS.map((o) => o.id)),
 	)
@@ -191,17 +183,24 @@ export function ProductsListClient ({
 	}, [filterType])
 
 	useEffect(() => {
-		if (!createDialogOpen) return
-		setCreateForm((prev) => ({
-			...prev,
-			kind: isProductTab ? 'product' : 'service',
-			initialStock: isProductTab ? prev.initialStock : '0',
-		}))
-	}, [createDialogOpen, isProductTab])
-
-	useEffect(() => {
 		setFilterType(initialFilterType)
 	}, [initialFilterType])
+
+	useEffect(() => {
+		const raw = initialEditProductId?.trim()
+		if (!raw) return
+		setCreateDialogOpen(false)
+		setEditingProduct({
+			id: raw,
+			name: '',
+			bling_id: null,
+		})
+		if (typeof window === 'undefined') return
+		const url = new URL(window.location.href)
+		if (!url.searchParams.get('edit')) return
+		url.searchParams.delete('edit')
+		router.replace(url.pathname + url.search + url.hash, { scroll: false })
+	}, [initialEditProductId, router])
 
 	useEffect(() => {
 		if (!barcodeOptimistic) return
@@ -474,6 +473,16 @@ export function ProductsListClient ({
 	}, [allVisibleIds])
 
 	const handleProductRowClick = useCallback((p: ProductRow) => {
+		setCreateDialogOpen(false)
+		setEditingProduct({
+			id: p.id,
+			name: p.name,
+			bling_id: p.bling_id ?? null,
+		})
+	}, [])
+
+	const handleEditProduct = useCallback((p: ProductRow) => {
+		setCreateDialogOpen(false)
 		setEditingProduct({
 			id: p.id,
 			name: p.name,
@@ -666,67 +675,8 @@ export function ProductsListClient ({
 	}
 
 	function openCreateDialog () {
-		setCreateForm({
-			name: '',
-			sku: '',
-			barcode: '',
-			description: '',
-			salePrice: '',
-			costPrice: '',
-			initialStock: '0',
-			isActive: true,
-			kind: isProductTab ? 'product' : 'service',
-		})
+		setEditingProduct(null)
 		setCreateDialogOpen(true)
-	}
-
-	async function handleCreateProductOrService () {
-		if (createSubmitting) return
-		if (!createForm.name.trim()) {
-			toast({ variant: 'destructive', title: 'Nome é obrigatório' })
-			return
-		}
-		setCreateSubmitting(true)
-		try {
-			const res = await fetch('/api/portal/produtos', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					name: createForm.name,
-					sku: createForm.sku,
-					barcode: createForm.barcode,
-					description: createForm.description,
-					salePrice: createForm.salePrice,
-					costPrice: createForm.costPrice,
-					initialStock: createForm.kind === 'service' ? '0' : createForm.initialStock,
-					isActive: createForm.isActive,
-					kind: createForm.kind,
-				}),
-			})
-			const data = await res.json().catch(() => null)
-			if (!res.ok || !data?.ok) {
-				toast({
-					variant: 'destructive',
-					title: 'Erro ao criar',
-					description: data?.error || 'Tente novamente.',
-				})
-				return
-			}
-			toast({
-				variant: 'success',
-				title: createForm.kind === 'service' ? 'Serviço criado' : 'Produto criado',
-			})
-			setCreateDialogOpen(false)
-			router.refresh()
-		} catch {
-			toast({
-				variant: 'destructive',
-				title: 'Erro ao criar',
-				description: 'Tente novamente.',
-			})
-		} finally {
-			setCreateSubmitting(false)
-		}
 	}
 
 	return (
@@ -832,6 +782,20 @@ export function ProductsListClient ({
 							size="sm"
 							className="h-8"
 							disabled={bulkBusy}
+							onClick={() => {
+								setBulkEditProductIds([...selectedIds])
+								setBulkEditOpen(true)
+							}}
+						>
+							<PencilLine className="mr-1 h-3.5 w-3.5" />
+							Editar em massa
+						</Button>
+						<Button
+							type="button"
+							variant="secondary"
+							size="sm"
+							className="h-8"
+							disabled={bulkBusy}
 							onClick={() => void handleBulkSyncFromBling()}
 						>
 							{bulkBusy && bulkAction === 'sync'
@@ -901,6 +865,7 @@ export function ProductsListClient ({
 								}
 								onToggleSelect={toggleRowSelected}
 								onRowClick={handleProductRowClick}
+								onEditProduct={handleEditProduct}
 								onOpenStock={setStockModalProduct}
 								onGenerateBarcode={handleGenerateBarcodeFromBling}
 								onSyncFromBling={handleSyncFromBling}
@@ -982,6 +947,7 @@ export function ProductsListClient ({
 												}
 												onToggleSelect={toggleRowSelected}
 												onRowClick={handleProductRowClick}
+												onEditProduct={handleEditProduct}
 												onOpenStock={setStockModalProduct}
 												onGenerateBarcode={handleGenerateBarcodeFromBling}
 												onSyncFromBling={handleSyncFromBling}
@@ -1027,15 +993,21 @@ export function ProductsListClient ({
 			)}
 
 			<ProductEditDialog
-				open={Boolean(editingProduct)}
+				open={createDialogOpen || Boolean(editingProduct)}
+				mode={editingProduct ? 'edit' : 'create'}
 				productId={editingProduct?.id ?? null}
 				initialName={editingProduct?.name}
 				initialBlingId={editingProduct?.bling_id ?? null}
+				defaultKind={isProductTab ? 'product' : 'service'}
 				onOpenChange={(open) => {
-					if (!open) setEditingProduct(null)
+					if (!open) {
+						setCreateDialogOpen(false)
+						setEditingProduct(null)
+					}
 				}}
 				onSuccess={() => router.refresh()}
 				onNavigateToProductId={(id) => {
+					setCreateDialogOpen(false)
 					setEditingProduct({ id, name: '', bling_id: null })
 				}}
 			/>
@@ -1112,6 +1084,17 @@ export function ProductsListClient ({
 				</AlertDialogContent>
 			</AlertDialog>
 
+			<BulkEditProductsModal
+				open={bulkEditOpen}
+				onOpenChange={setBulkEditOpen}
+				productIds={bulkEditProductIds}
+				allowDeviceModel={isProductTab}
+				onSuccess={() => {
+					setSelectedIds(new Set())
+					router.refresh()
+				}}
+			/>
+
 			<Dialog open={pushPortalDialogOpen} onOpenChange={setPushPortalDialogOpen}>
 				<DialogContent className="sm:max-w-md">
 					<DialogHeader>
@@ -1165,146 +1148,6 @@ export function ProductsListClient ({
 						</Button>
 						<Button type="button" onClick={() => void handleConfirmPushPortalToBling()}>
 							Enviar
-						</Button>
-					</DialogFooter>
-				</DialogContent>
-			</Dialog>
-
-			<Dialog
-				open={createDialogOpen}
-				onOpenChange={(open) => {
-					if (!createSubmitting) setCreateDialogOpen(open)
-				}}
-			>
-				<DialogContent className="sm:max-w-xl">
-					<DialogHeader>
-						<DialogTitle>Novo produto/serviço</DialogTitle>
-						<DialogDescription>
-							Cadastre um item sem sair da listagem.
-						</DialogDescription>
-					</DialogHeader>
-					<div className="space-y-4">
-						<div className="space-y-2">
-							<Label htmlFor="create-kind">Tipo</Label>
-							<select
-								id="create-kind"
-								value={createForm.kind}
-								onChange={(event) => {
-									const nextKind = event.target.value === 'service' ? 'service' : 'product'
-									setCreateForm((prev) => ({
-										...prev,
-										kind: nextKind,
-										initialStock: nextKind === 'service' ? '0' : prev.initialStock,
-									}))
-								}}
-								className="w-full h-10 rounded-md border border-input px-3 py-2 text-sm bg-background"
-								disabled={createSubmitting}
-							>
-								<option value="product">Produto</option>
-								<option value="service">Serviço</option>
-							</select>
-						</div>
-						<div className="space-y-2">
-							<Label htmlFor="create-name">Nome *</Label>
-							<Input
-								id="create-name"
-								value={createForm.name}
-								onChange={(event) => setCreateForm((prev) => ({ ...prev, name: event.target.value }))}
-								disabled={createSubmitting}
-								placeholder="Nome do item"
-							/>
-						</div>
-						<div className="grid gap-4 sm:grid-cols-2">
-							<div className="space-y-2">
-								<Label htmlFor="create-sku">SKU</Label>
-								<Input
-									id="create-sku"
-									value={createForm.sku}
-									onChange={(event) => setCreateForm((prev) => ({ ...prev, sku: event.target.value }))}
-									disabled={createSubmitting}
-								/>
-							</div>
-							<div className="space-y-2">
-								<Label htmlFor="create-barcode">Código de barras</Label>
-								<Input
-									id="create-barcode"
-									value={createForm.barcode}
-									onChange={(event) => setCreateForm((prev) => ({ ...prev, barcode: event.target.value }))}
-									disabled={createSubmitting}
-								/>
-							</div>
-						</div>
-						<div className="space-y-2">
-							<Label htmlFor="create-description">Descrição</Label>
-							<Textarea
-								id="create-description"
-								value={createForm.description}
-								onChange={(event) => setCreateForm((prev) => ({ ...prev, description: event.target.value }))}
-								disabled={createSubmitting}
-								rows={3}
-							/>
-						</div>
-						<div className="grid gap-4 sm:grid-cols-2">
-							<div className="space-y-2">
-								<Label htmlFor="create-sale-price">Preço de venda (R$)</Label>
-								<Input
-									id="create-sale-price"
-									type="number"
-									step="0.01"
-									min="0"
-									value={createForm.salePrice}
-									onChange={(event) => setCreateForm((prev) => ({ ...prev, salePrice: event.target.value }))}
-									disabled={createSubmitting}
-								/>
-							</div>
-							<div className="space-y-2">
-								<Label htmlFor="create-cost-price">Custo (R$)</Label>
-								<Input
-									id="create-cost-price"
-									type="number"
-									step="0.01"
-									min="0"
-									value={createForm.costPrice}
-									onChange={(event) => setCreateForm((prev) => ({ ...prev, costPrice: event.target.value }))}
-									disabled={createSubmitting}
-								/>
-							</div>
-						</div>
-						{createForm.kind === 'product'
-							? (
-								<div className="space-y-2">
-									<Label htmlFor="create-initial-stock">Estoque inicial</Label>
-									<Input
-										id="create-initial-stock"
-										type="number"
-										min="0"
-										value={createForm.initialStock}
-										onChange={(event) => setCreateForm((prev) => ({ ...prev, initialStock: event.target.value }))}
-										disabled={createSubmitting}
-									/>
-								</div>
-							)
-							: null}
-						<label className="flex items-center gap-2 text-sm">
-							<Checkbox
-								checked={createForm.isActive}
-								onCheckedChange={(checked) => setCreateForm((prev) => ({ ...prev, isActive: checked === true }))}
-								disabled={createSubmitting}
-							/>
-							Ativo
-						</label>
-					</div>
-					<DialogFooter>
-						<Button
-							type="button"
-							variant="outline"
-							onClick={() => setCreateDialogOpen(false)}
-							disabled={createSubmitting}
-						>
-							Cancelar
-						</Button>
-						<Button type="button" onClick={() => void handleCreateProductOrService()} disabled={createSubmitting}>
-							{createSubmitting ? 'Salvando...' : 'Salvar'}
 						</Button>
 					</DialogFooter>
 				</DialogContent>

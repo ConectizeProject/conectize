@@ -43,7 +43,6 @@ export async function GET (request: NextRequest) {
     suggested_sale_cents: number | null
     pricing_tag_id: string | null
     pricing_tag_name: string | null
-    parts_family: string | null
     device_model_id: string | null
     device_model_label: string | null
     device_type_id: string | null
@@ -61,7 +60,6 @@ export async function GET (request: NextRequest) {
     suggestedSaleCents: r.suggested_sale_cents,
     pricingTagId: r.pricing_tag_id,
     pricingTagName: r.pricing_tag_name,
-    partsFamily: r.parts_family,
     deviceModelId: r.device_model_id,
     deviceModelLabel: r.device_model_label,
     deviceTypeId: r.device_type_id,

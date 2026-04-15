@@ -16,8 +16,6 @@ import {
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
-const PARTS_FAMILY_SET = new Set(['display', 'glass', 'battery', 'connector'])
-
 type ProductMutationResult =
   | {
     ok: true
@@ -139,18 +137,6 @@ function normalizePatch (input: UpdateProductInput): NormalizePatchResult {
         return { ok: false as const, error: 'pricing_tag_invalid' }
       }
       patch.pricingTagId = s
-    }
-  }
-
-  if (input.partsFamily !== undefined) {
-    if (input.partsFamily === null || String(input.partsFamily).trim() === '') {
-      patch.partsFamily = null
-    } else {
-      const s = String(input.partsFamily).trim().toLowerCase()
-      if (!PARTS_FAMILY_SET.has(s)) {
-        return { ok: false as const, error: 'parts_family_invalid' }
-      }
-      patch.partsFamily = s
     }
   }
 
