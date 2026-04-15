@@ -43,6 +43,7 @@ type Props = {
 	onGenerateBarcode: (id: string) => void
 	onSyncFromBling: (id: string) => void
 	onDelete: (product: ProductRow) => void
+	onEditProduct: (product: ProductRow) => void
 }
 
 export const ProductListCard = memo(function ProductListCard ({
@@ -60,6 +61,7 @@ export const ProductListCard = memo(function ProductListCard ({
 	onGenerateBarcode,
 	onSyncFromBling,
 	onDelete,
+	onEditProduct,
 }: Props) {
 	const handleCheckboxChange = useCallback(
 		(checked: boolean) => {
@@ -184,8 +186,13 @@ export const ProductListCard = memo(function ProductListCard ({
 									</Button>
 								</DropdownMenuTrigger>
 								<DropdownMenuContent align="end">
-									<DropdownMenuItem asChild>
-										<Link href={`/portal/produtos/${product.id}/editar`}>Editar</Link>
+									<DropdownMenuItem
+										onSelect={(event) => {
+											event.preventDefault()
+											onEditProduct(product)
+										}}
+									>
+										Editar
 									</DropdownMenuItem>
 									<DropdownMenuItem asChild>
 										<Link href={`/portal/produtos/${product.id}`}>Ver detalhes</Link>
@@ -280,8 +287,8 @@ export const ProductListCard = memo(function ProductListCard ({
 						<div
 							className={
 								isProductTab
-									? 'grid grid-cols-3 gap-x-2 gap-y-1'
-									: 'grid grid-cols-2 gap-x-3 gap-y-1'
+									? 'grid grid-cols-2 gap-x-3 gap-y-1'
+									: 'grid grid-cols-1 gap-x-3 gap-y-1'
 							}
 						>
 							<div className="min-w-0">
@@ -305,29 +312,6 @@ export const ProductListCard = memo(function ProductListCard ({
 									</dd>
 								</div>
 							)}
-							<div className="min-w-0">
-								<dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Origem</dt>
-								<dd className="mt-0.5">
-									{product.bling_id
-										? (
-											<div className="flex flex-wrap gap-1">
-												<span className="rounded-full bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase leading-tight tracking-wide text-blue-600 dark:text-blue-400">
-													Bling
-												</span>
-												{product.bling_sync_pending && (
-													<span className="rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase leading-tight tracking-wide text-amber-600 dark:text-amber-400">
-														Pendente
-													</span>
-												)}
-											</div>
-										)
-										: (
-											<span className="inline-flex rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase leading-tight tracking-wide text-muted-foreground">
-												Manual
-											</span>
-										)}
-								</dd>
-							</div>
 						</div>
 					</dl>
 				</div>

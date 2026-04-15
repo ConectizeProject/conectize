@@ -96,7 +96,10 @@ export async function POST(request: Request) {
     .maybeSingle()
 
   if (existing?.id) {
-    return NextResponse.json({ ok: false, error: 'already_exists' }, { status: 409 })
+    return NextResponse.json(
+      { ok: false, error: 'already_exists', existingCustomerId: existing.id },
+      { status: 409 }
+    )
   }
 
   // Parse birth_date: deve ser null se vazio ou invÃ¡lido
@@ -150,7 +153,10 @@ export async function POST(request: Request) {
       .maybeSingle()
 
     if (after?.id) {
-      return NextResponse.json({ ok: false, error: 'already_exists' }, { status: 409 })
+      return NextResponse.json(
+        { ok: false, error: 'already_exists', existingCustomerId: after.id },
+        { status: 409 }
+      )
     }
 
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })

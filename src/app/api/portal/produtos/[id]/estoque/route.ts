@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getPortalAuth } from '@/lib/supabase/server'
+import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 import {
   getProductById,
   getProductCurrentStock,
@@ -16,13 +16,9 @@ export async function GET (
   { params }: { params: Params },
 ) {
   const { id } = await params
-  const { user, role } = await getPortalAuth()
-  if (!user) {
-    return NextResponse.json({ error: 'not_authenticated' }, { status: 401 })
-  }
-  const normalizedRole = role === 'customer' ? 'user' : role
-  if (normalizedRole === 'user' || !normalizedRole) {
-    return NextResponse.json({ error: 'forbidden' }, { status: 403 })
+  const auth = await requireStaffOrAdmin()
+  if (auth.ok === false) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
 
   const [stockRes, movementsRes] = await Promise.all([
@@ -48,13 +44,9 @@ export async function POST (
   { params }: { params: Params },
 ) {
   const { id } = await params
-  const { user, role } = await getPortalAuth()
-  if (!user) {
-    return NextResponse.json({ error: 'not_authenticated' }, { status: 401 })
-  }
-  const normalizedRole = role === 'customer' ? 'user' : role
-  if (normalizedRole === 'user' || !normalizedRole) {
-    return NextResponse.json({ error: 'forbidden' }, { status: 403 })
+  const auth = await requireStaffOrAdmin()
+  if (auth.ok === false) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
 
   const body = await request.json().catch(() => ({})) as {

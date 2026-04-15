@@ -13,6 +13,9 @@ import {
   type UpdateProductInput,
 } from '@/lib/products/service'
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
 type ProductMutationResult =
   | {
     ok: true
@@ -123,6 +126,18 @@ function normalizePatch (input: UpdateProductInput): NormalizePatchResult {
     }
 
     patch.kind = input.kind
+  }
+
+  if (input.pricingTagId !== undefined) {
+    if (input.pricingTagId === null || String(input.pricingTagId).trim() === '') {
+      patch.pricingTagId = null
+    } else {
+      const s = String(input.pricingTagId).trim().toLowerCase()
+      if (!UUID_RE.test(s)) {
+        return { ok: false as const, error: 'pricing_tag_invalid' }
+      }
+      patch.pricingTagId = s
+    }
   }
 
   if (Object.keys(patch).length === 0) {

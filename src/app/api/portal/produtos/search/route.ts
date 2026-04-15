@@ -1,16 +1,11 @@
 import { NextResponse } from 'next/server'
-import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
+import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 import { effectiveSearchTokens } from '@/lib/products/product-search'
 
 export async function GET (request: Request) {
-  const { user, role } = await getPortalAuth()
-  if (!user) {
-    return NextResponse.json({ ok: false, error: 'not_authenticated' }, { status: 401 })
-  }
-
-  const normalizedRole = role === 'customer' ? 'user' : role
-  if (normalizedRole === 'user' || !normalizedRole) {
-    return NextResponse.json({ ok: false, error: 'forbidden' }, { status: 403 })
+  const auth = await requireStaffOrAdmin()
+  if (auth.ok === false) {
+    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 
   const { searchParams } = new URL(request.url)
@@ -19,7 +14,7 @@ export async function GET (request: Request) {
   const q = String(searchParams.get('q') || '').trim()
   const tokens = effectiveSearchTokens(q)
 
-  const supabase = await createSupabaseServerClient()
+  const supabase = auth.supabase
   let query = supabase
     .from('products')
     .select('id, name, sku, barcode, kind, sale_price_cents, cost_price_cents, image_url, is_active, parent_bling_id, parent_product_id')

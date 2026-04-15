@@ -138,7 +138,201 @@ async function fetchBlingProductLatest (supabase: ServiceClient, blingId: string
   }
 }
 
-export async function processBlingWebhook (id: string): Promise<{ ok: true; status: 'processed' } | { ok: false; status: 'error'; error_message: string }> {
+async function upsertProductFromBlingWebhook (
+  supabase: ServiceClient,
+  params: {
+    webhookId: string
+    blingId: string
+    actorUserId: string | null
+    payloadPartial?: Record<string, unknown>
+  },
+): Promise<string | null> {
+  const blingId = String(params.blingId || '').trim()
+  if (!blingId) throw new Error('bling_product_id_missing')
+
+  const latest = await fetchBlingProductLatest(supabase, blingId)
+  const payloadPartial =
+    params.payloadPartial && typeof params.payloadPartial === 'object'
+      ? params.payloadPartial
+      : {}
+  const mergedDto: Record<string, unknown> = {
+    id: blingId,
+    ...(latest ?? {}),
+    ...payloadPartial,
+  }
+  const local = mapBlingProductToLocal(mergedDto, blingId)
+  const resolvedBlingId = local.blingId ? String(local.blingId) : blingId
+  const name = String(local.name || '').trim()
+  if (!name) {
+    throw new Error('bling_product_fetch_or_name_missing')
+  }
+
+  const estoqueAtual =
+    typeof local.estoqueAtual === 'number' && local.estoqueAtual >= 0 ? local.estoqueAtual : 0
+  const unitCents = local.costPriceCents ?? 0
+
+  const parentBlingKey = local.parentBlingId ? String(local.parentBlingId).trim() : ''
+  const parentProductUuid = parentBlingKey
+    ? await getProductIdByBlingId(supabase, parentBlingKey)
+    : null
+
+  const syncBase: Record<string, unknown> = {
+    bling_id: resolvedBlingId,
+    bling_sync_pending: false,
+    bling_sync_snapshot: createProductSyncSnapshot(local),
+    parent_bling_id: parentBlingKey || null,
+    parent_product_id: parentProductUuid,
+    name,
+    sku: local.sku,
+    barcode: local.barcode,
+    description: local.description,
+    image_url: local.imageUrl ?? null,
+    sale_price_cents: local.salePriceCents,
+    cost_price_cents: local.costPriceCents,
+    is_active: local.isActive ?? true,
+    kind: local.kind ?? null,
+  }
+
+  const { data: existingRow } = await supabase
+    .from('products')
+    .select(
+      'id, parent_bling_id, parent_product_id, image_url, cost_price_cents, cost_price_manual_edited_at, bling_id',
+    )
+    .eq('bling_id', resolvedBlingId)
+    .maybeSingle()
+
+  type ExistingProductRow = {
+    id?: string
+    parent_bling_id?: string | null
+    parent_product_id?: string | null
+    image_url?: string | null
+    cost_price_cents?: number | string | null
+    cost_price_manual_edited_at?: string | null
+    bling_id?: string | null
+  }
+
+  const existing = existingRow as ExistingProductRow | null
+  const productId = existing?.id ? String(existing.id) : null
+
+  if (productId) {
+    const existingBlingKey = existing?.bling_id
+      ? String(existing.bling_id).trim()
+      : resolvedBlingId
+    const variationRowsCount = await countProductsWithParentBlingId(
+      supabase,
+      existingBlingKey,
+    )
+
+    let parent_bling_id = (syncBase.parent_bling_id ?? null) as string | null
+    let parent_product_id = (syncBase.parent_product_id ?? null) as string | null
+    if (variationRowsCount > 0) {
+      parent_bling_id = null
+      parent_product_id = null
+    } else {
+      const hadParentInPortal =
+        existing?.parent_bling_id != null &&
+        String(existing.parent_bling_id).trim() !== ''
+      const incomingParentEmpty =
+        !parent_bling_id || String(parent_bling_id).trim() === ''
+      if (hadParentInPortal && incomingParentEmpty && existing.parent_bling_id) {
+        parent_bling_id = String(existing.parent_bling_id).trim()
+        parent_product_id = existing.parent_product_id
+          ? String(existing.parent_product_id)
+          : await getProductIdByBlingId(supabase, parent_bling_id)
+      }
+      /**
+       * Portal listou como produto raiz (`parent_bling_id` null). Após PATCH no Bling (ex.: GTIN),
+       * o GET/webhook pode trazer `produtoPai` ou nós aninhados e o mapper infere pai — o registro
+       * vira “variação” e some da query de pais (paginação). Só confiar em pai vindo do Bling
+       * quando o portal já tinha vínculo ou em sincronização explícita (“Atualizar pelo Bling”).
+       */
+      const incomingHasParent =
+        parent_bling_id != null && String(parent_bling_id).trim() !== ''
+      if (!hadParentInPortal && incomingHasParent) {
+        parent_bling_id = null
+        parent_product_id = null
+      }
+    }
+
+    let image_url = syncBase.image_url as string | null | undefined
+    if (image_url != null) image_url = String(image_url).trim() || null
+    else image_url = null
+
+    const existingImg =
+      existing?.image_url != null ? String(existing.image_url).trim() : ''
+    if ((!image_url || image_url === '') && existingImg) {
+      image_url = existingImg
+    }
+
+    let cost_price_cents = syncBase.cost_price_cents as number | null | undefined
+    if (existing?.cost_price_manual_edited_at) {
+      const keep = existing.cost_price_cents
+      if (keep != null && keep !== '') {
+        const n =
+          typeof keep === 'number' ? keep : Number(String(keep).replace(',', '.'))
+        cost_price_cents = Number.isFinite(n) ? Math.round(n) : null
+      } else {
+        cost_price_cents = null
+      }
+    }
+
+    const updatePayload: Record<string, unknown> = {
+      ...syncBase,
+      parent_bling_id,
+      parent_product_id,
+      image_url,
+      cost_price_cents,
+      updated_at: new Date().toISOString(),
+    }
+    const { error: updateError } = await supabase
+      .from('products')
+      .update(updatePayload)
+      .eq('id', productId)
+
+    if (updateError) throw updateError
+    return productId
+  }
+
+  const createdBy = await getCreatedByForProductWebhook(supabase, params.actorUserId)
+  const catalogSortKey = await allocateCatalogSortKeyForInsert(supabase, {
+    parentBlingId: (syncBase.parent_bling_id ?? null) as string | null,
+  })
+  const insertPayload: Record<string, unknown> = {
+    ...syncBase,
+    created_by: createdBy,
+    catalog_sort_key: catalogSortKey,
+  }
+  const { data: inserted, error: insertError } = await supabase
+    .from('products')
+    .insert(insertPayload)
+    .select('id')
+    .single()
+
+  if (insertError) throw insertError
+  const newId = inserted && typeof (inserted as { id?: string }).id === 'string'
+    ? (inserted as { id: string }).id
+    : null
+  if (newId && estoqueAtual > 0) {
+    await insertInitialStockFromBlingWebhook(
+      supabase,
+      newId,
+      estoqueAtual,
+      unitCents,
+      params.actorUserId,
+      `bling:webhook:${params.webhookId}:product_initial_stock`,
+    )
+  }
+  return newId
+}
+
+type ProcessBlingWebhookOptions = {
+  hasTriedImportOnMissingProduct?: boolean
+}
+
+export async function processBlingWebhook (
+  id: string,
+  options?: ProcessBlingWebhookOptions,
+): Promise<{ ok: true; status: 'processed' } | { ok: false; status: 'error'; error_message: string }> {
   const supabase = createSupabaseServiceClient()
 
   const { data: row, error: fetchError } = await supabase
@@ -183,182 +377,16 @@ export async function processBlingWebhook (id: string): Promise<{ ok: true; stat
 
   try {
     if (effect.action === 'updateProduct') {
-      const blingId = String(effect.blingId || '').trim()
-      if (!blingId) {
-        throw new Error('bling_product_id_missing')
-      }
-
-      const latest = await fetchBlingProductLatest(supabase, blingId)
       const payloadPartial =
         effect.payload && typeof effect.payload === 'object'
           ? (effect.payload as Record<string, unknown>)
           : {}
-      const mergedDto: Record<string, unknown> = {
-        id: blingId,
-        ...(latest ?? {}),
-        ...payloadPartial,
-      }
-      const local = mapBlingProductToLocal(mergedDto, blingId)
-      const resolvedBlingId = local.blingId ? String(local.blingId) : blingId
-      const name = String(local.name || '').trim()
-      if (!name) {
-        throw new Error('bling_product_fetch_or_name_missing')
-      }
-
-      const estoqueAtual =
-        typeof local.estoqueAtual === 'number' && local.estoqueAtual >= 0 ? local.estoqueAtual : 0
-      const unitCents = local.costPriceCents ?? 0
-
-      const parentBlingKey = local.parentBlingId ? String(local.parentBlingId).trim() : ''
-      const parentProductUuid = parentBlingKey
-        ? await getProductIdByBlingId(supabase, parentBlingKey)
-        : null
-
-      const syncBase: Record<string, unknown> = {
-        bling_id: resolvedBlingId,
-        bling_sync_pending: false,
-        bling_sync_snapshot: createProductSyncSnapshot(local),
-        parent_bling_id: parentBlingKey || null,
-        parent_product_id: parentProductUuid,
-        name,
-        sku: local.sku,
-        barcode: local.barcode,
-        description: local.description,
-        image_url: local.imageUrl ?? null,
-        sale_price_cents: local.salePriceCents,
-        cost_price_cents: local.costPriceCents,
-        is_active: local.isActive ?? true,
-        kind: local.kind ?? null,
-      }
-
-      const { data: existingRow } = await supabase
-        .from('products')
-        .select(
-          'id, parent_bling_id, parent_product_id, image_url, cost_price_cents, cost_price_manual_edited_at, bling_id',
-        )
-        .eq('bling_id', resolvedBlingId)
-        .maybeSingle()
-
-      type ExistingProductRow = {
-        id?: string
-        parent_bling_id?: string | null
-        parent_product_id?: string | null
-        image_url?: string | null
-        cost_price_cents?: number | string | null
-        cost_price_manual_edited_at?: string | null
-        bling_id?: string | null
-      }
-
-      const existing = existingRow as ExistingProductRow | null
-      const productId = existing?.id ? String(existing.id) : null
-
-      if (productId) {
-        const existingBlingKey = existing?.bling_id
-          ? String(existing.bling_id).trim()
-          : resolvedBlingId
-        const variationRowsCount = await countProductsWithParentBlingId(
-          supabase,
-          existingBlingKey,
-        )
-
-        let parent_bling_id = (syncBase.parent_bling_id ?? null) as string | null
-        let parent_product_id = (syncBase.parent_product_id ?? null) as string | null
-        if (variationRowsCount > 0) {
-          parent_bling_id = null
-          parent_product_id = null
-        } else {
-          const hadParentInPortal =
-            existing?.parent_bling_id != null &&
-            String(existing.parent_bling_id).trim() !== ''
-          const incomingParentEmpty =
-            !parent_bling_id || String(parent_bling_id).trim() === ''
-          if (hadParentInPortal && incomingParentEmpty && existing.parent_bling_id) {
-            parent_bling_id = String(existing.parent_bling_id).trim()
-            parent_product_id = existing.parent_product_id
-              ? String(existing.parent_product_id)
-              : await getProductIdByBlingId(supabase, parent_bling_id)
-          }
-          /**
-           * Portal listou como produto raiz (`parent_bling_id` null). Após PATCH no Bling (ex.: GTIN),
-           * o GET/webhook pode trazer `produtoPai` ou nós aninhados e o mapper infere pai — o registro
-           * vira “variação” e some da query de pais (paginação). Só confiar em pai vindo do Bling
-           * quando o portal já tinha vínculo ou em sincronização explícita (“Atualizar pelo Bling”).
-           */
-          const incomingHasParent =
-            parent_bling_id != null && String(parent_bling_id).trim() !== ''
-          if (!hadParentInPortal && incomingHasParent) {
-            parent_bling_id = null
-            parent_product_id = null
-          }
-        }
-
-        let image_url = syncBase.image_url as string | null | undefined
-        if (image_url != null) image_url = String(image_url).trim() || null
-        else image_url = null
-
-        const existingImg =
-          existing?.image_url != null ? String(existing.image_url).trim() : ''
-        if ((!image_url || image_url === '') && existingImg) {
-          image_url = existingImg
-        }
-
-        let cost_price_cents = syncBase.cost_price_cents as number | null | undefined
-        if (existing?.cost_price_manual_edited_at) {
-          const keep = existing.cost_price_cents
-          if (keep != null && keep !== '') {
-            const n =
-              typeof keep === 'number' ? keep : Number(String(keep).replace(',', '.'))
-            cost_price_cents = Number.isFinite(n) ? Math.round(n) : null
-          } else {
-            cost_price_cents = null
-          }
-        }
-
-        const updatePayload: Record<string, unknown> = {
-          ...syncBase,
-          parent_bling_id,
-          parent_product_id,
-          image_url,
-          cost_price_cents,
-          updated_at: new Date().toISOString(),
-        }
-        const { error: updateError } = await supabase
-          .from('products')
-          .update(updatePayload)
-          .eq('id', productId)
-
-        if (updateError) throw updateError
-      } else {
-        const createdBy = await getCreatedByForProductWebhook(supabase, actorUserId)
-        const catalogSortKey = await allocateCatalogSortKeyForInsert(supabase, {
-          parentBlingId: (syncBase.parent_bling_id ?? null) as string | null,
-        })
-        const insertPayload: Record<string, unknown> = {
-          ...syncBase,
-          created_by: createdBy,
-          catalog_sort_key: catalogSortKey,
-        }
-        const { data: inserted, error: insertError } = await supabase
-          .from('products')
-          .insert(insertPayload)
-          .select('id')
-          .single()
-
-        if (insertError) throw insertError
-        const newId = inserted && typeof (inserted as { id?: string }).id === 'string'
-          ? (inserted as { id: string }).id
-          : null
-        if (newId && estoqueAtual > 0) {
-          await insertInitialStockFromBlingWebhook(
-            supabase,
-            newId,
-            estoqueAtual,
-            unitCents,
-            actorUserId,
-            `bling:webhook:${id}:product_initial_stock`,
-          )
-        }
-      }
+      await upsertProductFromBlingWebhook(supabase, {
+        webhookId: id,
+        blingId: effect.blingId,
+        actorUserId,
+        payloadPartial,
+      })
     }
 
     if (effect.action === 'deactivateProductByBlingId') {
@@ -515,6 +543,36 @@ export async function processBlingWebhook (id: string): Promise<{ ok: true; stat
     return { ok: true, status: 'processed' }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
+    if (message === 'product_not_found' && !options?.hasTriedImportOnMissingProduct) {
+      try {
+        let blingId = ''
+        if (effect.action === 'syncStock' || effect.action === 'insertStockMovementFromBling') {
+          blingId = effect.blingId
+        } else if (effect.action === 'updateProductSupplierCost') {
+          blingId = effect.blingProductId
+        }
+        if (blingId) {
+          await upsertProductFromBlingWebhook(supabase, {
+            webhookId: id,
+            blingId,
+            actorUserId,
+          })
+          return processBlingWebhook(id, { hasTriedImportOnMissingProduct: true })
+        }
+      } catch (importErr) {
+        const importMessage = importErr instanceof Error ? importErr.message : String(importErr)
+        await supabase
+          .from('integration_webhooks')
+          .update({
+            status: 'error',
+            error_message: `${message} | import_retry_failed:${importMessage}`,
+            processed_at: new Date().toISOString(),
+            retry_count: retryCount,
+          })
+          .eq('id', id)
+        return { ok: false, status: 'error', error_message: `${message} | import_retry_failed:${importMessage}` }
+      }
+    }
     await supabase
       .from('integration_webhooks')
       .update({

@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import type { fetchDeviceModelsForSelector } from '@/lib/portal/device-models-server'
 import { ChevronUp, Pencil } from 'lucide-react'
@@ -148,15 +147,13 @@ function DeviceFormFields(props: Omit<OrderDeviceInfoSectionProps, 'deviceString
 			</div>
 			<div className="space-y-2">
 				<Label htmlFor="deviceLocation">Localização do aparelho</Label>
-				<Textarea
+				<Input
 					id="deviceLocation"
 					name="deviceLocation"
 					form={formId}
 					defaultValue={String(order.device_location || '')}
 					placeholder="Ex: Bancada 2, gaveta A, laboratório…"
 					disabled={formDisabled}
-					rows={3}
-					className="resize-y min-h-[4.5rem]"
 				/>
 			</div>
 			<OrderPasscodeFields
@@ -187,7 +184,7 @@ export function OrderDeviceInfoSection(props: OrderDeviceInfoSectionProps) {
 		order.color,
 	)
 	const imeiDisplay = String(order.imei || '').trim() || '—'
-	const locationDisplay = String(order.device_location || '').trim() || '—'
+	const locationDisplay = String(order.device_location || '').trim()
 	const passParts = buildPasscodeSummaryParts(order)
 
 	if (!useCollapsible) {
@@ -251,12 +248,14 @@ export function OrderDeviceInfoSection(props: OrderDeviceInfoSectionProps) {
 							</div>
 						</div>
 					</div>
-					<div className="min-w-0 space-y-1 text-sm">
-						<div className="text-muted-foreground">Localização do aparelho</div>
-						<div className="font-medium text-foreground break-words whitespace-pre-wrap">
-							{locationDisplay}
+					{locationDisplay ? (
+						<div className="min-w-0 space-y-1 text-sm">
+							<div className="text-muted-foreground">Localização do aparelho</div>
+							<div className="font-medium text-foreground break-words whitespace-pre-wrap">
+								{locationDisplay}
+							</div>
 						</div>
-					</div>
+					) : null}
 				</div>
 
 				<div className={cn(!editing && 'hidden')}>

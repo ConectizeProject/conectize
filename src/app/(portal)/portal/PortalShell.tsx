@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { BarChart3, Building2, ChevronDown, ClipboardList, DollarSign, Home, LayoutDashboard, LayoutGrid, LogOut, Moon, Plug2, Settings, Sun, UserCheck, Smartphone, Users, Package } from 'lucide-react'
+import { BarChart3, Building2, ChevronDown, ClipboardList, DollarSign, Home, LayoutDashboard, LayoutGrid, LogOut, Moon, Percent, Plug2, Settings, Sun, UserCheck, Smartphone, Users, Package } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
 	DropdownMenu,
@@ -114,6 +114,7 @@ export function PortalShell(props: PortalShellProps) {
 		: isRetailer
 			? [
 				{ href: '/portal/minhas-ordens', label: 'Minhas ordens', icon: ClipboardList },
+				{ href: '/portal/tabela-de-precos', label: 'Tabela de preços', icon: Percent },
 				{ href: '/portal/seminovos/varejo', label: 'Lista varejo', icon: LayoutGrid },
 				{ href: '/portal/financeiro-lojista', label: 'Financeiro', icon: DollarSign },
 			]

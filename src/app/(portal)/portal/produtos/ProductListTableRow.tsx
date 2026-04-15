@@ -43,6 +43,7 @@ type Props = {
 	onGenerateBarcode: (id: string) => void
 	onSyncFromBling: (id: string) => void
 	onDelete: (product: ProductRow) => void
+	onEditProduct: (product: ProductRow) => void
 }
 
 export const ProductListTableRow = memo(function ProductListTableRow ({
@@ -60,6 +61,7 @@ export const ProductListTableRow = memo(function ProductListTableRow ({
 	onGenerateBarcode,
 	onSyncFromBling,
 	onDelete,
+	onEditProduct,
 }: Props) {
 	const handleCheckboxChange = useCallback(
 		(checked: boolean) => {
@@ -230,26 +232,6 @@ export const ProductListTableRow = memo(function ProductListTableRow ({
 						: '-'}
 				</td>
 			)}
-			<td className="min-w-0 px-2 py-2 align-top text-center">
-				{product.bling_id
-					? (
-						<div className="flex items-center justify-center gap-1">
-							<span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-blue-600 dark:text-blue-400">
-								Bling
-							</span>
-							{product.bling_sync_pending && (
-								<span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
-									Pendente
-								</span>
-							)}
-						</div>
-					)
-					: (
-						<span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-							Manual
-						</span>
-					)}
-			</td>
 			<td className="py-2 pl-2 align-top text-right" onClick={(e) => e.stopPropagation()}>
 				<DropdownMenu modal={false}>
 					<DropdownMenuTrigger asChild>
@@ -259,8 +241,13 @@ export const ProductListTableRow = memo(function ProductListTableRow ({
 						</Button>
 					</DropdownMenuTrigger>
 					<DropdownMenuContent align="end">
-						<DropdownMenuItem asChild>
-							<Link href={`/portal/produtos/${product.id}/editar`}>Editar</Link>
+						<DropdownMenuItem
+							onSelect={(event) => {
+								event.preventDefault()
+								onEditProduct(product)
+							}}
+						>
+							Editar
 						</DropdownMenuItem>
 						<DropdownMenuItem asChild>
 							<Link href={`/portal/produtos/${product.id}`}>Ver detalhes</Link>

@@ -19,6 +19,7 @@ import { getOrdemPortalPathSegment } from '@/lib/orders/ordem-portal-path'
 import {
 	getMinPrevisaoForEdit,
 } from '@/lib/utils/previsao-ordem'
+import { Plus } from 'lucide-react'
 import Link from 'next/link'
 import { OrderFormActionBar } from '../OrderFormActionBar'
 import { OrdemActionsMenu } from './OrdemActionsMenu'
@@ -342,6 +343,18 @@ export function OrdemDetalhePageContent (props: Props) {
 								{isPortalReadOnly ? 'Voltar às ordens' : isFinalized ? 'Voltar à lista' : 'Voltar'}
 							</Link>
 						</Button>
+						{!isPortalReadOnly ? (
+							<Button
+								variant="outline"
+								asChild
+								className="font-medium border-sky-600/70 text-sky-800 bg-sky-50/60 hover:bg-sky-100/90 hover:text-sky-900 dark:border-sky-500 dark:text-sky-200 dark:bg-sky-950/50 dark:hover:bg-sky-900/60"
+							>
+								<Link href="/portal/ordens/nova">
+									<Plus className="mr-2 h-4 w-4" aria-hidden />
+									Nova OS
+								</Link>
+							</Button>
+						) : null}
 						{!formDisabled && <UpdateOrderSubmitButton />}
 					</OrderFormActionBar>
 				</form>

@@ -1,22 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getPortalAuth } from '@/lib/supabase/server'
-import { deleteProduct, getProductById, getProductByIdWithVariations } from '@/lib/products/service'
+import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import {
+  deleteProduct,
+  getProductById,
+  getProductByIdWithVariations,
+  getProductCompatibleModelsForForm,
+  replaceProductCompatibleDeviceModels,
+  type Product,
+  type UpdateProductInput,
+} from '@/lib/products/service'
+import type { PortalFieldForBling } from '@/lib/products/bling-sync'
+import { resolveListDisplayCostCents } from '@/lib/products/list-display-cost'
 import { syncProductToBling, updateProductAndSyncBling } from '@/lib/products/update-product-with-bling'
 
 type Params = Promise<{ id: string }>
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 export async function GET (
   _request: NextRequest,
   { params }: { params: Params },
 ) {
   const { id } = await params
-  const { user, role } = await getPortalAuth()
-  if (!user) {
-    return NextResponse.json({ ok: false, error: 'not_authenticated' }, { status: 401 })
-  }
-  const normalizedRole = role === 'customer' ? 'user' : role
-  if (normalizedRole === 'user' || !normalizedRole) {
-    return NextResponse.json({ ok: false, error: 'forbidden' }, { status: 403 })
+  const auth = await requireStaffOrAdmin()
+  if (auth.ok === false) {
+    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 
   const result = await getProductByIdWithVariations(id)
@@ -29,10 +38,44 @@ export async function GET (
     }, { status })
   }
 
+  const { data: lastEntryRow } = await auth.supabase
+    .from('product_stock_movements')
+    .select('unit_value_cents, created_at')
+    .eq('product_id', id)
+    .eq('type', 'entry')
+    .gt('unit_value_cents', 0)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  const lastEntry = lastEntryRow as { unit_value_cents?: number; created_at?: string } | null
+  const lastEntryMs =
+    lastEntry?.created_at != null
+      ? new Date(String(lastEntry.created_at)).getTime()
+      : null
+  const lastEntryCents =
+    typeof lastEntry?.unit_value_cents === 'number'
+      ? lastEntry.unit_value_cents
+      : null
+
+  const product = {
+    ...result.product,
+    costPriceCents: resolveListDisplayCostCents({
+      costPriceCents: result.product.costPriceCents,
+      costPriceManualEditedAt: result.product.costPriceManualEditedAt,
+      lastEntryUnitValueCents: lastEntryCents,
+      lastEntryTimeMs: lastEntryMs,
+    }),
+  }
+
+  const compat = await getProductCompatibleModelsForForm(id)
+  const compatibleModels = compat.ok ? compat.entries : []
+
   return NextResponse.json({
     ok: true,
-    product: result.product,
+    product,
     variations: result.variations,
+    compatibleModels,
   })
 }
 
@@ -79,27 +122,14 @@ export async function PATCH (
   { params }: { params: Params },
 ) {
   const { id } = await params
-  const { user, role } = await getPortalAuth()
-  if (!user) {
-    return NextResponse.json({ ok: false, error: 'not_authenticated' }, { status: 401 })
-  }
-  const normalizedRole = role === 'customer' ? 'user' : role
-  if (normalizedRole === 'user' || !normalizedRole) {
-    return NextResponse.json({ ok: false, error: 'forbidden' }, { status: 403 })
+  const auth = await requireStaffOrAdmin()
+  if (auth.ok === false) {
+    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 
   const body = await request.json().catch(() => ({})) as Record<string, unknown>
 
-  const patch: {
-    salePriceCents?: number | null
-    costPriceCents?: number | null
-    name?: string
-    sku?: string | null
-    barcode?: string | null
-    description?: string | null
-    isActive?: boolean
-    kind?: 'product' | 'service' | null
-  } = {}
+  const patch: UpdateProductInput = {}
 
   const salePriceField = parseMoneyField(body, 'salePrice')
   if ('error' in salePriceField) {
@@ -166,30 +196,85 @@ export async function PATCH (
     patch.kind = kind as 'product' | 'service' | null
   }
 
-  if (Object.keys(patch).length === 0) {
+  if (Object.prototype.hasOwnProperty.call(body, 'pricingTagId')) {
+    const raw = body.pricingTagId
+    if (raw === null || raw === '') {
+      patch.pricingTagId = null
+    } else {
+      const s = String(raw).trim().toLowerCase()
+      if (!UUID_RE.test(s)) {
+        return NextResponse.json({ ok: false, error: 'pricingTagId_invalid' }, { status: 400 })
+      }
+      patch.pricingTagId = s
+    }
+  }
+
+  let compatibleIds: string[] | null = null
+  if (Object.prototype.hasOwnProperty.call(body, 'compatibleModelIds')) {
+    const raw = body.compatibleModelIds
+    if (!Array.isArray(raw)) {
+      return NextResponse.json({ ok: false, error: 'compatibleModelIds_invalid' }, { status: 400 })
+    }
+    compatibleIds = [
+      ...new Set(
+        raw
+          .map((x) => String(x || '').trim().toLowerCase())
+          .filter((x) => UUID_RE.test(x)),
+      ),
+    ]
+  }
+
+  const hasProductPatch = Object.keys(patch).length > 0
+  const hasCompatUpdate = compatibleIds !== null
+
+  if (!hasProductPatch && !hasCompatUpdate) {
     return NextResponse.json({ ok: false, error: 'nothing_to_update' }, { status: 400 })
   }
 
-  const result = await updateProductAndSyncBling(id, patch)
-  if (!result.ok && 'error' in result) {
-    const status = result.error === 'bling_request_failed' ? 502 : 400
-    return NextResponse.json({
-      ok: false,
-      error: result.error,
-      message: result.message,
-    }, { status })
+  let syncedToBling = false
+  let blingFieldsChanged: PortalFieldForBling[] | undefined
+  let midProduct: Product
+
+  if (hasProductPatch) {
+    const upd = await updateProductAndSyncBling(id, patch)
+    if (!upd.ok && 'error' in upd) {
+      const status = upd.error === 'bling_request_failed' ? 502 : 400
+      return NextResponse.json({
+        ok: false,
+        error: upd.error,
+        message: upd.message,
+      }, { status })
+    }
+    if (!upd.ok) {
+      return NextResponse.json({ ok: false, error: 'db_error' }, { status: 400 })
+    }
+    syncedToBling = upd.syncedToBling
+    blingFieldsChanged = upd.blingFieldsChanged
+    midProduct = upd.product
+  } else {
+    const cur = await getProductById(id)
+    if (!cur.ok || !('product' in cur)) {
+      return NextResponse.json({ ok: false, error: 'not_found' }, { status: 404 })
+    }
+    midProduct = cur.product
   }
 
-  if (!result.ok) {
-    return NextResponse.json({ ok: false, error: 'db_error' }, { status: 400 })
+  if (hasCompatUpdate && compatibleIds) {
+    const rep = await replaceProductCompatibleDeviceModels(id, compatibleIds)
+    if (!rep.ok) {
+      return NextResponse.json({ ok: false, error: 'compatible_models_failed' }, { status: 500 })
+    }
   }
+
+  const fresh = await getProductById(id)
+  const productOut = fresh.ok && 'product' in fresh ? fresh.product : midProduct
 
   return NextResponse.json({
     ok: true,
-    product: result.product,
-    syncedToBling: result.syncedToBling,
-    pendingSyncToBling: result.product.blingSyncPending,
-    blingFieldsChanged: result.blingFieldsChanged,
+    product: productOut,
+    syncedToBling,
+    pendingSyncToBling: productOut.blingSyncPending,
+    blingFieldsChanged,
   })
 }
 
@@ -198,13 +283,9 @@ export async function DELETE (
   { params }: { params: Params },
 ) {
   const { id } = await params
-  const { user, role } = await getPortalAuth()
-  if (!user) {
-    return NextResponse.json({ ok: false, error: 'not_authenticated' }, { status: 401 })
-  }
-  const normalizedRole = role === 'customer' ? 'user' : role
-  if (normalizedRole === 'user' || !normalizedRole) {
-    return NextResponse.json({ ok: false, error: 'forbidden' }, { status: 403 })
+  const auth = await requireStaffOrAdmin()
+  if (auth.ok === false) {
+    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 
   const body = await request.json().catch(() => ({})) as { inactivateOnBling?: unknown }

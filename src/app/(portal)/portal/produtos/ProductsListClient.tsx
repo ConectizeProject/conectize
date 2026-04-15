@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Barcode, CloudUpload, Loader2, RefreshCw } from 'lucide-react'
+import { Barcode, CloudUpload, Loader2, PencilLine, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -27,6 +27,7 @@ import {
 	AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { toast } from '@/hooks/use-toast'
+import { BulkEditProductsModal } from './BulkEditProductsModal'
 import { StockManagementModal } from './StockManagementModal'
 import { cn } from '@/lib/utils'
 import { ProductEditDialog } from './ProductEditDialog'
@@ -125,12 +126,22 @@ type Props = {
 	pagination?: ProdutosFlatPagination | null
 	/** Ex.: "1–100 de 450" */
 	paginationRangeLabel?: string | null
+	initialFilterType?: 'product' | 'service'
+	tabHrefs?: {
+		products: string
+		services: string
+	}
+	/** Query `?edit=` — abre a modal de edição e remove o parâmetro da URL. */
+	initialEditProductId?: string
 }
 
 export function ProductsListClient ({
 	products,
 	pagination,
 	paginationRangeLabel,
+	initialFilterType = 'product',
+	initialEditProductId,
+	tabHrefs,
 }: Props) {
 	const router = useRouter()
 	const [stockModalProduct, setStockModalProduct] = useState<{
@@ -139,7 +150,7 @@ export function ProductsListClient ({
 		costPriceCents?: number | null
 		currentStock: number
 	} | null>(null)
-	const [filterType, setFilterType] = useState<'product' | 'service'>('product')
+	const [filterType, setFilterType] = useState<'product' | 'service'>(initialFilterType)
 	const [editingProduct, setEditingProduct] = useState<Pick<ProductRow, 'id' | 'name' | 'bling_id'> | null>(null)
 	const [syncingId, setSyncingId] = useState<string | null>(null)
 	const [barcodeGeneratingId, setBarcodeGeneratingId] = useState<string | null>(null)
@@ -156,7 +167,10 @@ export function ProductsListClient ({
 	const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
 	const [bulkBusy, setBulkBusy] = useState(false)
 	const [bulkAction, setBulkAction] = useState<'sync' | 'barcode' | 'pushPortal' | null>(null)
+	const [bulkEditOpen, setBulkEditOpen] = useState(false)
+	const [bulkEditProductIds, setBulkEditProductIds] = useState<string[]>([])
 	const [pushPortalDialogOpen, setPushPortalDialogOpen] = useState(false)
+	const [createDialogOpen, setCreateDialogOpen] = useState(false)
 	const [pushPortalFieldKeys, setPushPortalFieldKeys] = useState<Set<PortalFieldForBling>>(
 		() => new Set(PUSH_TO_BLING_FIELD_OPTIONS.map((o) => o.id)),
 	)
@@ -167,6 +181,26 @@ export function ProductsListClient ({
 	useEffect(() => {
 		setSelectedIds(new Set())
 	}, [filterType])
+
+	useEffect(() => {
+		setFilterType(initialFilterType)
+	}, [initialFilterType])
+
+	useEffect(() => {
+		const raw = initialEditProductId?.trim()
+		if (!raw) return
+		setCreateDialogOpen(false)
+		setEditingProduct({
+			id: raw,
+			name: '',
+			bling_id: null,
+		})
+		if (typeof window === 'undefined') return
+		const url = new URL(window.location.href)
+		if (!url.searchParams.get('edit')) return
+		url.searchParams.delete('edit')
+		router.replace(url.pathname + url.search + url.hash, { scroll: false })
+	}, [initialEditProductId, router])
 
 	useEffect(() => {
 		if (!barcodeOptimistic) return
@@ -439,6 +473,16 @@ export function ProductsListClient ({
 	}, [allVisibleIds])
 
 	const handleProductRowClick = useCallback((p: ProductRow) => {
+		setCreateDialogOpen(false)
+		setEditingProduct({
+			id: p.id,
+			name: p.name,
+			bling_id: p.bling_id ?? null,
+		})
+	}, [])
+
+	const handleEditProduct = useCallback((p: ProductRow) => {
+		setCreateDialogOpen(false)
 		setEditingProduct({
 			id: p.id,
 			name: p.name,
@@ -630,6 +674,11 @@ export function ProductsListClient ({
 		}
 	}
 
+	function openCreateDialog () {
+		setEditingProduct(null)
+		setCreateDialogOpen(true)
+	}
+
 	return (
 		<div className="min-w-0 w-full max-w-full">
 			{paginationRangeLabel
@@ -642,31 +691,68 @@ export function ProductsListClient ({
 					)
 				: null}
 			<nav className="mb-4 flex gap-1 border-b">
-				<button
-					type="button"
-					onClick={() => setFilterType('product')}
-					className={cn(
-						'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
-						filterType === 'product'
-							? 'text-foreground border-primary'
-							: 'text-muted-foreground border-transparent hover:text-foreground hover:border-muted'
+				{tabHrefs
+					? (
+						<>
+							<Link
+								href={tabHrefs.products}
+								className={cn(
+									'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+									filterType === 'product'
+										? 'text-foreground border-primary'
+										: 'text-muted-foreground border-transparent hover:text-foreground hover:border-muted'
+								)}
+							>
+								Produtos
+							</Link>
+							<Link
+								href={tabHrefs.services}
+								className={cn(
+									'px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors sm:px-4',
+									filterType === 'service'
+										? 'text-foreground border-primary'
+										: 'text-muted-foreground border-transparent hover:text-foreground hover:border-muted'
+								)}
+							>
+								Serviços
+							</Link>
+						</>
+					)
+					: (
+						<>
+							<button
+								type="button"
+								onClick={() => setFilterType('product')}
+								className={cn(
+									'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+									filterType === 'product'
+										? 'text-foreground border-primary'
+										: 'text-muted-foreground border-transparent hover:text-foreground hover:border-muted'
+								)}
+							>
+								Produtos
+							</button>
+							<button
+								type="button"
+								onClick={() => setFilterType('service')}
+								className={cn(
+									'px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors sm:px-4',
+									filterType === 'service'
+										? 'text-foreground border-primary'
+										: 'text-muted-foreground border-transparent hover:text-foreground hover:border-muted'
+								)}
+							>
+								Serviços
+							</button>
+						</>
 					)}
-				>
-					Produtos
-				</button>
-				<button
-					type="button"
-					onClick={() => setFilterType('service')}
-					className={cn(
-						'px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors sm:px-4',
-						filterType === 'service'
-							? 'text-foreground border-primary'
-							: 'text-muted-foreground border-transparent hover:text-foreground hover:border-muted'
-					)}
-				>
-					Serviços
-				</button>
 			</nav>
+
+			<div className="mb-4 flex justify-end">
+				<Button type="button" variant="outline" onClick={openCreateDialog}>
+					Novo produto/serviço
+				</Button>
+			</div>
 
 			{selectedCount > 0 && (
 				<div
@@ -690,6 +776,20 @@ export function ProductsListClient ({
 						</Button>
 					</div>
 					<div className="flex flex-wrap items-center gap-2">
+						<Button
+							type="button"
+							variant="secondary"
+							size="sm"
+							className="h-8"
+							disabled={bulkBusy}
+							onClick={() => {
+								setBulkEditProductIds([...selectedIds])
+								setBulkEditOpen(true)
+							}}
+						>
+							<PencilLine className="mr-1 h-3.5 w-3.5" />
+							Editar em massa
+						</Button>
 						<Button
 							type="button"
 							variant="secondary"
@@ -765,6 +865,7 @@ export function ProductsListClient ({
 								}
 								onToggleSelect={toggleRowSelected}
 								onRowClick={handleProductRowClick}
+								onEditProduct={handleEditProduct}
 								onOpenStock={setStockModalProduct}
 								onGenerateBarcode={handleGenerateBarcodeFromBling}
 								onSyncFromBling={handleSyncFromBling}
@@ -781,23 +882,21 @@ export function ProductsListClient ({
 										<colgroup>
 											<col style={{ width: `${productTableCheckboxColumnWidthPx}px` }} />
 											{/* Soma das % ≈ 100% da tabela para o espaço extra não ir para a 1ª coluna */}
-											<col style={{ width: '34%' }} />
+											<col style={{ width: '37%' }} />
 											<col style={{ width: '9%' }} />
 											<col style={{ width: '12%' }} />
 											<col style={{ width: '7%' }} />
-											<col style={{ width: '11%' }} />
-											<col style={{ width: '9%' }} />
-											<col style={{ width: '11%' }} />
+											<col style={{ width: '13%' }} />
+											<col style={{ width: '10%' }} />
 											<col style={{ width: `${productTableActionsColumnWidthPx}px` }} />
 										</colgroup>
 									) : (
 										<colgroup>
 											<col style={{ width: `${productTableCheckboxColumnWidthPx}px` }} />
-											<col style={{ width: '42%' }} />
-											<col style={{ width: '11%' }} />
-											<col style={{ width: '16%' }} />
-											<col style={{ width: '14%' }} />
-											<col style={{ width: '16%' }} />
+											<col style={{ width: '48%' }} />
+											<col style={{ width: '13%' }} />
+											<col style={{ width: '18%' }} />
+											<col style={{ width: '20%' }} />
 											<col style={{ width: `${productTableActionsColumnWidthPx}px` }} />
 										</colgroup>
 									)}
@@ -827,7 +926,6 @@ export function ProductsListClient ({
 											{isProductTab && (
 												<th className="min-w-0 py-2 px-2 text-right font-medium">Custo</th>
 											)}
-											<th className="min-w-0 py-2 px-2 text-center font-medium">Origem</th>
 											<th className="min-w-0 py-2 pl-2 text-right font-medium">Ações</th>
 										</tr>
 									</thead>
@@ -849,6 +947,7 @@ export function ProductsListClient ({
 												}
 												onToggleSelect={toggleRowSelected}
 												onRowClick={handleProductRowClick}
+												onEditProduct={handleEditProduct}
 												onOpenStock={setStockModalProduct}
 												onGenerateBarcode={handleGenerateBarcodeFromBling}
 												onSyncFromBling={handleSyncFromBling}
@@ -894,15 +993,21 @@ export function ProductsListClient ({
 			)}
 
 			<ProductEditDialog
-				open={Boolean(editingProduct)}
+				open={createDialogOpen || Boolean(editingProduct)}
+				mode={editingProduct ? 'edit' : 'create'}
 				productId={editingProduct?.id ?? null}
 				initialName={editingProduct?.name}
 				initialBlingId={editingProduct?.bling_id ?? null}
+				defaultKind={isProductTab ? 'product' : 'service'}
 				onOpenChange={(open) => {
-					if (!open) setEditingProduct(null)
+					if (!open) {
+						setCreateDialogOpen(false)
+						setEditingProduct(null)
+					}
 				}}
 				onSuccess={() => router.refresh()}
 				onNavigateToProductId={(id) => {
+					setCreateDialogOpen(false)
 					setEditingProduct({ id, name: '', bling_id: null })
 				}}
 			/>
@@ -978,6 +1083,17 @@ export function ProductsListClient ({
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>
+
+			<BulkEditProductsModal
+				open={bulkEditOpen}
+				onOpenChange={setBulkEditOpen}
+				productIds={bulkEditProductIds}
+				allowDeviceModel={isProductTab}
+				onSuccess={() => {
+					setSelectedIds(new Set())
+					router.refresh()
+				}}
+			/>
 
 			<Dialog open={pushPortalDialogOpen} onOpenChange={setPushPortalDialogOpen}>
 				<DialogContent className="sm:max-w-md">

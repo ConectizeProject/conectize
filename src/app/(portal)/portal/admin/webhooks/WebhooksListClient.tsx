@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
@@ -53,7 +54,9 @@ export function WebhooksListClient ({ webhooks }: Props) {
   const router = useRouter()
   const [detail, setDetail] = useState<WebhookRow | null>(null)
   const [reprocessingId, setReprocessingId] = useState<string | null>(null)
+  const [isReprocessingAllErrors, setIsReprocessingAllErrors] = useState(false)
   const [copyingPayload, setCopyingPayload] = useState(false)
+  const errorRows = webhooks.filter((row) => row.status === 'error' && row.platform_id === 'bling')
 
   async function handleReprocess (id: string) {
     setReprocessingId(id)
@@ -64,7 +67,7 @@ export function WebhooksListClient ({ webhooks }: Props) {
       })
       const data = await res.json().catch(() => null)
       if (data?.ok) {
-        toast({ title: 'Reprocessado', description: 'Evento processado novamente.', variant: 'default' })
+        toast({ title: 'Reprocessado', description: 'Evento processado novamente.', variant: 'success' })
         router.refresh()
       } else {
         toast({
@@ -107,8 +110,68 @@ export function WebhooksListClient ({ webhooks }: Props) {
     }
   }
 
+  async function handleReprocessAllErrors () {
+    if (isReprocessingAllErrors) return
+    setIsReprocessingAllErrors(true)
+    try {
+      const res = await fetch('/api/portal/admin/webhooks/reprocess-errors', {
+        method: 'POST',
+        credentials: 'include',
+      })
+      const data = await res.json().catch(() => null)
+      if (data?.ok) {
+        const processed = Number(data.processed || 0)
+        const failed = Number(data.failed || 0)
+        const total = Number(data.total || 0)
+        const description =
+          total === 0
+            ? 'Nenhum webhook com erro para reprocessar.'
+            : failed > 0
+              ? `Processados: ${processed} • Falhas: ${failed}`
+              : `Todos os ${processed} webhooks com erro foram reprocessados.`
+        toast({
+          title: 'Reprocessamento em lote concluído',
+          description,
+          variant: failed > 0 ? 'default' : 'success',
+        })
+      } else {
+        toast({
+          title: 'Erro ao reprocessar em lote',
+          description: data?.error_message || data?.error || 'Tente novamente.',
+          variant: 'destructive',
+        })
+      }
+      router.refresh()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Falha de rede ao reprocessar em lote.'
+      toast({
+        title: 'Erro ao reprocessar em lote',
+        description: message || 'Tente novamente.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsReprocessingAllErrors(false)
+    }
+  }
+
   return (
     <>
+      <div className="mb-3 flex items-center justify-end">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => void handleReprocessAllErrors()}
+          disabled={isReprocessingAllErrors || errorRows.length === 0}
+          className="gap-1.5"
+        >
+          {isReprocessingAllErrors
+            ? <Loader2 className="h-4 w-4 animate-spin" />
+            : <RotateCcw className="h-4 w-4" />}
+          {`Reprocessar todos com erro (${errorRows.length})`}
+        </Button>
+      </div>
+
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -180,6 +243,9 @@ export function WebhooksListClient ({ webhooks }: Props) {
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle>Detalhe do webhook</DialogTitle>
+            <DialogDescription>
+              Informações completas do evento recebido e payload original.
+            </DialogDescription>
           </DialogHeader>
           {detail && (
             <div className="flex flex-col gap-3 overflow-auto min-h-0">
