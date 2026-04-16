@@ -11,21 +11,28 @@ import type { PortalOrdensListRow } from '@/lib/orders/portal-ordens-list-types'
 type Props = {
 	order: PortalOrdensListRow
 	canDelete?: boolean
+	/** Kanban / lista vertical: largura fluida em vez de cartão fixo para carrossel */
+	layout?: 'carousel' | 'list'
 }
 
-export function OrdemCard({ order, canDelete }: Props) {
+export function OrdemCard ({ order, canDelete, layout = 'carousel' }: Props) {
 	const customerName = order.customers?.full_name || order.customers?.company_name || '-'
 	const deviceText = order.device_models
 		? [order.device_models.brand, order.device_models.device_type, order.device_models.model].filter(Boolean).join(' • ') || '-'
 		: '-'
 	const cpfCnpj = formatCpfCnpj(String(order.customers?.cnpj || order.customers?.cpf))
 
+	const linkClass =
+		layout === 'list'
+			? 'block w-full max-w-full min-w-0 transition-colors hover:opacity-95'
+			: 'block w-[320px] max-w-[320px] shrink-0 transition-colors hover:opacity-95'
+
 	return (
 		<Link
       href={getOrdemPortalPath(order)}
 			draggable={false}
 			onDragStart={(e) => e.preventDefault()}
-			className="block w-[320px] max-w-[320px] shrink-0 transition-colors hover:opacity-95"
+			className={linkClass}
 		>
 			<Card className="h-full cursor-pointer transition-colors hover:bg-muted/50" draggable={false}>
 				<CardHeader className="flex flex-row items-center justify-between space-y-0 bg-muted/30 p-5 pt-3 pb-3">
