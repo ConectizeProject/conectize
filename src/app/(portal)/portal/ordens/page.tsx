@@ -250,9 +250,9 @@ export default async function OrdensPage({
   )
 
   return (
-    <div className="space-y-6 px-1 sm:px-0">
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-1 sm:gap-6 sm:px-0">
       <OrdensToastClient />
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className="flex shrink-0 flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <h1 className="text-xl font-bold sm:text-2xl">Ordens de serviço</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
@@ -264,6 +264,7 @@ export default async function OrdensPage({
         </Button>
       </div>
 
+      <div className="shrink-0">
       <OrdensFilterCollapsible
         defaultOpen={hasFilters}
         initialValues={{
@@ -284,6 +285,7 @@ export default async function OrdensPage({
         }}
         deviceModels={deviceModels}
       />
+      </div>
 
       <OrdensListClient
         openOrdersByStatus={openOrdersByStatus}

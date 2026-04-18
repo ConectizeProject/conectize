@@ -29,6 +29,8 @@ import {
 import { useSidebar } from '@/components/ui/use-sidebar'
 import { useTheme } from 'next-themes'
 import { cn } from '@/lib/utils'
+import { SupabaseStatusBanner } from '@/components/SupabaseStatusBanner'
+import type { SupabasePlatformStatusBanner } from '@/lib/supabase/platform-status'
 
 type NavItem = { href: string; label: string; icon: React.ComponentType<{ className?: string }> }
 
@@ -74,6 +76,7 @@ type PortalShellProps = {
 	role: string
 	userEmail: string
 	userName: string
+	supabasePlatformStatus?: SupabasePlatformStatusBanner | null
 }
 
 function getInitials(nameOrEmail: string) {
@@ -165,7 +168,7 @@ export function PortalShell(props: PortalShellProps) {
 				<SidebarRail />
 			</Sidebar>
 
-			<SidebarInset className="min-w-0">
+			<SidebarInset className="flex h-svh max-h-svh min-h-0 min-w-0 flex-col overflow-hidden">
 				<header className="sticky top-0 z-40 flex h-14 items-center justify-between gap-3 border-b bg-background/80 px-4 backdrop-blur">
 					<div className="flex items-center gap-2">
 						<SidebarTrigger />
@@ -242,7 +245,11 @@ export function PortalShell(props: PortalShellProps) {
 					</div>
 				</header>
 
-				<div className="min-w-0 max-w-full p-4 md:p-6">
+				{props.supabasePlatformStatus ? (
+					<SupabaseStatusBanner status={props.supabasePlatformStatus} />
+				) : null}
+
+				<div className="flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-y-auto p-4 md:p-6">
 					{props.children}
 				</div>
 			</SidebarInset>

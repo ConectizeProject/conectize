@@ -49,11 +49,13 @@ export function OrdensListClient ({
   }
 
   return (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
     <OrdensKanbanBoard
       key={`kanban-${filterQ}-${filterCpf}-${filterOsNumber}-${filterStatus}-${filterCustomerId}-${filterCustomerName}-${filterDeviceModelId}-${filterCreatedFrom}-${filterCreatedTo}-${filterReadyFrom}-${filterReadyTo}`}
       openOrdersByStatus={openOrdersByStatus}
       filters={filters}
       canDelete={canDelete}
     />
+    </div>
   )
 }

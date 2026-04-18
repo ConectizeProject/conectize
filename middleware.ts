@@ -41,6 +41,13 @@ export async function middleware (request: NextRequest) {
 		},
 	})
 
+	const isUnderPortal = pathname === '/portal' || pathname.startsWith('/portal/')
+	// Login, cadastro, OAuth, etc.: não chama Supabase no middleware — evita loop de refresh
+	// (/token) e corridas com cookies inválidos ao abrir a tela de login.
+	if (isUnderPortal && isPortalAuthPublicPath(pathname)) {
+		return response
+	}
+
 	const { url, anonKey } = getSupabaseEnv()
 
 	const supabase = createServerClient(url, anonKey, {
@@ -66,11 +73,19 @@ export async function middleware (request: NextRequest) {
 		},
 	})
 
-	const {
-		data: { user },
-	} = await supabase.auth.getUser()
+	let user: Awaited<
+		ReturnType<typeof supabase.auth.getUser>
+	>['data']['user'] = null
+	try {
+		const { data, error } = await supabase.auth.getUser()
+		if (!error) {
+			user = data.user ?? null
+		}
+	} catch {
+		// Rede indisponível, DNS, AuthRetryableFetchError, etc. — não bloqueia /portal/login
+		user = null
+	}
 
-	const isUnderPortal = pathname === '/portal' || pathname.startsWith('/portal/')
 	if (
 		!user &&
 		isUnderPortal &&

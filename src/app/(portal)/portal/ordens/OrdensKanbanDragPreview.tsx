@@ -13,7 +13,7 @@ type Props = {
 function OrdensKanbanDragPreviewInner ({ order }: Props) {
   const num = order.display_number ?? order.id
   return (
-    <div className="w-[min(100%,260px)] cursor-grabbing rounded-lg border bg-card px-3 py-2.5 shadow-xl ring-1 ring-border">
+    <div className="w-[min(100%,260px)] cursor-grabbing select-none rotate-[3deg] rounded-lg border bg-card px-3 py-2.5 shadow-2xl ring-1 ring-black/5">
       <p className="text-xs font-semibold tabular-nums text-muted-foreground">#{num}</p>
       <p className="mt-0.5 line-clamp-2 text-sm font-medium leading-snug">{order.title}</p>
     </div>

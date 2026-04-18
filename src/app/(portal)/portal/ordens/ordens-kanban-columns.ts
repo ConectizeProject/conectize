@@ -1,3 +1,4 @@
+import { closestCorners, type CollisionDetection } from '@dnd-kit/core'
 import {
   FINALIZED_ORDER_STATUSES,
   OPEN_ORDER_STATUSES,
@@ -14,6 +15,38 @@ export function kanbanColumnDroppableId (status: string): string {
 export function parseKanbanColumnStatus (droppableId: string): string | null {
   if (!droppableId.startsWith(KANBAN_COLUMN_ID_PREFIX)) return null
   return droppableId.slice(KANBAN_COLUMN_ID_PREFIX.length) || null
+}
+
+/**
+ * Chave estável do “visual de drag” por coluna: só muda quando esta coluna
+ * de fato precisa atualizar (evita re-render de todas as colunas a cada `overId`).
+ */
+export function kanbanColumnDragUiKey (
+  status: string,
+  orders: readonly { id: string }[],
+  dragActiveId: string | null,
+  dragOverId: string | null,
+  activeDragSourceStatus: string | null,
+): string {
+  if (!dragActiveId) return ''
+  const d = kanbanColumnDroppableId(status)
+  const isTargetDrop =
+    !!dragOverId &&
+    dragOverId === d &&
+    activeDragSourceStatus != null &&
+    activeDragSourceStatus !== status
+  const draggedHere = orders.some((o) => o.id === dragActiveId)
+  const sourceSlot = draggedHere ? (dragOverId === d ? 'in' : 'out') : 'none'
+  return `${isTargetDrop ? 1 : 0}:${sourceSlot}`
+}
+
+/** Só mede colisão contra colunas (`col:`), reduz trabalho no algoritmo. */
+export const kanbanColumnsCollisionDetection: CollisionDetection = (args) => {
+  const cols = args.droppableContainers.filter((c) =>
+    String(c.id).startsWith(KANBAN_COLUMN_ID_PREFIX),
+  )
+  if (cols.length === 0) return []
+  return closestCorners({ ...args, droppableContainers: cols })
 }
 
 /** Ordem das colunas no quadro: pipeline em aberto + encerradas. */

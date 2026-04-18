@@ -1,4 +1,5 @@
 import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
+import { getSupabasePlatformStatus } from '@/lib/supabase/platform-status'
 import { getPortalAuth } from '@/lib/supabase/server'
 import { PortalShell } from './PortalShell'
 
@@ -16,7 +17,10 @@ export default async function PortalLayout({
 }: {
   children: React.ReactNode
 }) {
-  const { user, role, fullName } = await getPortalAuth()
+  const [{ user, role, fullName }, supabasePlatformStatus] = await Promise.all([
+    getPortalAuth(),
+    getSupabasePlatformStatus(),
+  ])
   if (!user) {
     await redirectToPortalLogin()
   }
@@ -26,6 +30,7 @@ export default async function PortalLayout({
       role={role}
       userEmail={user.email || ''}
       userName={fullName}
+      supabasePlatformStatus={supabasePlatformStatus}
     >
       {children}
     </PortalShell>
