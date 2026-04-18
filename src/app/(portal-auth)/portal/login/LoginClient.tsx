@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { buildPortalAuthCallbackUrl } from '@/lib/auth/callback-url'
+import { shouldSkipDuplicateLoginSessionProbe } from '@/lib/auth/login-session-probe-guard'
 import { assertSafePortalPath } from '@/lib/auth/safe-redirect'
 import { getAuthSiteOrigin } from '@/lib/auth/site-origin'
 import { useSupabaseBrowserClient } from '@/lib/supabase/use-supabase-browser-client'
@@ -47,16 +48,49 @@ export function LoginClient ({ fallbackReturnPath = '/portal' }: LoginClientProp
 
   const siteOrigin = getAuthSiteOrigin()
 
+  const redirectIfValidSessionRan = useRef(false)
+
+  /**
+   * 1) Para o auto-refresh do GoTrue antes de qualquer outra chamada — evita ticks / recover
+   *    em loop quando o host do Supabase não resolve (DNS).
+   * 2) Só então verifica sessão + usuário uma vez para redirecionar quem já está logado.
+   */
   useEffect(() => {
     if (!supabase) return
-    supabase.auth.getSession()
-      .then(({ data }) => {
-        if (data?.session) {
-          router.refresh()
-          router.replace(redirectTo)
-        }
-      })
-      .catch(() => { })
+
+    let alive = true
+
+    void (async () => {
+      await supabase.auth.stopAutoRefresh()
+      if (!alive) return
+      // Strict Mode remonta rápido: evita segunda leva de getSession/getUser
+      if (shouldSkipDuplicateLoginSessionProbe()) return
+
+      const { data: sessionData, error: sessionErr } = await supabase.auth.getSession()
+      if (!alive) return
+      if (sessionErr) {
+        await supabase.auth.signOut({ scope: 'local' }).catch(() => {})
+        return
+      }
+      if (!sessionData?.session) {
+        return
+      }
+
+      const { data: userData, error: userErr } = await supabase.auth.getUser()
+      if (!alive) return
+      if (userErr || !userData?.user) {
+        await supabase.auth.signOut({ scope: 'local' }).catch(() => {})
+        return
+      }
+
+      redirectIfValidSessionRan.current = true
+      router.replace(redirectTo)
+    })()
+
+    return () => {
+      alive = false
+      void supabase.auth.startAutoRefresh()
+    }
   }, [router, redirectTo, supabase])
 
   useEffect(() => {

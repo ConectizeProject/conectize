@@ -26,24 +26,35 @@ export async function GET(request: NextRequest) {
   const filterReadyTo = searchParams.get('readyTo')?.trim() ?? ''
 
   if (statusGroup === 'final') {
-    const { orders, error } = await listFinalOrdersWithRelations(auth.supabase, {
-      q,
-      cpf,
-      osNumber,
-      statusFilter,
-      filterCustomerId,
-      filterCustomerName,
-      filterDeviceModelId,
-      filterCreatedFrom,
-      filterCreatedTo,
-      filterReadyFrom,
-      filterReadyTo,
-    })
+    const rawLimit = Number.parseInt(searchParams.get('limit') ?? '', 10)
+    const rawOffset = Number.parseInt(searchParams.get('offset') ?? '', 10)
+    const limit =
+      Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 500) : undefined
+    const offset =
+      Number.isFinite(rawOffset) && rawOffset >= 0 ? Math.floor(rawOffset) : undefined
+
+    const { orders, hasMore, error } = await listFinalOrdersWithRelations(
+      auth.supabase,
+      {
+        q,
+        cpf,
+        osNumber,
+        statusFilter,
+        filterCustomerId,
+        filterCustomerName,
+        filterDeviceModelId,
+        filterCreatedFrom,
+        filterCreatedTo,
+        filterReadyFrom,
+        filterReadyTo,
+      },
+      { limit, offset },
+    )
     if (error) {
       console.error('[portal/ordens] list final error:', error)
       return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
     }
-    const payload = { ok: true as const, orders }
+    const payload = { ok: true as const, orders, hasMore }
     const parsed = portalOrdensFinalListResponseSchema.safeParse(payload)
     if (!parsed.success) {
       console.error('[portal/ordens] final list response schema', parsed.error.flatten())

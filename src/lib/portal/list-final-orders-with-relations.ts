@@ -62,9 +62,19 @@ function isValidDate(v: string): boolean {
 export async function listFinalOrdersWithRelations(
   supabase: SupabaseClient,
   filters: FinalOrdersListFilters,
-  options?: { limit?: number },
-): Promise<{ orders: PortalOrdensListRow[]; error: { message: string; code?: string } | null }> {
-  const limit = options?.limit ?? PORTAL_FINAL_ORDERS_LIST_LIMIT
+  options?: { limit?: number; offset?: number },
+): Promise<{
+  orders: PortalOrdensListRow[]
+  hasMore: boolean
+  error: { message: string; code?: string } | null
+}> {
+  const offset = Math.max(0, Math.floor(options?.offset ?? 0))
+  const requestedLimit =
+    options?.limit != null && options.limit > 0
+      ? Math.min(options.limit, PORTAL_FINAL_ORDERS_LIST_LIMIT)
+      : PORTAL_FINAL_ORDERS_LIST_LIMIT
+  /** Busca uma linha extra para saber se há próxima página. */
+  const fetchSize = requestedLimit + 1
   const q = filters.q ?? ''
   const cpf = (filters.cpf ?? '').replace(/\D/g, '').trim()
   const osNumber = filters.osNumber ?? ''
@@ -95,10 +105,11 @@ export async function listFinalOrdersWithRelations(
       .or(`cpf.eq.${cpf},cnpj.eq.${cpf}`)
     customerIdsFilter = (custList || []).map((c: { id: string }) => c.id)
     if (customerIdsFilter.length === 0) {
-      return { orders: [], error: null }
+      return { orders: [], hasMore: false, error: null }
     }
   }
 
+  const rangeTo = offset + fetchSize - 1
   const baseQuery = supabase
     .from('service_orders')
     .select(
@@ -106,7 +117,7 @@ export async function listFinalOrdersWithRelations(
     )
     .in('status', [...FINALIZED_ORDER_STATUSES])
     .order('created_at', { ascending: false })
-    .limit(limit)
+    .range(offset, rangeTo)
 
   if (q) {
     const escaped = q.replaceAll(',', ' ').trim()
@@ -144,10 +155,12 @@ export async function listFinalOrdersWithRelations(
 
   const { data: ordersList, error } = await baseQuery
   if (error) {
-    return { orders: [], error: { message: error.message, code: error.code } }
+    return { orders: [], hasMore: false, error: { message: error.message, code: error.code } }
   }
 
-  const list = (ordersList ?? []) as PortalServiceOrderListQueryRow[]
+  const rawList = (ordersList ?? []) as PortalServiceOrderListQueryRow[]
+  const hasMore = rawList.length > requestedLimit
+  const list = hasMore ? rawList.slice(0, requestedLimit) : rawList
   const customerIds = [...new Set(list.map((o) => o.customer_id).filter(Boolean))]
   const deviceModelIds = [...new Set(list.map((o) => o.device_model_id).filter(Boolean))]
 
@@ -184,5 +197,5 @@ export async function listFinalOrdersWithRelations(
     device_models: o.device_model_id ? deviceModelsMap[o.device_model_id] ?? null : null,
   }))
 
-  return { orders, error: null }
+  return { orders, hasMore, error: null }
 }

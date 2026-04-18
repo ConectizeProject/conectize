@@ -43,4 +43,5 @@ const portalOrdensListRowSchema = z.object({
 export const portalOrdensFinalListResponseSchema = z.object({
   ok: z.literal(true),
   orders: z.array(portalOrdensListRowSchema.passthrough()),
+  hasMore: z.boolean().optional(),
 })

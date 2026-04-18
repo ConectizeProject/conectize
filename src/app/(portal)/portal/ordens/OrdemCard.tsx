@@ -1,69 +1,125 @@
 'use client'
 
+import type { MouseEvent } from 'react'
 import Link from 'next/link'
+import { Calendar, Smartphone, User } from 'lucide-react'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { OrdensRowActions } from './OrdensRowActions'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
-import { formatDateTimeBr } from '@/lib/utils/format-date'
+import { formatPhoneBr } from '@/lib/utils/format-phone'
+import { formatDateTimeShortBrNoComma } from '@/lib/utils/format-date'
 import { getOrdemPortalPath } from '@/lib/orders/ordem-portal-path'
-import type { PortalOrdensListRow } from '@/lib/orders/portal-ordens-list-types'
+import { onlyDigits } from '@/lib/utils/strings'
+import type {
+	PortalOrdensCustomerSummary,
+	PortalOrdensDeviceModelSummary,
+	PortalOrdensListRow,
+} from '@/lib/orders/portal-ordens-list-types'
+
+/** CNPJ: 14 dígitos (ou armazenado no campo cpf com mais de 11 dígitos). */
+function customerDocIsCnpj (c: PortalOrdensCustomerSummary | null): boolean {
+	if (!c) return false
+	const cnpjDigits = onlyDigits(String(c.cnpj ?? ''))
+	if (cnpjDigits.length > 11) return true
+	const cpfFieldDigits = onlyDigits(String(c.cpf ?? ''))
+	return cpfFieldDigits.length > 11
+}
+
+function formatDeviceCardLine(dm: PortalOrdensDeviceModelSummary | null): string {
+	if (!dm) return '—'
+	const brandRaw = dm.brand?.trim() || ''
+	const typeRaw = dm.device_type?.trim() || ''
+	const modelRaw = dm.model?.trim() || ''
+	const brandLower = brandRaw.toLowerCase()
+	const typeLower = typeRaw.toLowerCase()
+	const parts: string[] = []
+	if (brandRaw && brandLower !== 'apple') {
+		parts.push(brandRaw)
+	}
+	if (typeRaw && typeLower !== 'smartphone') {
+		parts.push(typeRaw)
+	}
+	if (modelRaw) {
+		parts.push(modelRaw)
+	}
+	return parts.length ? parts.join(' • ') : '—'
+}
+
+function formatOrdemCardDatesLine (order: PortalOrdensListRow): string {
+	const parts: string[] = [formatDateTimeShortBrNoComma(order.created_at)]
+	if (order.estimated_ready_at) {
+		parts.push(formatDateTimeShortBrNoComma(order.estimated_ready_at))
+	}
+	if (order.closed_at) {
+		parts.push(formatDateTimeShortBrNoComma(order.closed_at))
+	}
+	return parts.filter((p) => p && p !== '-').join(' • ') || '—'
+}
 
 type Props = {
 	order: PortalOrdensListRow
 	canDelete?: boolean
+	/** Kanban / lista vertical: largura fluida em vez de cartão fixo para carrossel */
+	layout?: 'carousel' | 'list'
+	/** Kanban: evita navegar após soltar o arraste (clique fantasma no Link) */
+	onLinkClick?: (e: MouseEvent<HTMLAnchorElement>) => void
 }
 
-export function OrdemCard({ order, canDelete }: Props) {
-	const customerName = order.customers?.full_name || order.customers?.company_name || '-'
-	const deviceText = order.device_models
-		? [order.device_models.brand, order.device_models.device_type, order.device_models.model].filter(Boolean).join(' • ') || '-'
-		: '-'
-	const cpfCnpj = formatCpfCnpj(String(order.customers?.cnpj || order.customers?.cpf))
+export function OrdemCard({ order, canDelete, layout = 'carousel', onLinkClick }: Props) {
+	const customerName = order.customers?.full_name || order.customers?.company_name || '—'
+	const deviceText = formatDeviceCardLine(order.device_models)
+	const hideCpfCelular = customerDocIsCnpj(order.customers)
+	const cpfCnpjFmt = formatCpfCnpj(String(order.customers?.cnpj || order.customers?.cpf || ''))
+	const celularFmt = formatPhoneBr(order.customers?.mobile_phone)
+	const cpfCelularLine = hideCpfCelular
+		? ''
+		: [cpfCnpjFmt || null, celularFmt].filter(Boolean).join(' • ') || '—'
+	const datesLine = formatOrdemCardDatesLine(order)
+
+	const linkClass =
+		layout === 'list'
+			? 'block w-full max-w-full min-w-0 transition-colors hover:opacity-95'
+			: 'block w-[320px] max-w-[320px] shrink-0 transition-colors hover:opacity-95'
 
 	return (
 		<Link
-      href={getOrdemPortalPath(order)}
+			href={getOrdemPortalPath(order)}
 			draggable={false}
 			onDragStart={(e) => e.preventDefault()}
-			className="block w-[320px] max-w-[320px] shrink-0 transition-colors hover:opacity-95"
+			onClick={onLinkClick}
+			className={linkClass}
 		>
 			<Card className="h-full cursor-pointer transition-colors hover:bg-muted/50" draggable={false}>
-				<CardHeader className="flex flex-row items-center justify-between space-y-0 bg-muted/30 p-5 pt-3 pb-3">
-					<span className="font-semibold">#{order.display_number ?? order.id}</span>
-					<OrdensRowActions order={order} canDelete={canDelete} />
+				<CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 bg-muted/30 p-0 px-4 pt-2 pb-2">
+					<span className="min-w-0 flex-1 truncate font-semibold">#{order.display_number ?? order.id}</span>
+					<div
+						className="shrink-0"
+						onPointerDown={(e) => {
+							e.stopPropagation()
+						}}
+					>
+						<OrdensRowActions order={order} canDelete={canDelete} />
+					</div>
 				</CardHeader>
-				<CardContent className="space-y-2 p-5 pt-3">
+				<CardContent className="space-y-2 p-4">
 					<p className="font-medium leading-tight">{order.title}</p>
-					<dl className="grid gap-1 text-sm text-muted-foreground">
-						<div className="flex justify-between gap-2">
-							<dt>Cliente</dt>
-							<dd className="max-w-[180px] truncate text-right" title={customerName}>{customerName}</dd>
+					<div className="flex items-start gap-2">
+						<User className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+						<div className="min-w-0 flex-1 flex flex-col gap-0 text-sm text-muted-foreground">
+							<p className="truncate leading-snug" title={customerName}>{customerName}</p>
+							{hideCpfCelular ? null : (
+								<p className="text-xs leading-snug text-muted-foreground" title={cpfCelularLine}>{cpfCelularLine}</p>
+							)}
 						</div>
-						<div className="flex justify-between gap-2">
-							<dt>Dispositivo</dt>
-							<dd className="max-w-[180px] truncate text-right" title={deviceText}>{deviceText}</dd>
-						</div>
-						<div className="flex justify-between gap-2">
-							<dt>CPF/CNPJ</dt>
-							<dd>{cpfCnpj}</dd>
-						</div>
-						<div className="flex justify-between gap-2">
-							<dt>Criada</dt>
-							<dd>{formatDateTimeBr(order.created_at)}</dd>
-						</div>
-						{order.estimated_ready_at ? (
-							<div className="flex justify-between gap-2">
-								<dt>Estimativa</dt>
-								<dd>{formatDateTimeBr(order.estimated_ready_at)}</dd>
-							</div>
-						) : null}
-						{order.closed_at ? (
-							<div className="flex justify-between gap-2">
-								<dt>Finalizada</dt>
-								<dd>{formatDateTimeBr(order.closed_at)}</dd>
-							</div>
-						) : null}
-					</dl>
+					</div>
+					<div className="flex items-start gap-2">
+						<Smartphone className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+						<p className="min-w-0 flex-1 truncate text-sm leading-snug text-muted-foreground" title={deviceText}>{deviceText}</p>
+					</div>
+					<div className="flex items-start gap-2">
+						<Calendar className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+						<p className="min-w-0 flex-1 truncate text-sm leading-snug text-muted-foreground" title={datesLine}>{datesLine}</p>
+					</div>
 				</CardContent>
 			</Card>
 		</Link>

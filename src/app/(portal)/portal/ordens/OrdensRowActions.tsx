@@ -23,6 +23,8 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { OrderStatusBlockerAlertDialog } from './OrderStatusBlockerAlertDialog'
+import { useOrderStatusUpdate } from './use-order-status-update'
 import { Button } from '@/components/ui/button'
 import { Printer, MessageCircle, Mail, Copy, Tag, MoreVertical, Trash2 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
@@ -30,7 +32,6 @@ import { getLabelWindowFeatures, getPrintWindowFeatures } from '@/lib/ordem-prin
 import { buildOrderMessage } from '@/lib/ordem-share-message'
 import { ORDER_STATUS_LABELS } from '@/lib/orders/order-status'
 import { formatPhoneForWhatsApp } from '@/lib/utils/format-phone'
-import { updateOrderStatusAction } from './[numero]/order-detail-actions'
 import type { PortalOrdensListRow } from '@/lib/orders/portal-ordens-list-types'
 
 type Props = {
@@ -40,16 +41,10 @@ type Props = {
 
 export function OrdensRowActions({ order, canDelete = false }: Props) {
 	const router = useRouter()
-	const [updating, setUpdating] = useState(false)
+	const { updating, updateStatus, blockerDialog, dismissBlockers } = useOrderStatusUpdate()
 	const [fetchedPublicUrl, setFetchedPublicUrl] = useState<string | null>(null)
 	const [deleteOpen, setDeleteOpen] = useState(false)
 	const [deleteSubmitting, setDeleteSubmitting] = useState(false)
-	const [exitConsiderationsOpen, setExitConsiderationsOpen] = useState(false)
-	const [pendingFinalizeStatus, setPendingFinalizeStatus] = useState<string | null>(null)
-	const [finalizeBlockers, setFinalizeBlockers] = useState<{
-		exit: boolean
-		warranty: boolean
-	} | null>(null)
 
 	const customer = order.customers
 	const deviceModel = order.device_models
@@ -101,45 +96,11 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
 			confirmFinalizeWithoutWarranty?: boolean
 		},
 	) {
-		const confirmIncompleteExit = options?.confirmIncompleteExit === true
-		const confirmFinalizeWithoutWarranty =
-			options?.confirmFinalizeWithoutWarranty === true
-		setUpdating(true)
-		try {
-			const fd = new FormData()
-			fd.set('orderId', order.id)
-			fd.set('status', newStatus)
-			if (confirmIncompleteExit) {
-				fd.set('confirmIncompleteExit', '1')
-			}
-			if (confirmFinalizeWithoutWarranty) {
-				fd.set('confirmFinalizeWithoutWarranty', '1')
-			}
-			const result = await updateOrderStatusAction(fd)
-			if (result.ok === false) {
-				if (result.error === 'exit_considerations_incomplete') {
-					setPendingFinalizeStatus(newStatus)
-					setFinalizeBlockers({ exit: true, warranty: false })
-					setExitConsiderationsOpen(true)
-					return
-				}
-				if (result.error === 'warranty_terms_missing') {
-					setPendingFinalizeStatus(newStatus)
-					setFinalizeBlockers({ exit: false, warranty: true })
-					setExitConsiderationsOpen(true)
-					return
-				}
-				toast({ title: 'Erro ao atualizar status', variant: 'destructive' })
-				return
-			}
-			setExitConsiderationsOpen(false)
-			setPendingFinalizeStatus(null)
-			setFinalizeBlockers(null)
-			toast({ variant: 'success', title: 'Status atualizado', description: `${ORDER_STATUS_LABELS[newStatus] || newStatus}` })
-			router.refresh()
-		} finally {
-			setUpdating(false)
-		}
+		await updateStatus(order.id, newStatus, {
+			confirmIncompleteExit: options?.confirmIncompleteExit === true,
+			confirmFinalizeWithoutWarranty:
+				options?.confirmFinalizeWithoutWarranty === true,
+		})
 	}
 
 	async function handleConfirmDelete() {
@@ -274,63 +235,21 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
 				</DropdownMenuContent>
 			</DropdownMenu>
 
-			<AlertDialog
-				open={exitConsiderationsOpen}
+			<OrderStatusBlockerAlertDialog
+				open={!!blockerDialog}
+				blocker={blockerDialog}
+				updating={updating}
 				onOpenChange={(open) => {
-					setExitConsiderationsOpen(open)
-					if (!open) {
-						setPendingFinalizeStatus(null)
-						setFinalizeBlockers(null)
-					}
+					if (!open) dismissBlockers()
 				}}
-			>
-				<AlertDialogContent>
-					<AlertDialogHeader>
-						<AlertDialogTitle>
-							{finalizeBlockers?.exit && finalizeBlockers?.warranty
-								? 'Antes de finalizar'
-								: finalizeBlockers?.warranty
-									? 'Sem termos de garantia'
-									: 'Considerações da assistência não preenchidas'}
-						</AlertDialogTitle>
-						<AlertDialogDescription asChild>
-							<div className="space-y-3 text-sm text-muted-foreground">
-								{finalizeBlockers?.exit ? (
-									<p>
-										Esta OS não tem checklist nem fotos de saída. Abra a ordem para
-										registrar ou confirme se deseja finalizar assim mesmo.
-									</p>
-								) : null}
-								{finalizeBlockers?.warranty ? (
-									<p>
-										Não há modelo nem texto de garantia nesta ordem. Na impressão e no
-										link público não será exibido termo de garantia para o cliente.
-										Deseja finalizar assim mesmo?
-									</p>
-								) : null}
-							</div>
-						</AlertDialogDescription>
-					</AlertDialogHeader>
-					<AlertDialogFooter>
-						<AlertDialogCancel disabled={updating}>Voltar</AlertDialogCancel>
-						<AlertDialogAction
-							onClick={(e) => {
-								e.preventDefault()
-								const next = pendingFinalizeStatus
-								const blockers = finalizeBlockers
-								if (!next || !blockers) return
-								void handleStatusChange(next, {
-									confirmIncompleteExit: blockers.exit,
-									confirmFinalizeWithoutWarranty: blockers.warranty,
-								})
-							}}
-							disabled={updating || !pendingFinalizeStatus || !finalizeBlockers}
-						>
-							{updating ? 'Salvando…' : 'Sim, finalizar'}
-						</AlertDialogAction>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
+				onConfirm={() => {
+					if (!blockerDialog) return
+					void handleStatusChange(blockerDialog.status, {
+						confirmIncompleteExit: blockerDialog.exit,
+						confirmFinalizeWithoutWarranty: blockerDialog.warranty,
+					})
+				}}
+			/>
 
 			{canDelete ? (
 				<AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>

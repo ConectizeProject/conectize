@@ -47,6 +47,17 @@ export function formatDateTimeShortBr(value: string | Date | null | undefined): 
 }
 
 /**
+ * Como formatDateTimeShortBr, sem vírgula entre data e hora (ex.: 16/04/26 15:27).
+ */
+export function formatDateTimeShortBrNoComma(
+  value: string | Date | null | undefined,
+): string {
+  const s = formatDateTimeShortBr(value)
+  if (s === '-' || s === String(value)) return s
+  return s.replace(/\s*,\s*/, ' ')
+}
+
+/**
  * Formata apenas a data em pt-BR (fuso Brasil).
  * Ex: 12/01/2025
  */
