@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { BarChart3, Building2, ChevronDown, ClipboardList, DollarSign, Home, LayoutDashboard, LayoutGrid, LogOut, Moon, Percent, Plug2, Settings, Sun, UserCheck, Smartphone, Users, Package } from 'lucide-react'
+import { BarChart3, Building2, ChevronDown, ClipboardList, DollarSign, Home, LayoutDashboard, LayoutGrid, LogOut, MessageCircle, Moon, Percent, Plug2, Settings, Sun, UserCheck, Smartphone, Users, Package } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
 	DropdownMenu,
@@ -125,6 +125,7 @@ export function PortalShell(props: PortalShellProps) {
 			? [
 				{ href: '/portal/dashboard', label: 'Dashboard', icon: LayoutDashboard },
 				{ href: '/portal/ordens', label: 'Ordens de serviço', icon: ClipboardList },
+				{ href: '/portal/whatsapp', label: 'WhatsApp', icon: MessageCircle },
 				{ href: '/portal/produtos', label: 'Produtos e serviços', icon: Package },
 				{ href: '/portal/clientes', label: 'Clientes', icon: Users },
 				{ href: '/portal/seminovos', label: 'Aparelhos para venda', icon: Smartphone },
@@ -132,6 +133,7 @@ export function PortalShell(props: PortalShellProps) {
 			: [
 				{ href: '/portal/dashboard', label: 'Dashboard', icon: LayoutDashboard },
 				{ href: '/portal/ordens', label: 'Ordens de serviço', icon: ClipboardList },
+				{ href: '/portal/whatsapp', label: 'WhatsApp', icon: MessageCircle },
 				{ href: '/portal/produtos', label: 'Produtos e serviços', icon: Package },
 				{ href: '/portal/clientes', label: 'Clientes', icon: Users },
 				{ href: '/portal/admin/usuarios', label: 'Usuários', icon: UserCheck },
