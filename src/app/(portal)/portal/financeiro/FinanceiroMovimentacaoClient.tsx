@@ -335,7 +335,7 @@ export function FinanceiroMovimentacaoClient() {
                             {m.description}
                           </Link>
                         ) : m.resale_device_id ? (
-                          <Link href={`/portal/seminovos/${m.resale_device_id}`} className="text-primary hover:underline">
+                          <Link href={`/portal/revendaaparelhos/${m.resale_device_id}`} className="text-primary hover:underline">
                             {m.description}
                           </Link>
                         ) : (

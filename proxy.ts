@@ -147,6 +147,11 @@ export async function proxy(request: NextRequest) {
         pathname === '/portal/complete-profile' ||
         pathname.startsWith('/portal/complete-profile/') ||
         pathname.startsWith('/portal/ordens/') ||
+        pathname === '/portal/revendaaparelhos' ||
+        pathname === '/portal/revendaaparelhos/' ||
+        pathname === '/portal/revendaaparelhos/listagem' ||
+        pathname.startsWith('/portal/revendaaparelhos/listagem/') ||
+        /^\/portal\/revendaaparelhos\/[^/]+\/vitrine\/?$/.test(pathname) ||
         pathname === '/portal/seminovos/varejo' ||
         pathname.startsWith('/portal/seminovos/varejo/') ||
         /^\/portal\/seminovos\/[^/]+\/vitrine\/?$/.test(pathname) ||

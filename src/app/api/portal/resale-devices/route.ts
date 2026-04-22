@@ -38,6 +38,7 @@ export async function GET(request: Request) {
   const purchaseDateFrom = String(searchParams.get('purchaseDateFrom') || '').trim()
   const purchaseDateTo = String(searchParams.get('purchaseDateTo') || '').trim()
   const stockType = String(searchParams.get('stockType') || '').trim()
+  const deviceName = String(searchParams.get('deviceName') || '').trim()
 
   const soldFilter = soldParam === 'true' ? true : false
 
@@ -79,6 +80,7 @@ export async function GET(request: Request) {
       sale_commission_user_id,
       image_url,
       image_storage_path,
+      image_gallery_paths,
       created_at,
       updated_at
     `)
@@ -110,8 +112,13 @@ export async function GET(request: Request) {
   if (purchaseDateTo && /^\d{4}-\d{2}-\d{2}$/.test(purchaseDateTo)) {
     query = query.lte('purchase_date', purchaseDateTo)
   }
-  if (stockType === 'seminovo' || stockType === 'lacrado') {
+  if (stockType === 'all') {
+    query = query.in('stock_type', ['seminovo', 'lacrado'])
+  } else if (stockType === 'seminovo' || stockType === 'lacrado') {
     query = query.eq('stock_type', stockType)
+  }
+  if (deviceName) {
+    query = query.eq('device_name', deviceName)
   }
 
   const { data: devices, error } = await query.order('created_at', { ascending: false })
@@ -205,6 +212,12 @@ export async function POST(request: Request) {
       const u = cleanText(body.image_url)
       return u ? u.slice(0, 2048) : null
     })(),
+    image_gallery_paths: Array.isArray(body.image_gallery_paths)
+      ? (body.image_gallery_paths as unknown[])
+          .map((x) => cleanText(x))
+          .filter(Boolean)
+          .slice(0, 9)
+      : [],
   }
 
   const { data: inserted, error } = await auth.supabase

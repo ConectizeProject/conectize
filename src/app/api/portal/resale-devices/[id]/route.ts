@@ -44,6 +44,7 @@ const DEVICE_SELECT = `
   sale_commission_user_id,
   image_url,
   image_storage_path,
+  image_gallery_paths,
   created_at,
   updated_at
 `
@@ -157,6 +158,17 @@ function buildPatchRow (
   if (body.image_url !== undefined) {
     const u = cleanText(body.image_url)
     row.image_url = u ? u.slice(0, 2048) : null
+  }
+
+  if (body.image_gallery_paths !== undefined) {
+    const raw = body.image_gallery_paths
+    if (Array.isArray(raw)) {
+      const paths = raw
+        .map((x) => cleanText(x))
+        .filter(Boolean)
+        .slice(0, 9)
+      row.image_gallery_paths = paths
+    }
   }
 
   if ('sale_payment_methods' in body) {
@@ -416,13 +428,16 @@ export async function DELETE (
 
   const { data: before } = await auth.supabase
     .from('resale_devices')
-    .select('image_storage_path')
+    .select('image_storage_path, image_gallery_paths')
     .eq('id', deviceId)
     .maybeSingle()
 
-  const photoPath = (before as { image_storage_path?: string | null } | null)?.image_storage_path?.trim()
-  if (photoPath) {
-    await auth.supabase.storage.from('resale-device-photos').remove([photoPath])
+  const b = before as { image_storage_path?: string | null; image_gallery_paths?: string[] | null } | null
+  const photoPath = b?.image_storage_path?.trim()
+  const extras = Array.isArray(b?.image_gallery_paths) ? b.image_gallery_paths.filter(Boolean) : []
+  const toRemove = [photoPath, ...extras].filter(Boolean) as string[]
+  if (toRemove.length > 0) {
+    await auth.supabase.storage.from('resale-device-photos').remove(toRemove)
   }
 
   const { error } = await auth.supabase.from('resale_devices').delete().eq('id', deviceId)

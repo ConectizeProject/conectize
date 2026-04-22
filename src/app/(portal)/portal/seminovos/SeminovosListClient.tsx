@@ -88,6 +88,7 @@ import {
 	buildCopyLojistaText,
 	buildSeminovoLabelHtml,
 } from "@/lib/seminovos/seminovos-device-actions";
+import { revendaPath } from "@/lib/revenda/revenda-paths";
 import { formatCpfCnpj } from "@/lib/utils/format-cpf-cnpj";
 import { formatDateBr } from "@/lib/utils/format-date";
 import {
@@ -105,7 +106,6 @@ import {
 	Eye,
 	EyeOff,
 	FileInput,
-	LayoutGrid,
 	MessageCircle,
 	MoreHorizontal,
 	Package,
@@ -120,7 +120,7 @@ import {
 	Wrench,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DeviceBadges } from "./DeviceBadges";
 import { ResaleDeviceTermsDialog } from "./ResaleDeviceTermsDialog";
@@ -131,7 +131,6 @@ import {
 } from "./ResaleSellCommissionPanel";
 import { SeminovoDeviceCard } from "./SeminovoDeviceCard";
 import { SeminovosFilterCollapsible } from "./SeminovosFilterCollapsible";
-import { SeminovosSubmenu } from "./SeminovosSubmenu";
 
 const EMPTY_SELL_COMMISSION_INITIAL: SellCommissionInitial = {
 	enabled: false,
@@ -238,8 +237,15 @@ function sortSoldDevices(list: ResaleDevice[]): ResaleDevice[] {
 	});
 }
 
+type OperacionalSeminovosFilters = Omit<
+	SeminovosFilters,
+	"stockType" | "valueMinCents" | "valueMaxCents"
+> & {
+	stockType: "seminovo" | "lacrado";
+};
+
 function buildResaleDevicesListQuery(
-	filters: SeminovosFilters,
+	filters: OperacionalSeminovosFilters,
 	sold: boolean,
 ): string {
 	const p = new URLSearchParams();
@@ -251,6 +257,8 @@ function buildResaleDevicesListQuery(
 	if (filters.color) p.set("color", filters.color);
 	if (filters.purchaseDateFrom) p.set("purchaseDateFrom", filters.purchaseDateFrom);
 	if (filters.purchaseDateTo) p.set("purchaseDateTo", filters.purchaseDateTo);
+	const dn = (filters.deviceName || "").trim();
+	if (dn) p.set("deviceName", dn);
 	return p.toString();
 }
 
@@ -345,7 +353,9 @@ function formatWhatsAppDevicesBlock(rows: WhatsAppModelRow[]): string {
 type SeminovosListClientProps = {
 	initialDevices: ResaleDeviceRow[];
 	initialStats: SeminovosStats;
-	filterInitialValues: SeminovosFilters;
+	filterInitialValues: OperacionalSeminovosFilters;
+	/** Nomes distintos para o filtro por modelo (listagem operacional). */
+	distinctDeviceNames?: string[];
 	role: string;
 };
 
@@ -353,19 +363,15 @@ export function SeminovosListClient({
 	initialDevices,
 	initialStats,
 	filterInitialValues,
+	distinctDeviceNames = [],
 	role,
 }: SeminovosListClientProps) {
 	const isAdmin = role === "admin";
 	const router = useRouter();
-	const searchParams = useSearchParams();
 	const novaDeviceHref =
-		searchParams.get("tipo") === "lacrados"
-			? "/portal/seminovos/nova?tipo=lacrados"
-			: "/portal/seminovos/nova";
-	const varejoListHref =
-		searchParams.get("tipo") === "lacrados"
-			? "/portal/seminovos/varejo?tipo=lacrados"
-			: "/portal/seminovos/varejo";
+		filterInitialValues.stockType === "lacrado"
+			? revendaPath.novaNovo
+			: revendaPath.nova;
 	const [devices, setDevices] = useState<ResaleDevice[]>(
 		initialDevices as ResaleDevice[],
 	);
@@ -591,6 +597,18 @@ export function SeminovosListClient({
 					String(v ?? "") !== String(o ?? "")
 				) {
 					changed[k] = v;
+				}
+			}
+			if (edited.stock_type === "lacrado") {
+				const hadWear =
+					Boolean(String(orig.battery ?? "").trim()) ||
+					Boolean(String(orig.condition ?? "").trim());
+				const editedWear =
+					Boolean(String(edited.battery ?? "").trim()) ||
+					Boolean(String(edited.condition ?? "").trim());
+				if (hadWear || editedWear) {
+					changed.battery = null;
+					changed.condition = null;
 				}
 			}
 			if (Object.keys(changed).length > 0) {
@@ -1243,81 +1261,45 @@ ${devicesBlockCliente}
 
 	return (
 		<>
-			<div className="space-y-4 px-1 sm:px-0">
-				<div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-					<div className="min-w-0">
-						<h1 className="text-xl font-bold sm:text-2xl">
-							Aparelhos para venda
-						</h1>
-						<p className="text-sm text-muted-foreground mt-0.5">
-							Estoque para revenda. Acesso exclusivo para staff e administrador.
-						</p>
-					</div>
+			<div className="space-y-4">
+				{isBulkEdit ? (
 					<div className="flex flex-wrap items-center gap-2">
-						{!isBulkEdit ? (
-							<>
-								<Button asChild>
-									<Link href={novaDeviceHref}>
-										<Plus className="h-4 w-4 mr-2" />
-										Cadastrar aparelho
-									</Link>
-								</Button>
-								<Button variant="outline" asChild>
-									<Link href={varejoListHref}>
-										<LayoutGrid className="h-4 w-4 mr-2" />
-										Lista varejo
-									</Link>
-								</Button>
-								<Button
-									type="button"
-									variant="outline"
-									onClick={openWhatsAppModal}
-								>
-									<MessageCircle className="h-4 w-4 mr-2" />
-									Texto WhatsApp
-								</Button>
-								<Button
-									type="button"
-									variant="outline"
-									onClick={handleStartBulkEdit}
-								>
-									Edição em massa
-								</Button>
-							</>
-						) : (
-							<>
-								<Button
-									type="button"
-									variant="outline"
-									onClick={handleCancelBulkEdit}
-									disabled={isSavingBulk}
-								>
-									Cancelar
-								</Button>
-								<Button
-									type="button"
-									onClick={handleSaveBulkEdit}
-									disabled={isSavingBulk}
-								>
-									{isSavingBulk ? "Salvando…" : "Salvar alterações"}
-								</Button>
-							</>
-						)}
+						<Button
+							type="button"
+							variant="outline"
+							onClick={handleCancelBulkEdit}
+							disabled={isSavingBulk}
+						>
+							Cancelar
+						</Button>
+						<Button
+							type="button"
+							onClick={handleSaveBulkEdit}
+							disabled={isSavingBulk}
+						>
+							{isSavingBulk ? "Salvando…" : "Salvar alterações"}
+						</Button>
 					</div>
-				</div>
-
-				<SeminovosSubmenu />
+				) : null}
 
 				<SeminovosFilterCollapsible
 					key={[
+						filterInitialValues.q,
 						filterInitialValues.condition,
 						filterInitialValues.storageGb,
 						filterInitialValues.color,
 						filterInitialValues.purchaseDateFrom,
 						filterInitialValues.purchaseDateTo,
 						filterInitialValues.stockType,
+						filterInitialValues.deviceName || '',
 					].join('|')}
 					initialValues={filterInitialValues}
+					filterFormAction={
+						filterInitialValues.stockType === 'lacrado'
+							? revendaPath.novos
+							: revendaPath.seminovos
+					}
+					distinctDeviceNames={distinctDeviceNames}
 					quickFilters={{
 						notTested: filterNotTested,
 						notAdvertised: filterNotAdvertised,
@@ -1340,10 +1322,36 @@ ${devicesBlockCliente}
 				) : null}
 
 				<Card>
-					<CardHeader className="pb-3 sm:pb-6">
+					<CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-3 sm:pb-4">
 						<CardTitle className="text-lg sm:text-xl">
 							Lista de aparelhos
 						</CardTitle>
+						{!isBulkEdit ? (
+							<div className="flex flex-wrap items-center justify-end gap-2">
+								<Button
+									type="button"
+									variant="outline"
+									onClick={handleStartBulkEdit}
+								>
+									Edição em massa
+								</Button>
+								<Button
+									type="button"
+									variant="outline"
+									size="icon"
+									className="shrink-0 touch-manipulation"
+									onClick={openWhatsAppModal}
+									aria-label="Texto para WhatsApp"
+								>
+									<MessageCircle className="h-4 w-4" aria-hidden />
+								</Button>
+								<Button variant="default" size="icon" className="shrink-0 touch-manipulation" asChild>
+									<Link href={novaDeviceHref} aria-label="Cadastrar aparelho">
+										<Plus className="h-4 w-4" aria-hidden />
+									</Link>
+								</Button>
+							</div>
+						) : null}
 					</CardHeader>
 					<CardContent className="px-3 sm:px-6">
 						{isLoading ? (
@@ -1369,7 +1377,7 @@ ${devicesBlockCliente}
 														<p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2 px-1">
 															{g.modelKey}
 														</p>
-														<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+														<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-6">
 															{g.devices.map((d) => (
 																<SeminovoDeviceCard
 																	key={d.id}
@@ -1599,12 +1607,12 @@ ${devicesBlockCliente}
 																		(acc, c) => acc + (c.value_cents ?? 0),
 																		0,
 																	);
+																	const isNovoRow = d.stock_type === "lacrado";
 																	const aparelhoTitle = [
 																		d.device_name,
 																		d.storage_gb,
 																		d.color,
-																		d.battery,
-																		d.condition,
+																		...(isNovoRow ? [] : [d.battery, d.condition]),
 																	]
 																		.filter(Boolean)
 																		.join(" | ");
@@ -1619,7 +1627,7 @@ ${devicesBlockCliente}
 																					className="relative p-0 align-middle"
 																				>
 																					<Link
-																						href={`/portal/seminovos/${d.id}`}
+																						href={revendaPath.device(d.id)}
 																						className="absolute inset-0 z-0"
 																						aria-label={`Abrir aparelho ${aparelhoTitle || d.device_name || d.id}`}
 																					/>
@@ -1636,6 +1644,7 @@ ${devicesBlockCliente}
 																							color={d.color}
 																							battery={d.battery}
 																							condition={d.condition}
+																							omitBatteryCondition={isNovoRow}
 																						/>
 																						<span>
 																							{d.imei ? (
@@ -1795,80 +1804,84 @@ ${devicesBlockCliente}
 																										placeholder="Cor"
 																										className="h-8 text-xs"
 																									/>
-																									<span className="text-muted-foreground shrink-0">
-																										-
-																									</span>
-																									<Input
-																										inputMode="numeric"
-																										value={d.battery || ""}
-																										onChange={(e) => {
-																											const digits =
-																												e.target.value.replace(
-																													/\D/g,
-																													"",
-																												);
-																											if (!digits) {
-																												updateRow(
-																													d.id,
-																													"battery",
-																													"",
-																												);
-																												return;
-																											}
-																											let n = Number.parseInt(
-																												digits,
-																												10,
-																											);
-																											if (Number.isNaN(n)) {
-																												updateRow(
-																													d.id,
-																													"battery",
-																													"",
-																												);
-																												return;
-																											}
-																											if (n > 100) n = 100;
-																											updateRow(
-																												d.id,
-																												"battery",
-																												`${n}%`,
-																											);
-																										}}
-																										placeholder="Bateria"
-																										className="h-8 w-16 text-xs"
-																									/>
-																									<span className="text-muted-foreground shrink-0">
-																										-
-																									</span>
-																									<select
-																										className="h-8 rounded-md border border-input bg-background px-2 text-xs w-16"
-																										value={d.condition || ""}
-																										onChange={(e) =>
-																											updateRow(
-																												d.id,
-																												"condition",
-																												e.target.value || "",
-																											)
-																										}
-																									>
-																										<option value="">
-																											Estado
-																										</option>
-																										<option value="A+">
-																											A+
-																										</option>
-																										<option value="A">A</option>
-																										<option value="A-">
-																											A-
-																										</option>
-																										<option value="B+">
-																											B+
-																										</option>
-																										<option value="B">B</option>
-																										<option value="B-">
-																											B-
-																										</option>
-																									</select>
+																									{d.stock_type !== "lacrado" ? (
+																										<>
+																											<span className="text-muted-foreground shrink-0">
+																												-
+																											</span>
+																											<Input
+																												inputMode="numeric"
+																												value={d.battery || ""}
+																												onChange={(e) => {
+																													const digits =
+																														e.target.value.replace(
+																															/\D/g,
+																															"",
+																														);
+																													if (!digits) {
+																														updateRow(
+																															d.id,
+																															"battery",
+																															"",
+																														);
+																														return;
+																													}
+																													let n = Number.parseInt(
+																														digits,
+																														10,
+																													);
+																													if (Number.isNaN(n)) {
+																														updateRow(
+																															d.id,
+																															"battery",
+																															"",
+																														);
+																														return;
+																													}
+																													if (n > 100) n = 100;
+																													updateRow(
+																														d.id,
+																														"battery",
+																														`${n}%`,
+																													);
+																												}}
+																												placeholder="Bateria"
+																												className="h-8 w-16 text-xs"
+																											/>
+																											<span className="text-muted-foreground shrink-0">
+																												-
+																											</span>
+																											<select
+																												className="h-8 rounded-md border border-input bg-background px-2 text-xs w-16"
+																												value={d.condition || ""}
+																												onChange={(e) =>
+																													updateRow(
+																														d.id,
+																														"condition",
+																														e.target.value || "",
+																													)
+																												}
+																											>
+																												<option value="">
+																													Estado
+																												</option>
+																												<option value="A+">
+																													A+
+																												</option>
+																												<option value="A">A</option>
+																												<option value="A-">
+																													A-
+																												</option>
+																												<option value="B+">
+																													B+
+																												</option>
+																												<option value="B">B</option>
+																												<option value="B-">
+																													B-
+																												</option>
+																											</select>
+																										</>
+																									) : null}
 																								</div>
 																							</div>
 																						) : (
@@ -1878,6 +1891,7 @@ ${devicesBlockCliente}
 																								color={d.color}
 																								battery={d.battery}
 																								condition={d.condition}
+																								omitBatteryCondition={isNovoRow}
 																							/>
 																						)}
 																					</TableCell>

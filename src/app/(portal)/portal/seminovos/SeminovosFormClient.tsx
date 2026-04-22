@@ -50,6 +50,7 @@ import {
   grossProfitBeforeCommissionCents,
   paymentFeeCentsForSaleEntries,
 } from '@/lib/resale/resale-commission'
+import { revendaPath } from '@/lib/revenda/revenda-paths'
 
 type CostRow = { id?: string; description: string; value_cents: number }
 
@@ -102,6 +103,7 @@ type ResaleDevice = {
   sale_commission_user_id?: string | null
   image_url?: string | null
   image_storage_path?: string | null
+  image_gallery_paths?: string[] | null
   display_image_url?: string | null
 }
 
@@ -157,6 +159,9 @@ function getInitialFromDevice(d: ResaleDevice | null | undefined) {
     costs,
     stockType: d.stock_type === 'lacrado' ? 'lacrado' as const : 'seminovo' as const,
     imageUrl: d.image_url ?? '',
+    galleryPaths: Array.isArray(d.image_gallery_paths)
+      ? d.image_gallery_paths.filter((p): p is string => Boolean(p && String(p).trim()))
+      : [],
   }
 }
 
@@ -175,11 +180,12 @@ export function SeminovosFormClient ({
   initialDevice,
   initialDisplayImageUrl = null,
   defaultStockType = 'seminovo',
-  backHref = '/portal/seminovos',
+  backHref = revendaPath.seminovos,
 }: Props) {
   const router = useRouter()
   const init = getInitialFromDevice(initialDevice)
   const hasInitial = Boolean(init)
+  const isNewLacradoFlow = isCreate && defaultStockType === 'lacrado'
 
   const [isLoadingDevice, setIsLoadingDevice] = useState(Boolean(deviceId) && !hasInitial)
   const [isSaving, setIsSaving] = useState(false)
@@ -198,6 +204,8 @@ export function SeminovosFormClient ({
   const [hasStorageImage, setHasStorageImage] = useState(() => Boolean(initialDevice?.image_storage_path))
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false)
   const photoFileInputRef = useRef<HTMLInputElement>(null)
+  const galleryFileInputRef = useRef<HTMLInputElement>(null)
+  const [isUploadingGallery, setIsUploadingGallery] = useState(false)
   const [formImei, setFormImei] = useState(init?.imei ?? '')
   const [formImei2, setFormImei2] = useState(init?.imei2 ?? '')
   const [formSerial, setFormSerial] = useState(init?.serial ?? '')
@@ -222,6 +230,8 @@ export function SeminovosFormClient ({
   const [formSaleDate, setFormSaleDate] = useState(init?.saleDate ?? '')
   const [formCosts, setFormCosts] = useState<CostRow[]>(init?.costs ?? [emptyCost()])
   const [formStockType, setFormStockType] = useState<'seminovo' | 'lacrado'>(init?.stockType ?? defaultStockType)
+  const [formGalleryPaths, setFormGalleryPaths] = useState<string[]>(() => init?.galleryPaths ?? [])
+  const [galleryPreviewByPath, setGalleryPreviewByPath] = useState<Record<string, string>>({})
   const [showSellModal, setShowSellModal] = useState(false)
   const [sellModalDate, setSellModalDate] = useState('')
   const [isSavingSell, setIsSavingSell] = useState(false)
@@ -278,6 +288,7 @@ export function SeminovosFormClient ({
           setFormSaleDate(inited.saleDate)
           setFormCosts(inited.costs)
           setFormStockType(inited.stockType)
+          setFormGalleryPaths(inited.galleryPaths ?? [])
         }
       }
     } finally {
@@ -327,6 +338,50 @@ export function SeminovosFormClient ({
       // ignore
     }
   }, [formImageUrl, hasStorageImage])
+
+  useEffect(() => {
+    if (isNewLacradoFlow) setFormStockType('lacrado')
+  }, [isNewLacradoFlow])
+
+  useEffect(() => {
+    if (formStockType === 'lacrado') {
+      setFormBattery('')
+      setFormCondition('')
+    }
+  }, [formStockType])
+
+  useEffect(() => {
+    if (!isCreate || formStockType === 'lacrado') return
+    const dn = formDeviceName.trim()
+    if (dn.length < 2) return
+    const t = window.setTimeout(() => {
+      void (async () => {
+        const params = new URLSearchParams()
+        params.set('deviceName', dn)
+        if (formStorageGb.trim()) params.set('storageGb', formStorageGb.trim())
+        if (formCondition.trim()) params.set('condition', formCondition.trim())
+        const res = await portalFetch(`/api/portal/resale-pricing-hint?${params}`)
+        const data = await res.json().catch(() => null)
+        const hint = data?.hint as {
+          purchase_value_cents?: number | null
+          wholesale_value_cents?: number | null
+          sale_value_cents?: number | null
+        } | null
+        if (!hint) return
+        const isEmptyMoney = (s: string) => !String(s || '').trim()
+        if (isEmptyMoney(formPurchaseValue) && hint.purchase_value_cents != null && hint.purchase_value_cents > 0) {
+          setFormPurchaseValue(maskedFromCents(hint.purchase_value_cents))
+        }
+        if (isEmptyMoney(formWholesaleValue) && hint.wholesale_value_cents != null && hint.wholesale_value_cents > 0) {
+          setFormWholesaleValue(maskedFromCents(hint.wholesale_value_cents))
+        }
+        if (isEmptyMoney(formSaleValue) && hint.sale_value_cents != null && hint.sale_value_cents > 0) {
+          setFormSaleValue(maskedFromCents(hint.sale_value_cents))
+        }
+      })()
+    }, 500)
+    return () => window.clearTimeout(t)
+  }, [isCreate, formStockType, formDeviceName, formStorageGb, formCondition])
 
   const loadTeamUsers = useCallback(async () => {
     const res = await portalFetch('/api/portal/team-users')
@@ -406,6 +461,62 @@ export function SeminovosFormClient ({
     setPhotoPreviewUrl(null)
   }
 
+  async function handleGalleryFileChange (e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file || !deviceId) return
+    if (!file.type.startsWith('image/') || file.size === 0) return
+    if (formGalleryPaths.length >= 9) {
+      toast({ variant: 'destructive', description: 'Limite de 9 fotos extras (10 no total com a capa).', duration: 3000 })
+      return
+    }
+    setIsUploadingGallery(true)
+    try {
+      const blob = await compressImageForEntry(file)
+      const fd = new FormData()
+      fd.append('files', blob, file.name || 'photo.jpg')
+      const res = await portalFetch(`/api/portal/resale-devices/${deviceId}/gallery`, {
+        method: 'POST',
+        body: fd,
+      })
+      const data = await res.json().catch(() => null)
+      if (data?.ok && Array.isArray(data.image_gallery_paths)) {
+        setFormGalleryPaths(data.image_gallery_paths as string[])
+        if (typeof data.path === 'string' && typeof data.signed_url === 'string' && data.signed_url) {
+          setGalleryPreviewByPath((prev) => ({ ...prev, [data.path]: data.signed_url }))
+        }
+        toast({ description: 'Foto adicionada à galeria.', duration: 2000 })
+      } else if (data?.error === 'gallery_full') {
+        toast({ variant: 'destructive', description: 'Galeria cheia.', duration: 3000 })
+      } else {
+        toast({ variant: 'destructive', description: 'Não foi possível enviar a foto.', duration: 3000 })
+      }
+    } catch {
+      toast({ variant: 'destructive', description: 'Erro ao enviar a foto.', duration: 3000 })
+    } finally {
+      setIsUploadingGallery(false)
+    }
+  }
+
+  async function handleRemoveGalleryPath (path: string) {
+    if (!deviceId) return
+    const res = await portalFetch(
+      `/api/portal/resale-devices/${deviceId}/gallery?path=${encodeURIComponent(path)}`,
+      { method: 'DELETE' },
+    )
+    const data = await res.json().catch(() => null)
+    if (!data?.ok) {
+      toast({ variant: 'destructive', description: 'Não foi possível remover a foto.', duration: 3000 })
+      return
+    }
+    setFormGalleryPaths(Array.isArray(data.image_gallery_paths) ? data.image_gallery_paths : [])
+    setGalleryPreviewByPath((prev) => {
+      const next = { ...prev }
+      delete next[path]
+      return next
+    })
+  }
+
   function updateCost(index: number, field: 'description' | 'value_cents', value: string | number) {
     setFormCosts((prev) => {
       const next = [...prev]
@@ -445,10 +556,11 @@ export function SeminovosFormClient ({
       model: formModel.trim() || null,
       color: formColor.trim() || null,
       storage_gb: formStorageGb.trim() || null,
-      battery: formBattery.trim() || null,
-      condition: formCondition.trim() || null,
+      battery: formStockType === 'lacrado' ? null : (formBattery.trim() || null),
+      condition: formStockType === 'lacrado' ? null : (formCondition.trim() || null),
       info: formInfo.trim() || null,
       image_url: formImageUrl.trim() || null,
+      image_gallery_paths: formGalleryPaths,
       imei: formImei.trim() || null,
       imei2: formImei2.trim() || null,
       serial: formSerial.trim() || null,
@@ -485,7 +597,7 @@ export function SeminovosFormClient ({
         })
         const data = await res?.json().catch(() => null)
         if (data?.ok) {
-          router.push('/portal/seminovos')
+          router.push(backHref)
         } else {
           setErrorMessage(data?.message || 'Não foi possível salvar.')
         }
@@ -497,7 +609,7 @@ export function SeminovosFormClient ({
         })
         const data = await res?.json().catch(() => null)
         if (data?.ok) {
-          router.push('/portal/seminovos')
+          router.push(backHref)
         } else {
           setErrorMessage(data?.message || 'Não foi possível cadastrar.')
         }
@@ -875,8 +987,8 @@ export function SeminovosFormClient ({
       device_name: formDeviceName.trim() || null,
       storage_gb: formStorageGb.trim() || null,
       color: formColor.trim() || null,
-      battery: formBattery.trim() || null,
-      condition: formCondition.trim() || null,
+      battery: formStockType === 'lacrado' ? null : (formBattery.trim() || null),
+      condition: formStockType === 'lacrado' ? null : (formCondition.trim() || null),
       info: formInfo.trim() || null,
       imei: formImei.trim() || null,
       wholesale_value_cents: moneyToCentsFromMasked(formWholesaleValue) ?? null,
@@ -953,12 +1065,16 @@ export function SeminovosFormClient ({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-center gap-4 min-w-0">
           <Button variant="ghost" size="icon" asChild aria-label="Voltar">
-            <Link href="/portal/seminovos">
+            <Link href={backHref}>
               <ArrowLeft className="h-4 w-4" />
             </Link>
           </Button>
           <div className="min-w-0">
-            <h1 className="text-2xl font-bold">{isCreate ? 'Cadastrar aparelho seminovo' : 'Editar aparelho'}</h1>
+            <h1 className="text-2xl font-bold">
+              {isCreate
+                ? (isNewLacradoFlow ? 'Cadastrar aparelho novo' : 'Cadastrar aparelho seminovo')
+                : 'Editar aparelho'}
+            </h1>
             <p className="text-sm text-muted-foreground">
               {isCreate ? 'Preencha os dados do aparelho. Valores em reais.' : 'Altere os dados e salve.'}
             </p>
@@ -974,7 +1090,7 @@ export function SeminovosFormClient ({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-52">
               <DropdownMenuItem asChild>
-                <Link href={`/portal/seminovos/${deviceId}/vitrine`}>
+                <Link href={deviceId ? revendaPath.vitrine(deviceId) : revendaPath.listagem}>
                   <Eye className="h-4 w-4 mr-2" />
                   Visão cliente (vitrine)
                 </Link>
@@ -1003,27 +1119,29 @@ export function SeminovosFormClient ({
         </Alert>
       ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Dados 3utools (iDevice details)</CardTitle>
-          <CardDescription>
-            Cole o texto exportado pelo 3utools e clique em &quot;Ler dados e preencher&quot; para preencher automaticamente modelo, cor, IMEI, IMEI 2 e serial.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <textarea
-            className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-            placeholder="Cole aqui o texto do 3utools (iDevice details)..."
-            value={threeUtoolsRaw}
-            onChange={(e) => setThreeUtoolsRaw(e.target.value)}
-            rows={6}
-          />
-          <Button type="button" variant="secondary" onClick={handleParse3utools}>
-            <FileInput className="h-4 w-4 mr-2" />
-            Ler dados e preencher
-          </Button>
-        </CardContent>
-      </Card>
+      {!isNewLacradoFlow ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Dados 3utools (iDevice details)</CardTitle>
+            <CardDescription>
+              Cole o texto exportado pelo 3utools e clique em &quot;Ler dados e preencher&quot; para preencher automaticamente modelo, cor, IMEI, IMEI 2 e serial.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <textarea
+              className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+              placeholder="Cole aqui o texto do 3utools (iDevice details)..."
+              value={threeUtoolsRaw}
+              onChange={(e) => setThreeUtoolsRaw(e.target.value)}
+              rows={6}
+            />
+            <Button type="button" variant="secondary" onClick={handleParse3utools}>
+              <FileInput className="h-4 w-4 mr-2" />
+              Ler dados e preencher
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <Card>
@@ -1094,143 +1212,77 @@ export function SeminovosFormClient ({
               <Label htmlFor="formStorageGb">Gb</Label>
               <Input id="formStorageGb" value={formStorageGb} onChange={(e) => setFormStorageGb(e.target.value)} placeholder="Ex: 128" />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="formBattery">Bateria</Label>
-              <Input
-                id="formBattery"
-                inputMode="numeric"
-                value={formBattery}
-                onChange={(e) => {
-                  const digits = e.target.value.replace(/\D/g, '')
-                  if (!digits) {
-                    setFormBattery('')
-                    return
-                  }
-                  let n = Number.parseInt(digits, 10)
-                  if (Number.isNaN(n)) {
-                    setFormBattery('')
-                    return
-                  }
-                  if (n > 100) n = 100
-                  setFormBattery(`${n}%`)
-                }}
-                placeholder="Ex: 85%"
-              />
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Label htmlFor="formCondition">Estado</Label>
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        className="h-4 w-4 rounded-full border border-input text-[10px] flex items-center justify-center text-muted-foreground"
-                        aria-label="Ajuda sobre estados"
-                      >
-                        ?
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" align="start">
-                      <p className="text-xs font-semibold mb-1">Classificação do estado:</p>
-                      <p className="text-xs">A+: excelente, praticamente sem marcas.</p>
-                      <p className="text-xs">A: ótimo estado, leves sinais de uso.</p>
-                      <p className="text-xs">A-: bom estado, marcas de uso mais visíveis.</p>
-                      <p className="text-xs">B+: uso intenso, mas bem conservado.</p>
-                      <p className="text-xs">B: sinais claros de uso/desgaste.</p>
-                      <p className="text-xs">B-: bem marcado, muitos riscos ou amassados.</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-              <select
-                id="formCondition"
-                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-                value={formCondition}
-                onChange={(e) => setFormCondition(e.target.value)}
-              >
-                <option value="">Selecione</option>
-                <option value="A+">A+</option>
-                <option value="A">A</option>
-                <option value="A-">A-</option>
-                <option value="B+">B+</option>
-                <option value="B">B</option>
-                <option value="B-">B-</option>
-              </select>
-            </div>
+            {formStockType === 'seminovo' ? (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="formBattery">Bateria</Label>
+                  <Input
+                    id="formBattery"
+                    inputMode="numeric"
+                    value={formBattery}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, '')
+                      if (!digits) {
+                        setFormBattery('')
+                        return
+                      }
+                      let n = Number.parseInt(digits, 10)
+                      if (Number.isNaN(n)) {
+                        setFormBattery('')
+                        return
+                      }
+                      if (n > 100) n = 100
+                      setFormBattery(`${n}%`)
+                    }}
+                    placeholder="Ex: 85%"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="formCondition">Estado</Label>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            className="h-4 w-4 rounded-full border border-input text-[10px] flex items-center justify-center text-muted-foreground"
+                            aria-label="Ajuda sobre estados"
+                          >
+                            ?
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" align="start">
+                          <p className="text-xs font-semibold mb-1">Classificação do estado:</p>
+                          <p className="text-xs">A+: excelente, praticamente sem marcas.</p>
+                          <p className="text-xs">A: ótimo estado, leves sinais de uso.</p>
+                          <p className="text-xs">A-: bom estado, marcas de uso mais visíveis.</p>
+                          <p className="text-xs">B+: uso intenso, mas bem conservado.</p>
+                          <p className="text-xs">B: sinais claros de uso/desgaste.</p>
+                          <p className="text-xs">B-: bem marcado, muitos riscos ou amassados.</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
+                  <select
+                    id="formCondition"
+                    className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                    value={formCondition}
+                    onChange={(e) => setFormCondition(e.target.value)}
+                  >
+                    <option value="">Selecione</option>
+                    <option value="A+">A+</option>
+                    <option value="A">A</option>
+                    <option value="A-">A-</option>
+                    <option value="B+">B+</option>
+                    <option value="B">B</option>
+                    <option value="B-">B-</option>
+                  </select>
+                </div>
+              </>
+            ) : null}
             <div className="space-y-2 sm:col-span-2">
               <Label htmlFor="formInfo">Informação</Label>
               <Input id="formInfo" value={formInfo} onChange={(e) => setFormInfo(e.target.value)} placeholder="Observações gerais" />
-            </div>
-            <div className="space-y-3 sm:col-span-2 rounded-lg border bg-card/50 p-4">
-              <Label>Foto (vitrine)</Label>
-              <p className="text-xs text-muted-foreground -mt-1">
-                Envie uma imagem (comprimida como nas ordens de serviço) ou informe uma URL pública. A foto do
-                aparelho substitui a URL ao enviar.
-              </p>
-              <div className="flex flex-col gap-4 sm:flex-row">
-                <div className="relative h-44 w-full max-w-[220px] shrink-0 overflow-hidden rounded-md border bg-muted">
-                  {photoPreviewUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element -- preview blob ou URL assinada
-                    <img src={photoPreviewUrl} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <div className="flex h-full w-full flex-col items-center justify-center gap-1 p-3 text-center text-muted-foreground">
-                      <Smartphone className="h-12 w-12 opacity-35" aria-hidden />
-                      <span className="text-xs">Sem pré-visualização</span>
-                    </div>
-                  )}
-                </div>
-                <div className="min-w-0 flex-1 space-y-3">
-                  <input
-                    ref={photoFileInputRef}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,image/heic"
-                    className="sr-only"
-                    tabIndex={-1}
-                    aria-hidden
-                    onChange={handlePhotoFileChange}
-                  />
-                  {deviceId ? (
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        disabled={isUploadingPhoto}
-                        onClick={() => photoFileInputRef.current?.click()}
-                      >
-                        {isUploadingPhoto ? (
-                          <>
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                            Enviando…
-                          </>
-                        ) : (
-                          'Enviar imagem'
-                        )}
-                      </Button>
-                      {(hasStorageImage || photoPreviewUrl || formImageUrl.trim()) ? (
-                        <Button type="button" variant="outline" disabled={isUploadingPhoto} onClick={handleRemovePhoto}>
-                          Remover foto
-                        </Button>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      Salve o cadastro para enviar uma imagem ao servidor.
-                    </p>
-                  )}
-                  <div className="space-y-2">
-                    <Label htmlFor="formImageUrl">Ou URL da imagem</Label>
-                    <Input
-                      id="formImageUrl"
-                      type="url"
-                      value={formImageUrl}
-                      onChange={(e) => setFormImageUrl(e.target.value)}
-                      placeholder="https://…"
-                      autoComplete="off"
-                    />
-                  </div>
-                </div>
-              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="formImei">IMEI</Label>
@@ -1243,6 +1295,135 @@ export function SeminovosFormClient ({
             <div className="space-y-2">
               <Label htmlFor="formSerial">Serial</Label>
               <Input id="formSerial" value={formSerial} onChange={(e) => setFormSerial(e.target.value)} placeholder="Serial" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Fotos (vitrine)</CardTitle>
+            <CardDescription>
+              Imagem de capa (substitui URL ao enviar) e até 9 fotos extras — no máximo 10 imagens no Storage por aparelho.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-col gap-6 lg:flex-row">
+              <div className="space-y-3 shrink-0">
+                <Label>Capa</Label>
+                <div className="relative h-44 w-full max-w-[220px] overflow-hidden rounded-md border bg-muted">
+                  {photoPreviewUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={photoPreviewUrl} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex h-full w-full flex-col items-center justify-center gap-1 p-3 text-center text-muted-foreground">
+                      <Smartphone className="h-12 w-12 opacity-35" aria-hidden />
+                      <span className="text-xs">Sem capa</span>
+                    </div>
+                  )}
+                </div>
+                <input
+                  ref={photoFileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/heic"
+                  className="sr-only"
+                  tabIndex={-1}
+                  aria-hidden
+                  onChange={handlePhotoFileChange}
+                />
+                {deviceId ? (
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={isUploadingPhoto}
+                      onClick={() => photoFileInputRef.current?.click()}
+                    >
+                      {isUploadingPhoto ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Enviando…
+                        </>
+                      ) : (
+                        'Enviar capa'
+                      )}
+                    </Button>
+                    {(hasStorageImage || photoPreviewUrl || formImageUrl.trim()) ? (
+                      <Button type="button" variant="outline" disabled={isUploadingPhoto} onClick={handleRemovePhoto}>
+                        Remover capa
+                      </Button>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground max-w-[220px]">
+                    Salve o cadastro para enviar imagens ao servidor.
+                  </p>
+                )}
+                <div className="space-y-2 max-w-sm">
+                  <Label htmlFor="formImageUrl">Ou URL da imagem (capa)</Label>
+                  <Input
+                    id="formImageUrl"
+                    type="url"
+                    value={formImageUrl}
+                    onChange={(e) => setFormImageUrl(e.target.value)}
+                    placeholder="https://…"
+                    autoComplete="off"
+                  />
+                </div>
+              </div>
+              <div className="min-w-0 flex-1 space-y-3">
+                <Label>Galeria ({formGalleryPaths.length}/9 extras)</Label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                  {formGalleryPaths.map((path) => (
+                    <div key={path} className="relative aspect-square overflow-hidden rounded-md border bg-muted">
+                      {galleryPreviewByPath[path] ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={galleryPreviewByPath[path]} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="flex h-full items-center justify-center p-2 text-center text-[10px] text-muted-foreground break-all">
+                          {path.split('/').pop()}
+                        </div>
+                      )}
+                      {deviceId ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          className="absolute bottom-1 right-1 h-7 px-1.5 text-[10px]"
+                          onClick={() => { void handleRemoveGalleryPath(path) }}
+                        >
+                          Remover
+                        </Button>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+                <input
+                  ref={galleryFileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/heic"
+                  className="sr-only"
+                  tabIndex={-1}
+                  aria-hidden
+                  onChange={handleGalleryFileChange}
+                />
+                {deviceId ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={isUploadingGallery || formGalleryPaths.length >= 9}
+                    onClick={() => galleryFileInputRef.current?.click()}
+                  >
+                    {isUploadingGallery ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Enviando…
+                      </>
+                    ) : (
+                      'Adicionar à galeria'
+                    )}
+                  </Button>
+                ) : null}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -1351,19 +1532,21 @@ export function SeminovosFormClient ({
             <CardDescription>Anunciado, testado, etiqueta e datas de compra/venda.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-2 max-w-xs">
-              <Label htmlFor="formStockType">Tipo de estoque</Label>
-              <select
-                id="formStockType"
-                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-                value={formStockType}
-                onChange={(e) => setFormStockType(e.target.value === 'lacrado' ? 'lacrado' : 'seminovo')}
-              >
-                <option value="seminovo">Seminovo</option>
-                <option value="lacrado">Lacrado</option>
-              </select>
-              <p className="text-xs text-muted-foreground">Define em qual aba da listagem o aparelho aparece.</p>
-            </div>
+            {!isNewLacradoFlow ? (
+              <div className="space-y-2 max-w-xs">
+                <Label htmlFor="formStockType">Tipo de estoque</Label>
+                <select
+                  id="formStockType"
+                  className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                  value={formStockType}
+                  onChange={(e) => setFormStockType(e.target.value === 'lacrado' ? 'lacrado' : 'seminovo')}
+                >
+                  <option value="seminovo">Seminovo</option>
+                  <option value="lacrado">Novo</option>
+                </select>
+                <p className="text-xs text-muted-foreground">Define em qual aba da listagem o aparelho aparece.</p>
+              </div>
+            ) : null}
             <div className="flex flex-wrap gap-6">
               <div className="flex items-center space-x-2">
                 <Checkbox id="formAdvertised" checked={formAdvertised} onCheckedChange={(v) => setFormAdvertised(Boolean(v))} />

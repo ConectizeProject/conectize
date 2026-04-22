@@ -86,7 +86,7 @@ export function VendasAparelhosComissoesLista ({ rows, totalCents }: Props) {
               >
                 <div className="min-w-0">
                   <Link
-                    href={`/portal/seminovos/${d.deviceId}`}
+                    href={`/portal/revendaaparelhos/${d.deviceId}`}
                     className="font-medium text-primary underline-offset-2 hover:underline"
                   >
                     {d.label}

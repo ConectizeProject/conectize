@@ -1,12 +1,14 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { SlidersHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { revendaPath } from '@/lib/revenda/revenda-paths'
+import { formatMoneyInput } from '@/lib/utils/money'
 
 const CONDITION_OPTIONS = [
   { value: '', label: 'Todos' },
@@ -27,6 +29,51 @@ const STORAGE_OPTIONS = [
   { value: '1024', label: '1 TB' },
 ]
 
+function CatalogPriceRangeFields ({
+  initialMin,
+  initialMax,
+}: {
+  initialMin: string
+  initialMax: string
+}) {
+  const [valueMin, setValueMin] = useState(initialMin)
+  const [valueMax, setValueMax] = useState(initialMax)
+
+  useEffect(() => {
+    setValueMin(initialMin)
+    setValueMax(initialMax)
+  }, [initialMin, initialMax])
+
+  return (
+    <div className="grid grid-cols-1 gap-3 sm:col-span-2 sm:grid-cols-2 lg:col-span-3 xl:col-span-4">
+      <div className="space-y-2">
+        <Label htmlFor="revenda-valueMin">Valor de (R$)</Label>
+        <Input
+          id="revenda-valueMin"
+          name="valueMin"
+          inputMode="numeric"
+          autoComplete="off"
+          value={valueMin}
+          onChange={(e) => setValueMin(formatMoneyInput(e.target.value))}
+          placeholder="0,00"
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="revenda-valueMax">Valor até (R$)</Label>
+        <Input
+          id="revenda-valueMax"
+          name="valueMax"
+          inputMode="numeric"
+          autoComplete="off"
+          value={valueMax}
+          onChange={(e) => setValueMax(formatMoneyInput(e.target.value))}
+          placeholder="0,00"
+        />
+      </div>
+    </div>
+  )
+}
+
 type Props = {
   initialValues: {
     q: string
@@ -35,8 +82,19 @@ type Props = {
     color: string
     purchaseDateFrom: string
     purchaseDateTo: string
-    stockType: 'seminovo' | 'lacrado'
+    stockType: 'seminovo' | 'lacrado' | 'all'
+    deviceName?: string
+    /** Catálogo revenda (GET): texto mascarado. */
+    valueMin?: string
+    valueMax?: string
   }
+  /** GET do formulário de filtros (rota seminovos, novos ou listagem revenda). */
+  filterFormAction: string
+  distinctDeviceNames: string[]
+  /** Listagem catálogo revenda: sem chips operacionais; `quickFilters` pode ser dummy. */
+  catalogMode?: boolean
+  /** Conteúdo após Aplicar / filtros detalhados (ex.: toggle na mesma linha). */
+  trailingSlot?: ReactNode
   quickFilters: {
     notTested: boolean
     notAdvertised: boolean
@@ -51,59 +109,66 @@ type Props = {
 
 function hasUrlExtraFilters (initialValues: Props['initialValues']) {
   return Boolean(
+    (initialValues.deviceName || '').trim() ||
     initialValues.condition ||
     initialValues.storageGb ||
     initialValues.color ||
     initialValues.purchaseDateFrom ||
-    initialValues.purchaseDateTo,
+    initialValues.purchaseDateTo ||
+    (initialValues.valueMin || '').trim() ||
+    (initialValues.valueMax || '').trim(),
   )
 }
 
 export function SeminovosFilterCollapsible ({
   initialValues,
+  filterFormAction,
+  distinctDeviceNames,
+  catalogMode = false,
+  trailingSlot,
   quickFilters,
 }: Props) {
   const urlExtra = hasUrlExtraFilters(initialValues)
   const [extraOpen, setExtraOpen] = useState(urlExtra)
 
   const hasQuickActive =
-    quickFilters.notTested ||
-    quickFilters.notAdvertised ||
-    quickFilters.noLabel ||
-    quickFilters.withInfo
+    !catalogMode &&
+    (quickFilters.notTested ||
+      quickFilters.notAdvertised ||
+      quickFilters.noLabel ||
+      quickFilters.withInfo)
 
   const showDetailFiltersIndicator = urlExtra || hasQuickActive
 
-  return (
-    <div className="rounded-md border bg-card p-3 sm:p-4">
-      <form
-        action="/portal/seminovos"
-        method="get"
-        className="space-y-3"
-      >
-        {initialValues.stockType === 'lacrado' ? (
-          <input type="hidden" name="tipo" value="lacrados" />
-        ) : null}
+  const clearHref =
+    initialValues.stockType === 'lacrado'
+      ? revendaPath.novos
+      : initialValues.stockType === 'seminovo'
+        ? revendaPath.seminovos
+        : revendaPath.listagem
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-3">
-          <div className="min-w-0 flex-1 space-y-2">
-            <Label htmlFor="seminovos-q">Filtro amplo</Label>
+  return (
+    <div className="rounded-md border bg-card p-3">
+      <form action={filterFormAction} method="get">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3">
+          <div className="min-w-0 flex-1">
             <Input
               id="seminovos-q"
               name="q"
               placeholder="Modelo, cor, IMEI, informações…"
               defaultValue={initialValues.q}
+              aria-label="Busca ampla"
             />
           </div>
-          <div className="flex shrink-0 items-center justify-end gap-2 sm:pb-0.5">
-            <Button type="submit" className="touch-manipulation">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            <Button type="submit" className="h-10 touch-manipulation px-4">
               Aplicar
             </Button>
             <Button
               type="button"
               variant="outline"
               size="icon"
-              className="relative h-10 w-10 touch-manipulation"
+              className="relative h-10 w-10 shrink-0 touch-manipulation"
               onClick={() => setExtraOpen((v) => !v)}
               aria-expanded={extraOpen}
               aria-controls="seminovos-extra-filters"
@@ -121,27 +186,39 @@ export function SeminovosFilterCollapsible ({
                 />
               ) : null}
             </Button>
+            {trailingSlot ? <div className="flex items-center">{trailingSlot}</div> : null}
           </div>
         </div>
 
-        <Collapsible open={extraOpen} onOpenChange={setExtraOpen}>
+        <Collapsible
+          open={extraOpen}
+          onOpenChange={setExtraOpen}
+          className="data-[state=open]:mt-3"
+        >
           <CollapsibleContent
             id="seminovos-extra-filters"
             forceMount
             className="overflow-hidden data-[state=closed]:hidden"
           >
             <div className="grid gap-4 border-t border-border/60 pt-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {catalogMode ? (
+                <CatalogPriceRangeFields
+                  initialMin={initialValues.valueMin || ''}
+                  initialMax={initialValues.valueMax || ''}
+                />
+              ) : null}
               <div className="space-y-2">
-                <Label htmlFor="seminovos-condition">Estado</Label>
+                <Label htmlFor="seminovos-deviceName">Modelo</Label>
                 <select
-                  id="seminovos-condition"
-                  name="condition"
+                  id="seminovos-deviceName"
+                  name="deviceName"
                   className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-                  defaultValue={initialValues.condition}
+                  defaultValue={initialValues.deviceName || ''}
                 >
-                  {CONDITION_OPTIONS.map((opt) => (
-                    <option key={opt.value || 'all'} value={opt.value}>
-                      {opt.label}
+                  <option value="">Todos</option>
+                  {distinctDeviceNames.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
                     </option>
                   ))}
                 </select>
@@ -155,6 +232,21 @@ export function SeminovosFilterCollapsible ({
                   defaultValue={initialValues.storageGb}
                 >
                   {STORAGE_OPTIONS.map((opt) => (
+                    <option key={opt.value || 'all'} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="seminovos-condition">Estado</Label>
+                <select
+                  id="seminovos-condition"
+                  name="condition"
+                  className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                  defaultValue={initialValues.condition}
+                >
+                  {CONDITION_OPTIONS.map((opt) => (
                     <option key={opt.value || 'all'} value={opt.value}>
                       {opt.label}
                     </option>
@@ -190,49 +282,45 @@ export function SeminovosFilterCollapsible ({
               </div>
 
               <div className="sm:col-span-2 lg:col-span-3 xl:col-span-4 space-y-3">
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={quickFilters.notTested ? 'default' : 'outline'}
-                    onClick={quickFilters.onToggleNotTested}
-                  >
-                    Não testados
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={quickFilters.notAdvertised ? 'default' : 'outline'}
-                    onClick={quickFilters.onToggleNotAdvertised}
-                  >
-                    Não anunciados
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={quickFilters.noLabel ? 'default' : 'outline'}
-                    onClick={quickFilters.onToggleNoLabel}
-                  >
-                    Sem etiqueta
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={quickFilters.withInfo ? 'default' : 'outline'}
-                    onClick={quickFilters.onToggleWithInfo}
-                  >
-                    Com informação
-                  </Button>
-                </div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <Button variant="outline" asChild>
-                    <Link
-                      href={
-                        initialValues.stockType === 'lacrado'
-                          ? '/portal/seminovos?tipo=lacrados'
-                          : '/portal/seminovos'
-                      }
+                {catalogMode ? null : (
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      className="h-10 px-3"
+                      variant={quickFilters.notTested ? 'default' : 'outline'}
+                      onClick={quickFilters.onToggleNotTested}
                     >
+                      Não testados
+                    </Button>
+                    <Button
+                      type="button"
+                      className="h-10 px-3"
+                      variant={quickFilters.notAdvertised ? 'default' : 'outline'}
+                      onClick={quickFilters.onToggleNotAdvertised}
+                    >
+                      Não anunciados
+                    </Button>
+                    <Button
+                      type="button"
+                      className="h-10 px-3"
+                      variant={quickFilters.noLabel ? 'default' : 'outline'}
+                      onClick={quickFilters.onToggleNoLabel}
+                    >
+                      Sem etiqueta
+                    </Button>
+                    <Button
+                      type="button"
+                      className="h-10 px-3"
+                      variant={quickFilters.withInfo ? 'default' : 'outline'}
+                      onClick={quickFilters.onToggleWithInfo}
+                    >
+                      Com informação
+                    </Button>
+                  </div>
+                )}
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button variant="outline" asChild className="h-10 px-4">
+                    <Link href={clearHref} className="inline-flex items-center justify-center">
                       Limpar filtros
                     </Link>
                   </Button>

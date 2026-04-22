@@ -1,68 +1,36 @@
-import { Suspense } from 'react'
 import { redirect } from 'next/navigation'
-import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
-import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
-import { fetchSeminovosDevices, fetchSeminovosStats } from '@/lib/seminovos/fetch-seminovos-data'
-import { attachResaleDeviceDisplayImage } from '@/lib/seminovos/resale-device-display-image'
-import { SeminovosListClient } from './SeminovosListClient'
+import { revendaPath } from '@/lib/revenda/revenda-paths'
 
-function isValidDate(value: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))
-}
+type SearchParams = Promise<Record<string, string | string[] | undefined>>
 
-type SearchParams = Promise<{
-  q?: string
-  condition?: string
-  storageGb?: string
-  color?: string
-  purchaseDateFrom?: string
-  purchaseDateTo?: string
-  tipo?: string
-}>
-
-export default async function SeminovosPage({
+/**
+ * Legado: `/portal/seminovos` → listagem; `?tipo=lacrados` → novos; demais query → seminovos.
+ */
+export default async function SeminovosLegacyRedirect ({
   searchParams,
 }: {
   searchParams: SearchParams
 }) {
-  const { user, role } = await getPortalAuth()
-  if (!user) await redirectToPortalLogin()
+  const p = await searchParams
+  const tipo = String(Array.isArray(p.tipo) ? p.tipo[0] : p.tipo || '').toLowerCase()
 
-  const normalizedRole = role === 'customer' ? 'user' : role
-  if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
-  if (normalizedRole !== 'staff' && normalizedRole !== 'admin') redirect('/portal')
+  const n = new URLSearchParams()
+  for (const [k, v] of Object.entries(p)) {
+    if (k === 'tipo') continue
+    if (v === undefined) continue
+    const val = Array.isArray(v) ? v[0] : v
+    if (val != null && String(val) !== '') n.set(k, String(val))
+  }
+  const q = n.toString()
 
-  const params = await searchParams
-  const tipoRaw = String(params?.tipo || '').toLowerCase()
-  const stockType: 'seminovo' | 'lacrado' = tipoRaw === 'lacrados' ? 'lacrado' : 'seminovo'
-  const filters = {
-    q: String(params?.q || '').trim(),
-    condition: String(params?.condition || '').trim(),
-    storageGb: String(params?.storageGb || '').trim(),
-    color: String(params?.color || '').trim(),
-    purchaseDateFrom: isValidDate(params?.purchaseDateFrom || '') ? (params?.purchaseDateFrom || '') : '',
-    purchaseDateTo: isValidDate(params?.purchaseDateTo || '') ? (params?.purchaseDateTo || '') : '',
-    stockType,
+  if (tipo === 'lacrados') {
+    redirect(q ? `${revendaPath.novos}?${q}` : revendaPath.novos)
   }
 
-  const supabase = await createSupabaseServerClient()
-  const [devicesRaw, stats] = await Promise.all([
-    fetchSeminovosDevices(supabase, filters),
-    fetchSeminovosStats(supabase),
-  ])
+  const keys = Object.keys(p).filter((k) => k !== 'tipo')
+  if (keys.length === 0) {
+    redirect(revendaPath.listagem)
+  }
 
-  const devices = await Promise.all(
-    devicesRaw.map((d) => attachResaleDeviceDisplayImage(supabase, d)),
-  )
-
-  return (
-    <Suspense fallback={<div className="p-4 text-sm text-muted-foreground">Carregando…</div>}>
-      <SeminovosListClient
-        initialDevices={devices}
-        initialStats={stats}
-        filterInitialValues={filters}
-        role={normalizedRole}
-      />
-    </Suspense>
-  )
+  redirect(q ? `${revendaPath.seminovos}?${q}` : revendaPath.seminovos)
 }
