@@ -11,9 +11,19 @@ type DeviceBadgesProps = {
   battery: string | null
   condition: string | null
   imei?: string | null
+  /** Aparelho novo (lacrado): sem bateria nem estado na UI. */
+  omitBatteryCondition?: boolean
 }
 
-export function DeviceBadges({ deviceName, storageGb, color, battery, condition, imei }: DeviceBadgesProps) {
+export function DeviceBadges ({
+  deviceName,
+  storageGb,
+  color,
+  battery,
+  condition,
+  imei,
+  omitBatteryCondition = false,
+}: DeviceBadgesProps) {
   const nome = (deviceName || '').trim()
   const gb = storageGb ? `${storageGb}GB` : null
   const cor = (color || '').trim()
@@ -52,12 +62,12 @@ export function DeviceBadges({ deviceName, storageGb, color, battery, condition,
             {cor}
           </span>
         )}
-        {bat && (
+        {!omitBatteryCondition && bat && (
           <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold text-white bg-emerald-500">
             {bat}
           </span>
         )}
-        {est && (
+        {!omitBatteryCondition && est && (
           <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold ${estadoStyle}`}>
             {est}
           </span>

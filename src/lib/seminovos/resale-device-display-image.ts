@@ -33,16 +33,41 @@ export async function getResaleDeviceDisplayImageUrl (
   return null
 }
 
+type CoverImageSource = {
+  image_storage_path?: string | null
+  image_url?: string | null
+  image_gallery_paths?: string[] | null
+}
+
+/** Capa: storage/URL principal; senão primeira imagem da galeria. */
+export async function getResaleDeviceCoverDisplayUrl (
+  supabase: SupabaseClient,
+  device: CoverImageSource,
+  expiresInSeconds = 3600,
+): Promise<string | null> {
+  const main = await getResaleDeviceDisplayImageUrl(
+    supabase,
+    device.image_storage_path,
+    device.image_url,
+    expiresInSeconds,
+  )
+  if (main) return main
+  const extras = Array.isArray(device.image_gallery_paths) ? device.image_gallery_paths : []
+  for (const p of extras) {
+    const path = (p || '').trim()
+    if (!path) continue
+    const u = await getResaleDeviceDisplayImageUrl(supabase, path, null, expiresInSeconds)
+    if (u) return u
+  }
+  return null
+}
+
 export async function attachResaleDeviceDisplayImage<
-  T extends { image_storage_path?: string | null; image_url?: string | null },
+  T extends CoverImageSource,
 > (
   supabase: SupabaseClient,
   device: T,
 ): Promise<T & { display_image_url: string | null }> {
-  const display_image_url = await getResaleDeviceDisplayImageUrl(
-    supabase,
-    device.image_storage_path,
-    device.image_url,
-  )
+  const display_image_url = await getResaleDeviceCoverDisplayUrl(supabase, device)
   return { ...device, display_image_url }
 }

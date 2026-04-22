@@ -107,13 +107,13 @@ export function DashboardSeminovosCard({ totalAvailable, groups }: Props) {
           )}
           <div className="flex flex-row gap-2 pt-1 justify-start items-center">
             <Link
-              href="/portal/seminovos"
+              href="/portal/revendaaparelhos/seminovos"
               className="text-xs font-medium text-primary hover:underline"
             >
               Ver aparelhos →
             </Link>
             <Link
-              href="/portal/seminovos/nova"
+              href="/portal/revendaaparelhos/nova"
               className="text-xs font-medium text-primary hover:underline"
             >
               Cadastrar seminovo →

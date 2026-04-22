@@ -25,6 +25,8 @@ export type ResaleDeviceRow = {
   stock_type?: string | null
   image_url?: string | null
   image_storage_path?: string | null
+  /** Até 9 caminhos extras no Storage (capa: image_storage_path ou image_url). */
+  image_gallery_paths?: string[] | null
   /** Preenchido no servidor (URL assinada ou externa) para listagens. */
   display_image_url?: string | null
   sold: boolean
@@ -52,7 +54,12 @@ export type SeminovosFilters = {
   color: string
   purchaseDateFrom: string
   purchaseDateTo: string
-  stockType: 'seminovo' | 'lacrado'
+  stockType: 'seminovo' | 'lacrado' | 'all'
+  /** Filtro exato pelo nome do aparelho (device_name). */
+  deviceName?: string
+  /** Catálogo revenda: faixa sobre o menor preço cadastrado (varejo/atacado), em centavos. */
+  valueMinCents?: number | null
+  valueMaxCents?: number | null
 }
 
 export async function fetchSeminovosDevices(
@@ -86,6 +93,7 @@ export async function fetchSeminovosDevices(
       stock_type,
       image_url,
       image_storage_path,
+      image_gallery_paths,
       sold,
       actual_profit_cents,
       purchase_date,
@@ -95,9 +103,29 @@ export async function fetchSeminovosDevices(
     `)
     .eq('sold', false)
 
-  const { q, condition, storageGb, color, purchaseDateFrom, purchaseDateTo, stockType } = filters
+  const {
+    q,
+    condition,
+    storageGb,
+    color,
+    purchaseDateFrom,
+    purchaseDateTo,
+    stockType,
+    deviceName,
+    valueMinCents,
+    valueMaxCents,
+  } = filters
 
-  query = query.eq('stock_type', stockType)
+  if (stockType === 'all') {
+    query = query.in('stock_type', ['seminovo', 'lacrado'])
+  } else {
+    query = query.eq('stock_type', stockType)
+  }
+
+  const deviceNameTrim = (deviceName || '').trim()
+  if (deviceNameTrim) {
+    query = query.eq('device_name', deviceNameTrim)
+  }
 
   if (q) {
     const escaped = q.replace(/%/g, '\\%').replace(/_/g, '\\_')
@@ -143,10 +171,59 @@ export async function fetchSeminovosDevices(
     }
   }
 
-  return (devices || []).map((d: Record<string, unknown>) => ({
+  let list = (devices || []).map((d: Record<string, unknown>) => ({
     ...d,
     costs: costsMap[(d.id as string)] || [],
   })) as ResaleDeviceRow[]
+
+  const hasMin = typeof valueMinCents === 'number' && valueMinCents > 0
+  const hasMax = typeof valueMaxCents === 'number' && valueMaxCents > 0
+  if (hasMin || hasMax) {
+    let minBound = hasMin ? (valueMinCents as number) : 0
+    let maxBound = hasMax ? (valueMaxCents as number) : Number.MAX_SAFE_INTEGER
+    if (minBound > maxBound) {
+      const t = minBound
+      minBound = maxBound
+      maxBound = t
+    }
+    list = list.filter((d) => {
+      const s = d.sale_value_cents
+      const w = d.wholesale_value_cents
+      const nums = [s, w].filter((x): x is number => typeof x === 'number' && x > 0)
+      if (nums.length === 0) return false
+      const p = Math.min(...nums)
+      return p >= minBound && p <= maxBound
+    })
+  }
+
+  return list
+}
+
+/** Nomes distintos de aparelho (device_name) no estoque, para filtro. */
+export async function fetchResaleDistinctDeviceNames (
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  stockType: 'seminovo' | 'lacrado' | 'all',
+): Promise<string[]> {
+  let q = supabase
+    .from('resale_devices')
+    .select('device_name')
+    .eq('sold', false)
+    .not('device_name', 'is', null)
+
+  if (stockType === 'all') {
+    q = q.in('stock_type', ['seminovo', 'lacrado'])
+  } else {
+    q = q.eq('stock_type', stockType)
+  }
+
+  const { data, error } = await q
+  if (error || !data) return []
+  const set = new Set<string>()
+  for (const row of data) {
+    const n = String((row as { device_name?: string | null }).device_name || '').trim()
+    if (n) set.add(n)
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' }))
 }
 
 export async function fetchSeminovosStats(

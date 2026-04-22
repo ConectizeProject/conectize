@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { formatDateBr } from '@/lib/utils/format-date'
 import { maskedFromCents } from '@/lib/utils/money'
+import { revendaPath } from '@/lib/revenda/revenda-paths'
 import { DeviceBadges } from './DeviceBadges'
 
 type CostRow = { value_cents?: number }
@@ -35,6 +36,7 @@ export type SeminovoDeviceCardDevice = {
 	buyer_cpf?: string | null
 	sale_details?: string | null
 	display_image_url?: string | null
+	stock_type?: string | null
 }
 
 function centsToReais(cents: number | null | undefined): string {
@@ -58,7 +60,13 @@ export function SeminovoDeviceCard({
 	renderMenu,
 }: SeminovoDeviceCardProps) {
 	const totalCostsCents = (d.costs || []).reduce((acc, c) => acc + (c.value_cents ?? 0), 0)
-	const aparelhoTitle = [d.device_name, d.storage_gb, d.color, d.battery, d.condition].filter(Boolean).join(' | ')
+	const isNovo = d.stock_type === 'lacrado'
+	const aparelhoTitle = [
+		d.device_name,
+		d.storage_gb,
+		d.color,
+		...(isNovo ? [] : [d.battery, d.condition]),
+	].filter(Boolean).join(' | ')
 	const displayUrl = d.display_image_url
 	const imgOk = Boolean(displayUrl?.trim())
 
@@ -69,7 +77,7 @@ export function SeminovoDeviceCard({
 	return (
 		<div className={cardClassName}>
 			<Link
-				href={`/portal/seminovos/${d.id}`}
+				href={revendaPath.device(d.id)}
 				className="absolute inset-0 z-0"
 				aria-label={`Abrir aparelho ${aparelhoTitle || d.device_name || d.id}`}
 			/>
@@ -97,6 +105,7 @@ export function SeminovoDeviceCard({
 								battery={d.battery}
 								condition={d.condition}
 								imei={d.imei}
+								omitBatteryCondition={isNovo}
 							/>
 						</div>
 						<DropdownMenu>

@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { BarChart3, Building2, ChevronDown, ClipboardList, DollarSign, Home, LayoutDashboard, LayoutGrid, LogOut, Moon, Percent, Plug2, Settings, Sun, UserCheck, Smartphone, Users, Package } from 'lucide-react'
+import { BarChart3, Building2, ChevronDown, ClipboardList, DollarSign, Home, LayoutDashboard, LayoutGrid, LogOut, MessageCircle, Moon, Percent, Plug2, Settings, Sun, UserCheck, Smartphone, Users, Package } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
 	DropdownMenu,
@@ -118,25 +118,27 @@ export function PortalShell(props: PortalShellProps) {
 			? [
 				{ href: '/portal/minhas-ordens', label: 'Minhas ordens', icon: ClipboardList },
 				{ href: '/portal/tabela-de-precos', label: 'Tabela de preços', icon: Percent },
-				{ href: '/portal/seminovos/varejo', label: 'Lista varejo', icon: LayoutGrid },
+				{ href: '/portal/revendaaparelhos', label: 'Aparelhos à venda', icon: LayoutGrid },
 				{ href: '/portal/financeiro-lojista', label: 'Financeiro', icon: DollarSign },
 			]
 			: isStaff
 			? [
 				{ href: '/portal/dashboard', label: 'Dashboard', icon: LayoutDashboard },
 				{ href: '/portal/ordens', label: 'Ordens de serviço', icon: ClipboardList },
+				{ href: '/portal/whatsapp', label: 'WhatsApp', icon: MessageCircle },
 				{ href: '/portal/produtos', label: 'Produtos e serviços', icon: Package },
 				{ href: '/portal/clientes', label: 'Clientes', icon: Users },
-				{ href: '/portal/seminovos', label: 'Aparelhos para venda', icon: Smartphone },
+				{ href: '/portal/revendaaparelhos', label: 'Aparelhos à venda', icon: Smartphone },
 			]
 			: [
 				{ href: '/portal/dashboard', label: 'Dashboard', icon: LayoutDashboard },
 				{ href: '/portal/ordens', label: 'Ordens de serviço', icon: ClipboardList },
+				{ href: '/portal/whatsapp', label: 'WhatsApp', icon: MessageCircle },
 				{ href: '/portal/produtos', label: 'Produtos e serviços', icon: Package },
 				{ href: '/portal/clientes', label: 'Clientes', icon: Users },
 				{ href: '/portal/admin/usuarios', label: 'Usuários', icon: UserCheck },
 				{ href: '/portal/hub', label: 'HUB', icon: Plug2 },
-				{ href: '/portal/seminovos', label: 'Aparelhos para venda', icon: Smartphone },
+				{ href: '/portal/revendaaparelhos', label: 'Aparelhos à venda', icon: Smartphone },
 				...(isAdmin ? [
 					{ href: '/portal/financeiro', label: 'Financeiro', icon: DollarSign },
 					{ href: '/portal/admin/financeiro-lojas', label: 'Financeiro lojas', icon: Building2 },
@@ -145,7 +147,10 @@ export function PortalShell(props: PortalShellProps) {
 			]
 
 	return (
-		<SidebarProvider defaultOpen={false}>
+		<SidebarProvider
+			defaultOpen={false}
+			className="h-svh max-h-svh min-h-0 overflow-hidden"
+		>
 			<Sidebar collapsible="icon" variant="inset">
 				<SidebarHeader>
 					<Link href="/portal" className="flex items-center gap-2 px-2 py-1">
@@ -168,7 +173,7 @@ export function PortalShell(props: PortalShellProps) {
 				<SidebarRail />
 			</Sidebar>
 
-			<SidebarInset className="flex h-svh max-h-svh min-h-0 min-w-0 flex-col overflow-hidden">
+			<SidebarInset className="flex min-h-0 h-full max-h-full min-w-0 flex-1 flex-col overflow-hidden md:max-h-[calc(100svh-1rem)]">
 				<header className="sticky top-0 z-40 flex h-14 items-center justify-between gap-3 border-b bg-background/80 px-4 backdrop-blur">
 					<div className="flex items-center gap-2">
 						<SidebarTrigger />
