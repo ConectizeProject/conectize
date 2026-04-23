@@ -471,6 +471,10 @@ export default async function OrdemPublicaPage({
 					<img
 						src={String(orgRow.logo_url)}
 						alt={String(orgRow.name || 'Logo')}
+						width={220}
+						height={40}
+						loading="eager"
+						decoding="async"
 						className="h-10 w-auto max-w-[220px] object-contain"
 					/>
 				) : null}

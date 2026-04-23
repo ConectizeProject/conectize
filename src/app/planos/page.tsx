@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import Image from 'next/image'
 import {
   ArrowRight,
   BarChart3,
@@ -178,17 +179,21 @@ export default function PlanosPage () {
     <div className="flex min-h-screen flex-col bg-background">
       <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
         <div className="container flex h-16 items-center justify-between px-4">
-          <Link href="/" className="flex items-center gap-2">
-            <img
+          <Link href="/" className="flex items-center gap-2" aria-label="Ir para página inicial">
+            <Image
               src="/logo_conectize.svg"
               alt="Conectize"
+              width={90}
+              height={24}
               className="h-6 w-auto"
+              priority
+              sizes="90px"
             />
             <span className="hidden text-sm font-semibold sm:inline">
               Conectize
             </span>
           </Link>
-          <nav className="hidden items-center gap-6 text-sm text-muted-foreground md:flex">
+          <nav className="hidden items-center gap-6 text-sm text-muted-foreground md:flex" aria-label="Seções da página de planos">
             <a href="#recursos" className="hover:text-foreground">
               Recursos
             </a>

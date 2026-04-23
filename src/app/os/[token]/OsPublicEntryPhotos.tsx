@@ -75,6 +75,8 @@ export function OsPublicEntryPhotos ({ photos, className }: OsPublicEntryPhotosP
                   <img
                     src={photo.url}
                     alt=""
+                    loading="lazy"
+                    decoding="async"
                     className="absolute inset-0 size-full object-cover pointer-events-none"
                     draggable={false}
                   />
@@ -116,6 +118,8 @@ export function OsPublicEntryPhotos ({ photos, className }: OsPublicEntryPhotosP
                 <img
                   src={current.url}
                   alt={`Foto ${selectedIndex + 1} de ${total}`}
+                  loading="eager"
+                  decoding="async"
                   className="max-w-full max-h-full w-auto h-auto object-contain"
                 />
               ) : (

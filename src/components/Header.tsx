@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import Image from 'next/image'
 import { Menu, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useState } from 'react'
@@ -11,15 +12,17 @@ const Header = () => {
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-lg border-b border-border">
       {/* Main nav */}
-      <nav className="container mx-auto px-4 py-4">
+      <nav className="container mx-auto px-4 py-4" aria-label="Navegação principal">
         <div className="flex items-center justify-between">
-          <Link href="/" className="flex items-center">
-            <img
+          <Link href="/" className="flex items-center" aria-label="Ir para página inicial">
+            <Image
               src="/logo_conectize.svg"
               alt="Conectize - Assistência Técnica"
               width={120}
               height={118}
               className="h-8 w-auto"
+              priority
+              sizes="120px"
             />
           </Link>
 
@@ -53,14 +56,21 @@ const Header = () => {
           </div>
 
           {/* Mobile menu button */}
-          <button className="md:hidden p-2 text-foreground" onClick={() => setIsMenuOpen(!isMenuOpen)} aria-label="Menu">
+          <button
+            className="md:hidden p-2 text-foreground"
+            onClick={() => setIsMenuOpen(!isMenuOpen)}
+            aria-label={isMenuOpen ? 'Fechar menu' : 'Abrir menu'}
+            aria-expanded={isMenuOpen}
+            aria-controls="mobile-menu"
+            type="button"
+          >
             {isMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>
         </div>
 
         {/* Mobile menu */}
         {isMenuOpen && (
-          <div className="md:hidden pt-4 pb-2 animate-fade-in">
+          <div id="mobile-menu" className="md:hidden pt-4 pb-2 animate-fade-in">
             <div className="flex flex-col gap-4">
               <Link
                 href="/servicos"

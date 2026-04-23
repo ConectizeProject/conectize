@@ -8,6 +8,7 @@ import {
   ensurePortalOrganizationContext,
   getPortalOrganizationId,
 } from '@/lib/organizations/portal-organization-context'
+import { RouteProviders } from '@/providers/route-providers'
 import { PortalShell } from './PortalShell'
 
 export const dynamic = 'force-dynamic'
@@ -49,16 +50,18 @@ export default async function PortalLayout({
   }
 
   return (
-    <PortalShell
-      role={role}
-      userEmail={user.email || ''}
-      userName={fullName}
-      supabasePlatformStatus={supabasePlatformStatus}
-      platformOrganizations={platformOrganizations}
-      activeOrganizationId={activeOrganizationId}
-    >
-      {children}
-    </PortalShell>
+    <RouteProviders>
+      <PortalShell
+        role={role}
+        userEmail={user.email || ''}
+        userName={fullName}
+        supabasePlatformStatus={supabasePlatformStatus}
+        platformOrganizations={platformOrganizations}
+        activeOrganizationId={activeOrganizationId}
+      >
+        {children}
+      </PortalShell>
+    </RouteProviders>
   )
 }
 

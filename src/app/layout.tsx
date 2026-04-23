@@ -1,7 +1,5 @@
 import type { Metadata, Viewport } from 'next'
 import { Outfit } from 'next/font/google'
-import { Providers } from '@/providers/providers'
-import { NuqsAdapter } from 'nuqs/adapters/next/app'
 import { GoogleAnalyticsSafe } from '@/components/GoogleAnalyticsSafe'
 import './globals.css'
 
@@ -136,11 +134,7 @@ export default function RootLayout ({
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
         />
-        <NuqsAdapter>
-          <Providers>
-            {children}
-          </Providers>
-        </NuqsAdapter>
+        {children}
       </body>
     </html>
   )
