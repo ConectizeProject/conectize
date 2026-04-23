@@ -14,7 +14,8 @@ export async function POST (request: Request) {
   })
 
   if (!result.ok) {
-    const status = result.error === 'config' ? 500 : 400
+    const error = 'error' in result ? result.error : 'dados_invalidos'
+    const status = error === 'config' ? 500 : 400
     return NextResponse.json(result, { status })
   }
 

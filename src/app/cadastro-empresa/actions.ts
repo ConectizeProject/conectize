@@ -14,7 +14,8 @@ export async function registerOrganizationAction (formData: FormData) {
   })
 
   if (!result.ok) {
-    redirect(`/cadastro-empresa?error=${encodeURIComponent(result.error)}`)
+    const error = 'error' in result ? result.error : 'dados_invalidos'
+    redirect(`/cadastro-empresa?error=${encodeURIComponent(error)}`)
   }
 
   redirect('/portal/login?cadastro=empresa')
