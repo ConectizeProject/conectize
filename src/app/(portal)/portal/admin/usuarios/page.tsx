@@ -1,6 +1,10 @@
 import { redirect } from 'next/navigation'
 import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
+import {
+  ensurePortalOrganizationContext,
+  getPortalOrganizationId,
+} from '@/lib/organizations/portal-organization-context'
 import { UsuariosClient } from './UsuariosClient'
 
 function isValidRole (value: string) {
@@ -21,13 +25,18 @@ async function updateRoleAction (formData: FormData) {
   const fullName = String(formData.get('fullName') || '').trim()
   const cpf = String(formData.get('cpf') || '').trim()
 
-  if (!userId || !isValidRole(role)) {
+  if (!userId) {
     redirect('/portal/admin/usuarios?error=dados_invalidos')
   }
 
   const supabase = await createSupabaseServerClient()
   const { user } = await getAuthUser()
   if (!user) await redirectToPortalLogin()
+  const isEditingSelf = userId === user.id
+
+  if (!isEditingSelf && !isValidRole(role)) {
+    redirect('/portal/admin/usuarios?error=dados_invalidos')
+  }
 
   const { data: me, error: meRoleError } = await supabase
     .from('users')
@@ -37,10 +46,11 @@ async function updateRoleAction (formData: FormData) {
 
   const myRole = (!meRoleError && me?.role) ? me.role : 'user'
   const myNormalizedRole = myRole === 'customer' ? 'user' : myRole
-  if (myNormalizedRole !== 'admin') redirect('/portal/ordens')
+  if (myNormalizedRole !== 'admin' && myRole !== 'platform_admin') redirect('/portal/ordens')
 
-  const payload: Record<string, unknown> = {
-    role: role === 'customer' ? 'user' : role,
+  const payload: Record<string, unknown> = {}
+  if (!isEditingSelf) {
+    payload.role = role === 'customer' ? 'user' : role
   }
   if (formData.has('fullName')) {
     payload.full_name = fullName || null
@@ -79,16 +89,28 @@ export default async function AdminUsuariosPage ({
 
   const myRole = (!meRoleError && me?.role) ? me.role : 'user'
   const myNormalizedRole = myRole === 'customer' ? 'user' : myRole
-  if (myNormalizedRole !== 'admin') redirect('/portal/ordens')
+  if (myNormalizedRole !== 'admin' && myRole !== 'platform_admin') redirect('/portal/ordens')
+
+  await ensurePortalOrganizationContext(supabase, user.id)
+  const organizationId = await getPortalOrganizationId(supabase, user.id)
+  if (!organizationId) redirect('/portal/ordens')
+
+  const { data: memberRows } = await supabase
+    .from('organization_members')
+    .select('user_id')
+    .eq('organization_id', organizationId)
+
+  const memberIds = new Set((memberRows ?? []).map((m) => m.user_id))
 
   const { data: adminsAndStaff } = await supabase
     .from('users')
     .select('id, email, full_name, cpf, role, created_at')
-    .in('role', ['admin', 'staff'])
+    .in('role', ['admin', 'staff', 'platform_admin'])
     .order('created_at', { ascending: false })
 
-  const admins = (adminsAndStaff ?? []).filter((u: { role?: string }) => u.role === 'admin')
-  const staff = (adminsAndStaff ?? []).filter((u: { role?: string }) => u.role === 'staff')
+  const inOrg = (adminsAndStaff ?? []).filter((u: { id?: string }) => memberIds.has(String(u.id)))
+  const admins = inOrg.filter((u: { role?: string }) => u.role === 'admin' || u.role === 'platform_admin')
+  const staff = inOrg.filter((u: { role?: string }) => u.role === 'staff')
 
   return (
     <div className="space-y-6">

@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import Link from 'next/link'
 import {
@@ -23,6 +24,7 @@ import {
   ExternalLink,
   History,
   Loader2,
+  MessageCircle,
   Package,
   RefreshCw,
   Settings,
@@ -85,6 +87,16 @@ const integrations: Integration[] = [
     oauthUrl: '/api/portal/hub/oauth/bling',
   },
   {
+    id: 'whatsapp_business',
+    name: 'WhatsApp Business',
+    description: 'Atendimento via WhatsApp Cloud API com automações e envio de mensagens de teste.',
+    icon: MessageCircle,
+    color: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+    status: 'available',
+    authType: 'api_key',
+    docsUrl: 'https://developers.facebook.com/docs/whatsapp/cloud-api',
+  },
+  {
     id: 'shopee',
     name: 'Shopee',
     description: 'Conecte sua loja Shopee para sincronizar vendas e produtos.',
@@ -120,6 +132,16 @@ type BlingConnection = {
   metadata?: Record<string, unknown> | null
   created_at?: string
   token_expires_at?: string | null
+}
+
+type WhatsappConfig = {
+  connected: boolean
+  phone_number_id: string
+  waba_id: string
+  automation_enabled: boolean
+  verify_token_configured: boolean
+  access_token_masked: string | null
+  webhook_url: string
 }
 
 function isBlingTokenExpired (expiresAt: string | null | undefined) {
@@ -162,6 +184,30 @@ function formatConnectionLabel(connection: BlingConnection, index: number) {
   return `Conta ${index + 1}`
 }
 
+function getBlingReconnectStatus (connection: BlingConnection) {
+  const metadata = connection.metadata
+  if (!metadata || typeof metadata !== 'object') return null
+
+  const required = metadata.blingReconnectRequired === true
+  if (!required) return null
+
+  const reason = typeof metadata.blingReconnectReason === 'string'
+    ? metadata.blingReconnectReason
+    : 'invalid_grant'
+
+  const lastError = typeof metadata.blingLastRefreshError === 'string'
+    ? metadata.blingLastRefreshError
+    : null
+
+  if (reason !== 'invalid_grant') return null
+
+  return {
+    title: 'Reconexão necessária',
+    description: 'O token de atualização do Bling expirou ou foi revogado. Desconecte e conecte novamente esta conta no HUB.',
+    lastError,
+  }
+}
+
 function IntegrationCard({
   integration,
   isConnected,
@@ -173,6 +219,8 @@ function IntegrationCard({
   onDisconnectBlingConnection,
   onRefreshBlingToken,
   refreshingBlingId,
+  onConfigureWhatsapp,
+  whatsappConfig,
 }: {
   integration: Integration
   isConnected: boolean
@@ -184,13 +232,16 @@ function IntegrationCard({
   onDisconnectBlingConnection?: (connectionId: string) => void
   onRefreshBlingToken?: (connectionId: string) => void
   refreshingBlingId?: string | null
+  onConfigureWhatsapp?: () => void
+  whatsappConfig?: WhatsappConfig | null
 }) {
   const Icon = integration.icon
   const isComingSoon = integration.status === 'coming_soon'
   const canConnectApiKey = isAdmin && !isComingSoon && integration.authType === 'api_key'
   const canConnectOAuth = isAdmin && !isComingSoon && integration.authType === 'oauth' && integration.oauthUrl
   const isBling = integration.id === 'bling'
-  const canConnect = canConnectApiKey || canConnectOAuth
+  const isWhatsapp = integration.id === 'whatsapp_business'
+  const canConnect = !isWhatsapp && (canConnectApiKey || canConnectOAuth)
 
   return (
     <Card className="overflow-hidden transition-colors hover:bg-muted/50">
@@ -223,54 +274,89 @@ function IntegrationCard({
           <div className="rounded-md border bg-muted/30 p-3 space-y-2">
             <p className="text-xs font-medium text-muted-foreground">Contas conectadas</p>
             <ul className="space-y-3">
-              {blingConnections.map((conn, index) => (
-                <li
-                  key={conn.id}
-                  className="flex flex-col gap-2 rounded-md border border-border/60 bg-background/50 p-2 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="min-w-0 flex-1 space-y-0.5">
-                    <span className="block truncate font-medium">{formatConnectionLabel(conn, index)}</span>
-                    <span className="text-xs text-muted-foreground">{formatTokenExpiry(conn.token_expires_at)}</span>
-                    {isBlingTokenExpired(conn.token_expires_at) && (
-                      <Badge variant="destructive" className="text-[10px]">
-                        Token expirado ou próximo de expirar — use &quot;Renovar token&quot;
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="flex shrink-0 flex-wrap items-center gap-1 sm:justify-end">
-                    {onRefreshBlingToken && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7"
-                        disabled={refreshingBlingId === conn.id}
-                        onClick={() => onRefreshBlingToken(conn.id)}
-                      >
-                        {refreshingBlingId === conn.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <RefreshCw className="h-3.5 w-3.5" />
-                        )}
-                        <span className="ml-1">Renovar token</span>
-                      </Button>
-                    )}
-                    {onDisconnectBlingConnection && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 text-destructive hover:text-destructive hover:bg-destructive/10"
-                        onClick={() => onDisconnectBlingConnection(conn.id)}
-                      >
-                        Desconectar
-                      </Button>
-                    )}
-                  </div>
-                </li>
-              ))}
+              {blingConnections.map((conn, index) => {
+                const reconnectStatus = getBlingReconnectStatus(conn)
+
+                return (
+                  <li
+                    key={conn.id}
+                    className="flex flex-col gap-2 rounded-md border border-border/60 bg-background/50 p-2 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="min-w-0 flex-1 space-y-0.5">
+                      <span className="block truncate font-medium">{formatConnectionLabel(conn, index)}</span>
+                      <span className="text-xs text-muted-foreground">{formatTokenExpiry(conn.token_expires_at)}</span>
+                      {reconnectStatus ? (
+                        <div className="mt-1 space-y-1">
+                          <Badge variant="destructive" className="text-[10px]">
+                            {reconnectStatus.title}
+                          </Badge>
+                          <p className="text-xs text-destructive">
+                            {reconnectStatus.description}
+                          </p>
+                          {reconnectStatus.lastError ? (
+                            <p className="text-[11px] text-muted-foreground break-words">
+                              Erro: {reconnectStatus.lastError}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {isBlingTokenExpired(conn.token_expires_at) && (
+                        <Badge variant="destructive" className="text-[10px]">
+                          Token expirado ou próximo de expirar — use &quot;Renovar token&quot;
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 flex-wrap items-center gap-1 sm:justify-end">
+                      {onRefreshBlingToken && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7"
+                          disabled={refreshingBlingId === conn.id}
+                          onClick={() => onRefreshBlingToken(conn.id)}
+                        >
+                          {refreshingBlingId === conn.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <RefreshCw className="h-3.5 w-3.5" />
+                          )}
+                          <span className="ml-1">Renovar token</span>
+                        </Button>
+                      )}
+                      {onDisconnectBlingConnection && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => onDisconnectBlingConnection(conn.id)}
+                        >
+                          Desconectar
+                        </Button>
+                      )}
+                    </div>
+                  </li>
+                )
+              })}
             </ul>
           </div>
         )}
+        {isWhatsapp && whatsappConfig?.connected ? (
+          <div className="rounded-md border bg-muted/30 p-3 space-y-1">
+            <p className="text-xs text-muted-foreground">
+              Número conectado: <span className="font-medium text-foreground">{whatsappConfig.phone_number_id || '—'}</span>
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Automação IA: <span className="font-medium text-foreground">{whatsappConfig.automation_enabled ? 'Ativa' : 'Desativada'}</span>
+            </p>
+          </div>
+        ) : null}
         <div className="flex items-center gap-2 flex-wrap">
+          {isWhatsapp && isAdmin && onConfigureWhatsapp ? (
+            <Button size="sm" onClick={onConfigureWhatsapp}>
+              <Settings className="h-4 w-4 mr-1" />
+              {whatsappConfig?.connected ? 'Editar informações' : 'Incluir informações'}
+            </Button>
+          ) : null}
           {canConnect && (
             <>
               {isConnected ? (
@@ -285,7 +371,7 @@ function IntegrationCard({
                     <Button size="sm" asChild>
                       <a href={integration.oauthUrl}>Conectar outra conta</a>
                     </Button>
-                  ) : !isBling ? (
+                  ) : !isBling && !isWhatsapp ? (
                     <Button size="sm" variant="outline" onClick={onDisconnect}>
                       Desconectar
                     </Button>
@@ -335,6 +421,41 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
   const [selectedModel, setSelectedModel] = useState<string>(chatgptModel)
   const [loading, setLoading] = useState(false)
   const [refreshingBlingId, setRefreshingBlingId] = useState<string | null>(null)
+  const [whatsappDialogOpen, setWhatsappDialogOpen] = useState(false)
+  const [whatsappLoading, setWhatsappLoading] = useState(false)
+  const [whatsappSaving, setWhatsappSaving] = useState(false)
+  const [whatsappTestSending, setWhatsappTestSending] = useState(false)
+  const [whatsappConfig, setWhatsappConfig] = useState<WhatsappConfig | null>(null)
+  const [phoneNumberId, setPhoneNumberId] = useState('')
+  const [wabaId, setWabaId] = useState('')
+  const [accessToken, setAccessToken] = useState('')
+  const [verifyToken, setVerifyToken] = useState('')
+  const [automationEnabled, setAutomationEnabled] = useState(false)
+  const [testTo, setTestTo] = useState('')
+
+  async function loadWhatsappConfig () {
+    setWhatsappLoading(true)
+    try {
+      const res = await fetch('/api/portal/hub/whatsapp-config')
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        toast({
+          title: 'Erro ao carregar WhatsApp',
+          description: String(data?.error || 'Tente novamente.'),
+          variant: 'destructive',
+        })
+        return
+      }
+
+      const config = data as WhatsappConfig
+      setWhatsappConfig(config)
+      setPhoneNumberId(String(config.phone_number_id || ''))
+      setWabaId(String(config.waba_id || ''))
+      setAutomationEnabled(config.automation_enabled === true)
+    } finally {
+      setWhatsappLoading(false)
+    }
+  }
 
   async function handleConnect() {
     if (!connectDialog) return
@@ -505,6 +626,114 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
     }
   }
 
+  async function handleOpenWhatsappConfig () {
+    setWhatsappDialogOpen(true)
+    await loadWhatsappConfig()
+  }
+
+  async function handleSaveWhatsappConfig () {
+    if (!phoneNumberId.trim()) {
+      toast({ title: 'Informe o Phone Number ID', variant: 'destructive' })
+      return
+    }
+    if (!accessToken.trim() && !whatsappConfig?.connected) {
+      toast({ title: 'Informe o token de acesso permanente', variant: 'destructive' })
+      return
+    }
+
+    setWhatsappSaving(true)
+    try {
+      const res = await fetch('/api/portal/hub/whatsapp-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone_number_id: phoneNumberId.trim(),
+          waba_id: wabaId.trim() || undefined,
+          access_token: accessToken.trim() || undefined,
+          verify_token: verifyToken.trim() || undefined,
+          automation_enabled: automationEnabled,
+        }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        toast({
+          title: 'Erro ao salvar',
+          description: String(data?.error || 'Tente novamente.'),
+          variant: 'destructive',
+        })
+        return
+      }
+
+      setAccessToken('')
+      setVerifyToken('')
+      toast({ variant: 'success', title: 'Configuração salva' })
+      setConnections((prev) => new Set(prev).add('whatsapp_business'))
+      router.refresh()
+      await loadWhatsappConfig()
+    } finally {
+      setWhatsappSaving(false)
+    }
+  }
+
+  async function handleDisconnectWhatsappConfig () {
+    if (!confirm('Remover integração WhatsApp Business?')) return
+
+    setWhatsappSaving(true)
+    try {
+      const res = await fetch('/api/portal/hub/whatsapp-config', { method: 'DELETE' })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        toast({ title: 'Erro ao desconectar', variant: 'destructive' })
+        return
+      }
+
+      setWhatsappConfig(null)
+      setPhoneNumberId('')
+      setWabaId('')
+      setAccessToken('')
+      setVerifyToken('')
+      setAutomationEnabled(false)
+      setTestTo('')
+      setConnections((prev) => {
+        const next = new Set(prev)
+        next.delete('whatsapp_business')
+        return next
+      })
+      toast({ variant: 'success', title: 'WhatsApp desconectado' })
+      router.refresh()
+    } finally {
+      setWhatsappSaving(false)
+    }
+  }
+
+  async function handleSendWhatsappTest () {
+    if (!testTo.trim()) {
+      toast({ title: 'Informe o número (DDD + número)', variant: 'destructive' })
+      return
+    }
+
+    setWhatsappTestSending(true)
+    try {
+      const res = await fetch('/api/portal/hub/whatsapp-test-send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: testTo.trim(), text: 'Teste Conectize — integração WhatsApp.' }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        toast({
+          title: 'Falha ao enviar',
+          description: String(data?.detail || data?.error || 'Verifique token e número de teste no Meta.'),
+          variant: 'destructive',
+        })
+        return
+      }
+      toast({ variant: 'success', title: 'Mensagem de teste enviada' })
+    } finally {
+      setWhatsappTestSending(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="rounded-lg border bg-muted/30 p-4">
@@ -525,6 +754,8 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
               isConnected={
                 integration.id === 'bling'
                   ? blingConnections.length > 0
+                  : integration.id === 'whatsapp_business'
+                    ? Boolean(whatsappConfig?.connected || connections.has('whatsapp_business'))
                   : connections.has(integration.id)
               }
               isAdmin={isAdmin}
@@ -547,6 +778,8 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
               }
               onRefreshBlingToken={integration.id === 'bling' && isAdmin ? handleRefreshBlingToken : undefined}
               refreshingBlingId={integration.id === 'bling' ? refreshingBlingId : undefined}
+              onConfigureWhatsapp={integration.id === 'whatsapp_business' ? handleOpenWhatsappConfig : undefined}
+              whatsappConfig={integration.id === 'whatsapp_business' ? whatsappConfig : undefined}
             />
           ))}
         </div>
@@ -662,6 +895,157 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
                 : connectDialog?.id === 'chatgpt' && connections.has('chatgpt')
                   ? 'Salvar'
                   : 'Conectar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={whatsappDialogOpen}
+        onOpenChange={(open) => {
+          setWhatsappDialogOpen(open)
+          if (!open) {
+            setAccessToken('')
+            setVerifyToken('')
+            setTestTo('')
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Configurar WhatsApp Business</DialogTitle>
+            <DialogDescription>
+              Centralize os dados da Cloud API, webhook e automação por IA em um único lugar.
+            </DialogDescription>
+          </DialogHeader>
+
+          {whatsappLoading ? (
+            <div className="flex items-center gap-2 py-8 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Carregando configurações do WhatsApp…
+            </div>
+          ) : (
+            <div className="space-y-4 py-2">
+              {whatsappConfig?.webhook_url ? (
+                <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
+                  <span className="font-medium">URL do callback: </span>
+                  <code className="break-all text-xs">{whatsappConfig.webhook_url}</code>
+                </div>
+              ) : null}
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="wa-phone-id">Phone number ID</Label>
+                  <Input
+                    id="wa-phone-id"
+                    value={phoneNumberId}
+                    onChange={(e) => setPhoneNumberId(e.target.value)}
+                    placeholder="ID do número na Meta"
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="wa-waba">WhatsApp Business Account ID (opcional)</Label>
+                  <Input
+                    id="wa-waba"
+                    value={wabaId}
+                    onChange={(e) => setWabaId(e.target.value)}
+                    placeholder="WABA ID"
+                    autoComplete="off"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="wa-token">Token de acesso permanente</Label>
+                <Input
+                  id="wa-token"
+                  type="password"
+                  value={accessToken}
+                  onChange={(e) => setAccessToken(e.target.value)}
+                  placeholder={whatsappConfig?.access_token_masked ? `Atual: ${whatsappConfig.access_token_masked}` : 'EAA...'}
+                  autoComplete="off"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="wa-verify">Verify token (webhook)</Label>
+                <Input
+                  id="wa-verify"
+                  type="password"
+                  value={verifyToken}
+                  onChange={(e) => setVerifyToken(e.target.value)}
+                  placeholder={whatsappConfig?.verify_token_configured ? 'Deixe em branco para manter' : 'Mesmo valor configurado na Meta'}
+                  autoComplete="off"
+                />
+              </div>
+
+              <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
+                <div>
+                  <p className="text-sm font-medium">Atendimento automatizado por IA</p>
+                  <p className="text-xs text-muted-foreground">
+                    Quando ativo, respostas iniciais e orçamentos usam o ChatGPT.
+                  </p>
+                </div>
+                <Switch checked={automationEnabled} onCheckedChange={setAutomationEnabled} />
+              </div>
+
+              <div className="rounded-md border border-dashed p-3 space-y-2">
+                <p className="text-sm font-medium">Enviar mensagem de teste</p>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                  <div className="flex-1 space-y-1">
+                    <Label htmlFor="wa-test-to">Número (apenas dígitos, com DDD)</Label>
+                    <Input
+                      id="wa-test-to"
+                      value={testTo}
+                      onChange={(e) => setTestTo(e.target.value)}
+                      placeholder="5511999999999"
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={whatsappTestSending || !whatsappConfig?.connected}
+                    onClick={() => void handleSendWhatsappTest()}
+                  >
+                    {whatsappTestSending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Enviar teste'}
+                  </Button>
+                </div>
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Defina <code className="rounded bg-muted px-1">WHATSAPP_APP_SECRET</code> ou{' '}
+                <code className="rounded bg-muted px-1">META_APP_SECRET</code> no servidor para validar assinaturas do webhook.
+              </p>
+            </div>
+          )}
+
+          <DialogFooter className="flex-wrap gap-2">
+            {whatsappConfig?.connected ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="text-destructive hover:text-destructive"
+                disabled={whatsappSaving}
+                onClick={() => void handleDisconnectWhatsappConfig()}
+              >
+                Desconectar
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              disabled={whatsappSaving}
+              onClick={() => setWhatsappDialogOpen(false)}
+            >
+              Fechar
+            </Button>
+            <Button
+              type="button"
+              disabled={whatsappSaving || whatsappLoading}
+              onClick={() => void handleSaveWhatsappConfig()}
+            >
+              {whatsappSaving ? 'Salvando…' : 'Salvar'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -15,7 +15,11 @@ export default async function RevendaEditDevicePage ({ params }: Props) {
 
   const normalizedRole = role === 'customer' ? 'user' : role
   if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
-  if (normalizedRole !== 'staff' && normalizedRole !== 'admin') redirect('/portal')
+  if (
+    normalizedRole !== 'staff' &&
+    normalizedRole !== 'admin' &&
+    normalizedRole !== 'platform_admin'
+  ) redirect('/portal')
 
   const { id } = await params
   if (!id) redirect('/portal/revendaaparelhos/seminovos')

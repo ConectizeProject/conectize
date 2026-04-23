@@ -10,8 +10,28 @@ import { DadosEmpresaToastClient } from './DadosEmpresaToastClient'
 import { formatCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { formatCepBr } from '@/lib/utils/format-cep'
 import { onlyDigits } from '@/lib/utils/strings'
+import {
+  ensurePortalOrganizationContext,
+  getPortalOrganizationId,
+} from '@/lib/organizations/portal-organization-context'
 
-async function updateCompanyAction(formData: FormData) {
+async function canEditOrganizationData (
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  userId: string,
+  organizationId: string,
+  userRole: string | null | undefined,
+): Promise<boolean> {
+  if (userRole === 'platform_admin') return true
+  const { data: row } = await supabase
+    .from('organization_members')
+    .select('role_in_org')
+    .eq('user_id', userId)
+    .eq('organization_id', organizationId)
+    .maybeSingle()
+  return row?.role_in_org === 'admin'
+}
+
+async function updateCompanyAction (formData: FormData) {
   'use server'
 
   const supabase = await createSupabaseServerClient()
@@ -24,7 +44,17 @@ async function updateCompanyAction(formData: FormData) {
     .eq('id', user.id)
     .maybeSingle()
 
-  if (me?.role !== 'admin') redirect('/portal/ordens')
+  await ensurePortalOrganizationContext(supabase, user.id)
+  const organizationId = await getPortalOrganizationId(supabase, user.id)
+  if (!organizationId) redirect('/portal/ordens')
+
+  const allowed = await canEditOrganizationData(
+    supabase,
+    user.id,
+    organizationId,
+    me?.role,
+  )
+  if (!allowed) redirect('/portal/ordens')
 
   const name = String(formData.get('name') || '').trim()
   const cnpj = onlyDigits(String(formData.get('cnpj') || '')).slice(0, 14) || null
@@ -38,7 +68,7 @@ async function updateCompanyAction(formData: FormData) {
   const logoUrl = String(formData.get('logoUrl') || '').trim() || null
 
   await supabase
-    .from('company_settings')
+    .from('organizations')
     .update({
       name: name || null,
       cnpj,
@@ -52,12 +82,12 @@ async function updateCompanyAction(formData: FormData) {
       logo_url: logoUrl,
       updated_at: new Date().toISOString(),
     })
-    .eq('id', 1)
+    .eq('id', organizationId)
 
   redirect('/portal/admin/dados-empresa?ok=1')
 }
 
-export default async function DadosEmpresaPage({
+export default async function DadosEmpresaPage ({
   searchParams: _searchParams,
 }: {
   searchParams: Promise<{ ok?: string }>
@@ -72,12 +102,22 @@ export default async function DadosEmpresaPage({
     .eq('id', user.id)
     .maybeSingle()
 
-  if (me?.role !== 'admin') redirect('/portal/ordens')
+  await ensurePortalOrganizationContext(supabase, user.id)
+  const organizationId = await getPortalOrganizationId(supabase, user.id)
+  if (!organizationId) redirect('/portal/ordens')
+
+  const allowed = await canEditOrganizationData(
+    supabase,
+    user.id,
+    organizationId,
+    me?.role,
+  )
+  if (!allowed) redirect('/portal/ordens')
 
   const { data: company } = await supabase
-    .from('company_settings')
+    .from('organizations')
     .select('*')
-    .eq('id', 1)
+    .eq('id', organizationId)
     .maybeSingle()
 
   const c = company || {}
@@ -90,7 +130,7 @@ export default async function DadosEmpresaPage({
           <CardHeader>
             <CardTitle>Informações</CardTitle>
             <CardDescription>
-              Estes dados aparecem no cabeçalho da impressão das ordens de serviço.
+              Estes dados aparecem no cabeçalho da impressão das ordens de serviço e no link público da OS.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -100,7 +140,7 @@ export default async function DadosEmpresaPage({
                 <Input
                   id="name"
                   name="name"
-                  defaultValue={c.name || ''}
+                  defaultValue={String(c.name || '')}
                   placeholder="Ex: Conectize Assistência Técnica"
                 />
               </div>
@@ -119,7 +159,7 @@ export default async function DadosEmpresaPage({
                 <Input
                   id="logoUrl"
                   name="logoUrl"
-                  defaultValue={c.logo_url || ''}
+                  defaultValue={String(c.logo_url || '')}
                   placeholder="/logo_conectize.svg ou URL completa"
                 />
               </div>
@@ -129,7 +169,7 @@ export default async function DadosEmpresaPage({
                 <Input
                   id="address"
                   name="address"
-                  defaultValue={c.address || ''}
+                  defaultValue={String(c.address || '')}
                   placeholder="Rua, número"
                 />
               </div>
@@ -139,7 +179,7 @@ export default async function DadosEmpresaPage({
                 <Input
                   id="complement"
                   name="complement"
-                  defaultValue={c.complement || ''}
+                  defaultValue={String(c.complement || '')}
                   placeholder="Sala, andar, etc."
                 />
               </div>
@@ -159,7 +199,7 @@ export default async function DadosEmpresaPage({
                   <Input
                     id="city"
                     name="city"
-                    defaultValue={c.city || ''}
+                    defaultValue={String(c.city || '')}
                     placeholder="Belo Horizonte"
                   />
                 </div>
@@ -171,7 +211,7 @@ export default async function DadosEmpresaPage({
                   <Input
                     id="state"
                     name="state"
-                    defaultValue={c.state || ''}
+                    defaultValue={String(c.state || '')}
                     placeholder="MG"
                     maxLength={2}
                   />
@@ -181,7 +221,7 @@ export default async function DadosEmpresaPage({
                   <Input
                     id="phone"
                     name="phone"
-                    defaultValue={c.phone || ''}
+                    defaultValue={String(c.phone || '')}
                     placeholder="(31) 99999-9999"
                   />
                 </div>
@@ -193,7 +233,7 @@ export default async function DadosEmpresaPage({
                   id="email"
                   name="email"
                   type="email"
-                  defaultValue={c.email || ''}
+                  defaultValue={String(c.email || '')}
                   placeholder="contato@empresa.com.br"
                 />
               </div>

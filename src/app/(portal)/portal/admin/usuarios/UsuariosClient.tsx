@@ -35,13 +35,14 @@ function filterByEmail (users: UserRow[], emailFilter: string): UserRow[] {
 
 function roleLabel (role: string) {
   if (role === 'admin') return 'Admin'
+  if (role === 'platform_admin') return 'Plataforma'
   if (role === 'staff') return 'Staff'
   if (role === 'retailer') return 'Lojista'
   return 'Usuário'
 }
 
 function roleVariant (role: string): 'default' | 'secondary' | 'outline' {
-  if (role === 'admin') return 'default'
+  if (role === 'admin' || role === 'platform_admin') return 'default'
   if (role === 'staff') return 'secondary'
   if (role === 'retailer') return 'secondary'
   return 'outline'
@@ -188,6 +189,7 @@ export function UsuariosClient ({
   const normalizedEditRole = editUser
     ? (editUser.role === 'customer' ? 'user' : editUser.role || 'user')
     : 'user'
+  const isEditingSelf = Boolean(editUser && editUser.id === currentUserId)
 
   return (
     <Card>
@@ -320,17 +322,33 @@ export function UsuariosClient ({
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="edit-role">Nível de acesso</Label>
-                  <select
-                    id="edit-role"
-                    name="role"
-                    defaultValue={normalizedEditRole}
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                  >
-                    <option value="user">Usuário</option>
-                    <option value="retailer">Lojista (B2B)</option>
-                    <option value="staff">Staff</option>
-                    <option value="admin">Admin</option>
-                  </select>
+                  {isEditingSelf ? (
+                    <>
+                      <select
+                        id="edit-role"
+                        value={normalizedEditRole}
+                        disabled
+                        className="h-10 w-full rounded-md border border-input bg-muted px-3 text-sm"
+                      >
+                        <option value={normalizedEditRole}>{roleLabel(normalizedEditRole)}</option>
+                      </select>
+                      <p className="text-xs text-muted-foreground">
+                        Você não pode alterar sua própria permissão.
+                      </p>
+                    </>
+                  ) : (
+                    <select
+                      id="edit-role"
+                      name="role"
+                      defaultValue={normalizedEditRole}
+                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="user">Usuário</option>
+                      <option value="retailer">Lojista (B2B)</option>
+                      <option value="staff">Staff</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  )}
                 </div>
               </div>
               <DialogFooter>

@@ -240,21 +240,40 @@ type PerformBlingTokenRefreshOptions = {
   supabase?: SupabaseClient
 }
 
-/**
- * Renova o access token no Bling usando o refresh_token e persiste no banco.
- */
-export async function performBlingTokenRefresh (
-  connection: HubConnection,
-  options?: PerformBlingTokenRefreshOptions
-): Promise<BlingTokenRefreshResult> {
-  if (!connection.refresh_token) {
-    return { ok: false, error: 'no_refresh_token' }
-  }
+function isInvalidGrantRefreshError (error: string) {
+  const normalized = String(error || '').toLowerCase()
+  return normalized.includes('invalid_grant')
+}
 
+async function setBlingReconnectRequired (
+  supabase: SupabaseClient,
+  connection: HubConnection,
+  error: string
+) {
+  const previousMetadata = (connection.metadata && typeof connection.metadata === 'object')
+    ? connection.metadata
+    : {}
+
+  await supabase
+    .from('hub_connections')
+    .update({
+      metadata: {
+        ...previousMetadata,
+        blingReconnectRequired: true,
+        blingReconnectReason: 'invalid_grant',
+        blingReconnectAt: new Date().toISOString(),
+        blingLastRefreshError: error,
+      },
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', connection.id)
+}
+
+async function requestBlingTokenRefresh (refreshToken: string) {
   const clientId = process.env.BLING_CLIENT_ID
   const clientSecret = process.env.BLING_CLIENT_SECRET
   if (!clientId || !clientSecret) {
-    return { ok: false, error: 'bling_oauth_not_configured' }
+    return { ok: false as const, error: 'bling_oauth_not_configured' }
   }
 
   const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
@@ -268,38 +287,120 @@ export async function performBlingTokenRefresh (
     },
     body: JSON.stringify({
       grant_type: 'refresh_token',
-      refresh_token: connection.refresh_token,
+      refresh_token: refreshToken,
     }),
   })
 
   const data = (await res.json().catch(() => null)) as BlingTokenResponse | null
-
   if (!res.ok || !data?.access_token) {
-    const errMsg = data?.error_description || data?.error || 'refresh_failed'
-    return { ok: false, error: String(errMsg) }
+    const errMsg = getBlingErrorMessage(data, res.status)
+    return { ok: false as const, error: `refresh_failed_http_${res.status}: ${errMsg}` }
   }
 
-  const expiresIn = Number(data.expires_in) || 3600
-  const tokenExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString()
+  return { ok: true as const, data }
+}
+
+/**
+ * Renova o access token no Bling usando o refresh_token e persiste no banco.
+ */
+export async function performBlingTokenRefresh (
+  connection: HubConnection,
+  options?: PerformBlingTokenRefreshOptions
+): Promise<BlingTokenRefreshResult> {
+  if (!connection.refresh_token) {
+    return { ok: false, error: 'no_refresh_token' }
+  }
 
   const supabase = options?.supabase ?? await createSupabaseServerClient()
-  const { data: updated } = await supabase
+  const firstAttempt = await requestBlingTokenRefresh(connection.refresh_token)
+
+  let sourceConnection = connection
+  let tokenData: BlingTokenResponse | null = null
+
+  if (firstAttempt.ok) {
+    tokenData = firstAttempt.data
+  } else {
+    const looksLikeInvalidGrant = isInvalidGrantRefreshError(firstAttempt.error)
+    if (!looksLikeInvalidGrant) {
+      return { ok: false, error: firstAttempt.error }
+    }
+
+    // Pode ocorrer corrida entre cron e requests da aplicação.
+    // Se outro fluxo já rotacionou o refresh_token, tentamos 1x com o token mais novo salvo.
+    const { data: latest, error: latestError } = await supabase
+      .from('hub_connections')
+      .select('id, platform_id, access_token, refresh_token, token_expires_at, metadata, created_by')
+      .eq('id', connection.id)
+      .maybeSingle()
+
+    if (latestError || !latest) {
+      await setBlingReconnectRequired(supabase, connection, firstAttempt.error)
+      return { ok: false, error: firstAttempt.error }
+    }
+
+    const latestConnection = latest as HubConnection
+    if (
+      !latestConnection.refresh_token
+      || latestConnection.refresh_token === connection.refresh_token
+    ) {
+      await setBlingReconnectRequired(supabase, latestConnection, firstAttempt.error)
+      return { ok: false, error: firstAttempt.error }
+    }
+
+    const retryAttempt = await requestBlingTokenRefresh(latestConnection.refresh_token)
+    if (!retryAttempt.ok) {
+      if (isInvalidGrantRefreshError(retryAttempt.error)) {
+        await setBlingReconnectRequired(supabase, latestConnection, retryAttempt.error)
+      }
+      return { ok: false, error: retryAttempt.error }
+    }
+
+    sourceConnection = latestConnection
+    tokenData = retryAttempt.data
+  }
+
+  if (!tokenData?.access_token) {
+    return { ok: false, error: 'refresh_failed_no_access_token' }
+  }
+
+  const expiresIn = Number(tokenData.expires_in) || 3600
+  const tokenExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString()
+
+  const { data: updated, error: updateError } = await supabase
     .from('hub_connections')
     .update({
-      access_token: data.access_token,
-      refresh_token: data.refresh_token || connection.refresh_token,
+      access_token: tokenData.access_token,
+      refresh_token: tokenData.refresh_token || sourceConnection.refresh_token,
       token_expires_at: tokenExpiresAt,
       metadata: {
-        ...(connection.metadata || {}),
-        scope: data.scope || (connection.metadata as { scope?: string } | null)?.scope || null,
+        ...(sourceConnection.metadata || {}),
+        scope: tokenData.scope || (sourceConnection.metadata as { scope?: string } | null)?.scope || null,
+        blingReconnectRequired: false,
+        blingReconnectReason: null,
+        blingReconnectAt: null,
+        blingLastRefreshError: null,
       },
       updated_at: new Date().toISOString(),
     })
     .eq('id', connection.id)
+    .eq('refresh_token', sourceConnection.refresh_token)
     .select('id, platform_id, access_token, refresh_token, token_expires_at, metadata, created_by')
     .maybeSingle()
 
+  if (updateError) {
+    return { ok: false, error: `db_update_failed: ${updateError.message || 'unknown'}` }
+  }
+
   if (!updated) {
+    const { data: latest } = await supabase
+      .from('hub_connections')
+      .select('id, platform_id, access_token, refresh_token, token_expires_at, metadata, created_by')
+      .eq('id', connection.id)
+      .maybeSingle()
+
+    if (latest) {
+      return { ok: true, connection: latest as HubConnection }
+    }
     return { ok: false, error: 'db_update_failed' }
   }
 

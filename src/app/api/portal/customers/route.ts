@@ -92,6 +92,7 @@ export async function POST(request: Request) {
   const { data: existing } = await auth.supabase
     .from('customers')
     .select('id')
+    .eq('organization_id', auth.organizationId)
     .or(isCompany ? `cnpj.eq.${cnpj}` : `cpf.eq.${cpf}`)
     .maybeSingle()
 
@@ -118,6 +119,7 @@ export async function POST(request: Request) {
   const { data: inserted, error } = await auth.supabase
     .from('customers')
     .insert({
+      organization_id: auth.organizationId,
       cpf,
       cnpj,
       is_company: isCompany,
@@ -149,6 +151,7 @@ export async function POST(request: Request) {
     const { data: after } = await auth.supabase
       .from('customers')
       .select('id')
+      .eq('organization_id', auth.organizationId)
       .or(isCompany ? `cnpj.eq.${cnpj}` : `cpf.eq.${cpf}`)
       .maybeSingle()
 

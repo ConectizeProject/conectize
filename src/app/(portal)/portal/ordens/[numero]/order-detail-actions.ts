@@ -183,7 +183,7 @@ export async function updateOrderAction (formData: FormData) {
 	}
 	const isOrderFinalized =
 		existing && isFinalizedOrderStatus(String(existing.status || ''))
-	if (isOrderFinalized && role !== 'admin') {
+	if (isOrderFinalized && role !== 'admin' && role !== 'platform_admin') {
 		redirect(`${ordemPath}?error=ordem_finalizada`)
 	}
 	const updatePayload: Record<string, unknown> = {
@@ -219,7 +219,7 @@ export async function updateOrderAction (formData: FormData) {
 	if (formData.has('deviceExitChecksJson')) {
 		updatePayload.device_exit_checks = deviceExitChecks
 	}
-	if (role === 'admin' && formSellerUserId) {
+	if ((role === 'admin' || role === 'platform_admin') && formSellerUserId) {
 		const { data: sellerUser } = await supabase
 			.from('users')
 			.select('id')
@@ -347,7 +347,11 @@ export async function updateOrderStatusAction (
 		return { ok: false, error: 'not_authenticated' }
 	}
 	const normalized = normalizePortalRole(role)
-	if (normalized !== 'staff' && normalized !== 'admin') {
+	if (
+		normalized !== 'staff' &&
+		normalized !== 'admin' &&
+		normalized !== 'platform_admin'
+	) {
 		return { ok: false, error: 'forbidden' }
 	}
 
@@ -408,7 +412,7 @@ export async function deleteOrderAction (formData: FormData) {
 		display_number: delRef?.display_number ?? null,
 	})
 
-	if (normalizedRole !== 'admin') {
+	if (normalizedRole !== 'admin' && normalizedRole !== 'platform_admin') {
 		redirect(`${ordemPath}?error=sem_permissao`)
 	}
 

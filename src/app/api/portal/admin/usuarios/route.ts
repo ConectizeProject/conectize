@@ -30,6 +30,13 @@ export async function GET(request: NextRequest) {
     targetRoles = [...new Set([...targetRoles, 'retailer'])]
   }
 
+  const { data: members } = await auth.supabase
+    .from('organization_members')
+    .select('user_id')
+    .eq('organization_id', auth.organizationId)
+
+  const memberIds = new Set((members ?? []).map((m) => m.user_id))
+
   const { data: users, error } = await auth.supabase
     .from('users')
     .select('id, email, full_name, cpf, role, created_at')
@@ -40,7 +47,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
   }
 
-  let filtered = users ?? []
+  let filtered = (users ?? []).filter((u) => memberIds.has(u.id))
   if (emailFilter) {
     filtered = filtered.filter((u) =>
       (u.email ?? '').toLowerCase().includes(emailFilter)

@@ -12,7 +12,7 @@ export default async function AdminWebhooksPage ({ searchParams }: { searchParam
   const { user, role } = await getPortalAuth()
   if (!user) await redirectToPortalLogin()
   const normalizedRole = role === 'customer' ? 'user' : role
-  if (normalizedRole !== 'admin') redirect('/portal/ordens')
+  if (normalizedRole !== 'admin' && normalizedRole !== 'platform_admin') redirect('/portal/ordens')
 
   const { status, event_type, platform, page } = await searchParams
   const statusFilter = String(status || '').trim()

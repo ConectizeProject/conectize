@@ -1,6 +1,8 @@
+import dynamic from 'next/dynamic'
 import Hero from '@/components/Hero'
-import Services from '@/components/Services'
-import Contact from '@/components/Contact'
+
+const Services = dynamic(() => import('@/components/Services'))
+const Contact = dynamic(() => import('@/components/Contact'))
 
 export default function Home () {
   return (

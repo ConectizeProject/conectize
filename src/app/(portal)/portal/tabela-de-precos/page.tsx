@@ -11,7 +11,11 @@ export default async function TabelaPrecosLojistaPage () {
 
   const normalizedRole = role === 'customer' ? 'user' : role
   if (normalizedRole === 'user' || !normalizedRole) redirect('/portal/minhas-ordens')
-  if (normalizedRole === 'staff' || normalizedRole === 'admin') {
+  if (
+    normalizedRole === 'staff' ||
+    normalizedRole === 'admin' ||
+    normalizedRole === 'platform_admin'
+  ) {
     redirect('/portal/produtos?tab=precos')
   }
   if (normalizedRole !== 'retailer') redirect('/portal/minhas-ordens')

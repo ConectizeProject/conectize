@@ -1,5 +1,9 @@
 import { createSupabaseServerClient, getAuthUser } from "@/lib/supabase/server";
 import { allocateCatalogSortKeyForInsert } from "@/lib/products/catalog-sort-key";
+import {
+	ensurePortalOrganizationContext,
+	getPortalOrganizationId,
+} from "@/lib/organizations/portal-organization-context";
 
 type SupabaseServerClient = Awaited<
 	ReturnType<typeof createSupabaseServerClient>
@@ -106,6 +110,7 @@ type AuthSuccess = {
 	ok: true;
 	supabase: SupabaseServerClient;
 	userId: string;
+	organizationId: string;
 };
 
 type CreateProductResult =
@@ -174,7 +179,12 @@ async function requireAuth(): Promise<AuthSuccess | AuthFailure> {
 	if (!user) {
 		return { ok: false as const, error: "not_authenticated" as const };
 	}
-	return { ok: true as const, supabase, userId: user.id };
+	await ensurePortalOrganizationContext(supabase, user.id);
+	const organizationId = await getPortalOrganizationId(supabase, user.id);
+	if (!organizationId) {
+		return { ok: false as const, error: "not_authenticated" as const };
+	}
+	return { ok: true as const, supabase, userId: user.id, organizationId };
 }
 
 function normalizeMoney(value: unknown): number | null {
@@ -234,6 +244,7 @@ export async function createProduct(
 	const pricingTagId = normalizeOptionalUuid(input.pricingTagId);
 
 	const payload = {
+		organization_id: auth.organizationId,
 		bling_id: input.blingId ?? null,
 		bling_sync_pending: input.blingSyncPending ?? false,
 		bling_sync_snapshot: input.blingSyncSnapshot ?? null,

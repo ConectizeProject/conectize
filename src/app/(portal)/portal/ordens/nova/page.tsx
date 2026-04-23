@@ -22,7 +22,7 @@ export default async function NovaOrdemPage({
 
   const supabase = await createSupabaseServerClient()
   const sellerName = fullName || user.email || ''
-  const isAdmin = role === 'admin'
+  const isAdmin = role === 'admin' || role === 'platform_admin'
 
   const [sellerOptionsResult, deviceModels, paymentMethodsCatalog] = await Promise.all([
     isAdmin

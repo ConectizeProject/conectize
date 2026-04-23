@@ -14,7 +14,7 @@ export default async function FormasPagamentoPage () {
     .eq('id', user.id)
     .maybeSingle()
 
-  if (me?.role !== 'admin') redirect('/portal/ordens')
+  if (me?.role !== 'admin' && me?.role !== 'platform_admin') redirect('/portal/ordens')
 
   const { data: paymentMethods } = await supabase
     .from('payment_methods')

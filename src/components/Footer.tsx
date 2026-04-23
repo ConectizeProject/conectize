@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import Image from 'next/image'
 import { MapPin, Phone, Mail } from 'lucide-react'
 
 const Footer = () => {
@@ -10,13 +11,15 @@ const Footer = () => {
         <div className="grid md:grid-cols-3 gap-8 mb-8">
           {/* Brand */}
           <div>
-            <Link href="/" className="inline-block mb-4">
-              <img
+            <Link href="/" className="inline-block mb-4" aria-label="Ir para página inicial">
+              <Image
                 src="/logo_conectize.svg"
                 alt="Conectize - Assistência Técnica"
                 width={120}
                 height={118}
                 className="h-8 w-auto brightness-0 invert"
+                loading="lazy"
+                sizes="120px"
               />
             </Link>
             <p className="text-background/70 mb-4">

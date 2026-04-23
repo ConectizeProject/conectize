@@ -38,7 +38,10 @@ export default async function DashboardPage() {
   if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
 
   const supabase = await createSupabaseServerClient()
-  const isStaffOrAdmin = normalizedRole === 'staff' || normalizedRole === 'admin'
+  const isStaffOrAdmin =
+    normalizedRole === 'staff' ||
+    normalizedRole === 'admin' ||
+    normalizedRole === 'platform_admin'
 
   const now = new Date()
   const nowMs = now.getTime()

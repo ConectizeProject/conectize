@@ -67,7 +67,7 @@ export default async function RelatorioServicosPage({
   const { user, role } = await getPortalAuth()
   if (!user) await redirectToPortalLogin()
 
-  if (role !== 'admin') {
+  if (role !== 'admin' && role !== 'platform_admin') {
     redirect('/portal/dashboard')
   }
 

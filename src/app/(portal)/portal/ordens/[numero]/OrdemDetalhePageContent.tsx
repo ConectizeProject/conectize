@@ -101,7 +101,8 @@ export function OrdemDetalhePageContent (props: Props) {
 	const isPortalReadOnly = readOnly
 	const isFinalized = isFinalizedOrderStatus(order.status)
 	const formDisabled =
-		isPortalReadOnly || (isFinalized && role !== 'admin')
+		isPortalReadOnly ||
+		(isFinalized && role !== 'admin' && role !== 'platform_admin')
 	const canEditDeviceModelWhenFinalized = isAdmin && isFinalized
 	const deviceModelDisabled =
 		isPortalReadOnly || (isFinalized && !canEditDeviceModelWhenFinalized)
@@ -142,7 +143,7 @@ export function OrdemDetalhePageContent (props: Props) {
 									mobilePhone={customer?.mobile_phone as string | undefined}
 									email={customer?.email as string | undefined}
 									isFinalized={isFinalized}
-									canDelete={role === 'admin'}
+									canDelete={role === 'admin' || role === 'platform_admin'}
 									deleteOrderAction={deleteOrderAction}
 									isAdmin={isAdmin}
 									deviceExitChecks={order.device_exit_checks ?? null}

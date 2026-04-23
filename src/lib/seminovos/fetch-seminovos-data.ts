@@ -55,6 +55,8 @@ export type SeminovosFilters = {
   purchaseDateFrom: string
   purchaseDateTo: string
   stockType: 'seminovo' | 'lacrado' | 'all'
+  /** Quando true, inclui aparelhos vendidos na consulta (default: false). */
+  includeSold?: boolean
   /** Filtro exato pelo nome do aparelho (device_name). */
   deviceName?: string
   /** Catálogo revenda: faixa sobre o menor preço cadastrado (varejo/atacado), em centavos. */
@@ -101,7 +103,6 @@ export async function fetchSeminovosDevices(
       created_at,
       updated_at
     `)
-    .eq('sold', false)
 
   const {
     q,
@@ -111,10 +112,15 @@ export async function fetchSeminovosDevices(
     purchaseDateFrom,
     purchaseDateTo,
     stockType,
+    includeSold,
     deviceName,
     valueMinCents,
     valueMaxCents,
   } = filters
+
+  if (!includeSold) {
+    query = query.eq('sold', false)
+  }
 
   if (stockType === 'all') {
     query = query.in('stock_type', ['seminovo', 'lacrado'])

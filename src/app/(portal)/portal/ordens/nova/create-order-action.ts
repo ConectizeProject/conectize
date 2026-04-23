@@ -2,6 +2,10 @@
 
 import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import {
+  ensurePortalOrganizationContext,
+  getPortalOrganizationId,
+} from '@/lib/organizations/portal-organization-context'
+import {
   parsePaymentMethodsJson,
   parseServicesJson,
 } from '@/lib/orders/order-form-parsers'
@@ -64,17 +68,31 @@ export async function createOrderAction(formData: FormData) {
   if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
 
   const supabase = await createSupabaseServerClient()
+  await ensurePortalOrganizationContext(supabase, user.id)
+  const organizationId = await getPortalOrganizationId(supabase, user.id)
+  if (!organizationId) redirect('/portal/ordens/nova?error=sem_organizacao')
+
+  const { data: customerRow } = await supabase
+    .from('customers')
+    .select('id')
+    .eq('id', customerId)
+    .eq('organization_id', organizationId)
+    .maybeSingle()
+  if (!customerRow?.id) redirect('/portal/ordens/nova?error=cliente_invalido')
 
   let sellerUserId = user.id
   const formSellerId = String(formData.get('seller_user_id') || '').trim()
-  if (formSellerId && role === 'admin') {
-    const { data: sellerUser } = await supabase
-      .from('users')
-      .select('id, role')
-      .eq('id', formSellerId)
-      .in('role', ['admin', 'staff'])
+  const canPickSeller =
+    role === 'admin' || role === 'platform_admin'
+  if (formSellerId && canPickSeller) {
+    const { data: sellerMember } = await supabase
+      .from('organization_members')
+      .select('user_id')
+      .eq('organization_id', organizationId)
+      .eq('user_id', formSellerId)
+      .in('role_in_org', ['admin', 'staff'])
       .maybeSingle()
-    if (sellerUser?.id) sellerUserId = sellerUser.id
+    if (sellerMember?.user_id) sellerUserId = sellerMember.user_id
   }
 
   let deviceEntryChecks: unknown = null
@@ -89,6 +107,7 @@ export async function createOrderAction(formData: FormData) {
   const { data: insertedOrder, error } = await supabase
     .from('service_orders')
     .insert({
+      organization_id: organizationId,
       customer_id: customerId,
       title,
       status,

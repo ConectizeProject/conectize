@@ -57,6 +57,10 @@ export const getPortalAuth = cache(async () => {
     const supabase = await createSupabaseServerClient()
     const { user } = await getAuthUser()
     if (!user) return { user: null, role: 'user' as const, fullName: '' }
+    const { ensurePortalOrganizationContext } = await import(
+      '@/lib/organizations/portal-organization-context'
+    )
+    await ensurePortalOrganizationContext(supabase, user.id)
     const { data: appUser, error } = await supabase
       .from('users')
       .select('role, full_name')

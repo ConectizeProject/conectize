@@ -2,6 +2,7 @@ import Header from '@/components/Header'
 import Footer from '@/components/Footer'
 import { SupabaseStatusBanner } from '@/components/SupabaseStatusBanner'
 import { getSupabasePlatformStatus } from '@/lib/supabase/platform-status'
+import { RouteProviders } from '@/providers/route-providers'
 
 export const metadata = {
   robots: {
@@ -18,21 +19,23 @@ export default async function PortalAuthLayout ({
   const supabasePlatformStatus = await getSupabasePlatformStatus()
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <Header />
-      {/*
-        Header é fixed (z-50): o conteúdo precisa começar abaixo dele (~4rem),
-        senão o banner de status fica coberto.
-      */}
-      <div className="flex flex-1 flex-col pt-16">
-        {supabasePlatformStatus ? (
-          <SupabaseStatusBanner status={supabasePlatformStatus} />
-        ) : null}
-        <main className="flex-1">
-          {children}
-        </main>
+    <RouteProviders>
+      <div className="min-h-screen flex flex-col">
+        <Header />
+        {/*
+          Header é fixed (z-50): o conteúdo precisa começar abaixo dele (~4rem),
+          senão o banner de status fica coberto.
+        */}
+        <div className="flex flex-1 flex-col pt-16">
+          {supabasePlatformStatus ? (
+            <SupabaseStatusBanner status={supabasePlatformStatus} />
+          ) : null}
+          <main className="flex-1">
+            {children}
+          </main>
+        </div>
+        <Footer />
       </div>
-      <Footer />
-    </div>
+    </RouteProviders>
   )
 }

@@ -30,7 +30,9 @@ export default async function FinanceiroLojistaPage () {
   const normalizedRole = role === 'customer' ? 'user' : role
   if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
   if (normalizedRole === 'staff') redirect('/portal/ordens')
-  if (normalizedRole === 'admin') redirect('/portal/admin/financeiro-lojas')
+  if (normalizedRole === 'admin' || normalizedRole === 'platform_admin') {
+    redirect('/portal/admin/financeiro-lojas')
+  }
   if (normalizedRole !== 'retailer') redirect('/portal/minhas-ordens')
 
   const supabase = await createSupabaseServerClient()

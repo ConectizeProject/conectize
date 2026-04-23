@@ -31,8 +31,16 @@ import { useTheme } from 'next-themes'
 import { cn } from '@/lib/utils'
 import { SupabaseStatusBanner } from '@/components/SupabaseStatusBanner'
 import type { SupabasePlatformStatusBanner } from '@/lib/supabase/platform-status'
+import { PlatformOrgSwitcher } from './PlatformOrgSwitcher'
 
 type NavItem = { href: string; label: string; icon: React.ComponentType<{ className?: string }> }
+
+export type PlatformOrganizationOption = {
+	id: string
+	slug: string
+	name: string | null
+	is_host: boolean
+}
 
 function PortalSidebarNav ({ items, pathname }: { items: NavItem[]; pathname: string }) {
 	const { isMobile, setOpenMobile } = useSidebar()
@@ -55,18 +63,6 @@ function PortalSidebarNav ({ items, pathname }: { items: NavItem[]; pathname: st
 					</SidebarMenuItem>
 				)
 			})}
-			<SidebarMenuItem>
-				<SidebarMenuButton
-					asChild
-					isActive={isActivePath(pathname, '/portal/complete-profile')}
-					tooltip="Dados"
-				>
-					<Link href="/portal/complete-profile" onClick={closeMobile}>
-						<Settings />
-						<span>Dados</span>
-					</Link>
-				</SidebarMenuButton>
-			</SidebarMenuItem>
 		</>
 	)
 }
@@ -77,6 +73,8 @@ type PortalShellProps = {
 	userEmail: string
 	userName: string
 	supabasePlatformStatus?: SupabasePlatformStatusBanner | null
+	platformOrganizations?: PlatformOrganizationOption[] | null
+	activeOrganizationId?: string | null
 }
 
 function getInitials(nameOrEmail: string) {
@@ -104,7 +102,7 @@ export function PortalShell(props: PortalShellProps) {
 	}
 
 	const normalizedRole = props.role === 'customer' ? 'user' : props.role
-	const isAdmin = props.role === 'admin'
+	const isAdmin = props.role === 'admin' || props.role === 'platform_admin'
 	const isBasicUser = normalizedRole === 'user' || !normalizedRole
 	const isRetailer = normalizedRole === 'retailer'
 	const isStaff = normalizedRole === 'staff'
@@ -139,11 +137,13 @@ export function PortalShell(props: PortalShellProps) {
 				{ href: '/portal/admin/usuarios', label: 'Usuários', icon: UserCheck },
 				{ href: '/portal/hub', label: 'HUB', icon: Plug2 },
 				{ href: '/portal/revendaaparelhos', label: 'Aparelhos à venda', icon: Smartphone },
-				...(isAdmin ? [
-					{ href: '/portal/financeiro', label: 'Financeiro', icon: DollarSign },
-					{ href: '/portal/admin/financeiro-lojas', label: 'Financeiro lojas', icon: Building2 },
-					{ href: '/portal/relatorios/servicos', label: 'Relatórios', icon: BarChart3 },
-				] : []),
+				...(isAdmin
+					? [
+						{ href: '/portal/financeiro', label: 'Financeiro', icon: DollarSign },
+						{ href: '/portal/admin/financeiro-lojas', label: 'Financeiro lojas', icon: Building2 },
+						{ href: '/portal/relatorios/servicos', label: 'Relatórios', icon: BarChart3 },
+					]
+					: []),
 			]
 
 	return (
@@ -182,7 +182,13 @@ export function PortalShell(props: PortalShellProps) {
 						</div>
 					</div>
 
-					<div className="flex items-center gap-3">
+					<div className="flex items-center gap-3 min-w-0">
+						{props.role === 'platform_admin' && props.platformOrganizations?.length ? (
+							<PlatformOrgSwitcher
+								organizations={props.platformOrganizations}
+								activeOrganizationId={props.activeOrganizationId ?? null}
+							/>
+						) : null}
 						<Link
 							href="/"
 							className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -230,7 +236,7 @@ export function PortalShell(props: PortalShellProps) {
 										<span>Alterar dados</span>
 									</Link>
 								</DropdownMenuItem>
-								{props.role === 'admin' && (
+								{isAdmin && (
 									<DropdownMenuItem asChild>
 										<Link href="/portal/admin/dados-empresa" className="flex items-center gap-2">
 											<Building2 className="h-4 w-4" />

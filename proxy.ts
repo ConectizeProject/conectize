@@ -51,7 +51,9 @@ async function getUserRole(supabase: SupabaseClient) {
     .eq('id', sub)
     .maybeSingle()
 
-  const role = appUser?.role || 'user'
+  // Não degrada para "user" quando a leitura de users falha/retorna vazio.
+  // Isso evita redirecionamentos indevidos para /portal/minhas-ordens.
+  const role = appUser?.role ?? null
   return { user: { id: sub }, role }
 }
 
@@ -125,7 +127,7 @@ export async function proxy(request: NextRequest) {
       return redirect
     }
 
-    const isBasicUser = role === 'user' || role === 'customer' || !role
+    const isBasicUser = role === 'user' || role === 'customer'
     const isRetailer = role === 'retailer'
 
     // Logged in

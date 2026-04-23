@@ -3,7 +3,6 @@ import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 import { HubClient } from './HubClient'
 import { HubToastClient } from './HubToastClient'
-import { WhatsappHubPanel } from './WhatsappHubPanel'
 
 export const dynamic = 'force-dynamic'
 
@@ -55,11 +54,9 @@ export default async function HubPage() {
       <HubClient
         initialConnections={Array.from(connectedPlatforms)}
         blingConnections={blingConnections}
-        isAdmin={me?.role === 'admin'}
+        isAdmin={me?.role === 'admin' || me?.role === 'platform_admin'}
         chatgptModel={chatgptModel}
       />
-
-      <WhatsappHubPanel />
     </div>
   )
 }

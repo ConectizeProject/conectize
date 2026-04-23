@@ -119,7 +119,7 @@ export default async function OrdemDetalhePage ({
 
 	const sellerUserId =
 		(order as { seller_user_id?: string | null }).seller_user_id ?? null
-	const isAdmin = role === 'admin'
+	const isAdmin = role === 'admin' || role === 'platform_admin'
 
 	const [sellerUser, staffAdminUsers, entryPhotoCountRes, exitPhotoCountRes] = await Promise.all([
 		sellerUserId

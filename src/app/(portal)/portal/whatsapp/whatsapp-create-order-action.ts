@@ -29,7 +29,11 @@ export async function createOrderFromWhatsappConversationAction (
   const { user, role } = await getPortalAuth()
   if (!user) await redirectToPortalLogin()
   const normalizedRole = role === 'customer' ? 'user' : role
-  if (normalizedRole !== 'staff' && normalizedRole !== 'admin') {
+  if (
+    normalizedRole !== 'staff' &&
+    normalizedRole !== 'admin' &&
+    normalizedRole !== 'platform_admin'
+  ) {
     return { ok: false, error: 'forbidden' }
   }
 

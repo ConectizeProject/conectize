@@ -1,13 +1,8 @@
-'use client'
-
+import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Smartphone, Shield, Clock, ArrowRight } from 'lucide-react'
 
 const Hero = () => {
-  const scrollToContact = () => {
-    document.getElementById("contato")?.scrollIntoView({ behavior: "smooth" });
-  };
-
   return (
     <section className="relative min-h-screen gradient-hero pt-32 pb-20 overflow-hidden flex items-center" >
       {/* Background decoration */}
@@ -45,9 +40,11 @@ const Hero = () => {
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start animate-fade-up" style={{ animationDelay: "0.3s" }}>
-              <Button variant="hero" size="xl" onClick={scrollToContact}>
-                Solicitar Orçamento
-                <ArrowRight className="w-5 h-5" />
+              <Button variant="hero" size="xl" asChild>
+                <Link href="#contato">
+                  Solicitar Orçamento
+                  <ArrowRight className="w-5 h-5" />
+                </Link>
               </Button>
               <Button variant="whatsapp" size="xl" asChild>
                 <a
