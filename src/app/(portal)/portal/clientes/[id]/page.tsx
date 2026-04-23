@@ -32,7 +32,7 @@ export default async function ClienteDetailPage ({
   const normalizedRole = role === 'customer' ? 'user' : role
   if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
 
-  const isAdmin = role === 'admin'
+  const isAdmin = role === 'admin' || role === 'platform_admin'
 
   const supabase = await createSupabaseServerClient()
   const { data: customer, error } = await supabase

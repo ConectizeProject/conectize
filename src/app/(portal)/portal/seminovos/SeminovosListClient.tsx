@@ -366,7 +366,7 @@ export function SeminovosListClient({
 	distinctDeviceNames = [],
 	role,
 }: SeminovosListClientProps) {
-	const isAdmin = role === "admin";
+	const isAdmin = role === "admin" || role === "platform_admin";
 	const router = useRouter();
 	const novaDeviceHref =
 		filterInitialValues.stockType === "lacrado"

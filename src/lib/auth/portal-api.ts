@@ -1,6 +1,10 @@
 import { redirect } from 'next/navigation'
 import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
+import {
+  ensurePortalOrganizationContext,
+  getPortalOrganizationId,
+} from '@/lib/organizations/portal-organization-context'
 
 export type PortalStaffRole = 'staff' | 'admin'
 
@@ -18,12 +22,16 @@ export type PortalAuthStaffSuccess = {
   /** Nome para autor em comentÃ¡rios (OS) */
   authorDisplayName: string
   isAdmin: boolean
+  /** Organização ativa (RLS / contexto do portal) */
+  organizationId: string
+  isPlatformAdmin: boolean
 }
 
 export type PortalAuthAdminSuccess = {
   ok: true
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
   userId: string
+  organizationId: string
 }
 
 export type PortalAuthRetailerSuccess = {
@@ -65,21 +73,38 @@ export async function requireStaffOrAdmin (): Promise<PortalAuthFailure | Portal
     .eq('id', user.id)
     .maybeSingle()
 
+  const rawRole = String(appUser?.role || '')
   const normalized = normalizePortalRole(appUser?.role)
-  if (normalized !== 'staff' && normalized !== 'admin') {
+  const isPlatformAdmin = rawRole === 'platform_admin'
+  if (
+    normalized !== 'staff'
+    && normalized !== 'admin'
+    && !isPlatformAdmin
+  ) {
     return { ok: false as const, status: 403, error: 'forbidden' }
+  }
+
+  await ensurePortalOrganizationContext(supabase, user.id)
+  const organizationId = await getPortalOrganizationId(supabase, user.id)
+  if (!organizationId) {
+    return { ok: false as const, status: 403, error: 'no_organization_context' }
   }
 
   const authorDisplayName =
     String(appUser?.full_name || appUser?.email || '').trim() || '(Sem nome)'
 
+  const roleForApi: PortalStaffRole =
+    isPlatformAdmin || normalized === 'admin' ? 'admin' : 'staff'
+
   return {
     ok: true as const,
     supabase,
-    role: normalized as PortalStaffRole,
+    role: roleForApi,
     userId: user.id,
     authorDisplayName,
-    isAdmin: normalized === 'admin',
+    isAdmin: normalized === 'admin' || isPlatformAdmin,
+    organizationId,
+    isPlatformAdmin,
   }
 }
 
@@ -136,21 +161,38 @@ export async function requireStaffAdminOrRetailer (): Promise<
     }
   }
 
-  if (normalized !== 'staff' && normalized !== 'admin') {
+  const rawRole = String(appUser?.role || '')
+  const isPlatformAdmin = rawRole === 'platform_admin'
+  if (
+    normalized !== 'staff'
+    && normalized !== 'admin'
+    && !isPlatformAdmin
+  ) {
     return { ok: false as const, status: 403, error: 'forbidden' }
+  }
+
+  await ensurePortalOrganizationContext(supabase, user.id)
+  const organizationId = await getPortalOrganizationId(supabase, user.id)
+  if (!organizationId) {
+    return { ok: false as const, status: 403, error: 'no_organization_context' }
   }
 
   const authorDisplayName =
     String(appUser?.full_name || appUser?.email || '').trim() || '(Sem nome)'
 
+  const roleForApi: PortalStaffRole =
+    isPlatformAdmin || normalized === 'admin' ? 'admin' : 'staff'
+
   return {
     ok: true as const,
     kind: 'staff',
     supabase,
-    role: normalized as PortalStaffRole,
+    role: roleForApi,
     userId: user.id,
     authorDisplayName,
-    isAdmin: normalized === 'admin',
+    isAdmin: normalized === 'admin' || isPlatformAdmin,
+    organizationId,
+    isPlatformAdmin,
   }
 }
 
@@ -170,11 +212,18 @@ export async function requireAdmin (): Promise<PortalAuthFailure | PortalAuthAdm
     .eq('id', user.id)
     .maybeSingle()
 
-  if (appUser?.role !== 'admin') {
+  const role = String(appUser?.role || '')
+  if (role !== 'admin' && role !== 'platform_admin') {
     return { ok: false as const, status: 403, error: 'forbidden' }
   }
 
-  return { ok: true as const, supabase, userId: user.id }
+  await ensurePortalOrganizationContext(supabase, user.id)
+  const organizationId = await getPortalOrganizationId(supabase, user.id)
+  if (!organizationId) {
+    return { ok: false as const, status: 403, error: 'no_organization_context' }
+  }
+
+  return { ok: true as const, supabase, userId: user.id, organizationId }
 }
 
 /**

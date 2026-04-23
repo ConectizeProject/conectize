@@ -60,6 +60,7 @@ async function RevendaListagemInner ({
   const canAccess =
     normalizedRole === 'staff' ||
     normalizedRole === 'admin' ||
+    normalizedRole === 'platform_admin' ||
     normalizedRole === 'retailer'
   if (!canAccess) redirect('/portal')
 

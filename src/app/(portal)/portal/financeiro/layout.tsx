@@ -10,7 +10,7 @@ export default async function FinanceiroLayout({
 }) {
   const { user, role } = await getPortalAuth()
   if (!user) await redirectToPortalLogin()
-  if (role !== 'admin') redirect('/portal/ordens')
+  if (role !== 'admin' && role !== 'platform_admin') redirect('/portal/ordens')
 
   return (
     <div className="space-y-6">

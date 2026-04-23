@@ -58,6 +58,13 @@ export async function GET (request: Request) {
 
   try {
     const summary = await runBlingTokenRefreshForAllConnections()
+    const hasFailures = summary.failed.length > 0
+    if (hasFailures) {
+      return NextResponse.json(
+        { ok: false, ...summary, error: 'bling_token_refresh_partial_failure' },
+        { status: 500 }
+      )
+    }
     return NextResponse.json({ ok: true, ...summary })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown'

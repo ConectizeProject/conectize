@@ -79,6 +79,7 @@ function normalizeServicesForPrint (raw: unknown): OrdemPrintData['services'] {
 
 const ORDER_PRINT_SELECT = `
   id,
+  organization_id,
   display_number,
   status,
   title,
@@ -145,11 +146,14 @@ export async function buildOrderPrintAndLabelHtml (
       ? assistRows.map((r: { content: string }) => String(r.content || '').trim()).filter(Boolean).join('\n\n')
       : null
 
-  const { data: companyRow } = await supabase
-    .from('company_settings')
-    .select('name, cnpj, address, complement, zip_code, city, state, phone, email, logo_url')
-    .eq('id', 1)
-    .maybeSingle()
+  const orgId = o.organization_id != null ? String(o.organization_id) : null
+  const { data: companyRow } = orgId
+    ? await supabase
+      .from('organizations')
+      .select('name, cnpj, address, complement, zip_code, city, state, phone, email, logo_url')
+      .eq('id', orgId)
+      .maybeSingle()
+    : { data: null }
 
   const company: CompanyPrintData | null = companyRow
     ? {

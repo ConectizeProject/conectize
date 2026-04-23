@@ -175,6 +175,7 @@ export async function POST(request: Request) {
   const stock_type = stockTypeRaw === 'lacrado' ? 'lacrado' : 'seminovo'
 
   const row = {
+    organization_id: auth.organizationId,
     device_model_id: device_model_id || null,
     device_name: cleanText(body.device_name) || null,
     model: cleanText(body.model) || null,
@@ -234,6 +235,7 @@ export async function POST(request: Request) {
   for (const c of costs) {
     const value_cents = typeof c.value_cents === 'number' ? c.value_cents : toCents(c.value ?? c.value_cents) ?? 0
     await auth.supabase.from('resale_device_costs').insert({
+      organization_id: auth.organizationId,
       resale_device_id: inserted.id,
       description: cleanText(c.description) || null,
       value_cents,

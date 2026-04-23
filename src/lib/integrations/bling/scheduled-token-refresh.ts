@@ -41,11 +41,18 @@ export async function runBlingTokenRefreshForAllConnections (): Promise<BlingSch
       continue
     }
 
-    const result = await performBlingTokenRefresh(conn, { supabase })
-    if (result.ok === true) {
-      refreshed++
-    } else {
-      failed.push({ id: conn.id, error: result.error })
+    try {
+      const result = await performBlingTokenRefresh(conn, { supabase })
+      if (result.ok === true) {
+        refreshed++
+      } else {
+        failed.push({ id: conn.id, error: result.error })
+      }
+    } catch (err) {
+      const message = err instanceof Error
+        ? err.message
+        : 'unexpected_refresh_exception'
+      failed.push({ id: conn.id, error: message })
     }
   }
 

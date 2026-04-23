@@ -24,7 +24,11 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
   const normalizedRole = role === 'customer' ? 'user' : role
   if (normalizedRole === 'retailer') redirect('/portal/tabela-de-precos')
   if (normalizedRole === 'user' || !normalizedRole) redirect('/portal/minhas-ordens')
-  if (normalizedRole !== 'staff' && normalizedRole !== 'admin') redirect('/portal/minhas-ordens')
+  if (
+    normalizedRole !== 'staff' &&
+    normalizedRole !== 'admin' &&
+    normalizedRole !== 'platform_admin'
+  ) redirect('/portal/minhas-ordens')
 
   const tab = parseStaffTab(sp.tab)
   const initialEditProductId = String(sp.edit || '').trim() || undefined

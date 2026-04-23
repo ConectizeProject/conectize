@@ -1,4 +1,5 @@
 import type { ResaleDeviceRow } from '@/lib/seminovos/fetch-seminovos-data'
+import { getModelSortKey, parseStorageGb } from '@/lib/seminovos/group-devices-by-model'
 
 export type ResaleReferencePricingRow = {
   key: string
@@ -16,6 +17,17 @@ function groupKey (d: ResaleDeviceRow): string {
   const cond = (d.condition || '').trim() || '—'
   const gb = (d.storage_gb || '').trim() || '—'
   return `${name}\t${cond}\t${gb}`
+}
+
+function getConditionOrder (condition: string | null): number {
+  const normalized = String(condition || '').trim().toUpperCase()
+  if (normalized === 'A+') return 0
+  if (normalized === 'A') return 1
+  if (normalized === 'A-') return 2
+  if (normalized === 'B+') return 3
+  if (normalized === 'B') return 4
+  if (normalized === 'B-') return 5
+  return 999
 }
 
 /**
@@ -66,10 +78,21 @@ export function aggregateResaleReferencePricing (
   }
 
   rows.sort((a, b) => {
+    const modelKeyA = getModelSortKey(a.deviceName)
+    const modelKeyB = getModelSortKey(b.deviceName)
+    if (modelKeyA !== modelKeyB) return modelKeyB - modelKeyA
+
     const c = a.deviceName.localeCompare(b.deviceName, 'pt-BR', { sensitivity: 'base' })
     if (c !== 0) return c
-    const g = String(a.storageGb || '').localeCompare(String(b.storageGb || ''), undefined, { numeric: true })
-    if (g !== 0) return g
+
+    const conditionA = getConditionOrder(a.condition)
+    const conditionB = getConditionOrder(b.condition)
+    if (conditionA !== conditionB) return conditionA - conditionB
+
+    const storageA = parseStorageGb(a.storageGb)
+    const storageB = parseStorageGb(b.storageGb)
+    if (storageA !== storageB) return storageB - storageA
+
     return String(a.condition || '').localeCompare(String(b.condition || ''))
   })
   return rows

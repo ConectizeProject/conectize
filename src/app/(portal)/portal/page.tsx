@@ -17,8 +17,8 @@ export default async function PortalHomePage() {
     .eq('id', user.id)
     .maybeSingle()
 
-  const role = appUser?.role || 'user'
-  const isBasicUser = role === 'user' || role === 'customer' || !role
+  const role = appUser?.role ?? null
+  const isBasicUser = role === 'user' || role === 'customer'
   const isRetailer = role === 'retailer'
 
   if (isBasicUser || isRetailer) redirect('/portal/minhas-ordens')

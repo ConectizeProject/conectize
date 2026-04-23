@@ -19,7 +19,11 @@ export default async function RevendaReferenciaPrecosPage () {
 
   const normalizedRole = role === 'customer' ? 'user' : role
   if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
-  if (normalizedRole !== 'staff' && normalizedRole !== 'admin') redirect('/portal')
+  if (
+    normalizedRole !== 'staff' &&
+    normalizedRole !== 'admin' &&
+    normalizedRole !== 'platform_admin'
+  ) redirect('/portal')
 
   const supabase = await createSupabaseServerClient()
   const devices = await fetchSeminovosDevices(supabase, {
@@ -30,8 +34,19 @@ export default async function RevendaReferenciaPrecosPage () {
     purchaseDateFrom: '',
     purchaseDateTo: '',
     stockType: 'all',
+    includeSold: true,
   })
   const rows = aggregateResaleReferencePricing(devices)
+  const groups = rows.reduce<Array<{ model: string; items: typeof rows }>>((acc, row) => {
+    const model = (row.deviceName || '').trim() || '—'
+    const last = acc[acc.length - 1]
+    if (!last || last.model !== model) {
+      acc.push({ model, items: [row] })
+      return acc
+    }
+    last.items.push(row)
+    return acc
+  }, [])
 
   return (
     <div className="pb-8">
@@ -39,7 +54,6 @@ export default async function RevendaReferenciaPrecosPage () {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Modelo</TableHead>
               <TableHead>Estado</TableHead>
               <TableHead>GB</TableHead>
               <TableHead className="text-right">Compra</TableHead>
@@ -50,31 +64,39 @@ export default async function RevendaReferenciaPrecosPage () {
           <TableBody>
             {rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
                   Nenhum dado com valor de compra cadastrado.
                 </TableCell>
               </TableRow>
             ) : (
-              rows.map((r) => (
-                <TableRow key={r.key}>
-                  <TableCell className="font-medium">{r.deviceName || '—'}</TableCell>
-                  <TableCell>{r.condition || '—'}</TableCell>
-                  <TableCell>{r.storageGb || '—'}</TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    R$ {maskedFromCents(r.minPurchaseCents)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {r.wholesaleValueCents != null && r.wholesaleValueCents > 0
-                      ? `R$ ${maskedFromCents(r.wholesaleValueCents)}`
-                      : '—'}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {r.saleValueCents != null && r.saleValueCents > 0
-                      ? `R$ ${maskedFromCents(r.saleValueCents)}`
-                      : '—'}
-                  </TableCell>
-                </TableRow>
-              ))
+              groups.flatMap((group) => ([
+                (
+                  <TableRow key={`group-${group.model}`}>
+                    <TableCell colSpan={5} className="bg-muted/40 font-semibold">
+                      {group.model}
+                    </TableCell>
+                  </TableRow>
+                ),
+                ...group.items.map((r) => (
+                  <TableRow key={r.key}>
+                    <TableCell>{r.condition || '—'}</TableCell>
+                    <TableCell>{r.storageGb || '—'}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      R$ {maskedFromCents(r.minPurchaseCents)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {r.wholesaleValueCents != null && r.wholesaleValueCents > 0
+                        ? `R$ ${maskedFromCents(r.wholesaleValueCents)}`
+                        : '—'}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {r.saleValueCents != null && r.saleValueCents > 0
+                        ? `R$ ${maskedFromCents(r.saleValueCents)}`
+                        : '—'}
+                    </TableCell>
+                  </TableRow>
+                )),
+              ]))
             )}
           </TableBody>
         </Table>

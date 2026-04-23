@@ -300,7 +300,7 @@ export default async function OrdensPage({
         filterCreatedTo={createdToValue}
         filterReadyFrom={readyFromValue}
         filterReadyTo={readyToValue}
-        canDelete={role === 'admin'}
+        canDelete={role === 'admin' || role === 'platform_admin'}
       />
     </div>
   )

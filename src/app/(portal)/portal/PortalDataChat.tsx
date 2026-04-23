@@ -58,7 +58,7 @@ export function PortalDataChat(props: PortalDataChatProps) {
     }
   }, [sendMessage])
 
-  const isAdmin = props.role === 'admin'
+  const isAdmin = props.role === 'admin' || props.role === 'platform_admin'
 
   return (
     <>

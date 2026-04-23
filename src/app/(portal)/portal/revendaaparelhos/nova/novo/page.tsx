@@ -10,7 +10,11 @@ export default async function RevendaNovaNovoPage () {
 
   const normalizedRole = role === 'customer' ? 'user' : role
   if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
-  if (normalizedRole !== 'staff' && normalizedRole !== 'admin') redirect('/portal')
+  if (
+    normalizedRole !== 'staff' &&
+    normalizedRole !== 'admin' &&
+    normalizedRole !== 'platform_admin'
+  ) redirect('/portal')
 
   return (
     <SeminovosFormClient

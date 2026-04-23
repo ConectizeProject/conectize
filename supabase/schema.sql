@@ -139,7 +139,8 @@ language plpgsql
 as $$
 begin
   if new.role is distinct from old.role then
-    if not public.is_admin() then
+    if auth.uid() is not null
+       and not public.is_admin() then
       raise exception 'permission_denied';
     end if;
   end if;

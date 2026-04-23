@@ -37,7 +37,7 @@ export default async function DadosEmpresaAparelhosPage({
     .eq('id', user.id)
     .maybeSingle()
 
-  if (me?.role !== 'admin') redirect('/portal/ordens')
+  if (me?.role !== 'admin' && me?.role !== 'platform_admin') redirect('/portal/ordens')
 
   const { brand, deviceType, q } = await searchParams
   const initialBrand = String(brand ?? '').trim()

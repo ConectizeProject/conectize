@@ -166,22 +166,25 @@ export default async function OrdemPublicaPage({
 		)
 	}
 
-	const [{ data: order }, { data: _company }, { data: paymentMethodsCatalog }] = await Promise.all([
-		supabase
-			.from('service_orders')
-			.select('id, display_number, status, title, imei, device_location, is_warranty, estimated_ready_at, customer_description, receiving_notes, warranty_text, services, payment_methods, brand, model, device_model_id, created_at, updated_at, closed_at, device_entry_checks, device_exit_checks, customers ( cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date ), device_models ( id, model, device_types ( name, device_brands ( name ) ) )')
-			.eq('share_token', token)
-			.maybeSingle(),
-		supabase
-			.from('company_settings')
-			.select('name, cnpj, address, complement, zip_code, city, state, phone, email, logo_url')
-			.eq('id', 1)
-			.maybeSingle(),
-		supabase
+	const { data: order } = await supabase
+		.from('service_orders')
+		.select(
+			'id, organization_id, display_number, status, title, imei, device_location, is_warranty, estimated_ready_at, customer_description, receiving_notes, warranty_text, services, payment_methods, brand, model, device_model_id, created_at, updated_at, closed_at, device_entry_checks, device_exit_checks, customers ( cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date ), device_models ( id, model, device_types ( name, device_brands ( name ) ) ), organizations ( slug, is_host, name, logo_url, phone, email )',
+		)
+		.eq('share_token', token)
+		.maybeSingle()
+
+	const orgRel = order?.organizations
+	const orgRow = Array.isArray(orgRel) ? orgRel[0] ?? null : orgRel ?? null
+	const isHostOrg = Boolean(orgRow?.is_host)
+
+	const { data: paymentMethodsCatalog } = order?.organization_id
+		? await supabase
 			.from('payment_methods')
 			.select('id, type')
-			.order('sort_order', { ascending: true }),
-	])
+			.eq('organization_id', order.organization_id)
+			.order('sort_order', { ascending: true })
+		: { data: null as { id: string; type: string }[] | null }
 
 	// Dispositivo: vir da relação device_models (mesma query) ou dos campos brand/model
 	const orderDeviceModels = order?.device_models ?? null
@@ -292,11 +295,13 @@ export default async function OrdemPublicaPage({
 		Object.keys(exitChecksData.checks).length > 0
 	const hasEntryPhotos = entryPhotos.length > 0
 
-	return (
-		<div className="min-h-screen flex flex-col">
-			<Header />
+	const cadastroHref = isHostOrg
+		? '/portal/cadastro'
+		: `/cadastro-cliente?org=${encodeURIComponent(String(orgRow?.slug || ''))}&ref_os=${encodeURIComponent(token)}`
+
+	const inner = (
 			<main className="flex-1">
-				<div className="container max-w-3xl py-8 px-4 pt-32 pb-20">
+				<div className={`container max-w-3xl py-8 px-4 pb-20 ${isHostOrg ? 'pt-32' : 'pt-10'}`}>
 					<div className="space-y-6">
 						<div>
 							<h1 className="text-2xl font-bold">
@@ -432,10 +437,14 @@ export default async function OrdemPublicaPage({
 							<CardContent className="p-5">
 								<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
 									<p className="text-sm text-muted-foreground sm:mb-0">
-										Cadastre-se na plataforma para acompanhar o histórico das suas ordens de serviço.
+										{isHostOrg
+											? 'Cadastre-se na plataforma para acompanhar o histórico das suas ordens de serviço.'
+											: 'Crie uma conta para acompanhar suas ordens nesta assistência.'}
 									</p>
 									<Button asChild className="shrink-0">
-										<Link href="/portal/cadastro">Cadastre-se</Link>
+										<Link href={cadastroHref}>
+											{isHostOrg ? 'Cadastre-se' : 'Criar conta'}
+										</Link>
 									</Button>
 								</div>
 							</CardContent>
@@ -443,7 +452,33 @@ export default async function OrdemPublicaPage({
 					</div>
 				</div>
 			</main>
-			<Footer />
+	)
+
+	if (isHostOrg) {
+		return (
+			<div className="min-h-screen flex flex-col">
+				<Header />
+				{inner}
+				<Footer />
+			</div>
+		)
+	}
+
+	return (
+		<div className="min-h-screen flex flex-col bg-muted/20">
+			<header className="border-b bg-background py-5 px-4 flex flex-col items-center gap-2">
+				{orgRow?.logo_url ? (
+					<img
+						src={String(orgRow.logo_url)}
+						alt={String(orgRow.name || 'Logo')}
+						className="h-10 w-auto max-w-[220px] object-contain"
+					/>
+				) : null}
+				{orgRow?.name ? (
+					<span className="text-lg font-semibold text-center">{String(orgRow.name)}</span>
+				) : null}
+			</header>
+			{inner}
 		</div>
 	)
 }
