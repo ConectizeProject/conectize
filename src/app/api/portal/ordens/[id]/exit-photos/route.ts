@@ -105,7 +105,11 @@ export async function POST (
 
     const { data: ins, error: insErr } = await auth.supabase
       .from('service_order_exit_photos')
-      .insert({ service_order_id: orderId, storage_path: path })
+      .insert({
+        service_order_id: orderId,
+        storage_path: path,
+        organization_id: auth.organizationId,
+      })
       .select('id')
       .single()
 

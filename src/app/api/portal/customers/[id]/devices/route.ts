@@ -54,6 +54,7 @@ export async function POST (
   }
 
   const insertRow = {
+    organization_id: auth.organizationId,
     customer_id: customerId,
     device_model_id: parseOptionalUuid(body.device_model_id),
     brand: body.brand == null ? null : String(body.brand).trim() || null,
