@@ -40,6 +40,7 @@ export async function POST(request: Request) {
     .from('hub_connections')
     .select('api_key, metadata')
     .eq('platform_id', platformId)
+    .eq('organization_id', auth.organizationId)
     .maybeSingle()
 
   if (!existing && !apiKey) {
@@ -55,6 +56,7 @@ export async function POST(request: Request) {
 
   const updateData: Record<string, unknown> = {
     platform_id: platformId,
+    organization_id: auth.organizationId,
     updated_at: new Date().toISOString(),
     metadata,
   }
@@ -72,11 +74,28 @@ export async function POST(request: Request) {
     updateData.token_expires_at = null
   }
 
-  const { data, error } = await auth.supabase
-    .from('hub_connections')
-    .upsert(updateData, { onConflict: 'platform_id' })
-    .select('id, platform_id')
-    .single()
+  let data: { id: string; platform_id: string } | null = null
+  let error: { message?: string } | null = null
+
+  if (existing) {
+    const res = await auth.supabase
+      .from('hub_connections')
+      .update(updateData)
+      .eq('platform_id', platformId)
+      .eq('organization_id', auth.organizationId)
+      .select('id, platform_id')
+      .single()
+    data = res.data
+    error = res.error
+  } else {
+    const res = await auth.supabase
+      .from('hub_connections')
+      .insert(updateData)
+      .select('id, platform_id')
+      .single()
+    data = res.data
+    error = res.error
+  }
 
   if (error) {
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })

@@ -20,6 +20,7 @@ export async function GET () {
     .from('hub_connections')
     .select('id, access_token, metadata, created_at')
     .eq('platform_id', PLATFORM)
+    .eq('organization_id', auth.organizationId)
     .maybeSingle()
 
   const meta = (data?.metadata as Record<string, unknown>) || {}
@@ -67,6 +68,7 @@ export async function POST (request: Request) {
     .from('hub_connections')
     .select('metadata, access_token')
     .eq('platform_id', PLATFORM)
+    .eq('organization_id', auth.organizationId)
     .maybeSingle()
 
   const prevMeta = (existing?.metadata as Record<string, unknown>) || {}
@@ -80,6 +82,7 @@ export async function POST (request: Request) {
 
   const row: Record<string, unknown> = {
     platform_id: PLATFORM,
+    organization_id: auth.organizationId,
     metadata,
     updated_at: new Date().toISOString(),
   }
@@ -99,11 +102,28 @@ export async function POST (request: Request) {
     row.token_expires_at = null
   }
 
-  const { data, error } = await auth.supabase
-    .from('hub_connections')
-    .upsert(row, { onConflict: 'platform_id' })
-    .select('id, platform_id')
-    .single()
+  let data: { id: string; platform_id: string } | null = null
+  let error: { message?: string } | null = null
+
+  if (existing) {
+    const res = await auth.supabase
+      .from('hub_connections')
+      .update(row)
+      .eq('platform_id', PLATFORM)
+      .eq('organization_id', auth.organizationId)
+      .select('id, platform_id')
+      .single()
+    data = res.data
+    error = res.error
+  } else {
+    const res = await auth.supabase
+      .from('hub_connections')
+      .insert(row)
+      .select('id, platform_id')
+      .single()
+    data = res.data
+    error = res.error
+  }
 
   if (error) {
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
@@ -118,7 +138,11 @@ export async function DELETE () {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 
-  const { error } = await auth.supabase.from('hub_connections').delete().eq('platform_id', PLATFORM)
+  const { error } = await auth.supabase
+    .from('hub_connections')
+    .delete()
+    .eq('platform_id', PLATFORM)
+    .eq('organization_id', auth.organizationId)
 
   if (error) {
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })

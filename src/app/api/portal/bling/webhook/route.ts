@@ -43,9 +43,21 @@ export async function POST (request: Request) {
   const externalId = getBlingResourceKeyFromWebhook(parsed)
 
   const supabase = createSupabaseServiceClient()
+  const { data: blingConn } = await supabase
+    .from('hub_connections')
+    .select('organization_id')
+    .eq('platform_id', PLATFORM_ID)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const organizationId = blingConn?.organization_id ? String(blingConn.organization_id) : null
+  if (!organizationId) {
+    return NextResponse.json({ error: 'organization_context_missing' }, { status: 409 })
+  }
   const { data: row, error } = await supabase
     .from('integration_webhooks')
     .insert({
+      organization_id: organizationId,
       platform_id: PLATFORM_ID,
       event_type: eventType,
       external_id: externalId,
