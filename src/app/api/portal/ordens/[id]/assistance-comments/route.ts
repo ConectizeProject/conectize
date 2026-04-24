@@ -64,6 +64,7 @@ export async function POST (
 
   const { error } = await auth.supabase.from('service_order_assistance_comments').insert({
     service_order_id: orderId,
+    organization_id: auth.organizationId,
     author_user_id: auth.userId,
     author_display_name: auth.authorDisplayName,
     content,

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import { BLING_API_V3_BASE_URL } from '@/lib/integrations/bling/constants'
+import { requireAdmin } from '@/lib/auth/portal-api'
 
 const BLING_TOKEN_URL = `${BLING_API_V3_BASE_URL}/oauth/token`
 const PLATFORM_ID = 'bling'
@@ -34,21 +34,14 @@ function getBlingRedirectUri (request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  const supabase = await createSupabaseServerClient()
-  const { user } = await getAuthUser()
-  if (!user) {
-    return NextResponse.redirect(new URL('/portal/login', getAppBaseUrl(request)))
-  }
-
-  const { data: appUser } = await supabase
-    .from('users')
-    .select('role')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  if (appUser?.role !== 'admin') {
+  const auth = await requireAdmin()
+  if (auth.ok === false) {
+    if (auth.status === 401) {
+      return NextResponse.redirect(new URL('/portal/login', getAppBaseUrl(request)))
+    }
     return NextResponse.redirect(new URL('/portal/minhas-ordens', getAppBaseUrl(request)))
   }
+  const supabase = auth.supabase
 
   const searchParams = request.nextUrl.searchParams
   const code = searchParams.get('code')
@@ -111,21 +104,36 @@ export async function GET(request: NextRequest) {
   const expiresIn = Number(tokenData.expires_in) || 3600
   const tokenExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString()
 
-  const { error: dbError } = await supabase
+  const now = new Date().toISOString()
+  const connectionPayload = {
+    platform_id: PLATFORM_ID,
+    organization_id: auth.organizationId,
+    access_token: tokenData.access_token,
+    refresh_token: tokenData.refresh_token || null,
+    token_expires_at: tokenExpiresAt,
+    api_key: null,
+    metadata: { scope: tokenData.scope || null },
+    updated_at: now,
+  }
+
+  const { data: existing } = await supabase
     .from('hub_connections')
-    .upsert(
-      {
-        platform_id: PLATFORM_ID,
-        access_token: tokenData.access_token,
-        refresh_token: tokenData.refresh_token || null,
-        token_expires_at: tokenExpiresAt,
-        api_key: null,
-        metadata: { scope: tokenData.scope || null },
-        created_by: user.id,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'platform_id,created_by' }
-    )
+    .select('id')
+    .eq('platform_id', PLATFORM_ID)
+    .eq('organization_id', auth.organizationId)
+    .maybeSingle()
+
+  const dbError = existing?.id
+    ? (await supabase
+      .from('hub_connections')
+      .update(connectionPayload)
+      .eq('id', existing.id)).error
+    : (await supabase
+      .from('hub_connections')
+      .insert({
+        ...connectionPayload,
+        created_by: auth.userId,
+      })).error
 
   if (dbError) {
     return NextResponse.redirect(new URL('/portal/hub?toast=bling_error&message=db_error', getAppBaseUrl(request)))

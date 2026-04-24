@@ -173,6 +173,7 @@ export async function createOrderAction(formData: FormData) {
     const content = internalInitialComment.slice(0, 6000)
     await supabase.from('service_order_internal_comments').insert({
       service_order_id: insertedOrder.id,
+      organization_id: organizationId,
       author_user_id: user.id,
       author_display_name: authorDisplayName,
       content,
@@ -227,6 +228,7 @@ export async function createOrderAction(formData: FormData) {
           .eq('id', existingDevice.id)
       } else {
         await supabase.from('customer_devices').insert({
+          organization_id: organizationId,
           customer_id: customerId,
           device_model_id: deviceModelId,
           brand: brand || null,
