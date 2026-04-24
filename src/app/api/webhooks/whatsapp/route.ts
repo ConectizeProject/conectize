@@ -5,6 +5,25 @@ import { processWhatsappWebhookPayload } from '@/lib/whatsapp/process-whatsapp-w
 
 export const dynamic = 'force-dynamic'
 
+function pickPhoneNumberIdFromPayload (payload: unknown): string | null {
+  const p = payload as {
+    entry?: Array<{
+      changes?: Array<{
+        value?: {
+          metadata?: { phone_number_id?: string }
+        }
+      }>
+    }>
+  }
+  for (const entry of p?.entry || []) {
+    for (const change of entry?.changes || []) {
+      const id = String(change?.value?.metadata?.phone_number_id || '').trim()
+      if (id) return id
+    }
+  }
+  return null
+}
+
 /**
  * GET: verificação do webhook (Meta envia hub.mode, hub.verify_token, hub.challenge).
  */
@@ -75,13 +94,39 @@ export async function POST (request: Request) {
   }
 
   try {
-    await supabase.from('integration_webhooks').insert({
-      platform_id: 'whatsapp_cloud',
-      event_type: 'incoming',
-      external_id: null,
-      payload: payload as object,
-      status: 'pending',
-    })
+    const phoneNumberId = pickPhoneNumberIdFromPayload(payload)
+    let organizationId: string | null = null
+    if (phoneNumberId) {
+      const { data: conns } = await supabase
+        .from('hub_connections')
+        .select('organization_id, metadata')
+        .eq('platform_id', 'whatsapp_business')
+      const matched = (conns || []).find((r) => {
+        const meta = (r.metadata as { phone_number_id?: string } | null) || {}
+        return String(meta.phone_number_id || '').trim() === phoneNumberId
+      })
+      organizationId = matched?.organization_id ? String(matched.organization_id) : null
+    }
+    if (!organizationId) {
+      const { data: singleConn } = await supabase
+        .from('hub_connections')
+        .select('organization_id')
+        .eq('platform_id', 'whatsapp_business')
+        .limit(1)
+        .maybeSingle()
+      organizationId = singleConn?.organization_id ? String(singleConn.organization_id) : null
+    }
+
+    if (organizationId) {
+      await supabase.from('integration_webhooks').insert({
+        organization_id: organizationId,
+        platform_id: 'whatsapp_cloud',
+        event_type: 'incoming',
+        external_id: null,
+        payload: payload as object,
+        status: 'pending',
+      })
+    }
   } catch (e) {
     console.error('[whatsapp webhook] log insert', e)
   }

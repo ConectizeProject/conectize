@@ -19,6 +19,7 @@ export async function DELETE(
     .from('hub_connections')
     .delete()
     .eq('platform_id', platformId)
+    .eq('organization_id', auth.organizationId)
 
   if (error) {
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })

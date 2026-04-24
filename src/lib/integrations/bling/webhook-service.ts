@@ -19,30 +19,40 @@ type HubConnectionRow = {
 }
 
 /** Usuário “ator” para created_by em movimentos gerados por webhook (admin ou staff). */
-async function getWebhookActorUserId (supabase: ServiceClient): Promise<string | null> {
+async function getWebhookActorUserId (
+  supabase: ServiceClient,
+  organizationId: string,
+): Promise<string | null> {
   const { data: admin } = await supabase
-    .from('users')
-    .select('id')
-    .eq('role', 'admin')
+    .from('organization_members')
+    .select('user_id, users!inner(role)')
+    .eq('organization_id', organizationId)
+    .eq('users.role', 'admin')
     .limit(1)
     .maybeSingle()
-  if (admin?.id) return String(admin.id)
+  if (admin?.user_id) return String(admin.user_id)
   const { data: staff } = await supabase
-    .from('users')
-    .select('id')
-    .eq('role', 'staff')
+    .from('organization_members')
+    .select('user_id, users!inner(role)')
+    .eq('organization_id', organizationId)
+    .eq('users.role', 'staff')
     .limit(1)
     .maybeSingle()
-  return staff?.id ? String(staff.id) : null
+  return staff?.user_id ? String(staff.user_id) : null
 }
 
 /** Quem “cria” produto via webhook: staff/admin do tenant ou quem conectou o Bling. */
-async function getCreatedByForProductWebhook (supabase: ServiceClient, actorUserId: string | null): Promise<string | null> {
+async function getCreatedByForProductWebhook (
+  supabase: ServiceClient,
+  actorUserId: string | null,
+  organizationId: string,
+): Promise<string | null> {
   if (actorUserId) return actorUserId
   const { data: conn } = await supabase
     .from('hub_connections')
     .select('created_by')
     .eq('platform_id', PLATFORM_ID)
+    .eq('organization_id', organizationId)
     .order('updated_at', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -52,6 +62,7 @@ async function getCreatedByForProductWebhook (supabase: ServiceClient, actorUser
 
 async function insertInitialStockFromBlingWebhook (
   supabase: ServiceClient,
+  organizationId: string,
   productId: string,
   quantity: number,
   unitCents: number,
@@ -60,6 +71,7 @@ async function insertInitialStockFromBlingWebhook (
 ): Promise<void> {
   if (!Number.isFinite(quantity) || quantity <= 0) return
   const row: Record<string, unknown> = {
+    organization_id: organizationId,
     product_id: productId,
     type: 'entry',
     quantity: Math.round(quantity),
@@ -73,10 +85,15 @@ async function insertInitialStockFromBlingWebhook (
   if (error) throw error
 }
 
-async function getProductIdByBlingId (supabase: ServiceClient, blingId: string): Promise<string | null> {
+async function getProductIdByBlingId (
+  supabase: ServiceClient,
+  organizationId: string,
+  blingId: string,
+): Promise<string | null> {
   const { data } = await supabase
     .from('products')
     .select('id')
+    .eq('organization_id', organizationId)
     .eq('bling_id', blingId)
     .limit(1)
     .maybeSingle()
@@ -85,6 +102,7 @@ async function getProductIdByBlingId (supabase: ServiceClient, blingId: string):
 
 async function countProductsWithParentBlingId (
   supabase: ServiceClient,
+  organizationId: string,
   parentBlingId: string,
 ): Promise<number> {
   const key = String(parentBlingId || '').trim()
@@ -92,6 +110,7 @@ async function countProductsWithParentBlingId (
   const { count, error } = await supabase
     .from('products')
     .select('id', { count: 'exact', head: true })
+    .eq('organization_id', organizationId)
     .eq('parent_bling_id', key)
   if (error) return 0
   return count ?? 0
@@ -113,11 +132,16 @@ async function getProductCurrentStockLocal (supabase: ServiceClient, productId: 
   return balance
 }
 
-async function fetchBlingProductLatest (supabase: ServiceClient, blingId: string): Promise<Record<string, unknown> | null> {
+async function fetchBlingProductLatest (
+  supabase: ServiceClient,
+  organizationId: string,
+  blingId: string,
+): Promise<Record<string, unknown> | null> {
   const { data: conn } = await supabase
     .from('hub_connections')
     .select('id, platform_id, access_token, refresh_token, token_expires_at, metadata, created_by')
     .eq('platform_id', PLATFORM_ID)
+    .eq('organization_id', organizationId)
     .order('updated_at', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -144,13 +168,14 @@ async function upsertProductFromBlingWebhook (
     webhookId: string
     blingId: string
     actorUserId: string | null
+    organizationId: string
     payloadPartial?: Record<string, unknown>
   },
 ): Promise<string | null> {
   const blingId = String(params.blingId || '').trim()
   if (!blingId) throw new Error('bling_product_id_missing')
 
-  const latest = await fetchBlingProductLatest(supabase, blingId)
+  const latest = await fetchBlingProductLatest(supabase, params.organizationId, blingId)
   const payloadPartial =
     params.payloadPartial && typeof params.payloadPartial === 'object'
       ? params.payloadPartial
@@ -173,7 +198,7 @@ async function upsertProductFromBlingWebhook (
 
   const parentBlingKey = local.parentBlingId ? String(local.parentBlingId).trim() : ''
   const parentProductUuid = parentBlingKey
-    ? await getProductIdByBlingId(supabase, parentBlingKey)
+    ? await getProductIdByBlingId(supabase, params.organizationId, parentBlingKey)
     : null
 
   const syncBase: Record<string, unknown> = {
@@ -198,6 +223,7 @@ async function upsertProductFromBlingWebhook (
     .select(
       'id, parent_bling_id, parent_product_id, image_url, cost_price_cents, cost_price_manual_edited_at, bling_id',
     )
+    .eq('organization_id', params.organizationId)
     .eq('bling_id', resolvedBlingId)
     .maybeSingle()
 
@@ -220,6 +246,7 @@ async function upsertProductFromBlingWebhook (
       : resolvedBlingId
     const variationRowsCount = await countProductsWithParentBlingId(
       supabase,
+      params.organizationId,
       existingBlingKey,
     )
 
@@ -238,7 +265,7 @@ async function upsertProductFromBlingWebhook (
         parent_bling_id = String(existing.parent_bling_id).trim()
         parent_product_id = existing.parent_product_id
           ? String(existing.parent_product_id)
-          : await getProductIdByBlingId(supabase, parent_bling_id)
+          : await getProductIdByBlingId(supabase, params.organizationId, parent_bling_id)
       }
       /**
        * Portal listou como produto raiz (`parent_bling_id` null). Após PATCH no Bling (ex.: GTIN),
@@ -293,12 +320,17 @@ async function upsertProductFromBlingWebhook (
     return productId
   }
 
-  const createdBy = await getCreatedByForProductWebhook(supabase, params.actorUserId)
+  const createdBy = await getCreatedByForProductWebhook(
+    supabase,
+    params.actorUserId,
+    params.organizationId,
+  )
   const catalogSortKey = await allocateCatalogSortKeyForInsert(supabase, {
     parentBlingId: (syncBase.parent_bling_id ?? null) as string | null,
   })
   const insertPayload: Record<string, unknown> = {
     ...syncBase,
+    organization_id: params.organizationId,
     created_by: createdBy,
     catalog_sort_key: catalogSortKey,
   }
@@ -315,6 +347,7 @@ async function upsertProductFromBlingWebhook (
   if (newId && estoqueAtual > 0) {
     await insertInitialStockFromBlingWebhook(
       supabase,
+      params.organizationId,
       newId,
       estoqueAtual,
       unitCents,
@@ -337,7 +370,7 @@ export async function processBlingWebhook (
 
   const { data: row, error: fetchError } = await supabase
     .from('integration_webhooks')
-    .select('id, platform_id, payload, retry_count')
+    .select('id, platform_id, payload, retry_count, organization_id')
     .eq('id', id)
     .maybeSingle()
 
@@ -356,9 +389,22 @@ export async function processBlingWebhook (
   }
 
   const payload = (row as { payload: unknown }).payload
+  const retryCount = ((row as { retry_count?: number }).retry_count ?? 0) + 1
+  const organizationId = String((row as { organization_id?: string | null }).organization_id || '').trim()
+  if (!organizationId) {
+    await supabase
+      .from('integration_webhooks')
+      .update({
+        status: 'error',
+        error_message: 'organization_context_missing',
+        processed_at: new Date().toISOString(),
+        retry_count: retryCount,
+      })
+      .eq('id', id)
+    return { ok: false, status: 'error', error_message: 'organization_context_missing' }
+  }
   const parsed = parseBlingWebhook(payload)
   const effect = mapWebhookToLocalEffect(parsed)
-  const retryCount = ((row as { retry_count?: number }).retry_count ?? 0) + 1
 
   if (effect.action === 'skip') {
     await supabase
@@ -373,7 +419,7 @@ export async function processBlingWebhook (
     return { ok: true, status: 'processed' }
   }
 
-  const actorUserId = await getWebhookActorUserId(supabase)
+  const actorUserId = await getWebhookActorUserId(supabase, organizationId)
 
   try {
     if (effect.action === 'updateProduct') {
@@ -385,6 +431,7 @@ export async function processBlingWebhook (
         webhookId: id,
         blingId: effect.blingId,
         actorUserId,
+        organizationId,
         payloadPartial,
       })
     }
@@ -394,7 +441,7 @@ export async function processBlingWebhook (
       if (!blingId) {
         throw new Error('bling_product_id_missing')
       }
-      const productUuid = await getProductIdByBlingId(supabase, blingId)
+      const productUuid = await getProductIdByBlingId(supabase, organizationId, blingId)
       if (productUuid) {
         const { error: deactivateErr } = await supabase
           .from('products')
@@ -413,7 +460,7 @@ export async function processBlingWebhook (
       if (!blingId) {
         throw new Error('bling_product_id_missing')
       }
-      const productUuid = await getProductIdByBlingId(supabase, blingId)
+      const productUuid = await getProductIdByBlingId(supabase, organizationId, blingId)
       if (productUuid) {
         const { data: costRow } = await supabase
           .from('products')
@@ -436,7 +483,7 @@ export async function processBlingWebhook (
     }
 
     if (effect.action === 'insertStockMovementFromBling') {
-      const productId = await getProductIdByBlingId(supabase, effect.blingId)
+      const productId = await getProductIdByBlingId(supabase, organizationId, effect.blingId)
       if (!productId) {
         throw new Error('product_not_found')
       }
@@ -444,6 +491,7 @@ export async function processBlingWebhook (
       const { data: existingMov } = await supabase
         .from('product_stock_movements')
         .select('id')
+        .eq('organization_id', organizationId)
         .eq('external_reference', effect.externalReference)
         .limit(1)
         .maybeSingle()
@@ -477,6 +525,7 @@ export async function processBlingWebhook (
             ?? (prod as { sale_price_cents?: number })?.sale_price_cents
             ?? 0
           const insertRow: Record<string, unknown> = {
+            organization_id: organizationId,
             product_id: productId,
             type: movementType,
             quantity: qty,
@@ -501,7 +550,7 @@ export async function processBlingWebhook (
     }
 
     if (effect.action === 'syncStock') {
-      const productId = await getProductIdByBlingId(supabase, effect.blingId)
+      const productId = await getProductIdByBlingId(supabase, organizationId, effect.blingId)
       if (!productId) {
         throw new Error('product_not_found')
       }
@@ -517,6 +566,7 @@ export async function processBlingWebhook (
         const { error: movError } = await supabase
           .from('product_stock_movements')
           .insert({
+            organization_id: organizationId,
             product_id: productId,
             type: diff > 0 ? 'entry' : 'exit',
             quantity: Math.abs(diff),
@@ -556,6 +606,7 @@ export async function processBlingWebhook (
             webhookId: id,
             blingId,
             actorUserId,
+            organizationId,
           })
           return processBlingWebhook(id, { hasTriedImportOnMissingProduct: true })
         }

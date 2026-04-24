@@ -57,16 +57,24 @@ function parseInboundMessages (payload: unknown): Array<{
 async function findWhatsappConnectionByPhoneNumberId (
   supabase: SupabaseClient,
   phoneNumberId: string,
-): Promise<{ access_token: string; metadata: WhatsappHubMetadata } | null> {
+) : Promise<{ access_token: string; metadata: WhatsappHubMetadata; organization_id: string } | null> {
   const { data: rows } = await supabase
     .from('hub_connections')
-    .select('access_token, metadata')
+    .select('access_token, metadata, organization_id')
     .eq('platform_id', 'whatsapp_business')
   const list = rows || []
   for (const r of list) {
     const meta = (r.metadata as WhatsappHubMetadata) || {}
-    if (String(meta.phone_number_id || '') === phoneNumberId && r.access_token) {
-      return { access_token: r.access_token as string, metadata: meta }
+    if (
+      String(meta.phone_number_id || '') === phoneNumberId
+      && r.access_token
+      && r.organization_id
+    ) {
+      return {
+        access_token: r.access_token as string,
+        metadata: meta,
+        organization_id: String(r.organization_id),
+      }
     }
   }
   return null
@@ -144,11 +152,12 @@ async function processOneInboundMessage (
     .from('whatsapp_conversations')
     .upsert(
       {
+        organization_id: conn.organization_id,
         wa_from: waFrom,
         last_message_at: new Date().toISOString(),
         needs_staff_attention: true,
       },
-      { onConflict: 'wa_from' },
+      { onConflict: 'organization_id,wa_from' },
     )
     .select('id, automation_override, state, draft_os')
     .single()

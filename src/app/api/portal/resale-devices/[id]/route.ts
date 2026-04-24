@@ -233,7 +233,8 @@ async function loadDeviceWithCosts (supabase: PortalSupabase, deviceId: string) 
 
 async function rewriteResaleCostsKeepingBaseOnly (
   supabase: PortalSupabase,
-  deviceId: string
+  deviceId: string,
+  organizationId: string,
 ) {
   const { data: cur } = await supabase
     .from('resale_device_costs')
@@ -243,6 +244,7 @@ async function rewriteResaleCostsKeepingBaseOnly (
   await supabase.from('resale_device_costs').delete().eq('resale_device_id', deviceId)
   for (const c of keep) {
     await supabase.from('resale_device_costs').insert({
+      organization_id: organizationId,
       resale_device_id: deviceId,
       description: c.description,
       value_cents: c.value_cents ?? 0,
@@ -368,7 +370,7 @@ export async function PATCH (
   }
 
   if (b.sold === false && !Array.isArray(b.costs)) {
-    await rewriteResaleCostsKeepingBaseOnly(auth.supabase, deviceId)
+    await rewriteResaleCostsKeepingBaseOnly(auth.supabase, deviceId, auth.organizationId)
   }
 
   if (Array.isArray(b.costs)) {
@@ -380,6 +382,7 @@ export async function PATCH (
           ? co.value_cents
           : toCents(co.value ?? co.value_cents) ?? 0
       await auth.supabase.from('resale_device_costs').insert({
+        organization_id: auth.organizationId,
         resale_device_id: deviceId,
         description: cleanText(co.description) || null,
         value_cents,
