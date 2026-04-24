@@ -432,6 +432,9 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
   const [verifyToken, setVerifyToken] = useState('')
   const [automationEnabled, setAutomationEnabled] = useState(false)
   const [testTo, setTestTo] = useState('')
+  const [blingLookupMode, setBlingLookupMode] = useState<'sku' | 'barcode'>('sku')
+  const [blingLookupQuery, setBlingLookupQuery] = useState('')
+  const [blingLookupLoading, setBlingLookupLoading] = useState(false)
 
   async function loadWhatsappConfig () {
     setWhatsappLoading(true)
@@ -734,6 +737,50 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
     }
   }
 
+  async function handleBlingSearchSync () {
+    const query = blingLookupQuery.trim()
+    if (!query) {
+      toast({ title: 'Informe um valor para busca', variant: 'destructive' })
+      return
+    }
+
+    setBlingLookupLoading(true)
+    try {
+      const res = await fetch('/api/portal/hub/bling/search-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: blingLookupMode,
+          query,
+        }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        const error = String(data?.error || '')
+        toast({
+          title: 'Falha ao sincronizar produto',
+          description:
+            error === 'product_not_found'
+              ? 'Produto não encontrado no Bling com esse identificador.'
+              : String(data?.message || 'Tente novamente.'),
+          variant: 'destructive',
+        })
+        return
+      }
+
+      const action = data?.action === 'created' ? 'criado' : 'atualizado'
+      toast({
+        variant: 'success',
+        title: `Produto ${action}`,
+        description: `${String(data?.productName || 'Produto')} sincronizado do Bling.`,
+      })
+      setBlingLookupQuery('')
+      router.refresh()
+    } finally {
+      setBlingLookupLoading(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="rounded-lg border bg-muted/30 p-4">
@@ -784,6 +831,44 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
           ))}
         </div>
       </div>
+
+      {isAdmin && blingConnections.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Bling: buscar produto e sincronizar</CardTitle>
+            <CardDescription>
+              Busque por SKU ou código de barras. Se encontrar no Bling, o produto será criado ou atualizado no Conectize.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-[170px_1fr_auto]">
+            <Select
+              value={blingLookupMode}
+              onValueChange={(value) => setBlingLookupMode(value === 'barcode' ? 'barcode' : 'sku')}
+              disabled={blingLookupLoading}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="sku">SKU</SelectItem>
+                <SelectItem value="barcode">Código de barras</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input
+              value={blingLookupQuery}
+              onChange={(e) => setBlingLookupQuery(e.target.value)}
+              placeholder={blingLookupMode === 'sku' ? 'Ex: SKU-IPHONE-15' : 'Ex: 7890000000000'}
+              disabled={blingLookupLoading}
+            />
+            <Button
+              onClick={() => void handleBlingSearchSync()}
+              disabled={blingLookupLoading}
+            >
+              {blingLookupLoading ? 'Buscando…' : 'Buscar e sincronizar'}
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Dialog
         open={!!connectDialog}
