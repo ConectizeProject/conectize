@@ -173,8 +173,8 @@ export function PortalShell(props: PortalShellProps) {
 				<SidebarRail />
 			</Sidebar>
 
-			<SidebarInset className="flex min-h-0 h-full max-h-full min-w-0 flex-1 flex-col overflow-hidden md:max-h-[calc(100svh-1rem)]">
-				<header className="sticky top-0 z-40 flex h-14 items-center justify-between gap-3 border-b bg-background/80 px-4 backdrop-blur">
+			<SidebarInset className="flex min-h-0 h-full max-h-full min-w-0 flex-1 flex-col overflow-hidden md:max-h-svh">
+				<header className="sticky top-0 z-40 flex h-14 items-center justify-between gap-3 bg-background/80 px-4 backdrop-blur">
 					<div className="flex items-center gap-2">
 						<SidebarTrigger />
 						<div className="text-sm text-muted-foreground hidden sm:block">
@@ -257,10 +257,12 @@ export function PortalShell(props: PortalShellProps) {
 				</header>
 
 				{props.supabasePlatformStatus ? (
-					<SupabaseStatusBanner status={props.supabasePlatformStatus} />
+					<div className="shrink-0 px-4">
+						<SupabaseStatusBanner status={props.supabasePlatformStatus} />
+					</div>
 				) : null}
 
-				<div className="flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-y-auto p-4 md:p-6">
+				<div className="flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-y-auto px-4">
 					{props.children}
 				</div>
 			</SidebarInset>

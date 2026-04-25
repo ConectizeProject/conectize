@@ -1,12 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -27,34 +28,36 @@ import {
   parsePercentInputToMarginBps,
   sanitizeMarginPercentInput,
 } from '@/lib/pricing/margin-percent'
+import type {
+  StaffPricingTagOverrideRow,
+  StaffPricingTagRow,
+  StaffPricingTagsRetailerRow,
+} from '@/lib/pricing/staff-pricing-tags-tab-data'
 import { formatMoneyInput, maskedFromCents, moneyToCentsFromMasked } from '@/lib/utils/money'
 
-type PricingTag = {
-  id: string
-  name: string
-  margin_bps: number | null
-  min_suggested_sale_cents: number | null
-}
+type PricingTag = StaffPricingTagRow
 
 function formatBrlFromCents (cents: number | null) {
   if (cents == null) return '—'
   return (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
-type RetailerRow = { id: string; email: string | null; full_name: string | null }
+type RetailerRow = StaffPricingTagsRetailerRow
 
-type OverrideRow = {
-  id: string
-  pricing_tag_id: string
-  retailer_user_id: string
-  margin_bps: number | null
-  min_suggested_sale_cents: number | null
-}
+type OverrideRow = StaffPricingTagOverrideRow
 
-function PricingTagOverridesStaffSection ({ pricingTags }: { pricingTags: PricingTag[] }) {
-  const [retailers, setRetailers] = useState<RetailerRow[]>([])
-  const [overrides, setOverrides] = useState<OverrideRow[]>([])
-  const [loading, setLoading] = useState(true)
+function PricingTagOverridesStaffSection ({
+  pricingTags,
+  initialRetailers,
+  initialOverrides,
+}: {
+  pricingTags: PricingTag[]
+  initialRetailers: RetailerRow[]
+  initialOverrides: OverrideRow[]
+}) {
+  const [retailers, setRetailers] = useState<RetailerRow[]>(initialRetailers)
+  const [overrides, setOverrides] = useState<OverrideRow[]>(initialOverrides)
+  const [loading, setLoading] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editOverride, setEditOverride] = useState<OverrideRow | null>(null)
   const [retailerUserId, setRetailerUserId] = useState('')
@@ -95,10 +98,6 @@ function PricingTagOverridesStaffSection ({ pricingTags }: { pricingTags: Pricin
       toast({ title: 'Erro', description: 'Não foi possível carregar overrides.', variant: 'destructive' })
     }
   }, [])
-
-  useEffect(() => {
-    void loadAll()
-  }, [loadAll])
 
   function openCreateOverride () {
     setEditOverride(null)
@@ -255,13 +254,17 @@ function PricingTagOverridesStaffSection ({ pricingTags }: { pricingTags: Pricin
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{editOverride ? 'Editar override' : 'Novo override'}</DialogTitle>
+            <DialogDescription>
+              Margem e valor mínimo personalizados para um lojista nesta tag de precificação.
+            </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3 py-2">
             {!editOverride ? (
               <>
                 <div className="grid gap-1">
-                  <Label>Lojista</Label>
+                  <Label htmlFor="pricing-override-retailer">Lojista</Label>
                   <select
+                    id="pricing-override-retailer"
                     className="h-9 rounded-md border border-input bg-background px-2 text-sm"
                     value={retailerUserId}
                     onChange={(e) => setRetailerUserId(e.target.value)}
@@ -273,8 +276,9 @@ function PricingTagOverridesStaffSection ({ pricingTags }: { pricingTags: Pricin
                   </select>
                 </div>
                 <div className="grid gap-1">
-                  <Label>Tag</Label>
+                  <Label htmlFor="pricing-override-tag">Tag de precificação</Label>
                   <select
+                    id="pricing-override-tag"
                     className="h-9 rounded-md border border-input bg-background px-2 text-sm"
                     value={pricingTagId}
                     onChange={(e) => setPricingTagId(e.target.value)}
@@ -337,9 +341,19 @@ function PricingTagOverridesStaffSection ({ pricingTags }: { pricingTags: Pricin
   )
 }
 
-export function PricingTagsStaffTab () {
-  const [tags, setTags] = useState<PricingTag[]>([])
-  const [loading, setLoading] = useState(true)
+type PricingTagsStaffTabProps = {
+  initialPricingTags: PricingTag[]
+  initialRetailers: RetailerRow[]
+  initialOverrides: OverrideRow[]
+}
+
+export function PricingTagsStaffTab ({
+  initialPricingTags,
+  initialRetailers,
+  initialOverrides,
+}: PricingTagsStaffTabProps) {
+  const [tags, setTags] = useState<PricingTag[]>(initialPricingTags)
+  const [loading, setLoading] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<PricingTag | null>(null)
   const [name, setName] = useState('')
@@ -359,10 +373,6 @@ export function PricingTagsStaffTab () {
     }
     setTags((json.pricingTags || []) as PricingTag[])
   }, [])
-
-  useEffect(() => {
-    void loadTags()
-  }, [loadTags])
 
   function openCreate () {
     setEditing(null)
@@ -499,6 +509,9 @@ export function PricingTagsStaffTab () {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{editing ? 'Editar tag' : 'Nova tag'}</DialogTitle>
+            <DialogDescription>
+              Nome, margem de participação sobre o preço de venda e valor mínimo sugerido.
+            </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3 py-2">
             <div className="grid gap-1">
@@ -545,7 +558,11 @@ export function PricingTagsStaffTab () {
         </DialogContent>
       </Dialog>
     </Card>
-    <PricingTagOverridesStaffSection pricingTags={tags} />
+    <PricingTagOverridesStaffSection
+      pricingTags={tags}
+      initialRetailers={initialRetailers}
+      initialOverrides={initialOverrides}
+    />
     </div>
   )
 }

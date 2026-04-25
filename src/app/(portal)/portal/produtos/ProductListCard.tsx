@@ -1,8 +1,7 @@
 'use client'
 
-import Link from 'next/link'
 import { memo, useCallback } from 'react'
-import { Barcode, Copy, Loader2, MoreHorizontal, Trash2 } from 'lucide-react'
+import { Barcode, Copy, Loader2, MoreHorizontal, Tag, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -12,7 +11,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { cn, formatCurrency } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
 import {
 	productTableCheckboxClass,
@@ -21,6 +20,7 @@ import {
 	type ProductRow,
 } from './product-list-shared'
 import { ProductListNameImageBlock } from './ProductListNameImageBlock'
+import { QuickCostPriceCell } from './QuickCostPriceCell'
 import { QuickSalePriceCell } from './QuickSalePriceCell'
 
 type Props = {
@@ -34,16 +34,12 @@ type Props = {
 	optimisticBarcode: string | null
 	onToggleSelect: (id: string, checked: boolean) => void
 	onRowClick: (product: ProductRow) => void
-	onOpenStock: (payload: {
-		id: string
-		name: string
-		costPriceCents?: number | null
-		currentStock: number
-	}) => void
+	onOpenStock: (product: ProductRow) => void
 	onGenerateBarcode: (id: string) => void
 	onSyncFromBling: (id: string) => void
 	onDelete: (product: ProductRow) => void
 	onEditProduct: (product: ProductRow) => void
+	onPrintLabel: (product: ProductRow) => void
 }
 
 export const ProductListCard = memo(function ProductListCard ({
@@ -62,6 +58,7 @@ export const ProductListCard = memo(function ProductListCard ({
 	onSyncFromBling,
 	onDelete,
 	onEditProduct,
+	onPrintLabel,
 }: Props) {
 	const handleCheckboxChange = useCallback(
 		(checked: boolean) => {
@@ -75,9 +72,28 @@ export const ProductListCard = memo(function ProductListCard ({
 	}, [onRowClick, product])
 
 	const copyToClipboard = useCallback((text: string) => {
-		navigator?.clipboard?.writeText(text).then(() => {
-			toast({ description: 'Copiado para a área de transferência', duration: 2000 })
-		}).catch(() => {})
+		const t = String(text || '').trim()
+		if (!t) return
+		const write = navigator?.clipboard?.writeText(t)
+		if (!write) {
+			toast({
+				variant: 'destructive',
+				title: 'Não foi possível copiar',
+				description: 'Área de transferência indisponível neste navegador.',
+			})
+			return
+		}
+		void write
+			.then(() => {
+				toast({ description: 'Copiado para a área de transferência', duration: 2000 })
+			})
+			.catch(() => {
+				toast({
+					variant: 'destructive',
+					title: 'Não foi possível copiar',
+					description: 'Verifique permissões do site ou use HTTPS.',
+				})
+			})
 	}, [])
 
 	const serverBarcode = product.barcode?.trim() || null
@@ -194,8 +210,14 @@ export const ProductListCard = memo(function ProductListCard ({
 									>
 										Editar
 									</DropdownMenuItem>
-									<DropdownMenuItem asChild>
-										<Link href={`/portal/produtos/${product.id}`}>Ver detalhes</Link>
+									<DropdownMenuItem
+										onSelect={(event) => {
+											event.preventDefault()
+											onPrintLabel(product)
+										}}
+									>
+										<Tag className="mr-2 h-4 w-4" />
+										Imprimir etiqueta
 									</DropdownMenuItem>
 									{product.bling_id && (
 										<DropdownMenuItem
@@ -265,12 +287,7 @@ export const ProductListCard = memo(function ProductListCard ({
 													className="rounded px-1 -mx-1 tabular-nums text-primary underline-offset-4 hover:underline"
 													onClick={(e) => {
 														e.stopPropagation()
-														onOpenStock({
-															id: product.id,
-															name: product.name,
-															costPriceCents: product.cost_price_cents,
-															currentStock: typeof product.current_stock === 'number' ? product.current_stock : 0,
-														})
+														onOpenStock(product)
 													}}
 												>
 													{typeof product.current_stock === 'number' ? product.current_stock : 0}
@@ -305,10 +322,13 @@ export const ProductListCard = memo(function ProductListCard ({
 							{isProductTab && (
 								<div className="min-w-0">
 									<dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Custo</dt>
-									<dd className="mt-0.5 tabular-nums">
-										{typeof product.cost_price_cents === 'number'
-											? formatCurrency(product.cost_price_cents / 100)
-											: '—'}
+									<dd className="mt-0.5 min-w-0" onClick={(e) => e.stopPropagation()}>
+										<QuickCostPriceCell
+											align="left"
+											productId={product.id}
+											blingId={product.bling_id}
+											costPriceCents={product.cost_price_cents}
+										/>
 									</dd>
 								</div>
 							)}

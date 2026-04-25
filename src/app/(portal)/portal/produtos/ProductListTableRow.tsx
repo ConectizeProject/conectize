@@ -1,8 +1,7 @@
 'use client'
 
-import Link from 'next/link'
 import { memo, useCallback } from 'react'
-import { Barcode, Copy, Loader2, MoreHorizontal, Trash2 } from 'lucide-react'
+import { Barcode, Copy, Loader2, MoreHorizontal, PencilLine, Tag, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -12,7 +11,6 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { formatCurrency } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
 import {
 	getProductTableCheckboxColumnStyle,
@@ -21,6 +19,7 @@ import {
 	type ProductRow,
 } from './product-list-shared'
 import { ProductListNameImageBlock } from './ProductListNameImageBlock'
+import { QuickCostPriceCell } from './QuickCostPriceCell'
 import { QuickSalePriceCell } from './QuickSalePriceCell'
 
 type Props = {
@@ -34,16 +33,12 @@ type Props = {
 	optimisticBarcode: string | null
 	onToggleSelect: (id: string, checked: boolean) => void
 	onRowClick: (product: ProductRow) => void
-	onOpenStock: (payload: {
-		id: string
-		name: string
-		costPriceCents?: number | null
-		currentStock: number
-	}) => void
+	onOpenStock: (product: ProductRow) => void
 	onGenerateBarcode: (id: string) => void
 	onSyncFromBling: (id: string) => void
 	onDelete: (product: ProductRow) => void
 	onEditProduct: (product: ProductRow) => void
+	onPrintLabel: (product: ProductRow) => void
 }
 
 export const ProductListTableRow = memo(function ProductListTableRow ({
@@ -62,6 +57,7 @@ export const ProductListTableRow = memo(function ProductListTableRow ({
 	onSyncFromBling,
 	onDelete,
 	onEditProduct,
+	onPrintLabel,
 }: Props) {
 	const handleCheckboxChange = useCallback(
 		(checked: boolean) => {
@@ -75,9 +71,28 @@ export const ProductListTableRow = memo(function ProductListTableRow ({
 	}, [onRowClick, product])
 
 	const copyToClipboard = useCallback((text: string) => {
-		navigator?.clipboard?.writeText(text).then(() => {
-			toast({ description: 'Copiado para a área de transferência', duration: 2000 })
-		}).catch(() => {})
+		const t = String(text || '').trim()
+		if (!t) return
+		const write = navigator?.clipboard?.writeText(t)
+		if (!write) {
+			toast({
+				variant: 'destructive',
+				title: 'Não foi possível copiar',
+				description: 'Área de transferência indisponível neste navegador.',
+			})
+			return
+		}
+		void write
+			.then(() => {
+				toast({ description: 'Copiado para a área de transferência', duration: 2000 })
+			})
+			.catch(() => {
+				toast({
+					variant: 'destructive',
+					title: 'Não foi possível copiar',
+					description: 'Verifique permissões do site ou use HTTPS.',
+				})
+			})
 	}, [])
 
 	const serverBarcode = product.barcode?.trim() || null
@@ -122,7 +137,7 @@ export const ProductListTableRow = memo(function ProductListTableRow ({
 							<Copy className="h-3 w-3 shrink-0 text-muted-foreground" />
 						</button>
 					)
-					: '-'}
+					: '—'}
 			</td>
 			<td className="min-w-0 px-2 py-2 align-top">
 				{(() => {
@@ -144,7 +159,7 @@ export const ProductListTableRow = memo(function ProductListTableRow ({
 					}
 
 					if (!product.bling_id) {
-						return '-'
+						return '—'
 					}
 
 					if (isBarcodeGenerating) {
@@ -202,19 +217,14 @@ export const ProductListTableRow = memo(function ProductListTableRow ({
 								className="rounded px-1 -mx-1 tabular-nums text-primary underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
 								onClick={(e) => {
 									e.stopPropagation()
-									onOpenStock({
-										id: product.id,
-										name: product.name,
-										costPriceCents: product.cost_price_cents,
-										currentStock: typeof product.current_stock === 'number' ? product.current_stock : 0,
-									})
+									onOpenStock(product)
 								}}
 							>
 								{typeof product.current_stock === 'number' ? product.current_stock : 0}
 							</button>
 						)
 						: (
-							<span className="tabular-nums text-muted-foreground">-</span>
+							<span className="tabular-nums text-muted-foreground">—</span>
 						)}
 				</td>
 			)}
@@ -227,17 +237,30 @@ export const ProductListTableRow = memo(function ProductListTableRow ({
 			</td>
 			{isProductTab && (
 				<td className="min-w-0 px-2 py-2 align-top text-right">
-					{typeof product.cost_price_cents === 'number'
-						? formatCurrency(product.cost_price_cents / 100)
-						: '-'}
+					<QuickCostPriceCell
+						productId={product.id}
+						blingId={product.bling_id}
+						costPriceCents={product.cost_price_cents}
+					/>
 				</td>
 			)}
 			<td className="py-2 pl-2 align-top text-right" onClick={(e) => e.stopPropagation()}>
-				<DropdownMenu modal={false}>
+				<div className="flex items-center justify-end gap-0.5">
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon"
+						className="h-8 w-8 shrink-0"
+						aria-label={`Abrir edição de ${product.name}`}
+						onClick={() => onEditProduct(product)}
+					>
+						<PencilLine className="h-4 w-4" aria-hidden />
+					</Button>
+					<DropdownMenu modal={false}>
 					<DropdownMenuTrigger asChild>
-						<Button variant="ghost" size="icon" className="h-8 w-8">
+						<Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
 							<MoreHorizontal className="h-4 w-4" />
-							<span className="sr-only">Abrir ações</span>
+							<span className="sr-only">Mais ações</span>
 						</Button>
 					</DropdownMenuTrigger>
 					<DropdownMenuContent align="end">
@@ -249,12 +272,21 @@ export const ProductListTableRow = memo(function ProductListTableRow ({
 						>
 							Editar
 						</DropdownMenuItem>
-						<DropdownMenuItem asChild>
-							<Link href={`/portal/produtos/${product.id}`}>Ver detalhes</Link>
+						<DropdownMenuItem
+							onSelect={(event) => {
+								event.preventDefault()
+								onPrintLabel(product)
+							}}
+						>
+							<Tag className="mr-2 h-4 w-4" />
+							Imprimir etiqueta
 						</DropdownMenuItem>
 						{product.bling_id && (
 							<DropdownMenuItem
-								onClick={() => onSyncFromBling(product.id)}
+								onSelect={(event) => {
+									event.preventDefault()
+									onSyncFromBling(product.id)
+								}}
 								disabled={isSyncing}
 							>
 								{isSyncing ? 'Sincronizando...' : 'Atualizar pelo Bling'}
@@ -273,6 +305,7 @@ export const ProductListTableRow = memo(function ProductListTableRow ({
 						</DropdownMenuItem>
 					</DropdownMenuContent>
 				</DropdownMenu>
+				</div>
 			</td>
 		</tr>
 	)
