@@ -46,7 +46,7 @@ export async function POST (request: NextRequest) {
     const chunkResults = await Promise.all(
       chunk.map(async ({ productId, body }): Promise<RowResult> => {
         const r = await applyStaffProductPatchFromBody(productId, body)
-        if (r.ok) return { productId, ok: true as const }
+        if (r.ok === true) return { productId, ok: true as const }
         return { productId, ok: false as const, error: r.error }
       }),
     )

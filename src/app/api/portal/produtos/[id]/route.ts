@@ -86,7 +86,7 @@ export async function PATCH (
   const body = await request.json().catch(() => ({})) as Record<string, unknown>
 
   const result = await applyStaffProductPatchFromBody(id, body)
-  if (!result.ok) {
+  if (result.ok === false) {
     return NextResponse.json(
       {
         ok: false,

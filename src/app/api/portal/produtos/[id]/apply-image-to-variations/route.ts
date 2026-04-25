@@ -28,7 +28,7 @@ export async function POST (
         : null
 
   const result = await applyImageUrlToActiveVariations(id, imageUrl)
-  if (!result.ok) {
+  if (result.ok === false) {
     const status =
       result.error === 'not_authenticated'
         ? 401

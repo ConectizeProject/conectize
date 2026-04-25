@@ -24,7 +24,7 @@ export async function POST (
   }
 
   const reordered = await reorderProductVariations(id, variationIds)
-  if (!reordered.ok) {
+  if (reordered.ok === false) {
     const status =
       reordered.error === 'not_authenticated'
         ? 401
