@@ -65,6 +65,35 @@ export async function POST (request: NextRequest) {
     }
   }
 
+  let parentProductId: string | null | undefined
+  if (Object.prototype.hasOwnProperty.call(body, 'parentProductId')) {
+    const raw = body.parentProductId
+    if (raw === null || raw === '') parentProductId = null
+    else {
+      const s = String(raw).trim().toLowerCase()
+      if (!UUID_RE.test(s)) {
+        return NextResponse.json({ ok: false, error: 'parentProductId_invalid' }, { status: 400 })
+      }
+      parentProductId = s
+    }
+  }
+
+  let parentBlingId: string | null | undefined
+  if (Object.prototype.hasOwnProperty.call(body, 'parentBlingId')) {
+    const raw = body.parentBlingId
+    parentBlingId = raw == null ? null : (String(raw).trim() || null)
+  }
+
+  let imageUrl: string | null | undefined
+  if (Object.prototype.hasOwnProperty.call(body, 'imageUrl')) {
+    const raw = body.imageUrl
+    if (raw === null) imageUrl = null
+    else if (typeof raw === 'string') imageUrl = raw.trim() || null
+    else {
+      return NextResponse.json({ ok: false, error: 'imageUrl_invalid' }, { status: 400 })
+    }
+  }
+
   const created = await createProduct({
     name,
     kind,
@@ -75,6 +104,9 @@ export async function POST (request: NextRequest) {
     costPriceCents,
     isActive: body.isActive !== false,
     ...(pricingTagId !== undefined ? { pricingTagId } : {}),
+    ...(parentProductId !== undefined ? { parentProductId } : {}),
+    ...(parentBlingId !== undefined ? { parentBlingId } : {}),
+    ...(imageUrl !== undefined ? { imageUrl } : {}),
   })
 
   if (!created.ok || !('product' in created)) {

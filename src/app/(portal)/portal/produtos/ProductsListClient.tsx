@@ -3,7 +3,8 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Barcode, CloudUpload, Loader2, PencilLine, RefreshCw } from 'lucide-react'
+import { AlertCircle, Barcode, CloudUpload, Link2, Loader2, PencilLine, RefreshCw } from 'lucide-react'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -27,8 +28,10 @@ import {
 	AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { toast } from '@/hooks/use-toast'
+import { getLabelWindowFeatures } from '@/lib/ordem-print'
+import { buildProductLabelHtml } from '@/lib/products/product-label-print'
+import { AssistenciaServicoLinkModal } from './AssistenciaServicoLinkModal'
 import { BulkEditProductsModal } from './BulkEditProductsModal'
-import { StockManagementModal } from './StockManagementModal'
 import { cn } from '@/lib/utils'
 import { ProductEditDialog } from './ProductEditDialog'
 import { ProductListCard } from './ProductListCard'
@@ -63,7 +66,7 @@ export type ProdutosFlatPagination = {
 	nextHref: string | null
 }
 
-function ProdutosPaginationBar ({
+function ProdutosPaginationBar({
 	paginationRangeLabel,
 	pagination,
 	className,
@@ -82,40 +85,40 @@ function ProdutosPaginationBar ({
 			<span className="text-muted-foreground">{paginationRangeLabel}</span>
 			{pagination
 				? (
-						<div className="flex flex-wrap items-center gap-2">
-							<span className="text-muted-foreground">
-								Página
-								{' '}
-								{pagination.page}
-								{' '}
-								de
-								{' '}
-								{pagination.totalPages}
-							</span>
-							{pagination.prevHref
-								? (
-										<Button variant="outline" size="sm" className="h-8" asChild>
-											<Link href={pagination.prevHref}>Anterior</Link>
-										</Button>
-									)
-								: (
-										<Button variant="outline" size="sm" className="h-8" disabled>
-											Anterior
-										</Button>
-									)}
-							{pagination.nextHref
-								? (
-										<Button variant="outline" size="sm" className="h-8" asChild>
-											<Link href={pagination.nextHref}>Próxima</Link>
-										</Button>
-									)
-								: (
-										<Button variant="outline" size="sm" className="h-8" disabled>
-											Próxima
-										</Button>
-									)}
-						</div>
-					)
+					<div className="flex flex-wrap items-center gap-2">
+						<span className="text-muted-foreground">
+							Página
+							{' '}
+							{pagination.page}
+							{' '}
+							de
+							{' '}
+							{pagination.totalPages}
+						</span>
+						{pagination.prevHref
+							? (
+								<Button variant="outline" size="sm" className="h-8" asChild>
+									<Link href={pagination.prevHref}>Anterior</Link>
+								</Button>
+							)
+							: (
+								<Button variant="outline" size="sm" className="h-8" disabled>
+									Anterior
+								</Button>
+							)}
+						{pagination.nextHref
+							? (
+								<Button variant="outline" size="sm" className="h-8" asChild>
+									<Link href={pagination.nextHref}>Próxima</Link>
+								</Button>
+							)
+							: (
+								<Button variant="outline" size="sm" className="h-8" disabled>
+									Próxima
+								</Button>
+							)}
+					</div>
+				)
 				: null}
 		</div>
 	)
@@ -126,6 +129,12 @@ type Props = {
 	pagination?: ProdutosFlatPagination | null
 	/** Ex.: "1–100 de 450" */
 	paginationRangeLabel?: string | null
+	/** Falha ao carregar lista no servidor (evitar confundir com catálogo vazio). */
+	listLoadError?: boolean
+	/** Termo de busca atual (URL `q`), para mensagens de estado vazio. */
+	searchQuery?: string
+	/** Busca com texto mas sem tokens válidos após sanitização. */
+	invalidSearchTokens?: boolean
 	initialFilterType?: 'product' | 'service'
 	tabHrefs?: {
 		products: string
@@ -133,25 +142,26 @@ type Props = {
 	}
 	/** Query `?edit=` — abre a modal de edição e remove o parâmetro da URL. */
 	initialEditProductId?: string
+	/** Query `?newVariationOf=` — abre modal de criação de variação vinculada ao pai. */
+	initialCreateVariationParentId?: string
 }
 
-export function ProductsListClient ({
+export function ProductsListClient({
 	products,
 	pagination,
 	paginationRangeLabel,
+	listLoadError = false,
+	searchQuery = '',
+	invalidSearchTokens = false,
 	initialFilterType = 'product',
 	initialEditProductId,
+	initialCreateVariationParentId,
 	tabHrefs,
 }: Props) {
 	const router = useRouter()
-	const [stockModalProduct, setStockModalProduct] = useState<{
-		id: string
-		name: string
-		costPriceCents?: number | null
-		currentStock: number
-	} | null>(null)
 	const [filterType, setFilterType] = useState<'product' | 'service'>(initialFilterType)
 	const [editingProduct, setEditingProduct] = useState<Pick<ProductRow, 'id' | 'name' | 'bling_id'> | null>(null)
+	const [productEditInitialTab, setProductEditInitialTab] = useState<'estoque' | undefined>(undefined)
 	const [syncingId, setSyncingId] = useState<string | null>(null)
 	const [barcodeGeneratingId, setBarcodeGeneratingId] = useState<string | null>(null)
 	const [barcodeGeneratingStage, setBarcodeGeneratingStage] = useState<'updating' | 'syncing' | null>(null)
@@ -167,10 +177,24 @@ export function ProductsListClient ({
 	const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
 	const [bulkBusy, setBulkBusy] = useState(false)
 	const [bulkAction, setBulkAction] = useState<'sync' | 'barcode' | 'pushPortal' | null>(null)
+	/** Operações em massa (Bling, código de barras, push): concluídos e total (rótulo faltam / total). */
+	const [bulkMassProgress, setBulkMassProgress] = useState<{
+		completed: number
+		total: number
+	} | null>(null)
 	const [bulkEditOpen, setBulkEditOpen] = useState(false)
 	const [bulkEditProductIds, setBulkEditProductIds] = useState<string[]>([])
 	const [pushPortalDialogOpen, setPushPortalDialogOpen] = useState(false)
+	const [assistenciaLinkModalOpen, setAssistenciaLinkModalOpen] = useState(false)
+	const [assistenciaLinkCatalogKind, setAssistenciaLinkCatalogKind] = useState<'product' | 'service'>(
+		'product',
+	)
 	const [createDialogOpen, setCreateDialogOpen] = useState(false)
+	const [createVariationParent, setCreateVariationParent] = useState<{
+		id: string
+		name: string
+		blingId: string | null
+	} | null>(null)
 	const [pushPortalFieldKeys, setPushPortalFieldKeys] = useState<Set<PortalFieldForBling>>(
 		() => new Set(PUSH_TO_BLING_FIELD_OPTIONS.map((o) => o.id)),
 	)
@@ -190,6 +214,8 @@ export function ProductsListClient ({
 		const raw = initialEditProductId?.trim()
 		if (!raw) return
 		setCreateDialogOpen(false)
+		setCreateVariationParent(null)
+		setProductEditInitialTab(undefined)
 		setEditingProduct({
 			id: raw,
 			name: '',
@@ -201,6 +227,61 @@ export function ProductsListClient ({
 		url.searchParams.delete('edit')
 		router.replace(url.pathname + url.search + url.hash, { scroll: false })
 	}, [initialEditProductId, router])
+
+	useEffect(() => {
+		const raw = initialCreateVariationParentId?.trim()
+		if (!raw) return
+		let cancelled = false
+
+		void (async () => {
+			try {
+				const res = await fetch(`/api/portal/produtos/${encodeURIComponent(raw)}`)
+				const data = await res.json().catch(() => null)
+				if (cancelled) return
+				if (!res.ok || !data?.ok || !data?.product) {
+					if (!cancelled) {
+						const errBody = data as { message?: string; error?: string } | null
+						toast({
+							variant: 'destructive',
+							title: 'Não foi possível abrir a variação',
+							description:
+								errBody?.message || errBody?.error || 'Produto pai não encontrado ou sem permissão.',
+						})
+					}
+					return
+				}
+				const parent = data.product as { id: string; name: string; blingId?: string | null }
+				setEditingProduct(null)
+				setCreateVariationParent({
+					id: parent.id,
+					name: parent.name || '',
+					blingId: parent.blingId ? String(parent.blingId) : null,
+				})
+				setCreateDialogOpen(true)
+			} catch (err) {
+				if (!cancelled) {
+					const message = err instanceof Error ? err.message : ''
+					toast({
+						variant: 'destructive',
+						title: 'Não foi possível abrir a variação',
+						description: message || 'Erro de rede. Tente novamente.',
+					})
+				}
+			} finally {
+				if (typeof window !== 'undefined') {
+					const url = new URL(window.location.href)
+					if (url.searchParams.get('newVariationOf')) {
+						url.searchParams.delete('newVariationOf')
+						router.replace(url.pathname + url.search + url.hash, { scroll: false })
+					}
+				}
+			}
+		})()
+
+		return () => {
+			cancelled = true
+		}
+	}, [initialCreateVariationParentId, router])
 
 	useEffect(() => {
 		if (!barcodeOptimistic) return
@@ -301,13 +382,13 @@ export function ProductsListClient ({
 		setBarcodeGeneratingStage('updating')
 		setBarcodeOptimistic(null)
 
-		function clearBarcodeGenerationOnly () {
+		function clearBarcodeGenerationOnly() {
 			barcodeInFlightRef.current = false
 			setBarcodeGeneratingId(null)
 			setBarcodeGeneratingStage(null)
 		}
 
-		function clearBarcodeGenerationAndOptimistic () {
+		function clearBarcodeGenerationAndOptimistic() {
 			clearBarcodeGenerationOnly()
 			setBarcodeOptimistic(null)
 		}
@@ -474,6 +555,7 @@ export function ProductsListClient ({
 
 	const handleProductRowClick = useCallback((p: ProductRow) => {
 		setCreateDialogOpen(false)
+		setProductEditInitialTab(undefined)
 		setEditingProduct({
 			id: p.id,
 			name: p.name,
@@ -483,6 +565,7 @@ export function ProductsListClient ({
 
 	const handleEditProduct = useCallback((p: ProductRow) => {
 		setCreateDialogOpen(false)
+		setProductEditInitialTab(undefined)
 		setEditingProduct({
 			id: p.id,
 			name: p.name,
@@ -490,7 +573,46 @@ export function ProductsListClient ({
 		})
 	}, [])
 
-	async function handleBulkSyncFromBling () {
+	const handleOpenProductStock = useCallback((p: ProductRow) => {
+		setCreateDialogOpen(false)
+		setProductEditInitialTab('estoque')
+		setEditingProduct({
+			id: p.id,
+			name: p.name,
+			bling_id: p.bling_id ?? null,
+		})
+	}, [])
+
+	const handlePrintLabel = useCallback((p: ProductRow) => {
+		const barcode = String(p.barcode || '').trim()
+		if (!barcode) {
+			toast({
+				variant: 'destructive',
+				title: 'Produto sem código de barras',
+				description: 'Gere ou informe um código de barras antes de imprimir a etiqueta.',
+			})
+			return
+		}
+		const w = window.open('', '_blank', getLabelWindowFeatures())
+		if (!w) {
+			toast({
+				variant: 'destructive',
+				title: 'Pop-up bloqueado',
+				description: 'Permita pop-ups para imprimir a etiqueta.',
+			})
+			return
+		}
+		const html = buildProductLabelHtml({
+			name: String(p.name || '').trim() || 'Produto',
+			sku: String(p.sku || '').trim() || null,
+			barcode,
+		})
+		w.document.open()
+		w.document.write(html)
+		w.document.close()
+	}, [])
+
+	async function handleBulkSyncFromBling() {
 		const ids = filteredRows
 			.filter((r) => selectedIds.has(r.id) && r.bling_id)
 			.map((r) => r.id)
@@ -502,12 +624,16 @@ export function ProductsListClient ({
 			})
 			return
 		}
+		const total = ids.length
 		setBulkBusy(true)
 		setBulkAction('sync')
+		setBulkMassProgress({ completed: 0, total })
+		let completed = 0
 		let ok = 0
 		let fail = 0
 		try {
 			for (const productId of ids) {
+				setBulkMassProgress({ completed, total })
 				const res = await fetch('/api/portal/bling/sync-product', {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
@@ -516,6 +642,8 @@ export function ProductsListClient ({
 				const data = await res.json().catch(() => null)
 				if (res.ok && data?.ok) ok++
 				else fail++
+				completed += 1
+				setBulkMassProgress({ completed, total })
 			}
 			toast({
 				variant: fail > 0 ? 'default' : 'success',
@@ -527,12 +655,13 @@ export function ProductsListClient ({
 		} catch {
 			toast({ variant: 'destructive', title: 'Erro na operação em massa' })
 		} finally {
+			setBulkMassProgress(null)
 			setBulkBusy(false)
 			setBulkAction(null)
 		}
 	}
 
-	async function handleBulkGenerateBarcode () {
+	async function handleBulkGenerateBarcode() {
 		const ids = filteredRows
 			.filter(
 				(r) =>
@@ -549,18 +678,24 @@ export function ProductsListClient ({
 			})
 			return
 		}
+		const total = ids.length
 		setBulkBusy(true)
 		setBulkAction('barcode')
+		setBulkMassProgress({ completed: 0, total })
+		let completed = 0
 		let ok = 0
 		let fail = 0
 		try {
 			for (const productId of ids) {
+				setBulkMassProgress({ completed, total })
 				const res = await fetch(`/api/portal/produtos/${productId}/barcode-generate`, {
 					method: 'POST',
 				})
 				const data = await res.json().catch(() => null)
 				if (!res.ok || !data?.ok) {
 					fail++
+					completed += 1
+					setBulkMassProgress({ completed, total })
 					continue
 				}
 				if (data?.shouldSyncToBling) {
@@ -572,10 +707,14 @@ export function ProductsListClient ({
 					const syncData = await syncRes.json().catch(() => null)
 					if (!syncRes.ok || !syncData?.ok) {
 						fail++
+						completed += 1
+						setBulkMassProgress({ completed, total })
 						continue
 					}
 				}
 				ok++
+				completed += 1
+				setBulkMassProgress({ completed, total })
 			}
 			toast({
 				variant: fail > 0 ? 'default' : 'success',
@@ -587,12 +726,13 @@ export function ProductsListClient ({
 		} catch {
 			toast({ variant: 'destructive', title: 'Erro na operação em massa' })
 		} finally {
+			setBulkMassProgress(null)
 			setBulkBusy(false)
 			setBulkAction(null)
 		}
 	}
 
-	function handleOpenPushPortalToBlingDialog () {
+	function handleOpenPushPortalToBlingDialog() {
 		const ids = filteredRows
 			.filter((r) => selectedIds.has(r.id) && r.bling_id)
 			.map((r) => r.id)
@@ -607,7 +747,7 @@ export function ProductsListClient ({
 		setPushPortalDialogOpen(true)
 	}
 
-	function togglePushPortalField (field: PortalFieldForBling, checked: boolean) {
+	function togglePushPortalField(field: PortalFieldForBling, checked: boolean) {
 		setPushPortalFieldKeys((prev) => {
 			const next = new Set(prev)
 			if (checked) next.add(field)
@@ -616,13 +756,13 @@ export function ProductsListClient ({
 		})
 	}
 
-	function setAllPushPortalFields (checked: boolean) {
+	function setAllPushPortalFields(checked: boolean) {
 		setPushPortalFieldKeys(
 			checked ? new Set(PUSH_TO_BLING_FIELD_OPTIONS.map((o) => o.id)) : new Set(),
 		)
 	}
 
-	async function handleConfirmPushPortalToBling () {
+	async function handleConfirmPushPortalToBling() {
 		const portalFieldsChanged = PUSH_TO_BLING_FIELD_OPTIONS
 			.map((o) => o.id)
 			.filter((id) => pushPortalFieldKeys.has(id))
@@ -644,12 +784,16 @@ export function ProductsListClient ({
 		}
 
 		setPushPortalDialogOpen(false)
+		const total = ids.length
 		setBulkBusy(true)
 		setBulkAction('pushPortal')
+		setBulkMassProgress({ completed: 0, total })
+		let completed = 0
 		let ok = 0
 		let fail = 0
 		try {
 			for (const productId of ids) {
+				setBulkMassProgress({ completed, total })
 				const res = await fetch(`/api/portal/produtos/${productId}/sync-bling`, {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
@@ -658,6 +802,8 @@ export function ProductsListClient ({
 				const data = await res.json().catch(() => null)
 				if (res.ok && data?.ok) ok++
 				else fail++
+				completed += 1
+				setBulkMassProgress({ completed, total })
 			}
 			toast({
 				variant: fail > 0 ? 'default' : 'success',
@@ -669,13 +815,15 @@ export function ProductsListClient ({
 		} catch {
 			toast({ variant: 'destructive', title: 'Erro na operação em massa' })
 		} finally {
+			setBulkMassProgress(null)
 			setBulkBusy(false)
 			setBulkAction(null)
 		}
 	}
 
-	function openCreateDialog () {
+	function openCreateDialog() {
 		setEditingProduct(null)
+		setCreateVariationParent(null)
 		setCreateDialogOpen(true)
 	}
 
@@ -683,12 +831,12 @@ export function ProductsListClient ({
 		<div className="min-w-0 w-full max-w-full">
 			{paginationRangeLabel
 				? (
-						<ProdutosPaginationBar
-							paginationRangeLabel={paginationRangeLabel}
-							pagination={pagination ?? null}
-							className="mb-4"
-						/>
-					)
+					<ProdutosPaginationBar
+						paginationRangeLabel={paginationRangeLabel}
+						pagination={pagination ?? null}
+						className="mb-4"
+					/>
+				)
 				: null}
 			<nav className="mb-4 flex gap-1 border-b">
 				{tabHrefs
@@ -748,7 +896,18 @@ export function ProductsListClient ({
 					)}
 			</nav>
 
-			<div className="mb-4 flex justify-end">
+			<div className="mb-4 flex flex-wrap justify-end gap-2">
+				<Button
+					type="button"
+					variant="secondary"
+					onClick={() => {
+						setAssistenciaLinkCatalogKind(isProductTab ? 'product' : 'service')
+						setAssistenciaLinkModalOpen(true)
+					}}
+				>
+					<Link2 className="mr-1.5 h-3.5 w-3.5" />
+					Sugestões de vínculo
+				</Button>
 				<Button type="button" variant="outline" onClick={openCreateDialog}>
 					Novo produto/serviço
 				</Button>
@@ -794,52 +953,103 @@ export function ProductsListClient ({
 							type="button"
 							variant="secondary"
 							size="sm"
-							className="h-8"
+							className="h-8 min-w-[10.5rem] justify-center sm:min-w-[12rem]"
 							disabled={bulkBusy}
+							aria-busy={bulkBusy && bulkAction === 'sync'}
 							onClick={() => void handleBulkSyncFromBling()}
 						>
-							{bulkBusy && bulkAction === 'sync'
+							{bulkBusy && bulkAction === 'sync' && bulkMassProgress
 								? (
-									<Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+									<>
+										<Loader2 className="mr-1 h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+										<span className="truncate">
+											Atualizando… faltam{' '}
+											{bulkMassProgress.total - bulkMassProgress.completed} de{' '}
+											{bulkMassProgress.total}
+										</span>
+									</>
 								)
-								: (
-									<RefreshCw className="mr-1 h-3.5 w-3.5" />
-								)}
-							Atualizar pelo Bling
+								: bulkBusy && bulkAction === 'sync'
+									? (
+										<>
+											<Loader2 className="mr-1 h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+											<span>Atualizando pelo Bling…</span>
+										</>
+									)
+									: (
+										<>
+											<RefreshCw className="mr-1 h-3.5 w-3.5 shrink-0" aria-hidden />
+											Atualizar pelo Bling
+										</>
+									)}
 						</Button>
 						<Button
 							type="button"
 							variant="secondary"
 							size="sm"
-							className="h-8"
+							className="h-8 min-w-[10.5rem] justify-center sm:min-w-[12rem]"
 							disabled={bulkBusy}
+							aria-busy={bulkBusy && bulkAction === 'barcode'}
 							onClick={() => void handleBulkGenerateBarcode()}
 						>
-							{bulkBusy && bulkAction === 'barcode'
+							{bulkBusy && bulkAction === 'barcode' && bulkMassProgress
 								? (
-									<Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+									<>
+										<Loader2 className="mr-1 h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+										<span className="truncate">
+											Gerando… faltam{' '}
+											{bulkMassProgress.total - bulkMassProgress.completed} de{' '}
+											{bulkMassProgress.total}
+										</span>
+									</>
 								)
-								: (
-									<Barcode className="mr-1 h-3.5 w-3.5" />
-								)}
-							Gerar código de barras
+								: bulkBusy && bulkAction === 'barcode'
+									? (
+										<>
+											<Loader2 className="mr-1 h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+											<span>Gerando código de barras…</span>
+										</>
+									)
+									: (
+										<>
+											<Barcode className="mr-1 h-3.5 w-3.5 shrink-0" aria-hidden />
+											Gerar código de barras
+										</>
+									)}
 						</Button>
 						<Button
 							type="button"
 							variant="secondary"
 							size="sm"
-							className="h-8"
+							className="h-8 min-w-[10.5rem] justify-center sm:min-w-[12rem]"
 							disabled={bulkBusy}
+							aria-busy={bulkBusy && bulkAction === 'pushPortal'}
 							onClick={() => handleOpenPushPortalToBlingDialog()}
 						>
-							{bulkBusy && bulkAction === 'pushPortal'
+							{bulkBusy && bulkAction === 'pushPortal' && bulkMassProgress
 								? (
-									<Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+									<>
+										<Loader2 className="mr-1 h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+										<span className="truncate">
+											Enviando… faltam{' '}
+											{bulkMassProgress.total - bulkMassProgress.completed} de{' '}
+											{bulkMassProgress.total}
+										</span>
+									</>
 								)
-								: (
-									<CloudUpload className="mr-1 h-3.5 w-3.5" />
-								)}
-							Enviar dados ao Bling
+								: bulkBusy && bulkAction === 'pushPortal'
+									? (
+										<>
+											<Loader2 className="mr-1 h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+											<span>Enviando ao Bling…</span>
+										</>
+									)
+									: (
+										<>
+											<CloudUpload className="mr-1 h-3.5 w-3.5 shrink-0" aria-hidden />
+											Enviar dados ao Bling
+										</>
+									)}
 						</Button>
 					</div>
 				</div>
@@ -866,10 +1076,11 @@ export function ProductsListClient ({
 								onToggleSelect={toggleRowSelected}
 								onRowClick={handleProductRowClick}
 								onEditProduct={handleEditProduct}
-								onOpenStock={setStockModalProduct}
+								onOpenStock={handleOpenProductStock}
 								onGenerateBarcode={handleGenerateBarcodeFromBling}
 								onSyncFromBling={handleSyncFromBling}
 								onDelete={openDeleteDialog}
+								onPrintLabel={handlePrintLabel}
 							/>
 						))}
 					</div>
@@ -918,13 +1129,13 @@ export function ProductsListClient ({
 											</th>
 											<th className="min-w-0 py-2 pr-2 text-left font-medium">Nome</th>
 											<th className="min-w-0 py-2 px-2 text-left font-medium">SKU</th>
-											<th className="min-w-0 py-2 px-2 text-left font-medium">Cód. barras</th>
+											<th className="min-w-0 py-2 px-2 text-left font-medium">Código de barras</th>
 											{isProductTab && (
 												<th className="min-w-0 py-2 px-2 text-right font-medium">Estoque</th>
 											)}
-											<th className="min-w-0 py-2 px-2 text-right font-medium">Preço venda</th>
+											<th className="min-w-0 py-2 px-2 text-right font-medium">Preço de venda</th>
 											{isProductTab && (
-												<th className="min-w-0 py-2 px-2 text-right font-medium">Custo</th>
+												<th className="min-w-0 py-2 px-2 text-right font-medium">Preço de custo</th>
 											)}
 											<th className="min-w-0 py-2 pl-2 text-right font-medium">Ações</th>
 										</tr>
@@ -948,10 +1159,11 @@ export function ProductsListClient ({
 												onToggleSelect={toggleRowSelected}
 												onRowClick={handleProductRowClick}
 												onEditProduct={handleEditProduct}
-												onOpenStock={setStockModalProduct}
+												onOpenStock={handleOpenProductStock}
 												onGenerateBarcode={handleGenerateBarcodeFromBling}
 												onSyncFromBling={handleSyncFromBling}
 												onDelete={openDeleteDialog}
+												onPrintLabel={handlePrintLabel}
 											/>
 										))}
 									</tbody>
@@ -962,35 +1174,80 @@ export function ProductsListClient ({
 				</>
 			) : (
 				<Card className="min-w-0 max-w-full">
-					<CardContent className="min-w-0 py-8 text-sm text-muted-foreground">
-						{filterType === 'product'
-							? 'Nenhum produto encontrado.'
-							: 'Nenhum serviço encontrado.'}
+					<CardContent className="min-w-0 space-y-4 py-8 text-sm">
+						{listLoadError
+							? (
+								<Alert variant="destructive">
+									<AlertCircle className="h-4 w-4" aria-hidden />
+									<AlertTitle>Não foi possível carregar o catálogo</AlertTitle>
+									<AlertDescription className="space-y-3">
+										<p>
+											Ocorreu um erro ao buscar os dados. Tente novamente em instantes.
+										</p>
+										<Button
+											type="button"
+											variant="outline"
+											size="sm"
+											className="h-8 border-destructive/40 text-destructive hover:bg-destructive/10"
+											onClick={() => router.refresh()}
+										>
+											Tentar novamente
+										</Button>
+									</AlertDescription>
+								</Alert>
+							)
+							: invalidSearchTokens
+								? (
+									<div className="space-y-2 text-muted-foreground">
+										<p className="font-medium text-foreground">Busca sem tokens válidos</p>
+										<p>
+											Use palavras ou números (nome, SKU ou código de barras). Termos que ficam
+											vazios após remover símbolos especiais não entram na busca.
+										</p>
+									</div>
+								)
+								: searchQuery.trim() && products.length === 0
+									? (
+										<div className="space-y-2 text-muted-foreground">
+											<p className="font-medium text-foreground">Nenhum resultado para a busca</p>
+											<p>
+												Não encontramos itens para &quot;{searchQuery.trim()}&quot;. Ajuste o termo ou
+												limpe o filtro.
+											</p>
+										</div>
+									)
+									: products.length === 0
+										? (
+											<div className="space-y-2 text-muted-foreground">
+												<p className="font-medium text-foreground">
+													{filterType === 'product' ? 'Catálogo sem produtos' : 'Catálogo sem serviços'}
+												</p>
+												<p>
+													{filterType === 'product'
+														? 'Cadastre um produto ou importe do Bling para ver itens aqui.'
+														: 'Cadastre um serviço para ver itens aqui.'}
+												</p>
+											</div>
+										)
+										: (
+											<div className="space-y-2 text-muted-foreground">
+												<p className="font-medium text-foreground">Nenhum item nesta visão</p>
+												<p>Altere a aba ou o filtro para ver outros itens da lista.</p>
+											</div>
+										)}
 					</CardContent>
 				</Card>
 			)}
 
 			{paginationRangeLabel
 				? (
-						<ProdutosPaginationBar
-							paginationRangeLabel={paginationRangeLabel}
-							pagination={pagination ?? null}
-							className="mt-6 border-t border-border/60 pt-4"
-						/>
-					)
+					<ProdutosPaginationBar
+						paginationRangeLabel={paginationRangeLabel}
+						pagination={pagination ?? null}
+						className="mt-6 border-t border-border/60 pt-4"
+					/>
+				)
 				: null}
-
-			{stockModalProduct && (
-				<StockManagementModal
-					open={!!stockModalProduct}
-					onOpenChange={(open) => !open && setStockModalProduct(null)}
-					productId={stockModalProduct.id}
-					productName={stockModalProduct.name}
-					costPriceCents={stockModalProduct.costPriceCents}
-					initialStock={stockModalProduct.currentStock}
-					onSuccess={() => router.refresh()}
-				/>
-			)}
 
 			<ProductEditDialog
 				open={createDialogOpen || Boolean(editingProduct)}
@@ -998,17 +1255,33 @@ export function ProductsListClient ({
 				productId={editingProduct?.id ?? null}
 				initialName={editingProduct?.name}
 				initialBlingId={editingProduct?.bling_id ?? null}
+				initialParentProductId={!editingProduct ? (createVariationParent?.id ?? null) : null}
+				initialParentBlingId={!editingProduct ? (createVariationParent?.blingId ?? null) : null}
+				initialParentName={!editingProduct ? (createVariationParent?.name ?? null) : null}
 				defaultKind={isProductTab ? 'product' : 'service'}
+				initialEditTab={productEditInitialTab}
 				onOpenChange={(open) => {
 					if (!open) {
 						setCreateDialogOpen(false)
 						setEditingProduct(null)
+						setCreateVariationParent(null)
+						setProductEditInitialTab(undefined)
 					}
 				}}
 				onSuccess={() => router.refresh()}
 				onNavigateToProductId={(id) => {
 					setCreateDialogOpen(false)
+					setProductEditInitialTab(undefined)
 					setEditingProduct({ id, name: '', bling_id: null })
+				}}
+				onCreateVariationFromParent={(parent) => {
+					setEditingProduct(null)
+					setCreateVariationParent({
+						id: parent.id,
+						name: parent.name,
+						blingId: parent.blingId,
+					})
+					setCreateDialogOpen(true)
 				}}
 			/>
 
@@ -1093,6 +1366,13 @@ export function ProductsListClient ({
 					setSelectedIds(new Set())
 					router.refresh()
 				}}
+			/>
+
+			<AssistenciaServicoLinkModal
+				catalogKind={assistenciaLinkCatalogKind}
+				open={assistenciaLinkModalOpen}
+				onOpenChange={setAssistenciaLinkModalOpen}
+				onSuccess={() => router.refresh()}
 			/>
 
 			<Dialog open={pushPortalDialogOpen} onOpenChange={setPushPortalDialogOpen}>

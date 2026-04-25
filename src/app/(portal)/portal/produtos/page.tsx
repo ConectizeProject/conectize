@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
-import { getPortalAuth } from '@/lib/supabase/server'
+import { loadStaffPricingTagsTabData } from '@/lib/pricing/staff-pricing-tags-tab-data'
+import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import { ProdutosGestaoTab } from './ProdutosGestaoTab'
 import { ProdutosStaffTabsNav, type ProdutosStaffTabId } from './ProdutosStaffTabsNav'
 import { StaffPrecosTabClient } from './StaffPrecosTabClient'
@@ -8,7 +9,14 @@ import { PricingTagsStaffTab } from './PricingTagsStaffTab'
 
 export const dynamic = 'force-dynamic'
 
-type SearchParams = Promise<{ q?: string; page?: string; kind?: string; tab?: string; edit?: string }>
+type SearchParams = Promise<{
+  q?: string
+  page?: string
+  kind?: string
+  tab?: string
+  edit?: string
+  newVariationOf?: string
+}>
 
 function parseStaffTab (raw: string | undefined): ProdutosStaffTabId {
   const t = String(raw || '').trim().toLowerCase()
@@ -32,6 +40,10 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
 
   const tab = parseStaffTab(sp.tab)
   const initialEditProductId = String(sp.edit || '').trim() || undefined
+  const initialCreateVariationParentId = String(sp.newVariationOf || '').trim() || undefined
+
+  const pricingTagsTabData =
+    tab === 'tags' ? await loadStaffPricingTagsTabData(await createSupabaseServerClient()) : null
 
   return (
     <div className="min-w-0 max-w-full space-y-4 sm:space-y-6">
@@ -52,10 +64,17 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
           page={String(sp.page || '')}
           kind={String(sp.kind || '')}
           initialEditProductId={initialEditProductId}
+          initialCreateVariationParentId={initialCreateVariationParentId}
         />
       ) : null}
       {tab === 'precos' ? <StaffPrecosTabClient /> : null}
-      {tab === 'tags' ? <PricingTagsStaffTab /> : null}
+      {tab === 'tags' && pricingTagsTabData ? (
+        <PricingTagsStaffTab
+          initialPricingTags={pricingTagsTabData.pricingTags}
+          initialRetailers={pricingTagsTabData.retailers}
+          initialOverrides={pricingTagsTabData.overrides}
+        />
+      ) : null}
     </div>
   )
 }

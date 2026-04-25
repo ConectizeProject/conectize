@@ -76,6 +76,23 @@ function normalizeText (value: string | null | undefined) {
   return normalizedValue || null
 }
 
+/**
+ * Campos do produto que existem só no portal (não são enviados ao Bling).
+ * Alterá-los não deve marcar `bling_sync_pending` nem sugerir “desincronizado”.
+ */
+const PRODUCT_PATCH_FIELDS_EXCLUDED_FROM_BLING_PENDING = new Set<keyof UpdateProductInput>([
+  'pricingTagId',
+  'imageUrl',
+])
+
+function isOnlyBlingExcludedProductPatch (patch: UpdateProductInput): boolean {
+  const keys = (Object.keys(patch) as (keyof UpdateProductInput)[]).filter(
+    (k) => patch[k] !== undefined,
+  )
+  if (keys.length === 0) return false
+  return keys.every((k) => PRODUCT_PATCH_FIELDS_EXCLUDED_FROM_BLING_PENDING.has(k))
+}
+
 function normalizePatch (input: UpdateProductInput): NormalizePatchResult {
   const patch: UpdateProductInput = {}
 
@@ -98,6 +115,10 @@ function normalizePatch (input: UpdateProductInput): NormalizePatchResult {
 
   if (input.description !== undefined) {
     patch.description = normalizeText(input.description)
+  }
+
+  if (input.imageUrl !== undefined) {
+    patch.imageUrl = input.imageUrl === null ? null : normalizeText(String(input.imageUrl))
   }
 
   if (input.salePriceCents !== undefined) {
@@ -163,17 +184,22 @@ export async function updateProductAndSyncBling (
 
   const currentProduct = currentResult.product
   const patch = { ...normalizedPatch.patch }
+  // Qualquer PATCH explícito de custo (portal) deve atualizar `cost_price_manual_edited_at`,
+  // senão `resolveListDisplayCostCents` pode continuar mostrando só a última entrada de estoque
+  // mesmo com o cadastro já igual ao valor exibido (usuário acha que "não salvou").
   if (patch.costPriceCents !== undefined) {
-    const prev = currentProduct.costPriceCents ?? null
-    const next = patch.costPriceCents ?? null
-    if (prev !== next) {
-      patch.costPriceManuallyEdited = true
-    }
+    patch.costPriceManuallyEdited = true
   }
+
+  const nextBlingSyncPending = !currentProduct.blingId
+    ? false
+    : isOnlyBlingExcludedProductPatch(patch)
+      ? currentProduct.blingSyncPending
+      : true
 
   const updatedResult = await updateProduct(id, {
     ...patch,
-    blingSyncPending: Boolean(currentProduct.blingId),
+    blingSyncPending: nextBlingSyncPending,
   })
 
   if (!updatedResult.ok || !('product' in updatedResult)) {

@@ -60,6 +60,7 @@ export type CreateProductInput = {
 	blingId?: string | null;
 	blingSyncPending?: boolean;
 	blingSyncSnapshot?: ProductSyncSnapshot | null;
+	parentProductId?: string | null;
 	/** ID do produto pai no Bling; null = não é variação. */
 	parentBlingId?: string | null;
 	kind?: "product" | "service" | null;
@@ -173,6 +174,18 @@ type ReplaceCompatibleModelsResult =
 	| AuthFailure
 	| { ok: false; error: "db_error" };
 
+type ReorderVariationsResult =
+	| { ok: true; variations: Product[] }
+	| AuthFailure
+	| {
+			ok: false;
+			error:
+				| "parent_not_found"
+				| "invalid_variations"
+				| "not_a_parent"
+				| "db_error";
+	  };
+
 async function requireAuth(): Promise<AuthSuccess | AuthFailure> {
 	const supabase = await createSupabaseServerClient();
 	const { user } = await getAuthUser();
@@ -226,8 +239,23 @@ export async function createProduct(
 
 	const parentKey =
 		input.parentBlingId != null ? String(input.parentBlingId).trim() : "";
+	const parentProductIdFromInput = normalizeOptionalUuid(input.parentProductId) ?? null;
 	let parentProductId: string | null = null;
-	if (parentKey && parentKey !== "0") {
+	let resolvedParentBlingId: string | null = parentKey && parentKey !== "0" ? parentKey : null;
+
+	if (parentProductIdFromInput) {
+		const { data: parentById } = await auth.supabase
+			.from("products")
+			.select("id, bling_id")
+			.eq("id", parentProductIdFromInput)
+			.limit(1)
+			.maybeSingle();
+		parentProductId = parentById?.id ? String(parentById.id) : parentProductIdFromInput;
+		if (!resolvedParentBlingId && parentById?.bling_id != null) {
+			const k = String(parentById.bling_id).trim();
+			resolvedParentBlingId = k || null;
+		}
+	} else if (parentKey && parentKey !== "0") {
 		const { data: parentRow } = await auth.supabase
 			.from("products")
 			.select("id")
@@ -238,7 +266,7 @@ export async function createProduct(
 	}
 
 	const catalogSortKey = await allocateCatalogSortKeyForInsert(auth.supabase, {
-		parentBlingId: parentKey && parentKey !== "0" ? parentKey : null,
+		parentBlingId: resolvedParentBlingId,
 	});
 
 	const pricingTagId = normalizeOptionalUuid(input.pricingTagId);
@@ -248,7 +276,7 @@ export async function createProduct(
 		bling_id: input.blingId ?? null,
 		bling_sync_pending: input.blingSyncPending ?? false,
 		bling_sync_snapshot: input.blingSyncSnapshot ?? null,
-		parent_bling_id: parentKey && parentKey !== "0" ? parentKey : null,
+		parent_bling_id: resolvedParentBlingId,
 		parent_product_id: parentProductId,
 		name,
 		sku: input.sku ? String(input.sku).trim() : null,
@@ -331,6 +359,137 @@ export async function getProductByIdWithVariations(
 		product,
 		variations: (byParentUuid ?? []).map(mapRowToProduct),
 	};
+}
+
+export type ApplyImageUrlToVariationsResult =
+	| { ok: true; updatedCount: number }
+	| {
+		ok: false;
+		error: "not_authenticated" | "not_found" | "not_a_parent" | "db_error";
+	};
+
+/** Atualiza `image_url` de todas as variações ativas do pai (mesma regra de `getProductByIdWithVariations`). */
+export async function applyImageUrlToActiveVariations(
+	parentProductId: string,
+	imageUrl: string | null,
+): Promise<ApplyImageUrlToVariationsResult> {
+	const auth = await requireAuth();
+	if (!auth.ok) return { ok: false, error: "not_authenticated" };
+
+	const id = String(parentProductId || "").trim().toLowerCase();
+	if (!UUID_RE.test(id)) return { ok: false, error: "not_found" };
+
+	const withVars = await getProductByIdWithVariations(id);
+	if (!withVars.ok) return { ok: false, error: "not_found" };
+
+	const parentPb =
+		withVars.product.parentBlingId != null
+			? String(withVars.product.parentBlingId).trim()
+			: "";
+	if (parentPb) return { ok: false, error: "not_a_parent" };
+
+	const ids = withVars.variations.map((v) => v.id);
+	if (ids.length === 0) return { ok: true, updatedCount: 0 };
+
+	const normalizedUrl =
+		imageUrl != null && String(imageUrl).trim()
+			? String(imageUrl).trim()
+			: null;
+
+	const { error: updErr } = await auth.supabase
+		.from("products")
+		.update({
+			image_url: normalizedUrl,
+			updated_at: new Date().toISOString(),
+		})
+		.in("id", ids);
+
+	if (updErr) return { ok: false, error: "db_error" };
+	return { ok: true, updatedCount: ids.length };
+}
+
+export async function reorderProductVariations(
+	parentProductId: string,
+	orderedVariationIds: string[],
+): Promise<ReorderVariationsResult> {
+	const auth = await requireAuth();
+	if (!auth.ok) return { ok: false, error: "not_authenticated" };
+
+	const normalizedIds = [
+		...new Set(
+			orderedVariationIds
+				.map((id) => String(id || "").trim().toLowerCase())
+				.filter((id) => UUID_RE.test(id)),
+		),
+	];
+	if (normalizedIds.length === 0) {
+		return { ok: false as const, error: "invalid_variations" as const };
+	}
+
+	const { data: parentRow, error: parentErr } = await auth.supabase
+		.from("products")
+		.select("id, bling_id, parent_bling_id, catalog_sort_key")
+		.eq("id", parentProductId)
+		.maybeSingle();
+
+	if (parentErr || !parentRow) {
+		return { ok: false as const, error: "parent_not_found" as const };
+	}
+	if ((parentRow.parent_bling_id != null && String(parentRow.parent_bling_id).trim() !== "")) {
+		return { ok: false as const, error: "not_a_parent" as const };
+	}
+
+	const parentBlingId = parentRow.bling_id != null ? String(parentRow.bling_id).trim() : "";
+	let query = auth.supabase
+		.from("products")
+		.select("id, catalog_sort_key")
+		.in("id", normalizedIds);
+
+	if (parentBlingId) {
+		query = query.eq("parent_bling_id", parentBlingId);
+	} else {
+		query = query.eq("parent_product_id", parentProductId);
+	}
+
+	const { data: variationRows, error: varsErr } = await query;
+	if (varsErr || !variationRows) {
+		return { ok: false as const, error: "db_error" as const };
+	}
+	if (variationRows.length !== normalizedIds.length) {
+		return { ok: false as const, error: "invalid_variations" as const };
+	}
+
+	const parentCatalogSortKeyRaw =
+		parentRow.catalog_sort_key != null ? String(parentRow.catalog_sort_key).trim() : "";
+	const parentRootKey = parentCatalogSortKeyRaw && !parentCatalogSortKeyRaw.includes(".")
+		? parentCatalogSortKeyRaw
+		: null;
+	if (!parentRootKey) {
+		return { ok: false as const, error: "db_error" as const };
+	}
+
+	for (let i = 0; i < normalizedIds.length; i++) {
+		const variationId = normalizedIds[i];
+		const suffix = String(i + 1).padStart(6, "0");
+		const catalogSortKey = `${parentRootKey}.${suffix}`;
+		const { error: updErr } = await auth.supabase
+			.from("products")
+			.update({
+				catalog_sort_key: catalogSortKey,
+				updated_at: new Date().toISOString(),
+			})
+			.eq("id", variationId);
+		if (updErr) {
+			return { ok: false as const, error: "db_error" as const };
+		}
+	}
+
+	const reloaded = await getProductByIdWithVariations(parentProductId);
+	if (!reloaded.ok) {
+		return { ok: false as const, error: "db_error" as const };
+	}
+
+	return { ok: true as const, variations: reloaded.variations };
 }
 
 export async function updateProduct(
@@ -486,6 +645,7 @@ export async function replaceProductCompatibleDeviceModels(
 	}
 
 	const rows = unique.map((device_model_id) => ({
+		organization_id: auth.organizationId,
 		product_id: productId,
 		device_model_id,
 	}));
@@ -679,6 +839,7 @@ export async function addStockMovement(
 	const { data: inserted, error } = await auth.supabase
 		.from("product_stock_movements")
 		.insert({
+			organization_id: auth.organizationId,
 			product_id: productId,
 			type,
 			quantity,

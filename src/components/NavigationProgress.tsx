@@ -21,8 +21,17 @@ export function NavigationProgress () {
   }, [routeKey])
 
   useEffect(() => {
+    if (!visible) return
+    const timeoutId = window.setTimeout(() => {
+      setVisible(false)
+    }, 8000)
+    return () => window.clearTimeout(timeoutId)
+  }, [visible])
+
+  useEffect(() => {
     function onClickCapture (e: MouseEvent) {
       if (e.button !== 0) return
+      if (e.defaultPrevented) return
       const raw = (e.target as HTMLElement | null)?.closest('a')
       if (!raw) return
       const a = raw as HTMLAnchorElement

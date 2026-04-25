@@ -23,7 +23,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { suggestedSaleCents } from '@/lib/pricing/suggested-sale-cents'
+import { cn } from '@/lib/utils'
 import { formatMoneyInput, maskedFromCents, moneyToCentsFromMasked } from '@/lib/utils/money'
+import { toast } from '@/hooks/use-toast'
 
 export type ProductFormProduct = {
   id: string
@@ -31,6 +33,7 @@ export type ProductFormProduct = {
   sku: string | null
   barcode: string | null
   description: string | null
+  imageUrl?: string | null
   salePriceCents: number | null
   costPriceCents: number | null
   pricingTagId: string | null
@@ -43,6 +46,7 @@ export type ProductFormSubmitPayload = {
   sku: string | null
   barcode: string | null
   description: string | null
+  imageUrl: string | null
   kind: 'product' | 'service'
   salePrice: number
   costPrice: number
@@ -64,6 +68,44 @@ type DeviceCatalogRow = {
   brand: string | null
   device_type: string | null
   model: string | null
+}
+
+/** Remove acentos para comparar busca com rótulo (ex.: "ação" → "acao"). */
+function normalizeSearchFold (raw: string) {
+  return String(raw || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
+const COMPAT_SEARCH_STOPWORDS = new Set([
+  'a', 'e', 'o', 'os', 'as', 'da', 'de', 'do', 'das', 'dos', 'di', 'em', 'no', 'na', 'nos', 'nas',
+  'ao', 'aos', 'por', 'para', 'com', 'sem',
+])
+
+/** Palavras com 2+ caracteres, ignorando conectivos comuns ("M12 da Samsung" → m12, samsung). */
+function compatibleSearchTokens (raw: string) {
+  const n = normalizeSearchFold(raw)
+  const parts = n.split(/[\s,;/|]+/).map((t) => t.trim()).filter(Boolean)
+  return parts.filter((p) => p.length >= 2 && !COMPAT_SEARCH_STOPWORDS.has(p))
+}
+
+function labelMatchesCompatibleQuery (label: string, rawQuery: string) {
+  const raw = String(rawQuery || '').trim()
+  if (raw.length < 2) return false
+  const hay = normalizeSearchFold(label)
+  const tokens = compatibleSearchTokens(raw)
+  if (tokens.length === 0) {
+    return hay.includes(normalizeSearchFold(raw))
+  }
+  return tokens.every((t) => hay.includes(t))
+}
+
+function deviceRowToOption (d: DeviceCatalogRow) {
+  return {
+    value: d.id,
+    label: [d.brand, d.device_type, d.model].filter(Boolean).join(' ') || d.id,
+  }
 }
 
 export type CompatibleEntry = { id: string; label: string }
@@ -106,6 +148,10 @@ type Props = {
   initialCompatibleModels?: CompatibleEntry[]
   defaultKind?: 'product' | 'service'
   embed?: boolean
+  /** Quantidade de variações ativas (produto pai); se maior que zero, exibe ação para replicar a URL da foto. */
+  variationChildCount?: number
+  applyImageToChildrenBusy?: boolean
+  onApplyImageToVariationChildren?: (imageUrl: string | null) => Promise<void>
   onSubmit: (payload: ProductFormSubmitPayload) => Promise<void>
   onCancel: () => void
 }
@@ -116,9 +162,18 @@ export function ProductForm ({
   initialCompatibleModels,
   defaultKind = 'product',
   embed = false,
+  variationChildCount = 0,
+  applyImageToChildrenBusy = false,
+  onApplyImageToVariationChildren,
   onSubmit,
   onCancel,
 }: Props) {
+  const nameInputRef = useRef<HTMLInputElement>(null)
+  const [submitErrors, setSubmitErrors] = useState<{
+    name?: string
+    salePrice?: string
+    costPrice?: string
+  }>({})
   const [pending, setPending] = useState(false)
   const [pricingTags, setPricingTags] = useState<PricingTagRow[]>([])
   const [pricingTagId, setPricingTagId] = useState(() => product?.pricingTagId || '')
@@ -128,6 +183,11 @@ export function ProductForm ({
     return defaultKind
   })
   const [description, setDescription] = useState(() => product?.description || '')
+  const [imageUrl, setImageUrl] = useState(() =>
+    product?.imageUrl != null && String(product.imageUrl).trim()
+      ? String(product.imageUrl).trim()
+      : '',
+  )
   const [isActive, setIsActive] = useState(() => product?.isActive !== false)
   const [saleReais, setSaleReais] = useState(() =>
     typeof product?.salePriceCents === 'number'
@@ -140,8 +200,8 @@ export function ProductForm ({
       : '',
   )
 
-  const [compatibleModel, setCompatibleModel] = useState<CompatibleEntry | null>(() =>
-    initialCompatibleModels && initialCompatibleModels.length > 0 ? initialCompatibleModels[0] : null,
+  const [compatibleModels, setCompatibleModels] = useState<CompatibleEntry[]>(() =>
+    Array.isArray(initialCompatibleModels) ? [...initialCompatibleModels] : [],
   )
 
   const [deviceCatalog, setDeviceCatalog] = useState<DeviceCatalogRow[]>([])
@@ -154,12 +214,17 @@ export function ProductForm ({
   const [tagSuggestDraft, setTagSuggestDraft] = useState('')
 
   useEffect(() => {
-    if (initialCompatibleModels && initialCompatibleModels.length > 0) {
-      setCompatibleModel(initialCompatibleModels[0])
-    } else {
-      setCompatibleModel(null)
-    }
+    setCompatibleModels(Array.isArray(initialCompatibleModels) ? [...initialCompatibleModels] : [])
   }, [initialCompatibleModels])
+
+  useEffect(() => {
+    if (!product?.id) return
+    setImageUrl(
+      product.imageUrl != null && String(product.imageUrl).trim()
+        ? String(product.imageUrl).trim()
+        : '',
+    )
+  }, [product?.id, product?.imageUrl])
 
   useEffect(() => {
     let cancelled = false
@@ -178,7 +243,7 @@ export function ProductForm ({
     let cancelled = false
     void (async () => {
       setDeviceCatalogLoading(true)
-      const res = await fetch('/api/portal/device-models?limit=2000')
+      const res = await fetch('/api/portal/device-models?limit=8000')
       const json = await res.json().catch(() => null)
       if (cancelled || !res.ok || !json?.ok) {
         setDeviceCatalog([])
@@ -196,22 +261,56 @@ export function ProductForm ({
   const deviceOptions = useMemo(
     () =>
       deviceCatalog
-        .map((d) => ({
-          value: d.id,
-          label: [d.brand, d.device_type, d.model].filter(Boolean).join(' ') || d.id,
-        }))
+        .map((d) => deviceRowToOption(d))
         .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR')),
     [deviceCatalog],
   )
 
   useEffect(() => {
-    const q = deviceModelQuery.trim().toLowerCase()
-    if (q.length < 2) {
+    const raw = deviceModelQuery.trim()
+    if (raw.length < 2) {
       setCompatibleSuggestions([])
       return
     }
-    const next = deviceOptions.filter((o) => o.label.toLowerCase().includes(q)).slice(0, 50)
-    setCompatibleSuggestions(next)
+    const fromCatalog = deviceOptions
+      .filter((o) => labelMatchesCompatibleQuery(o.label, raw))
+      .slice(0, 50)
+    if (fromCatalog.length > 0) {
+      setCompatibleSuggestions(fromCatalog)
+      return
+    }
+
+    let cancelled = false
+    const timer = setTimeout(() => {
+      void (async () => {
+        const tokens = compatibleSearchTokens(raw)
+        const token = [...tokens].sort((a, b) => b.length - a.length)[0] || normalizeSearchFold(raw).slice(0, 48)
+        if (token.length < 2) {
+          if (!cancelled) setCompatibleSuggestions([])
+          return
+        }
+        const res = await fetch(
+          `/api/portal/device-models?q=${encodeURIComponent(token)}&limit=400`,
+        )
+        const json = await res.json().catch(() => null)
+        if (cancelled || !res.ok || !json?.ok) {
+          if (!cancelled) setCompatibleSuggestions([])
+          return
+        }
+        const rows = (json.deviceModels || []) as DeviceCatalogRow[]
+        const mapped = rows.map((d) => deviceRowToOption(d))
+        const filtered = mapped
+          .filter((o) => labelMatchesCompatibleQuery(o.label, raw))
+          .slice(0, 50)
+        if (!cancelled) {
+          setCompatibleSuggestions(filtered.length > 0 ? filtered : mapped.slice(0, 50))
+        }
+      })()
+    }, 280)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
   }, [deviceModelQuery, deviceOptions])
 
   const selectedTag = useMemo(
@@ -270,7 +369,14 @@ export function ProductForm ({
       return
     }
     const c = parseMaskedMoneyToCents(raw)
-    if (c === 'invalid' || c === null) return
+    if (c === 'invalid' || c === null) {
+      toast({
+        variant: 'destructive',
+        title: 'Valor inválido',
+        description: 'Informe um valor em reais no formato 0,00.',
+      })
+      return
+    }
     setSaleReais(maskedFromCents(c))
     setTagSuggestOpen(false)
   }
@@ -281,29 +387,41 @@ export function ProductForm ({
   }
 
   function handlePickCompatibleModel (opt: { value: string; label: string }) {
-    setCompatibleModel({ id: opt.value, label: opt.label })
+    setCompatibleModels((prev) => {
+      if (prev.some((m) => m.id === opt.value)) return prev
+      return [...prev, { id: opt.value, label: opt.label }]
+    })
     setDeviceModelQuery('')
     setCompatibleSuggestions([])
   }
 
-  function clearCompatibleModel () {
-    setCompatibleModel(null)
-    setDeviceModelQuery('')
-    setCompatibleSuggestions([])
+  function removeCompatibleModel (id: string) {
+    setCompatibleModels((prev) => prev.filter((m) => m.id !== id))
   }
 
   async function handleSubmit (event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    setSubmitErrors({})
     const formData = new FormData(event.currentTarget)
     const name = String(formData.get('name') || '').trim()
-    if (!name) return
+    if (!name) {
+      setSubmitErrors({ name: 'Informe um nome para o produto ou serviço.' })
+      queueMicrotask(() => nameInputRef.current?.focus())
+      return
+    }
 
     const saleCentsParsed = parseMaskedMoneyToCents(saleReais)
-    if (saleCentsParsed === 'invalid') return
+    if (saleCentsParsed === 'invalid') {
+      setSubmitErrors({ salePrice: 'Valor de preço de venda inválido. Use o formato 0,00.' })
+      return
+    }
     const salePrice = saleCentsParsed == null ? 0 : saleCentsParsed / 100
 
     const costCentsParsed = parseMaskedMoneyToCents(costReais)
-    if (costCentsParsed === 'invalid') return
+    if (costCentsParsed === 'invalid') {
+      setSubmitErrors({ costPrice: 'Valor de preço de custo inválido. Use o formato 0,00.' })
+      return
+    }
     const costPrice = costCentsParsed == null ? 0 : costCentsParsed / 100
 
     const initialStockRaw = mode === 'create'
@@ -318,12 +436,13 @@ export function ProductForm ({
       sku: String(formData.get('sku') || '').trim() || null,
       barcode: String(formData.get('barcode') || '').trim() || null,
       description: description.trim() || null,
+      imageUrl: imageUrl.trim() || null,
       kind,
       salePrice,
       costPrice,
       isActive,
       pricingTagId: pricingTagId || null,
-      compatibleModelIds: compatibleModel ? [compatibleModel.id] : [],
+      compatibleModelIds: compatibleModels.map((m) => m.id),
       initialStock,
     }
 
@@ -373,10 +492,22 @@ export function ProductForm ({
             autoComplete="off"
             placeholder="0,00"
             value={costReais}
-            onChange={(e) => setCostReais(formatMoneyInput(e.target.value))}
+            onChange={(e) => {
+              setCostReais(formatMoneyInput(e.target.value))
+              if (submitErrors.costPrice) setSubmitErrors((s) => ({ ...s, costPrice: undefined }))
+            }}
             disabled={pending}
-            className="tabular-nums"
+            className={cn('tabular-nums', submitErrors.costPrice && 'border-destructive')}
+            aria-invalid={submitErrors.costPrice ? true : undefined}
+            aria-describedby={submitErrors.costPrice ? 'costPrice-error' : undefined}
           />
+          {submitErrors.costPrice
+            ? (
+              <p id="costPrice-error" className="text-sm text-destructive" role="alert">
+                {submitErrors.costPrice}
+              </p>
+            )
+            : null}
         </div>
         <div className="space-y-2">
           <Label htmlFor="salePrice">Preço de venda</Label>
@@ -388,14 +519,26 @@ export function ProductForm ({
             autoComplete="off"
             placeholder="0,00"
             value={saleReais}
-            onChange={(e) => setSaleReais(formatMoneyInput(e.target.value))}
+            onChange={(e) => {
+              setSaleReais(formatMoneyInput(e.target.value))
+              if (submitErrors.salePrice) setSubmitErrors((s) => ({ ...s, salePrice: undefined }))
+            }}
             disabled={pending}
-            className="tabular-nums"
+            className={cn('tabular-nums', submitErrors.salePrice && 'border-destructive')}
+            aria-invalid={submitErrors.salePrice ? true : undefined}
+            aria-describedby={submitErrors.salePrice ? 'salePrice-error' : undefined}
           />
+          {submitErrors.salePrice
+            ? (
+              <p id="salePrice-error" className="text-sm text-destructive" role="alert">
+                {submitErrors.salePrice}
+              </p>
+            )
+            : null}
           {showSuggestedSaleHint ? (
             <p className="flex flex-wrap items-center gap-0.5 text-[11px] leading-tight text-muted-foreground">
               <span>
-                Sg.{' '}
+                Sugerido{' '}
                 <span className="tabular-nums font-medium text-foreground">{formatBrl(previewSuggestedCents)}</span>
               </span>
               <button
@@ -415,12 +558,26 @@ export function ProductForm ({
         <div className="space-y-2">
           <Label htmlFor="name">Nome *</Label>
           <Input
+            ref={nameInputRef}
             id="name"
             name="name"
             defaultValue={product?.name || ''}
             required
             disabled={pending}
+            className={cn(submitErrors.name && 'border-destructive')}
+            aria-invalid={submitErrors.name ? true : undefined}
+            aria-describedby={submitErrors.name ? 'name-error' : undefined}
+            onChange={() => {
+              if (submitErrors.name) setSubmitErrors((s) => ({ ...s, name: undefined }))
+            }}
           />
+          {submitErrors.name
+            ? (
+              <p id="name-error" className="text-sm text-destructive" role="alert">
+                {submitErrors.name}
+              </p>
+            )
+            : null}
         </div>
         <div className="space-y-2">
           <Label htmlFor="barcode">Código de barras</Label>
@@ -470,77 +627,86 @@ export function ProductForm ({
           </Select>
         </div>
         <div className="min-w-0 space-y-2">
-          <Label htmlFor={compatibleModel ? undefined : 'compatible-model-search'}>Modelo compatível</Label>
-          {compatibleModel ? (
-            <div className="flex min-h-10 items-center gap-2 rounded-md border border-primary/25 bg-primary/5 px-3 py-2 text-sm shadow-sm">
-              <span className="min-w-0 flex-1 truncate font-medium text-foreground" title={compatibleModel.label}>
-                {compatibleModel.label}
-              </span>
-              <button
-                type="button"
-                className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
-                onClick={clearCompatibleModel}
-                disabled={pending}
-                aria-label="Remover modelo selecionado"
-              >
-                <X className="h-4 w-4" aria-hidden />
-              </button>
-            </div>
-          ) : (
-            <div className="relative space-y-1.5">
-              <div className="relative">
-                <Input
-                  id="compatible-model-search"
-                  placeholder="Marca, tipo ou modelo (mín. 2 caracteres)…"
-                  value={deviceModelQuery}
-                  onChange={(e) => setDeviceModelQuery(e.target.value)}
-                  onBlur={() => {
-                    deviceCompatBlurRef.current = setTimeout(() => setCompatibleSuggestions([]), 150)
-                  }}
-                  onFocus={() => {
-                    if (deviceCompatBlurRef.current) {
-                      clearTimeout(deviceCompatBlurRef.current)
-                      deviceCompatBlurRef.current = null
-                    }
-                  }}
-                  disabled={pending || deviceCatalogLoading}
-                  autoComplete="off"
-                />
-                {deviceCatalogLoading ? (
-                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-                    Carregando…
+          <Label htmlFor="compatible-model-search">Modelos compatíveis</Label>
+          <div className="relative space-y-1.5">
+            {compatibleModels.length > 0 ? (
+              <div className="flex flex-wrap gap-2 rounded-md border border-primary/20 bg-primary/5 p-2">
+                {compatibleModels.map((model) => (
+                  <span
+                    key={model.id}
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-primary/20 bg-background px-2 py-1 text-xs"
+                    title={model.label}
+                  >
+                    <span className="truncate">{model.label}</span>
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-sm p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      onClick={() => removeCompatibleModel(model.id)}
+                      disabled={pending}
+                      aria-label={`Remover modelo ${model.label}`}
+                    >
+                      <X className="h-3.5 w-3.5" aria-hidden />
+                    </button>
                   </span>
-                ) : null}
-                {compatibleSuggestions.length > 0 ? (
-                  <ul className="absolute z-20 mt-1 max-h-52 w-full list-none overflow-auto rounded-md border bg-popover p-0 py-1 shadow-md">
-                    {compatibleSuggestions.map((opt) => (
+                ))}
+              </div>
+            ) : null}
+            <div className="relative">
+              <Input
+                id="compatible-model-search"
+                placeholder="Ex.: M12 Samsung ou Galaxy A54 (mín. 2 caracteres)…"
+                value={deviceModelQuery}
+                onChange={(e) => setDeviceModelQuery(e.target.value)}
+                onBlur={() => {
+                  deviceCompatBlurRef.current = setTimeout(() => setCompatibleSuggestions([]), 150)
+                }}
+                onFocus={() => {
+                  if (deviceCompatBlurRef.current) {
+                    clearTimeout(deviceCompatBlurRef.current)
+                    deviceCompatBlurRef.current = null
+                  }
+                }}
+                disabled={pending || deviceCatalogLoading}
+                autoComplete="off"
+              />
+              {deviceCatalogLoading ? (
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                  Carregando…
+                </span>
+              ) : null}
+              {compatibleSuggestions.length > 0 ? (
+                <ul className="absolute z-20 mt-1 max-h-52 w-full list-none overflow-auto rounded-md border bg-popover p-0 py-1 shadow-md">
+                  {compatibleSuggestions.map((opt) => {
+                    const alreadySelected = compatibleModels.some((m) => m.id === opt.value)
+                    return (
                       <li key={opt.value}>
                         <button
                           type="button"
-                          className="w-full px-3 py-2 text-left text-sm hover:bg-muted"
+                          className="w-full px-3 py-2 text-left text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
                           onMouseDown={(e) => e.preventDefault()}
                           onClick={() => handlePickCompatibleModel(opt)}
+                          disabled={alreadySelected}
                         >
-                          {opt.label}
+                          {opt.label}{alreadySelected ? ' (já selecionado)' : ''}
                         </button>
                       </li>
-                    ))}
-                    {compatibleSuggestions.length === 50 ? (
-                      <li className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
-                        Lista limitada a 50 itens — refine a busca se não encontrar o modelo.
-                      </li>
-                    ) : null}
-                  </ul>
-                ) : null}
-              </div>
-              {!deviceCatalogLoading && deviceModelQuery.trim().length > 0 && deviceModelQuery.trim().length < 2 ? (
-                <p className="text-xs text-muted-foreground">Mínimo 2 caracteres.</p>
-              ) : null}
-              {!deviceCatalogLoading && deviceModelQuery.trim().length >= 2 && compatibleSuggestions.length === 0 ? (
-                <p className="text-xs text-muted-foreground">Nenhum modelo encontrado.</p>
+                    )
+                  })}
+                  {compatibleSuggestions.length === 50 ? (
+                    <li className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
+                      Lista limitada a 50 itens — refine a busca se não encontrar o modelo.
+                    </li>
+                  ) : null}
+                </ul>
               ) : null}
             </div>
-          )}
+            {!deviceCatalogLoading && deviceModelQuery.trim().length > 0 && deviceModelQuery.trim().length < 2 ? (
+              <p className="text-xs text-muted-foreground">Mínimo 2 caracteres.</p>
+            ) : null}
+            {!deviceCatalogLoading && deviceModelQuery.trim().length >= 2 && compatibleSuggestions.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Nenhum modelo encontrado.</p>
+            ) : null}
+          </div>
         </div>
       </div>
 
@@ -553,6 +719,41 @@ export function ProductForm ({
           rows={4}
           disabled={pending}
         />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="product-image-url">URL da imagem (capa)</Label>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
+          <Input
+            id="product-image-url"
+            type="text"
+            inputMode="url"
+            autoComplete="off"
+            placeholder="https://…"
+            value={imageUrl}
+            onChange={(e) => setImageUrl(e.target.value)}
+            disabled={pending}
+            className="min-w-0 flex-1 font-mono text-sm"
+          />
+          {mode === 'edit' && variationChildCount > 0 && onApplyImageToVariationChildren
+            ? (
+              <Button
+                type="button"
+                variant="secondary"
+                className="h-10 shrink-0 whitespace-nowrap"
+                disabled={pending || applyImageToChildrenBusy}
+                onClick={() => void onApplyImageToVariationChildren(imageUrl.trim() || null)}
+              >
+                {applyImageToChildrenBusy
+                  ? 'Aplicando…'
+                  : `Aplicar nas variações (${variationChildCount})`}
+              </Button>
+            )
+            : null}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Endereço público da imagem usada na listagem. Deixe vazio para remover.
+        </p>
       </div>
 
       <Dialog open={tagSuggestOpen} onOpenChange={setTagSuggestOpen}>

@@ -1,8 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Loader2, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { ChevronDown, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -22,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { toast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
 import { suggestedSaleCents } from '@/lib/pricing/suggested-sale-cents'
@@ -56,8 +58,235 @@ type DeviceCatalogRow = {
 
 type RowValues = {
   tag: string
-  model: string
+  /** Lista explícita de IDs de `device_models` (mesmo contrato do cadastro do produto). */
+  modelIds: string[]
   saleMasked: string
+}
+
+function uniqModelIds (ids: string[]) {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const id of ids) {
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    out.push(id)
+  }
+  return out
+}
+
+function sortedModelIds (ids: string[]) {
+  return [...ids].sort()
+}
+
+function sameModelIdSet (a: string[], b: string[]) {
+  const sa = sortedModelIds(a)
+  const sb = sortedModelIds(b)
+  if (sa.length !== sb.length) return false
+  return sa.every((v, i) => v === sb[i])
+}
+
+function deviceRowToLabel (d: DeviceCatalogRow) {
+  return [d.brand, d.device_type, d.model].filter(Boolean).join(' ') || d.id
+}
+
+function shortModelId (id: string) {
+  return id.length > 14 ? `${id.slice(0, 8)}…` : id
+}
+
+type BulkDeviceModelsPickerProps = {
+  value: string[]
+  onChange: (ids: string[]) => void
+  labels: Record<string, string>
+  mergeLabelsFromRows: (rows: DeviceCatalogRow[]) => void
+  disabled?: boolean
+  /** Lista original do cadastro (atalho Restaurar). */
+  baselineIds?: string[]
+  /** Prefixo único para ids de checkbox (várias linhas na tabela). */
+  instanceId?: string
+}
+
+function BulkDeviceModelsPicker ({
+  value,
+  onChange,
+  labels,
+  mergeLabelsFromRows,
+  disabled,
+  baselineIds,
+  instanceId = 'dm',
+}: BulkDeviceModelsPickerProps) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+  const [debounced, setDebounced] = useState('')
+  const [hits, setHits] = useState<DeviceCatalogRow[]>([])
+  const [fetching, setFetching] = useState(false)
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(q.trim()), 280)
+    return () => clearTimeout(t)
+  }, [q])
+
+  useEffect(() => {
+    if (!open) return
+    const token = debounced
+    if (token.length < 2) {
+      setHits([])
+      return
+    }
+    let cancelled = false
+    setFetching(true)
+    void (async () => {
+      const res = await fetch(
+        `/api/portal/device-models?q=${encodeURIComponent(token)}&limit=120`,
+      )
+      const json = await res.json().catch(() => null)
+      if (cancelled) return
+      setFetching(false)
+      const rows = (json?.ok ? json.deviceModels : []) as DeviceCatalogRow[]
+      mergeLabelsFromRows(rows)
+      setHits(rows)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [debounced, open, mergeLabelsFromRows])
+
+  const selectedNotInHits = useMemo(
+    () => value.filter((id) => !hits.some((h) => h.id === id)),
+    [value, hits],
+  )
+
+  function toggle (id: string) {
+    if (value.includes(id)) onChange(value.filter((x) => x !== id))
+    else onChange([...value, id])
+  }
+
+  return (
+    <Popover
+      modal={false}
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (!next) setQ('')
+      }}
+    >
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 w-full max-w-[11rem] justify-between gap-1 px-2 font-normal"
+          disabled={disabled}
+        >
+          <span className="min-w-0 truncate text-left text-xs">
+            {value.length === 0
+              ? 'Nenhum'
+              : value.length === 1
+                ? (labels[value[0]] || shortModelId(value[0]))
+                : `${value.length} modelos`}
+          </span>
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-60" aria-hidden />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="z-[130] w-[min(96vw,18rem)] p-0"
+        align="start"
+        sideOffset={4}
+        collisionPadding={12}
+      >
+        <div className="flex gap-1 border-b px-2 py-1.5">
+          {baselineIds ? (
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 flex-1 px-1 text-[11px]"
+                onClick={() => onChange([...baselineIds])}
+              >
+                Restaurar
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 flex-1 px-1 text-[11px]"
+                onClick={() => onChange([])}
+              >
+                Limpar
+              </Button>
+            </>
+          ) : (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-1 text-[11px]"
+              onClick={() => onChange([])}
+            >
+              Limpar seleção
+            </Button>
+          )}
+        </div>
+        <div className="p-2">
+          <Input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Buscar…"
+            className="h-8 text-xs"
+            autoComplete="off"
+          />
+          <p className="mt-1 text-[10px] leading-tight text-muted-foreground">
+            Digite 2+ caracteres. Marque ou desmarque na lista.
+          </p>
+        </div>
+        <div className="max-h-44 overflow-y-auto border-t px-1 py-1">
+          {fetching ? (
+            <div className="flex justify-center py-3 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            </div>
+          ) : null}
+          {!fetching && debounced.length >= 2 && hits.length === 0 ? (
+            <p className="px-2 py-2 text-center text-[11px] text-muted-foreground">Nenhum resultado</p>
+          ) : null}
+          {selectedNotInHits.map((id) => {
+            const lab = labels[id] || shortModelId(id)
+            const cbId = `${instanceId}-sel-${id}`
+            return (
+              <div key={`sel-${id}`} className="flex items-start gap-2 px-2 py-1.5 hover:bg-muted">
+                <Checkbox
+                  id={cbId}
+                  checked
+                  className="mt-0.5"
+                  onCheckedChange={() => toggle(id)}
+                />
+                <label htmlFor={cbId} className="cursor-pointer text-[11px] leading-snug">
+                  {lab}
+                </label>
+              </div>
+            )
+          })}
+          {hits.map((row) => {
+            const lab = labels[row.id] || deviceRowToLabel(row)
+            const checked = value.includes(row.id)
+            const cbId = `${instanceId}-hit-${row.id}`
+            return (
+              <div key={row.id} className="flex items-start gap-2 px-2 py-1.5 hover:bg-muted">
+                <Checkbox
+                  id={cbId}
+                  checked={checked}
+                  className="mt-0.5"
+                  onCheckedChange={() => toggle(row.id)}
+                />
+                <label htmlFor={cbId} className="cursor-pointer text-[11px] leading-snug">
+                  {lab}
+                </label>
+              </div>
+            )
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
 }
 
 function formatBrl (cents: number | null) {
@@ -94,19 +323,11 @@ export function BulkEditProductsModal ({
   const [pricingTags, setPricingTags] = useState<PricingTagRow[]>([])
   const [rowStates, setRowStates] = useState<Record<string, RowValues>>({})
   const [initialRowStates, setInitialRowStates] = useState<Record<string, RowValues>>({})
-  const [deviceCatalog, setDeviceCatalog] = useState<DeviceCatalogRow[]>([])
-  const [deviceCatalogLoading, setDeviceCatalogLoading] = useState(false)
+  const [modelLabels, setModelLabels] = useState<Record<string, string>>({})
 
   const [templateTag, setTemplateTag] = useState('__keep__')
   const [templateModelAction, setTemplateModelAction] = useState<'keep' | 'clear' | 'replace'>('keep')
-  const [templateCompatibleModel, setTemplateCompatibleModel] = useState<{ id: string; label: string } | null>(null)
-  const [templateDeviceQuery, setTemplateDeviceQuery] = useState('')
-  const [templateSuggestions, setTemplateSuggestions] = useState<{ value: string; label: string }[]>([])
-  const templateBlurRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const [rowModelQueries, setRowModelQueries] = useState<Record<string, string>>({})
-  const [focusedModelRowId, setFocusedModelRowId] = useState<string | null>(null)
-  const modelRowBlurRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [templateModelIds, setTemplateModelIds] = useState<string[]>([])
 
   const [templateSaleMasked, setTemplateSaleMasked] = useState('')
   const [templatePriceMode, setTemplatePriceMode] = useState<'fixed' | 'suggested'>('fixed')
@@ -115,75 +336,76 @@ export function BulkEditProductsModal ({
   const resetTemplates = useCallback(() => {
     setTemplateTag('__keep__')
     setTemplateModelAction('keep')
-    setTemplateCompatibleModel(null)
-    setTemplateDeviceQuery('')
-    setTemplateSuggestions([])
+    setTemplateModelIds([])
     setTemplateSaleMasked('')
     setTemplatePriceMode('fixed')
-    setFocusedModelRowId(null)
-    setRowModelQueries({})
+  }, [])
+
+  const mergeLabelsFromRows = useCallback((rows: DeviceCatalogRow[]) => {
+    setModelLabels((prev) => {
+      const next = { ...prev }
+      for (const d of rows) {
+        next[d.id] = deviceRowToLabel(d)
+      }
+      return next
+    })
   }, [])
 
   useEffect(() => {
     if (!open) return
     let cancelled = false
     void (async () => {
-      const res = await fetch('/api/portal/staff/pricing-tags')
-      const json = await res.json().catch(() => null)
-      if (cancelled || !res.ok || !json?.ok) return
-      setPricingTags((json.pricingTags || []) as PricingTagRow[])
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [open])
-
-  useEffect(() => {
-    if (!open || !allowDeviceModel) return
-    let cancelled = false
-    void (async () => {
-      setDeviceCatalogLoading(true)
-      const res = await fetch('/api/portal/device-models?limit=2000')
-      const json = await res.json().catch(() => null)
-      if (cancelled || !res.ok || !json?.ok) {
-        setDeviceCatalog([])
-        setDeviceCatalogLoading(false)
-        return
-      }
-      setDeviceCatalog((json.deviceModels || []) as DeviceCatalogRow[])
-      setDeviceCatalogLoading(false)
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [open, allowDeviceModel])
-
-  useEffect(() => {
-    if (!open || productIds.length === 0) return
-    let cancelled = false
-    void (async () => {
-      setLoadingMeta(true)
       resetTemplates()
-      const res = await fetch('/api/portal/staff/produtos/bulk-meta', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productIds }),
-      })
-      const json = await res.json().catch(() => null)
+      setModelLabels({})
+      setLoadingMeta(productIds.length > 0)
+
+      const metaReq =
+        productIds.length > 0
+          ? fetch('/api/portal/staff/produtos/bulk-meta', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ productIds }),
+          })
+          : Promise.resolve(
+            new Response(JSON.stringify({ ok: true, items: [] }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          )
+
+      const [tagsRes, metaRes] = await Promise.all([
+        fetch('/api/portal/staff/pricing-tags'),
+        metaReq,
+      ])
+
+      const [tagsJson, metaJson] = await Promise.all([
+        tagsRes.json().catch(() => null),
+        metaRes.json().catch(() => null),
+      ])
+
       if (cancelled) return
+
+      if (tagsRes.ok && tagsJson?.ok) {
+        setPricingTags((tagsJson.pricingTags || []) as PricingTagRow[])
+      } else {
+        setPricingTags([])
+      }
+
       setLoadingMeta(false)
-      if (!res.ok || !json?.ok) {
+      if (!metaRes.ok || !metaJson?.ok) {
         setItems([])
         setRowStates({})
         setInitialRowStates({})
-        toast({
-          variant: 'destructive',
-          title: 'Não foi possível carregar os itens',
-          description: 'Tente novamente.',
-        })
+        if (productIds.length > 0) {
+          toast({
+            variant: 'destructive',
+            title: 'Não foi possível carregar os itens',
+            description: 'Tente novamente.',
+          })
+        }
         return
       }
-      const loaded = (json.items || []) as BulkMetaItem[]
+      const loaded = (metaJson.items || []) as BulkMetaItem[]
       setItems(loaded)
 
       const init: Record<string, RowValues> = {}
@@ -191,60 +413,54 @@ export function BulkEditProductsModal ({
         if (it.missing !== false) continue
         init[it.id] = {
           tag: '__keep__',
-          model: '__keep__',
+          modelIds: uniqModelIds(it.deviceModelIds || []),
           saleMasked:
             typeof it.salePriceCents === 'number' ? maskedFromCents(it.salePriceCents) : '',
         }
       }
       setInitialRowStates(init)
       setRowStates({ ...init })
+
+      const idSet = new Set<string>()
+      for (const row of loaded) {
+        if (row.missing !== false) continue
+        for (const mid of row.deviceModelIds || []) idSet.add(mid)
+      }
+      const idArr = [...idSet]
+      if (allowDeviceModel && idArr.length > 0 && !cancelled) {
+        const lr = await fetch(
+          `/api/portal/device-models?ids=${encodeURIComponent(idArr.join(','))}`,
+        )
+        const lj = await lr.json().catch(() => null)
+        if (!cancelled && lr.ok && lj?.ok && Array.isArray(lj.deviceModels)) {
+          const rows = lj.deviceModels as DeviceCatalogRow[]
+          setModelLabels((prev) => {
+            const next = { ...prev }
+            for (const d of rows) {
+              next[d.id] = deviceRowToLabel(d)
+            }
+            return next
+          })
+        }
+      }
     })()
     return () => {
       cancelled = true
     }
-  }, [open, productIds, resetTemplates])
-
-  const deviceOptions = useMemo(
-    () =>
-      deviceCatalog
-        .map((d) => ({
-          value: d.id,
-          label: [d.brand, d.device_type, d.model].filter(Boolean).join(' ') || d.id,
-        }))
-        .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR')),
-    [deviceCatalog],
-  )
-
-  const labelByModelId = useMemo(() => {
-    const m = new Map<string, string>()
-    for (const o of deviceOptions) m.set(o.value, o.label)
-    return m
-  }, [deviceOptions])
-
-  useEffect(() => {
-    const q = templateDeviceQuery.trim().toLowerCase()
-    if (q.length < 2) {
-      setTemplateSuggestions([])
-      return
-    }
-    setTemplateSuggestions(deviceOptions.filter((o) => o.label.toLowerCase().includes(q)).slice(0, 50))
-  }, [templateDeviceQuery, deviceOptions])
-
-  const getRowModelSearchResults = useCallback(
-    (rowId: string) => {
-      const raw = (rowModelQueries[rowId] || '').trim().toLowerCase()
-      if (raw.length < 2) return []
-      return deviceOptions.filter((o) => o.label.toLowerCase().includes(raw)).slice(0, 50)
-    },
-    [rowModelQueries, deviceOptions],
-  )
+  }, [open, productIds, allowDeviceModel, resetTemplates])
 
   const hasChanges = useMemo(() => {
     for (const id of Object.keys(rowStates)) {
       const a = rowStates[id]
       const b = initialRowStates[id]
       if (!a || !b) continue
-      if (a.tag !== b.tag || a.model !== b.model || a.saleMasked !== b.saleMasked) return true
+      if (
+        a.tag !== b.tag
+        || !sameModelIdSet(a.modelIds, b.modelIds)
+        || a.saleMasked !== b.saleMasked
+      ) {
+        return true
+      }
     }
     return false
   }, [rowStates, initialRowStates])
@@ -268,13 +484,6 @@ export function BulkEditProductsModal ({
   )
 
   function updateRow (id: string, patch: Partial<RowValues>) {
-    if (Object.prototype.hasOwnProperty.call(patch, 'model')) {
-      setRowModelQueries((q) => {
-        const next = { ...q }
-        delete next[id]
-        return next
-      })
-    }
     setRowStates((prev) => {
       const cur = prev[id]
       if (!cur) return prev
@@ -302,12 +511,23 @@ export function BulkEditProductsModal ({
     })
   }
 
-  function applyModelToAllRows (modelVal: string) {
-    setRowModelQueries({})
+  function syncAllRowsToTemplateIds (ids: string[]) {
+    const clean = uniqModelIds(ids)
+    setRowStates((prev) => {
+      const next = { ...prev }
+      for (const k of Object.keys(next)) {
+        next[k] = { ...next[k], modelIds: [...clean] }
+      }
+      return next
+    })
+  }
+
+  function applyModelKeepToAllRows () {
     setRowStates((prev) => {
       const next = { ...prev }
       for (const id of Object.keys(next)) {
-        next[id] = { ...next[id], model: modelVal }
+        const ini = initialRowStates[id]
+        if (ini) next[id] = { ...next[id], modelIds: [...ini.modelIds] }
       }
       return next
     })
@@ -321,14 +541,6 @@ export function BulkEditProductsModal ({
       }
       return next
     })
-  }
-
-  function pickTemplateModel (opt: { value: string; label: string }) {
-    setTemplateCompatibleModel({ id: opt.value, label: opt.label })
-    setTemplateModelAction('replace')
-    setTemplateDeviceQuery('')
-    setTemplateSuggestions([])
-    applyModelToAllRows(opt.value)
   }
 
   useEffect(() => {
@@ -402,54 +614,76 @@ export function BulkEditProductsModal ({
       }
     }
 
+    const patchItems: Array<Record<string, unknown>> = []
+
+    for (const it of okItems) {
+      const cur = rowStates[it.id]
+      const ini = initialRowStates[it.id]
+      if (!cur || !ini) continue
+
+      if (
+        cur.tag === ini.tag
+        && sameModelIdSet(cur.modelIds, ini.modelIds)
+        && cur.saleMasked === ini.saleMasked
+      ) {
+        continue
+      }
+
+      const body: Record<string, unknown> = { productId: it.id }
+
+      if (cur.tag !== ini.tag) {
+        if (cur.tag === '__clear__') body.pricingTagId = null
+        else if (cur.tag !== '__keep__') body.pricingTagId = cur.tag
+      }
+
+      if (allowDeviceModel && !sameModelIdSet(cur.modelIds, ini.modelIds)) {
+        body.compatibleModelIds = cur.modelIds
+      }
+
+      const curCents = parseMaskedMoneyToCents(cur.saleMasked)
+      const iniCents = parseMaskedMoneyToCents(ini.saleMasked)
+      if (curCents === 'invalid') {
+        continue
+      }
+      if (curCents !== iniCents) {
+        body.salePrice = (curCents === null ? 0 : curCents) / 100
+      }
+
+      if (Object.keys(body).length <= 1) {
+        continue
+      }
+
+      patchItems.push(body)
+    }
+
+    if (patchItems.length === 0) {
+      toast({
+        variant: 'destructive',
+        title: 'Nada para aplicar',
+        description: 'Altere ao menos um campo em alguma linha.',
+      })
+      return
+    }
+
     setSubmitting(true)
-    let ok = 0
-    let fail = 0
 
     try {
-      for (const it of okItems) {
-        const cur = rowStates[it.id]
-        const ini = initialRowStates[it.id]
-        if (!cur || !ini) continue
+      const res = await fetch('/api/portal/staff/produtos/bulk-patch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: patchItems }),
+      })
+      const data = await res.json().catch(() => null)
+      const ok = typeof data?.updated === 'number' ? data.updated : 0
+      const fail = typeof data?.failed === 'number' ? data.failed : patchItems.length
 
-        if (cur.tag === ini.tag && cur.model === ini.model && cur.saleMasked === ini.saleMasked) {
-          continue
-        }
-
-        const body: Record<string, unknown> = {}
-
-        if (cur.tag !== ini.tag) {
-          if (cur.tag === '__clear__') body.pricingTagId = null
-          else if (cur.tag !== '__keep__') body.pricingTagId = cur.tag
-        }
-
-        if (allowDeviceModel && cur.model !== ini.model) {
-          if (cur.model === '__clear__') body.compatibleModelIds = []
-          else if (cur.model !== '__keep__') body.compatibleModelIds = [cur.model]
-        }
-
-        const curCents = parseMaskedMoneyToCents(cur.saleMasked)
-        const iniCents = parseMaskedMoneyToCents(ini.saleMasked)
-        if (curCents === 'invalid') {
-          fail++
-          continue
-        }
-        if (curCents !== iniCents) {
-          body.salePrice = (curCents === null ? 0 : curCents) / 100
-        }
-
-        if (Object.keys(body).length === 0) {
-          continue
-        }
-
-        const res = await fetch(`/api/portal/produtos/${it.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
+      if (!res.ok || !data?.ok) {
+        toast({
+          variant: 'destructive',
+          title: 'Erro ao salvar',
+          description: String(data?.error || 'Tente novamente.'),
         })
-        const data = await res.json().catch(() => null)
-        if (res.ok && data?.ok) ok++
-        else fail++
+        return
       }
 
       toast({
@@ -486,7 +720,7 @@ export function BulkEditProductsModal ({
             {productIds.length} selecionado
             {productIds.length === 1 ? '' : 's'}
             {nMissing > 0 ? ` (${nMissing} não encontrado${nMissing === 1 ? '' : 's'} na base)` : ''}
-            . Tag e modelo replicam ao selecionar. Preço: valor fixo (replica ao sair do campo) ou valor sugerido pela tag/custo.
+            . Tag e modelos compatíveis podem ser replicados pelo modelo acima. Preço: valor fixo (replica ao sair do campo) ou valor sugerido pela tag/custo.
           </DialogDescription>
         </DialogHeader>
 
@@ -505,7 +739,7 @@ export function BulkEditProductsModal ({
                 )}
               >
                 <div className="space-y-2">
-                  <Label htmlFor="bulk-template-tag">Tag</Label>
+                  <Label htmlFor="bulk-template-tag">Tag de precificação</Label>
                   <Select
                     value={templateTag}
                     onValueChange={(v) => {
@@ -529,90 +763,49 @@ export function BulkEditProductsModal ({
 
                 {allowDeviceModel ? (
                   <div className="space-y-2">
-                    <Label htmlFor="bulk-template-model">Modelo</Label>
+                    <Label htmlFor="bulk-template-model">Modelos compatíveis</Label>
                     <Select
                       value={templateModelAction}
                       onValueChange={(v) => {
                         const next = v as 'keep' | 'clear' | 'replace'
                         if (next === 'keep') {
-                          setTemplateCompatibleModel(null)
-                          setTemplateDeviceQuery('')
+                          setTemplateModelIds([])
                           setTemplateModelAction('keep')
-                          applyModelToAllRows('__keep__')
+                          applyModelKeepToAllRows()
                           return
                         }
                         if (next === 'clear') {
-                          setTemplateCompatibleModel(null)
-                          setTemplateDeviceQuery('')
+                          setTemplateModelIds([])
                           setTemplateModelAction('clear')
-                          applyModelToAllRows('__clear__')
+                          syncAllRowsToTemplateIds([])
                           return
                         }
                         setTemplateModelAction('replace')
-                        setTemplateCompatibleModel(null)
-                        setTemplateDeviceQuery('')
+                        setTemplateModelIds([])
                       }}
-                      disabled={submitting || deviceCatalogLoading}
+                      disabled={submitting}
                     >
                       <SelectTrigger id="bulk-template-model" className="w-full">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="keep">Manter atual</SelectItem>
-                        <SelectItem value="clear">Remover modelo</SelectItem>
-                        <SelectItem value="replace">Definir via busca</SelectItem>
+                        <SelectItem value="keep">Manter cadastro de cada produto</SelectItem>
+                        <SelectItem value="clear">Remover todos os modelos</SelectItem>
+                        <SelectItem value="replace">Mesma lista em todas as linhas</SelectItem>
                       </SelectContent>
                     </Select>
                     {templateModelAction === 'replace' ? (
-                      templateCompatibleModel ? (
-                        <div className="flex min-h-9 items-center gap-2 rounded-md border border-primary/25 bg-primary/5 px-2 py-1.5 text-xs">
-                          <span className="min-w-0 flex-1 truncate">{templateCompatibleModel.label}</span>
-                          <button
-                            type="button"
-                            className="shrink-0 rounded p-1 text-muted-foreground hover:bg-background"
-                            onClick={() => setTemplateCompatibleModel(null)}
-                            aria-label="Limpar"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="relative">
-                          <Input
-                            placeholder="Buscar (mín. 2 caracteres)…"
-                            value={templateDeviceQuery}
-                            onChange={(e) => setTemplateDeviceQuery(e.target.value)}
-                            onBlur={() => {
-                              templateBlurRef.current = setTimeout(() => setTemplateSuggestions([]), 150)
-                            }}
-                            onFocus={() => {
-                              if (templateBlurRef.current) {
-                                clearTimeout(templateBlurRef.current)
-                                templateBlurRef.current = null
-                              }
-                            }}
-                            disabled={submitting || deviceCatalogLoading}
-                            className="h-9 text-sm"
-                            autoComplete="off"
-                          />
-                          {templateSuggestions.length > 0 ? (
-                            <ul className="absolute z-40 mt-1 max-h-36 w-full list-none overflow-auto rounded-md border bg-popover py-1 shadow-md">
-                              {templateSuggestions.map((opt) => (
-                                <li key={opt.value}>
-                                  <button
-                                    type="button"
-                                    className="w-full px-2 py-1.5 text-left text-xs hover:bg-muted"
-                                    onMouseDown={(e) => e.preventDefault()}
-                                    onClick={() => pickTemplateModel(opt)}
-                                  >
-                                    {opt.label}
-                                  </button>
-                                </li>
-                              ))}
-                            </ul>
-                          ) : null}
-                        </div>
-                      )
+                      <BulkDeviceModelsPicker
+                        instanceId="bulk-template-dm"
+                        value={templateModelIds}
+                        onChange={(next) => {
+                          setTemplateModelIds(next)
+                          queueMicrotask(() => syncAllRowsToTemplateIds(next))
+                        }}
+                        labels={modelLabels}
+                        mergeLabelsFromRows={mergeLabelsFromRows}
+                        disabled={submitting}
+                      />
                     ) : null}
                   </div>
                 ) : null}
@@ -677,12 +870,12 @@ export function BulkEditProductsModal ({
                     <thead>
                       <tr className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
                         <th className="sticky top-0 z-10 min-w-[9rem] px-2 py-2 font-medium">Produto</th>
-                        <th className="sticky top-0 z-10 min-w-[10rem] px-2 py-2 font-medium">Tag</th>
+                        <th className="sticky top-0 z-10 min-w-[10rem] px-2 py-2 font-medium">Tag de precificação</th>
                         {allowDeviceModel ? (
-                          <th className="sticky top-0 z-10 min-w-[11rem] px-2 py-2 font-medium">Modelo</th>
+                          <th className="sticky top-0 z-10 min-w-[9rem] px-2 py-2 font-medium">Modelos</th>
                         ) : null}
                         <th className="sticky top-0 z-10 min-w-[7rem] px-2 py-2 font-medium">Venda</th>
-                        <th className="sticky top-0 z-10 w-24 px-2 py-2 font-medium">Sg.</th>
+                        <th className="sticky top-0 z-10 w-24 px-2 py-2 font-medium">Sugerido</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -690,9 +883,7 @@ export function BulkEditProductsModal ({
                         const row = rowStates[it.id]
                         if (!row) return null
                         const sugg = suggestionForItem(it, row)
-                        const currentModelId = it.deviceModelIds[0]
-                        const currentModelLabel =
-                          currentModelId ? labelByModelId.get(currentModelId) || '—' : '—'
+                        const iniModels = initialRowStates[it.id]?.modelIds ?? []
 
                         return (
                           <tr key={it.id} className="border-b border-border/60 align-top hover:bg-muted/20">
@@ -724,98 +915,19 @@ export function BulkEditProductsModal ({
                               </Select>
                             </td>
                             {allowDeviceModel ? (
-                              <td className="px-1 py-1.5">
-                                <div className="relative min-w-[12rem] max-w-[280px]">
-                                  <Input
-                                    value={
-                                      Object.prototype.hasOwnProperty.call(rowModelQueries, it.id)
-                                        ? rowModelQueries[it.id]
-                                        : row.model === '__keep__' || row.model === '__clear__'
-                                          ? ''
-                                          : (labelByModelId.get(row.model) ?? '')
-                                    }
-                                    placeholder={
-                                      row.model === '__keep__'
-                                        ? `Manter: ${currentModelLabel}`
-                                        : 'Buscar aparelho (mín. 2 caracteres)…'
-                                    }
-                                    onChange={(e) =>
-                                      setRowModelQueries((q) => ({
-                                        ...q,
-                                        [it.id]: e.target.value,
-                                      }))}
-                                    onFocus={(e) => {
-                                      if (modelRowBlurRef.current) {
-                                        clearTimeout(modelRowBlurRef.current)
-                                        modelRowBlurRef.current = null
-                                      }
-                                      setFocusedModelRowId(it.id)
-                                      if (
-                                        row.model !== '__keep__'
-                                        && row.model !== '__clear__'
-                                        && !Object.prototype.hasOwnProperty.call(rowModelQueries, it.id)
-                                      ) {
-                                        e.currentTarget.select()
-                                      }
-                                    }}
-                                    onBlur={() => {
-                                      modelRowBlurRef.current = setTimeout(() => {
-                                        setFocusedModelRowId(null)
-                                        modelRowBlurRef.current = null
-                                      }, 200)
-                                    }}
+                              <td className="px-1 py-1.5 align-middle">
+                                <div className="flex max-w-[11rem] flex-col gap-0.5">
+                                  <BulkDeviceModelsPicker
+                                    instanceId={`bulk-row-${it.id}`}
+                                    value={row.modelIds}
+                                    onChange={(next) => updateRow(it.id, { modelIds: next })}
+                                    labels={modelLabels}
+                                    mergeLabelsFromRows={mergeLabelsFromRows}
                                     disabled={submitting}
-                                    className="h-9 text-xs"
-                                    autoComplete="off"
+                                    baselineIds={iniModels}
                                   />
-                                  {focusedModelRowId === it.id ? (
-                                    <ul className="absolute z-50 mt-1 max-h-52 w-full list-none overflow-auto rounded-md border bg-popover py-1 shadow-md">
-                                      <li>
-                                        <button
-                                          type="button"
-                                          className="w-full px-2 py-1.5 text-left text-[11px] hover:bg-muted"
-                                          onMouseDown={(e) => e.preventDefault()}
-                                          onClick={() => {
-                                            updateRow(it.id, { model: '__keep__' })
-                                            setFocusedModelRowId(null)
-                                          }}
-                                        >
-                                          Manter atual (
-                                          {currentModelLabel}
-                                          )
-                                        </button>
-                                      </li>
-                                      <li>
-                                        <button
-                                          type="button"
-                                          className="w-full px-2 py-1.5 text-left text-[11px] hover:bg-muted"
-                                          onMouseDown={(e) => e.preventDefault()}
-                                          onClick={() => {
-                                            updateRow(it.id, { model: '__clear__' })
-                                            setFocusedModelRowId(null)
-                                          }}
-                                        >
-                                          Remover modelo
-                                        </button>
-                                      </li>
-                                      {(rowModelQueries[it.id] || '').trim().length >= 2
-                                        ? getRowModelSearchResults(it.id).map((opt) => (
-                                          <li key={opt.value}>
-                                            <button
-                                              type="button"
-                                              className="w-full px-2 py-1.5 text-left text-[11px] hover:bg-muted"
-                                              onMouseDown={(e) => e.preventDefault()}
-                                              onClick={() => {
-                                                updateRow(it.id, { model: opt.value })
-                                                setFocusedModelRowId(null)
-                                              }}
-                                            >
-                                              {opt.label}
-                                            </button>
-                                          </li>
-                                        ))
-                                        : null}
-                                    </ul>
+                                  {sameModelIdSet(row.modelIds, iniModels) ? (
+                                    <span className="text-[10px] text-muted-foreground">Igual ao cadastro</span>
                                   ) : null}
                                 </div>
                               </td>

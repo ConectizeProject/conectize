@@ -34,9 +34,17 @@ type ProdutosGestaoTabProps = {
   kind: string
   /** Abre a modal de edição ao carregar (ex.: link da página de detalhes ou URL antiga /:id/editar). */
   initialEditProductId?: string
+  /** Abre a modal de criação de variação vinculada ao produto pai. */
+  initialCreateVariationParentId?: string
 }
 
-export async function ProdutosGestaoTab ({ q, page, kind, initialEditProductId }: ProdutosGestaoTabProps) {
+export async function ProdutosGestaoTab ({
+  q,
+  page,
+  kind,
+  initialEditProductId,
+  initialCreateVariationParentId,
+}: ProdutosGestaoTabProps) {
   const query = String(q || '').trim()
   const pageNumber = Math.max(1, Number(page) || 1)
   const kindFilter: 'product' | 'service' = String(kind || '').trim() === 'service' ? 'service' : 'product'
@@ -76,6 +84,8 @@ export async function ProdutosGestaoTab ({ q, page, kind, initialEditProductId }
 
   let flatRows: Raw[] = []
   let totalCount = 0
+  /** Falha ao listar no Supabase (não confundir com lista vazia legítima). */
+  let listLoadError = false
 
   if (hasSearchButNoValidTokens) {
     if (pageNumber > 1) redirect(buildProdutosGestaoHref(query, 1, kindFilter))
@@ -124,6 +134,7 @@ export async function ProdutosGestaoTab ({ q, page, kind, initialEditProductId }
     const { data, count, error } = await serviceQuery
     if (error) {
       console.error('[servicos-flat-list]', error)
+      listLoadError = true
       flatRows = []
       totalCount = 0
     } else {
@@ -157,6 +168,7 @@ export async function ProdutosGestaoTab ({ q, page, kind, initialEditProductId }
 
     if (error) {
       console.error('[produtos-flat-list]', error)
+      listLoadError = true
       flatRows = []
       totalCount = 0
     } else {
@@ -340,8 +352,12 @@ export async function ProdutosGestaoTab ({ q, page, kind, initialEditProductId }
         products={productsWithStock}
         pagination={pagination}
         paginationRangeLabel={paginationRangeLabel}
+        listLoadError={listLoadError}
+        searchQuery={query}
+        invalidSearchTokens={hasSearchButNoValidTokens}
         initialFilterType={kindFilter}
         initialEditProductId={initialEditProductId}
+        initialCreateVariationParentId={initialCreateVariationParentId}
         tabHrefs={{
           products: buildProdutosGestaoHref(query, 1, 'product'),
           services: buildProdutosGestaoHref(query, 1, 'service'),
