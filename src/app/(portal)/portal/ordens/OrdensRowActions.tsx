@@ -29,7 +29,8 @@ import { Button } from '@/components/ui/button'
 import { Printer, MessageCircle, Mail, Copy, Tag, MoreVertical, Trash2 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 import { getLabelWindowFeatures, getPrintWindowFeatures } from '@/lib/ordem-print'
-import { buildOrderMessage } from '@/lib/ordem-share-message'
+import { buildOrderEmailSubject, buildOrderMessage } from '@/lib/ordem-share-message'
+import { usePortalOrganizationName } from '@/lib/portal/portal-branding-context'
 import { ORDER_STATUS_LABELS } from '@/lib/orders/order-status'
 import { formatPhoneForWhatsApp } from '@/lib/utils/format-phone'
 import type { PortalOrdensListRow } from '@/lib/orders/portal-ordens-list-types'
@@ -40,6 +41,7 @@ type Props = {
 }
 
 export function OrdensRowActions({ order, canDelete = false }: Props) {
+	const organizationName = usePortalOrganizationName()
 	const router = useRouter()
 	const { updating, updateStatus, blockerDialog, dismissBlockers } = useOrderStatusUpdate()
 	const [fetchedPublicUrl, setFetchedPublicUrl] = useState<string | null>(null)
@@ -86,7 +88,7 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
 	const whatsappNumber = customer?.mobile_phone ? formatPhoneForWhatsApp(customer.mobile_phone) : ''
 	const whatsappHref = whatsappNumber && message ? `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}` : null
 	const mailtoHref = customer?.email && message
-		? `mailto:${customer.email}?subject=${encodeURIComponent(`Ordem de Serviço #${displayNumber} - Conectize`)}&body=${encodeURIComponent(message)}`
+		? `mailto:${customer.email}?subject=${encodeURIComponent(buildOrderEmailSubject(displayNumber, organizationName))}&body=${encodeURIComponent(message)}`
 		: null
 
 	async function handleStatusChange(

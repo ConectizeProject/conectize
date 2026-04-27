@@ -2,6 +2,7 @@ import { Suspense } from 'react'
 import { redirect } from 'next/navigation'
 import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
+import { getPortalOrganizationId } from '@/lib/organizations/portal-organization-context'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { buildRevenueSeries } from '@/lib/reports/revenue-series'
@@ -89,6 +90,17 @@ export default async function RelatorioServicosPage({
     : [...FINALIZED_ORDER_STATUSES]
 
   const supabase = await createSupabaseServerClient()
+
+  const activeOrgId = await getPortalOrganizationId(supabase, user.id)
+  let organizationDisplayName: string | null = null
+  if (activeOrgId) {
+    const { data: orgRow } = await supabase
+      .from('organizations')
+      .select('name')
+      .eq('id', activeOrgId)
+      .maybeSingle()
+    organizationDisplayName = orgRow?.name ? String(orgRow.name).trim() || null : null
+  }
 
   const fromIso = `${fromStr}T00:00:00.000Z`
   const toIso = `${toStr}T23:59:59.999Z`
@@ -562,6 +574,7 @@ export default async function RelatorioServicosPage({
               </CardDescription>
             </div>
             <RelatorioServicosPdfButton
+              organizationName={organizationDisplayName}
               orders={displayOrders.map((o: ServiceOrderRow) => ({
                 id: String(o.id),
                 display_number: o.display_number ?? null,

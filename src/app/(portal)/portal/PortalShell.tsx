@@ -32,6 +32,7 @@ import { cn } from '@/lib/utils'
 import { SupabaseStatusBanner } from '@/components/SupabaseStatusBanner'
 import type { SupabasePlatformStatusBanner } from '@/lib/supabase/platform-status'
 import { PlatformOrgSwitcher } from './PlatformOrgSwitcher'
+import { PortalBrandingProvider } from '@/lib/portal/portal-branding-context'
 
 type NavItem = { href: string; label: string; icon: React.ComponentType<{ className?: string }> }
 
@@ -72,6 +73,8 @@ type PortalShellProps = {
 	role: string
 	userEmail: string
 	userName: string
+	/** Nome da organização ativa (`organizations.name`). */
+	organizationName?: string | null
 	supabasePlatformStatus?: SupabasePlatformStatusBanner | null
 	platformOrganizations?: PlatformOrganizationOption[] | null
 	activeOrganizationId?: string | null
@@ -107,6 +110,8 @@ export function PortalShell(props: PortalShellProps) {
 	const isRetailer = normalizedRole === 'retailer'
 	const isStaff = normalizedRole === 'staff'
 	const displayName = props.userName || props.userEmail
+	const orgLabel = String(props.organizationName || '').trim()
+	const logoAlt = orgLabel || 'Portal'
 
 	const items = isBasicUser
 		? [
@@ -147,6 +152,7 @@ export function PortalShell(props: PortalShellProps) {
 			]
 
 	return (
+		<PortalBrandingProvider organizationName={orgLabel || null}>
 		<SidebarProvider
 			defaultOpen={false}
 			className="h-svh max-h-svh min-h-0 overflow-hidden"
@@ -154,7 +160,7 @@ export function PortalShell(props: PortalShellProps) {
 			<Sidebar collapsible="icon" variant="inset">
 				<SidebarHeader>
 					<Link href="/portal" className="flex items-center gap-2 px-2 py-1">
-						<img src="/logo_conectize.svg" alt="Conectize" className="h-6 w-auto shrink-0" />
+						<img src="/logo_conectize.svg" alt={logoAlt} className="h-6 w-auto shrink-0" />
 						<span className="font-semibold truncate group-data-[collapsible=icon]:hidden">Portal</span>
 					</Link>
 				</SidebarHeader>
@@ -267,6 +273,7 @@ export function PortalShell(props: PortalShellProps) {
 				</div>
 			</SidebarInset>
 		</SidebarProvider>
+		</PortalBrandingProvider>
 	)
 }
 

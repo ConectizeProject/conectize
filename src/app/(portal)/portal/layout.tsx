@@ -4,10 +4,7 @@ import {
   createSupabaseServerClient,
   getPortalAuth,
 } from '@/lib/supabase/server'
-import {
-  ensurePortalOrganizationContext,
-  getPortalOrganizationId,
-} from '@/lib/organizations/portal-organization-context'
+import { getPortalOrganizationId } from '@/lib/organizations/portal-organization-context'
 import { RouteProviders } from '@/providers/route-providers'
 import { PortalShell } from './PortalShell'
 
@@ -33,15 +30,23 @@ export default async function PortalLayout({
     await redirectToPortalLogin()
   }
 
+  const supabase = await createSupabaseServerClient()
+  const activeOrganizationId = await getPortalOrganizationId(supabase, user.id)
+  let organizationDisplayName: string | null = null
+  if (activeOrganizationId) {
+    const { data: orgRow } = await supabase
+      .from('organizations')
+      .select('name')
+      .eq('id', activeOrganizationId)
+      .maybeSingle()
+    organizationDisplayName = orgRow?.name ? String(orgRow.name).trim() || null : null
+  }
+
   let platformOrganizations = null as
     | Array<{ id: string; slug: string; name: string | null; is_host: boolean }>
     | null
-  let activeOrganizationId: string | null = null
 
   if (role === 'platform_admin') {
-    const supabase = await createSupabaseServerClient()
-    await ensurePortalOrganizationContext(supabase, user.id)
-    activeOrganizationId = await getPortalOrganizationId(supabase, user.id)
     const { data: orgs } = await supabase
       .from('organizations')
       .select('id, slug, name, is_host')
@@ -55,6 +60,7 @@ export default async function PortalLayout({
         role={role}
         userEmail={user.email || ''}
         userName={fullName}
+        organizationName={organizationDisplayName}
         supabasePlatformStatus={supabasePlatformStatus}
         platformOrganizations={platformOrganizations}
         activeOrganizationId={activeOrganizationId}

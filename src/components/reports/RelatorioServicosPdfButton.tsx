@@ -43,9 +43,11 @@ type Props = {
   orders: RelatorioServicosPdfOrder[]
   periodLabel: string
   filterNote?: string | null
+  /** Nome da empresa para o título do PDF (opcional). */
+  organizationName?: string | null
 }
 
-export function RelatorioServicosPdfButton ({ orders, periodLabel, filterNote }: Props) {
+export function RelatorioServicosPdfButton ({ orders, periodLabel, filterNote, organizationName }: Props) {
   const handlePdf = useCallback(() => {
     if (typeof window === 'undefined' || orders.length === 0) return
 
@@ -73,11 +75,14 @@ export function RelatorioServicosPdfButton ({ orders, periodLabel, filterNote }:
       ? `<p class="filter-note">${escapeHtml(filterNote)}</p>`
       : ''
 
+    const orgTitle = String(organizationName || '').trim()
+    const titleSuffix = orgTitle ? ` — ${escapeHtml(orgTitle)}` : ''
+
     const html = `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8" />
-  <title>Relatório de serviços — Conectize</title>
+  <title>Relatório de serviços${titleSuffix}</title>
   <style>
     * { box-sizing: border-box; }
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; font-size: 11px; color: #111; padding: 16px 20px; }
@@ -127,7 +132,7 @@ export function RelatorioServicosPdfButton ({ orders, periodLabel, filterNote }:
     win.document.open()
     win.document.write(html)
     win.document.close()
-  }, [orders, periodLabel, filterNote])
+  }, [orders, periodLabel, filterNote, organizationName])
 
   if (orders.length === 0) return null
 

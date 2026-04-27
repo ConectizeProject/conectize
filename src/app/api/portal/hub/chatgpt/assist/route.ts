@@ -1,13 +1,15 @@
 import { NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 
-const ASSIST_SYSTEM = `Você é um assistente da Conectize, assistência técnica de celulares e eletrônicos.
+function buildAssistSystemPrompt (organizationLabel: string) {
+  return `Você é um assistente da ${organizationLabel}, assistência técnica de celulares e eletrônicos.
 Sua tarefa é ajudar a criar ou editar ordens de serviço (OS).
 Responda sempre em português brasileiro, de forma objetiva e profissional.
 Para "suggest_title": retorne apenas um título curto (máx. ~50 caracteres) para a OS, baseado na descrição do defeito/solicitação. Sem aspas nem explicação.
 Para "improve_description": retorne apenas o texto da descrição melhorado (ortografia, clareza), mantendo o sentido. Nada além do texto.
 Para "suggest_services": retorne uma lista de itens de serviço, um por linha, no formato "Descrição do serviço". Máximo 5 itens. Apenas as linhas, sem numeração nem marcadores.
 Para "assist_assistance_comment": retorne apenas o texto do comentário para o histórico da assistência (técnico, objetivo, em português brasileiro). Sem título, aspas ou explicações.`
+}
 
 type Action =
   | 'suggest_title'
@@ -52,6 +54,15 @@ export async function POST(request: Request) {
   const metadata = (connection.metadata as { model?: string } | null) || {}
   const model = metadata.model || 'gpt-5-mini'
 
+  const { data: orgRow } = await auth.supabase
+    .from('organizations')
+    .select('name')
+    .eq('id', auth.organizationId)
+    .maybeSingle()
+  const assistSystem = buildAssistSystemPrompt(
+    String(orgRow?.name || '').trim() || 'a empresa',
+  )
+
   const customerDescription = String(context.customerDescription || context.description || '').trim()
   const device = String(context.device || '').trim()
   const receivingNotes = String(context.receivingNotes || '').trim()
@@ -87,7 +98,7 @@ export async function POST(request: Request) {
   const apiBody: Record<string, unknown> = {
     model,
     messages: [
-      { role: 'system', content: ASSIST_SYSTEM },
+      { role: 'system', content: assistSystem },
       { role: 'user', content: userContent },
     ],
   }

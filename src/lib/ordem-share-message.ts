@@ -13,8 +13,10 @@ export type BuildOrderMessageOpts = {
   status: string
   estimatedReadyAt: string | null
   orderHref: string
-  /** Incluir " - Conectize" no título da OS. Default true. */
+  /** Nome da empresa (`organizations.name`) após o número da OS. Default true com sufixo só se houver nome. */
   titleSuffix?: boolean
+  /** Nome da organização para o sufixo do título (ex.: compartilhamento WhatsApp). */
+  organizationName?: string | null
   /** Incluir linha com status. Default true. */
   includeStatus?: boolean
 }
@@ -33,7 +35,9 @@ function getFirstName(name: string): string {
  */
 export function buildOrderMessage(opts: BuildOrderMessageOpts): string {
   const firstName = getFirstName(opts.customerName)
-  const titleSuffix = opts.titleSuffix !== false ? ' - Conectize' : ''
+  const org = String(opts.organizationName || '').trim()
+  const titleSuffix =
+    opts.titleSuffix !== false && org ? ` - ${org}` : ''
   const lines = [
     `Olá${firstName ? ` ${firstName}` : ''}, segue abaixo os dados da sua ordem de serviço:`,
     '',
@@ -49,4 +53,14 @@ export function buildOrderMessage(opts: BuildOrderMessageOpts): string {
   }
   lines.push('', `Acesse sua OS: ${opts.orderHref}`)
   return lines.join('\n')
+}
+
+/** Assunto de e-mail da OS: inclui nome da empresa quando existir. */
+export function buildOrderEmailSubject (
+  displayNumber: string | number,
+  organizationName?: string | null,
+): string {
+  const base = `Ordem de Serviço #${displayNumber}`
+  const org = String(organizationName || '').trim()
+  return org ? `${base} - ${org}` : base
 }
