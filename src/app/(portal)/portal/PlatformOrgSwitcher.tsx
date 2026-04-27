@@ -64,7 +64,7 @@ export function PlatformOrgSwitcher ({ organizations, activeOrganizationId }: Pr
           {organizations.map((o) => (
             <SelectItem key={o.id} value={o.id}>
               {o.name || o.slug}
-              {o.is_host ? ' (Conectize)' : ''}
+              {o.is_host ? ' (matriz)' : ''}
             </SelectItem>
           ))}
         </SelectContent>

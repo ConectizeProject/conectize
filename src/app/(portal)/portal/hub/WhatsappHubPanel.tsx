@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { toast } from '@/hooks/use-toast'
+import { usePortalOrganizationName } from '@/lib/portal/portal-branding-context'
 import { Loader2, MessageCircle } from 'lucide-react'
 
 type Config = {
@@ -21,6 +22,8 @@ type Config = {
 }
 
 export function WhatsappHubPanel () {
+  const organizationName = usePortalOrganizationName()
+  const brandLabel = String(organizationName || '').trim()
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -133,7 +136,12 @@ export function WhatsappHubPanel () {
       const res = await fetch('/api/portal/hub/whatsapp-test-send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: testTo.trim(), text: 'Teste Conectize — integração WhatsApp.' }),
+        body: JSON.stringify({
+          to: testTo.trim(),
+          text: brandLabel
+            ? `Teste ${brandLabel} — integração WhatsApp.`
+            : 'Teste de integração WhatsApp.',
+        }),
       })
       const data = await res.json().catch(() => null)
       if (!res.ok || !data?.ok) {

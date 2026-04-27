@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { CadastroEmpresaForm } from './CadastroEmpresaForm'
 
 export const metadata = {
-  title: 'Cadastro de empresa — Conectize',
+  title: 'Cadastro de empresa',
   robots: { index: false, follow: false },
 }
 

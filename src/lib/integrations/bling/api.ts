@@ -463,7 +463,7 @@ export async function createBlingClientFromConnection (rawConnection: HubConnect
       if (res.status === 404 || (res.status === 400 && notFoundText)) {
         const isProduto = options.path.startsWith('/produtos/')
         const hint = isProduto
-          ? ' Verifique no Conectize se o campo "ID Bling" é o mesmo do cadastro no Bling (produto ou variação), se o item não foi excluído e se o HUB está conectado à empresa correta.'
+          ? ' Verifique no portal se o campo "ID Bling" é o mesmo do cadastro no Bling (produto ou variação), se o item não foi excluído e se o HUB está conectado à empresa correta.'
           : ''
         throw new Error(`${rawMsg}${hint}`)
       }

@@ -218,12 +218,19 @@ async function processOneInboundMessage (
   const gpt = await getChatgptForWhatsapp(supabase)
   if (!gpt) return
 
+  const { data: orgRow } = await supabase
+    .from('organizations')
+    .select('name')
+    .eq('id', conn.organization_id)
+    .maybeSingle()
+
   const ai = await runWhatsappAiReply({
     supabase,
     openaiApiKey: gpt.apiKey,
     model: gpt.model,
     userMessage: item.text,
     history: historyBefore,
+    organizationName: orgRow?.name ?? null,
   })
   if ('error' in ai) {
     console.error('[whatsapp][ai]', ai.error)

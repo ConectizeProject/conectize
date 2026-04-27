@@ -514,14 +514,14 @@ export function CreateCustomerDialog(props: Props) {
             {isCompany ? (
               <div className="space-y-2">
                 <Label htmlFor="companyName">Razão social<span className="text-destructive"> *</span></Label>
-                <Input id="companyName" value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="Ex: Conectize LTDA" />
+                <Input id="companyName" value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="Ex: Razão social LTDA" />
               </div>
             ) : null}
 
             {isCompany ? (
               <div className="space-y-2">
                 <Label htmlFor="tradeName">Nome fantasia (opcional)</Label>
-                <Input id="tradeName" value={tradeName} onChange={(e) => setTradeName(e.target.value)} placeholder="Ex: Conectize" />
+                <Input id="tradeName" value={tradeName} onChange={(e) => setTradeName(e.target.value)} placeholder="Ex: Nome fantasia" />
               </div>
             ) : null}
 

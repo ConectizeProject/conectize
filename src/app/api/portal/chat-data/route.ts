@@ -205,7 +205,14 @@ export async function POST(request: Request) {
     dataContext.ordens_para_resumo = ordersForSummary
   }
 
-  const systemPrompt = `Você é um assistente da Conectize (assistência técnica). Responda em português brasileiro, de forma objetiva e amigável.
+  const { data: orgRow } = await auth.supabase
+    .from('organizations')
+    .select('name')
+    .eq('id', auth.organizationId)
+    .maybeSingle()
+  const orgAssistantLabel = String(orgRow?.name || '').trim() || 'a empresa'
+
+  const systemPrompt = `Você é um assistente da ${orgAssistantLabel} (assistência técnica). Responda em português brasileiro, de forma objetiva e amigável.
 Use APENAS os dados fornecidos abaixo para responder. Se não houver dado para a pergunta, diga que não tem essa informação no momento.
 Valores financeiros e valores de ordens estão em centavos; ao mencionar, converta para reais (ex.: 15000 centavos = R$ 150,00).
 Quando existir "ordens_para_resumo", use esses dados para resumir ou detalhar a(s) ordem(ns) conforme a pergunta do usuário (ex.: resumo da OS, última ordem, detalhes da ordem X). Inclua número da OS, cliente, aparelho, status, datas e um resumo dos serviços/valor quando relevante.

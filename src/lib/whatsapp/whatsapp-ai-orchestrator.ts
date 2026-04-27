@@ -2,7 +2,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 export type ChatTurn = { role: 'user' | 'assistant'; content: string }
 
-const SYSTEM = `Você é o assistente virtual da Conectize (assistência técnica de celulares e eletrônicos no Brasil).
+function buildWhatsappSystemPrompt (organizationLabel: string) {
+  return `Você é o assistente virtual da ${organizationLabel} (assistência técnica de celulares e eletrônicos no Brasil).
 Responda em português brasileiro, de forma educada e objetiva.
 Se o cliente pedir orçamento, use APENAS os preços da lista "Produtos e serviços cadastrados" fornecida no contexto. Não invente valores.
 Se não houver item adequado na lista, diga que um atendente confirmará o valor e peça para aguardar.
@@ -10,6 +11,7 @@ Para aprovação de orçamento, só considere confirmado se o cliente responder 
 Quando precisar registrar dados para abrir ordem de serviço, ao final da mensagem inclua uma linha exatamente neste formato (uma linha só, JSON minificado):
 DRAFT_OS_JSON:{"full_name":"","cpf":"","device_description":"","issue_description":""}
 Preencha apenas os campos que o cliente já informou; use string vazia para os demais. Não repita essa linha se não estiver coletando dados para OS.`
+}
 
 function formatMoneyBr (cents: number | null): string {
   if (cents == null || !Number.isFinite(cents)) return '—'
@@ -85,12 +87,15 @@ export async function runWhatsappAiReply (opts: {
   model: string
   userMessage: string
   history: ChatTurn[]
+  /** Nome da empresa (`organizations.name`) para o prompt do assistente. */
+  organizationName?: string | null
 }): Promise<OrchestratorResult | { error: string }> {
-  const { supabase, openaiApiKey, model, userMessage, history } = opts
+  const { supabase, openaiApiKey, model, userMessage, history, organizationName } = opts
+  const orgLabel = String(organizationName || '').trim() || 'a empresa'
   const productBlock = await loadProductContext(supabase, userMessage)
   const ctx = `Produtos e serviços cadastrados (referência de preços):\n${productBlock || '(nenhum cadastrado)'}`
   const messages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [
-    { role: 'system', content: `${SYSTEM}\n\n${ctx}` },
+    { role: 'system', content: `${buildWhatsappSystemPrompt(orgLabel)}\n\n${ctx}` },
     ...history.slice(-12).map((h) => ({ role: h.role, content: h.content })),
     { role: 'user', content: userMessage },
   ]

@@ -27,7 +27,8 @@ import { getPrintWindowFeatures } from '@/lib/ordem-print'
 import { History, MessageCircle, Mail, MoreVertical, Trash2, Copy, Printer } from 'lucide-react'
 import { OrderEditHistoryDialog } from './OrderEditHistoryDialog'
 import { toast } from '@/hooks/use-toast'
-import { buildOrderMessage } from '@/lib/ordem-share-message'
+import { buildOrderEmailSubject, buildOrderMessage } from '@/lib/ordem-share-message'
+import { usePortalOrganizationName } from '@/lib/portal/portal-branding-context'
 import { ORDER_STATUS_LABELS } from '@/lib/orders/order-status'
 import { formatPhoneForWhatsApp } from '@/lib/utils/format-phone'
 import {
@@ -79,6 +80,7 @@ export function OrdemActionsMenu({
   warrantyTemplateId,
   warrantyText,
 }: Props) {
+  const organizationName = usePortalOrganizationName()
   const router = useRouter()
   const [historyOpen, setHistoryOpen] = useState(false)
   const [publicUrl, setPublicUrl] = useState<string | null>(
@@ -122,13 +124,14 @@ export function OrdemActionsMenu({
       status: statusLabel,
       estimatedReadyAt,
       orderHref,
+      organizationName,
     })
     : ''
   const whatsappNumber = mobilePhone ? formatPhoneForWhatsApp(mobilePhone) : ''
   const whatsappHref = whatsappNumber && message ? `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}` : null
   const mailtoHref =
     email && message
-      ? `mailto:${email}?subject=${encodeURIComponent(`Ordem de Serviço #${displayNumber} - Conectize`)}&body=${encodeURIComponent(message)}`
+      ? `mailto:${email}?subject=${encodeURIComponent(buildOrderEmailSubject(displayNumber, organizationName))}&body=${encodeURIComponent(message)}`
       : null
 
   async function handleStatusChange(

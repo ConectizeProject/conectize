@@ -10,84 +10,84 @@ import { formatPhoneBr } from '@/lib/utils/format-phone'
 // --- Configurações (usadas na listagem e na edição) ---
 
 export const ORDEM_PRINT_CONFIG = {
-  /** Dimensões da janela ao abrir a etiqueta para impressão */
-  labelWindow: { width: 900, height: 800 },
-  /** Dimensões da janela ao abrir a OS para impressão */
-  printWindow: { width: 900, height: 800 },
+	/** Dimensões da janela ao abrir a etiqueta para impressão */
+	labelWindow: { width: 900, height: 800 },
+	/** Dimensões da janela ao abrir a OS para impressão */
+	printWindow: { width: 900, height: 800 },
 } as const
 
 /** Gera string de opções para window.open (ex: 'width=900,height=800') */
 export function getLabelWindowFeatures(): string {
-  const { width, height } = ORDEM_PRINT_CONFIG.labelWindow
-  return `width=${width},height=${height}`
+	const { width, height } = ORDEM_PRINT_CONFIG.labelWindow
+	return `width=${width},height=${height}`
 }
 
 /** Gera string de opções para window.open para impressão da OS */
 export function getPrintWindowFeatures(): string {
-  const { width, height } = ORDEM_PRINT_CONFIG.printWindow
-  return `width=${width},height=${height}`
+	const { width, height } = ORDEM_PRINT_CONFIG.printWindow
+	return `width=${width},height=${height}`
 }
 
 // --- Helpers compartilhados ---
 
 function escapeHtml(text: string): string {
-  const map: Record<string, string> = {
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#039;',
-  }
-  return text.replace(/[&<>"']/g, (m) => map[m])
+	const map: Record<string, string> = {
+		'&': '&amp;',
+		'<': '&lt;',
+		'>': '&gt;',
+		'"': '&quot;',
+		"'": '&#039;',
+	}
+	return text.replace(/[&<>"']/g, (m) => map[m])
 }
 
 // ========== ETIQUETA ==========
 // Tamanho físico: 45mm x 25mm
 
 export type OrdemLabelData = {
-  displayNumber: string | number
-  title: string
-  createdAt: string
-  estimatedReadyAt: string | null
-  passcodeType: 'text' | 'pattern' | null
-  passcodeText: string | null
-  passcodePattern: string | null
-  customerFirstName: string | null
-  customerMobile: string | null
-  deviceModel: string | null
+	displayNumber: string | number
+	title: string
+	createdAt: string
+	estimatedReadyAt: string | null
+	passcodeType: 'text' | 'pattern' | null
+	passcodeText: string | null
+	passcodePattern: string | null
+	customerFirstName: string | null
+	customerMobile: string | null
+	deviceModel: string | null
 }
 
 function formatDateShort(value: string | null): string {
-  return formatDateTimeShortBr(value)
+	return formatDateTimeShortBr(value)
 }
 
 function getPasscodeDisplay(data: OrdemLabelData): string {
-  if (data.passcodeType === 'text' && data.passcodeText) {
-    return `Senha: ${data.passcodeText}`
-  }
-  if (data.passcodeType === 'pattern') {
-    return `Senha: ${data.passcodePattern}`
-  }
-  return ''
+	if (data.passcodeType === 'text' && data.passcodeText) {
+		return `Senha: ${data.passcodeText}`
+	}
+	if (data.passcodeType === 'pattern') {
+		return `Senha: ${data.passcodePattern}`
+	}
+	return ''
 }
 
 /**
  * Gera o HTML da etiqueta para impressão.
  */
 export function buildOrdemLabelHtml(data: OrdemLabelData): string {
-  const titleDisplay = `#${data.displayNumber} - ${(data.title || '-').slice(0, 35)}`
-  const entrada = formatDateShort(data.createdAt)
-  const previsao = formatDateShort(data.estimatedReadyAt)
-  const senha = getPasscodeDisplay(data)
-  const clienteLinha =
-    data.customerFirstName || data.customerMobile
-      ? [data.customerFirstName, data.customerMobile ? formatPhoneBr(data.customerMobile) : null]
-        .filter(Boolean)
-        .join(' ')
-      : null
-  const modeloLinha = data.deviceModel || null
+	const titleDisplay = `#${data.displayNumber} - ${(data.title || '-').slice(0, 35)}`
+	const entrada = formatDateShort(data.createdAt)
+	const previsao = formatDateShort(data.estimatedReadyAt)
+	const senha = getPasscodeDisplay(data)
+	const clienteLinha =
+		data.customerFirstName || data.customerMobile
+			? [data.customerFirstName, data.customerMobile ? formatPhoneBr(data.customerMobile) : null]
+				.filter(Boolean)
+				.join(' ')
+			: null
+	const modeloLinha = data.deviceModel || null
 
-  return `<!DOCTYPE html>
+	return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
@@ -133,152 +133,152 @@ export function buildOrdemLabelHtml(data: OrdemLabelData): string {
 // ========== IMPRESSÃO DA OS ==========
 
 export type CompanyPrintData = {
-  name: string | null
-  cnpj: string | null
-  address: string | null
-  complement: string | null
-  zipCode: string | null
-  city: string | null
-  state: string | null
-  phone: string | null
-  email: string | null
-  logoUrl: string | null
+	name: string | null
+	cnpj: string | null
+	address: string | null
+	complement: string | null
+	zipCode: string | null
+	city: string | null
+	state: string | null
+	phone: string | null
+	email: string | null
+	logoUrl: string | null
 }
 
 export type OrdemPrintData = {
-  displayNumber: number | string | null
-  status: string
-  title: string
-  createdAt: string
-  updatedAt: string
-  closedAt?: string | null
-  customer: {
-    fullName: string
-    companyName: string | null
-    isCompany: boolean
-    cpf: string | null
-    cnpj: string | null
-    email: string | null
-    mobilePhone: string | null
-    contactPhone: string | null
-    contactNotes: string | null
-    addressFull: string | null
-  }
-  device: string
-  imei: string | null
-  deviceLocation: string | null
-  isWarranty: boolean
-  estimatedReadyAt: string | null
-  customerDescription: string | null
-  internalDescription: string | null
-  receivingNotes: string | null
-  assistanceInfo?: string | null
-  warrantyText?: string | null
-  services?: Array<{
-    description?: string | null
-    valueCents?: number | null
-    costCents?: number | null
-  }> | null
-  deviceEntryChecks?: unknown | null
+	displayNumber: number | string | null
+	status: string
+	title: string
+	createdAt: string
+	updatedAt: string
+	closedAt?: string | null
+	customer: {
+		fullName: string
+		companyName: string | null
+		isCompany: boolean
+		cpf: string | null
+		cnpj: string | null
+		email: string | null
+		mobilePhone: string | null
+		contactPhone: string | null
+		contactNotes: string | null
+		addressFull: string | null
+	}
+	device: string
+	imei: string | null
+	deviceLocation: string | null
+	isWarranty: boolean
+	estimatedReadyAt: string | null
+	customerDescription: string | null
+	internalDescription: string | null
+	receivingNotes: string | null
+	assistanceInfo?: string | null
+	warrantyText?: string | null
+	services?: Array<{
+		description?: string | null
+		valueCents?: number | null
+		costCents?: number | null
+	}> | null
+	deviceEntryChecks?: unknown | null
 }
 
 function formatDate(value: string | null): string {
-  return formatDateTimeBr(value)
+	return formatDateTimeBr(value)
 }
 
 function formatDoc(value: string | null, isCompany: boolean): string {
-  if (!value) return '-'
-  const digits = value.replace(/\D/g, '')
-  if (isCompany && digits.length >= 14) {
-    const m = digits.match(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/)
-    return m ? `CNPJ ${m[1]}.${m[2]}.${m[3]}/${m[4]}-${m[5]}` : `CNPJ ${value}`
-  }
-  if (digits.length >= 11) {
-    const m = digits.match(/^(\d{3})(\d{3})(\d{3})(\d{2})$/)
-    return m ? `CPF ${m[1]}.${m[2]}.${m[3]}-${m[4]}` : `CPF ${value}`
-  }
-  return isCompany ? `CNPJ ${value}` : `CPF ${value}`
+	if (!value) return '-'
+	const digits = value.replace(/\D/g, '')
+	if (isCompany && digits.length >= 14) {
+		const m = digits.match(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/)
+		return m ? `CNPJ ${m[1]}.${m[2]}.${m[3]}/${m[4]}-${m[5]}` : `CNPJ ${value}`
+	}
+	if (digits.length >= 11) {
+		const m = digits.match(/^(\d{3})(\d{3})(\d{3})(\d{2})$/)
+		return m ? `CPF ${m[1]}.${m[2]}.${m[3]}-${m[4]}` : `CPF ${value}`
+	}
+	return isCompany ? `CNPJ ${value}` : `CPF ${value}`
 }
 
 function formatCentsBr(cents: number): string {
-  return (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+	return (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
 function formatCompanyCnpj(value: string | null): string {
-  if (!value) return ''
-  const d = value.replace(/\D/g, '')
-  if (d.length >= 14) {
-    return d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
-  }
-  return value
+	if (!value) return ''
+	const d = value.replace(/\D/g, '')
+	if (d.length >= 14) {
+		return d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
+	}
+	return value
 }
 
 function buildCompanyAddress(c: CompanyPrintData | null | undefined): string {
-  if (!c) return ''
-  const parts: string[] = []
-  if (c.address) parts.push(c.address)
-  if (c.complement) parts.push(c.complement)
-  if (c.city || c.state) parts.push([c.city, c.state].filter(Boolean).join(' - '))
-  if (c.zipCode) parts.push(`CEP ${c.zipCode}`)
-  return parts.join(', ')
+	if (!c) return ''
+	const parts: string[] = []
+	if (c.address) parts.push(c.address)
+	if (c.complement) parts.push(c.complement)
+	if (c.city || c.state) parts.push([c.city, c.state].filter(Boolean).join(' - '))
+	if (c.zipCode) parts.push(`CEP ${c.zipCode}`)
+	return parts.join(', ')
 }
 
 function buildCustomerSection(
-  customer: OrdemPrintData['customer'],
-  customerName: string
+	customer: OrdemPrintData['customer'],
+	customerName: string
 ): string {
-  const items: string[] = []
-  if (customerName && customerName !== '-') {
-    items.push(`<span><strong>${escapeHtml(customerName)}</strong></span>`)
-  }
-  const doc = formatDoc(customer.isCompany ? customer.cnpj : customer.cpf, customer.isCompany)
-  if (doc && doc !== '-') {
-    items.push(`<span>${escapeHtml(doc)}</span>`)
-  }
-  if (customer.email?.trim()) {
-    items.push(`<span>${escapeHtml(customer.email.trim())}</span>`)
-  }
-  const cel = customer.mobilePhone ? formatPhoneBr(customer.mobilePhone) : null
-  if (cel) {
-    items.push(`<span>${escapeHtml(cel)}</span>`)
-  }
-  const contactParts: string[] = []
-  if (customer.contactPhone) {
-    contactParts.push(formatPhoneBr(customer.contactPhone) || customer.contactPhone)
-  }
-  if (customer.contactNotes?.trim()) {
-    contactParts.push(customer.contactNotes.trim())
-  }
-  if (contactParts.length > 0) {
-    items.push(`<span>${escapeHtml(contactParts.join(' — '))}</span>`)
-  }
-  if (customer.addressFull?.trim()) {
-    items.push(`<span>${escapeHtml(customer.addressFull.trim())}</span>`)
-  }
-  if (items.length === 0) return ''
-  return `<div class="section" style="margin-bottom: 12px;">
+	const items: string[] = []
+	if (customerName && customerName !== '-') {
+		items.push(`<span><strong>${escapeHtml(customerName)}</strong></span>`)
+	}
+	const doc = formatDoc(customer.isCompany ? customer.cnpj : customer.cpf, customer.isCompany)
+	if (doc && doc !== '-') {
+		items.push(`<span>${escapeHtml(doc)}</span>`)
+	}
+	if (customer.email?.trim()) {
+		items.push(`<span>${escapeHtml(customer.email.trim())}</span>`)
+	}
+	const cel = customer.mobilePhone ? formatPhoneBr(customer.mobilePhone) : null
+	if (cel) {
+		items.push(`<span>${escapeHtml(cel)}</span>`)
+	}
+	const contactParts: string[] = []
+	if (customer.contactPhone) {
+		contactParts.push(formatPhoneBr(customer.contactPhone) || customer.contactPhone)
+	}
+	if (customer.contactNotes?.trim()) {
+		contactParts.push(customer.contactNotes.trim())
+	}
+	if (contactParts.length > 0) {
+		items.push(`<span>${escapeHtml(contactParts.join(' — '))}</span>`)
+	}
+	if (customer.addressFull?.trim()) {
+		items.push(`<span>${escapeHtml(customer.addressFull.trim())}</span>`)
+	}
+	if (items.length === 0) return ''
+	return `<div class="section" style="margin-bottom: 12px;">
     <h2 style="margin-bottom: 6px;">Cliente</h2>
     <div style="font-size: 11px; line-height: 1.5; color: #333;">${items.join(' • ')}</div>
   </div>`
 }
 
 function buildServicesSection(services: OrdemPrintData['services']): string {
-  if (!services || services.length === 0) return ''
-  const rows = services
-    .map((s) => {
-      const desc = (s.description ?? '').toString().trim() || '-'
-      const valueCents = Math.max(0, Number(s.valueCents) || 0)
-      return `<tr style="border-bottom: 1px solid #eee;">
+	if (!services || services.length === 0) return ''
+	const rows = services
+		.map((s) => {
+			const desc = (s.description ?? '').toString().trim() || '-'
+			const valueCents = Math.max(0, Number(s.valueCents) || 0)
+			return `<tr style="border-bottom: 1px solid #eee;">
             <td style="padding: 6px 8px;">${desc}</td>
             <td style="text-align: right; padding: 6px 8px;">${formatCentsBr(valueCents)}</td>
           </tr>`
-    })
-    .join('')
-  const totalCents = services.reduce(
-    (acc, s) => acc + Math.max(0, Number(s.valueCents) || 0),
-    0
-  )
-  return `
+		})
+		.join('')
+	const totalCents = services.reduce(
+		(acc, s) => acc + Math.max(0, Number(s.valueCents) || 0),
+		0
+	)
+	return `
   <div class="section">
     <h2>Serviços a realizar</h2>
     <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
@@ -303,24 +303,24 @@ function buildServicesSection(services: OrdemPrintData['services']): string {
  * Gera o HTML completo para impressão da ordem de serviço.
  */
 export function buildOrdemPrintHtml(
-  data: OrdemPrintData,
-  company?: CompanyPrintData | null,
-  baseUrl: string = ''
+	data: OrdemPrintData,
+	company?: CompanyPrintData | null,
+	baseUrl: string = ''
 ): string {
-  // URL do logo: absoluta (http) usa como está; path com / usa em relação à origem da janela de impressão (mesmo domínio)
-  const logoFullUrl = company?.logoUrl
-    ? company.logoUrl.startsWith('http')
-      ? company.logoUrl
-      : company.logoUrl.startsWith('/')
-        ? company.logoUrl
-        : `${baseUrl}${baseUrl.endsWith('/') ? '' : '/'}${company.logoUrl}`
-    : ''
-  const customerName = data.customer.isCompany
-    ? (data.customer.companyName || data.customer.fullName || '-')
-    : (data.customer.fullName || '-')
-  const companyName = company?.name || 'Conectize'
+	// URL do logo: absoluta (http) usa como está; path com / usa em relação à origem da janela de impressão (mesmo domínio)
+	const logoFullUrl = company?.logoUrl
+		? company.logoUrl.startsWith('http')
+			? company.logoUrl
+			: company.logoUrl.startsWith('/')
+				? company.logoUrl
+				: `${baseUrl}${baseUrl.endsWith('/') ? '' : '/'}${company.logoUrl}`
+		: ''
+	const customerName = data.customer.isCompany
+		? (data.customer.companyName || data.customer.fullName || '-')
+		: (data.customer.fullName || '-')
+	const companyName = company?.name || ''
 
-  return `<!DOCTYPE html>
+	return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
@@ -368,28 +368,28 @@ export function buildOrdemPrintHtml(
   ${data.receivingNotes ? `<div class="section"><h2>Observações do recebimento</h2><div class="block">${escapeHtml(data.receivingNotes)}</div></div>` : ''}
   ${data.internalDescription ? `<div class="section"><h2>Notas internas</h2><div class="block">${escapeHtml(data.internalDescription)}</div></div>` : ''}
   ${(() => {
-      const checks = data.deviceEntryChecks
-      if (!checks || typeof checks !== 'object' || Array.isArray(checks)) return ''
-      const c = checks as Record<string, unknown>
-      const status = typeof c.status === 'string' ? c.status : null
-      const rawChecks = c.checks
-      const list =
-        rawChecks && typeof rawChecks === 'object' && !Array.isArray(rawChecks)
-          ? (rawChecks as Record<string, unknown>)
-          : null
+			const checks = data.deviceEntryChecks
+			if (!checks || typeof checks !== 'object' || Array.isArray(checks)) return ''
+			const c = checks as Record<string, unknown>
+			const status = typeof c.status === 'string' ? c.status : null
+			const rawChecks = c.checks
+			const list =
+				rawChecks && typeof rawChecks === 'object' && !Array.isArray(rawChecks)
+					? (rawChecks as Record<string, unknown>)
+					: null
 
-      const statusLabel = status
-        ? ({
-          operante: 'Aparelho liga normalmente',
-          sem_bateria: 'Aparelho não liga na entrada',
-          display_apagado: 'Display apagado/danificado na entrada',
-          nao_liga: 'Aparelho não liga na entrada',
-        } as Record<string, string>)[status] || status
-        : null
+			const statusLabel = status
+				? ({
+					operante: 'Aparelho liga normalmente',
+					sem_bateria: 'Aparelho não liga na entrada',
+					display_apagado: 'Display apagado/danificado na entrada',
+					nao_liga: 'Aparelho não liga na entrada',
+				} as Record<string, string>)[status] || status
+				: null
 
-      const notTested = status && status !== 'operante'
-      if (notTested) {
-        return `
+			const notTested = status && status !== 'operante'
+			if (notTested) {
+				return `
       <div class="section">
         <h2>Testes realizados na entrada do aparelho</h2>
         <div class="row"><span>${statusLabel || ''}</span></div>
@@ -398,55 +398,55 @@ export function buildOrdemPrintHtml(
         </div>
       </div>
     `
-      }
+			}
 
-      const labels: Record<string, string> = {
-        rear_camera_main: 'Câmera traseira (1x)',
-        rear_camera_2x: 'Câmera traseira (2x)',
-        rear_camera_3x: 'Câmera traseira (3x)',
-        front_camera: 'Câmera frontal',
-        microphone: 'Microfone',
-        earpiece_speaker: 'Alto-falante de ouvido',
-        loudspeaker: 'Alto-falante principal',
-        charging_port: 'Carregamento (cabo)',
-        wireless_charging: 'Carregamento por indução',
-        sim_signal: 'Sinal de operadora',
-        wifi: 'Wi‑Fi',
-        bluetooth: 'Bluetooth',
-        face_touch_id: 'Face ID / Touch ID',
-        volume_buttons: 'Botões de volume',
-        power_button: 'Botão power',
-        vibration: 'Vibração',
-        proximity_sensor: 'Sensor de proximidade',
-        display_touch: 'Toque na tela',
-        display_colors: 'Cores/brilho da tela',
-      }
+			const labels: Record<string, string> = {
+				rear_camera_main: 'Câmera traseira (1x)',
+				rear_camera_2x: 'Câmera traseira (2x)',
+				rear_camera_3x: 'Câmera traseira (3x)',
+				front_camera: 'Câmera frontal',
+				microphone: 'Microfone',
+				earpiece_speaker: 'Alto-falante de ouvido',
+				loudspeaker: 'Alto-falante principal',
+				charging_port: 'Carregamento (cabo)',
+				wireless_charging: 'Carregamento por indução',
+				sim_signal: 'Sinal de operadora',
+				wifi: 'Wi‑Fi',
+				bluetooth: 'Bluetooth',
+				face_touch_id: 'Face ID / Touch ID',
+				volume_buttons: 'Botões de volume',
+				power_button: 'Botão power',
+				vibration: 'Vibração',
+				proximity_sensor: 'Sensor de proximidade',
+				display_touch: 'Toque na tela',
+				display_colors: 'Cores/brilho da tela',
+			}
 
-      const normalize = (v: unknown): 'ok' | 'fail' | 'na' | null => {
-        if (v === true) return 'ok'
-        if (v === false) return 'fail'
-        if (v === 'ok' || v === 'fail' || v === 'na') return v
-        return null
-      }
+			const normalize = (v: unknown): 'ok' | 'fail' | 'na' | null => {
+				if (v === true) return 'ok'
+				if (v === false) return 'fail'
+				if (v === 'ok' || v === 'fail' || v === 'na') return v
+				return null
+			}
 
-      const okItems: string[] = []
-      const failItems: string[] = []
-      const naItems: string[] = []
-      if (list) {
-        for (const [key, value] of Object.entries(list)) {
-          const v = normalize(value)
-          const label = labels[key] || key
-          if (v === 'ok') okItems.push(label)
-          else if (v === 'fail') failItems.push(label)
-          else if (v === 'na') naItems.push(label)
-        }
-      }
+			const okItems: string[] = []
+			const failItems: string[] = []
+			const naItems: string[] = []
+			if (list) {
+				for (const [key, value] of Object.entries(list)) {
+					const v = normalize(value)
+					const label = labels[key] || key
+					if (v === 'ok') okItems.push(label)
+					else if (v === 'fail') failItems.push(label)
+					else if (v === 'na') naItems.push(label)
+				}
+			}
 
-      const hasAnyMarked = okItems.length > 0 || failItems.length > 0 || naItems.length > 0
-      if (!notTested && !hasAnyMarked) return ''
+			const hasAnyMarked = okItems.length > 0 || failItems.length > 0 || naItems.length > 0
+			if (!notTested && !hasAnyMarked) return ''
 
-      if (failItems.length > 0) {
-        return `
+			if (failItems.length > 0) {
+				return `
       <div class="section">
         <h2>Testes realizados na entrada do aparelho</h2>
         <div class="row"><span>${statusLabel || 'Aparelho liga normalmente'}</span></div>
@@ -457,10 +457,10 @@ export function buildOrdemPrintHtml(
         </div>
       </div>
     `
-      }
+			}
 
-      if (okItems.length > 0 || naItems.length > 0) {
-        return `
+			if (okItems.length > 0 || naItems.length > 0) {
+				return `
       <div class="section">
         <h2>Testes realizados na entrada do aparelho</h2>
         <div class="row"><span>${statusLabel || 'Aparelho liga normalmente'}</span></div>
@@ -469,10 +469,10 @@ export function buildOrdemPrintHtml(
         </div>
       </div>
     `
-      }
+			}
 
-      return ''
-    })()}
+			return ''
+		})()}
   ${data.warrantyText ? `<div class="section"><h2>Termos de garantia</h2><div class="block">${escapeHtml(data.warrantyText)}</div></div>` : ''}
   ${data.assistanceInfo ? `<div class="section"><h2>Informações sobre a assistência</h2><div class="block">${escapeHtml(data.assistanceInfo)}</div></div>` : ''}
   ${buildServicesSection(data.services)}

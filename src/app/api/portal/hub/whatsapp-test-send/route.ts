@@ -13,7 +13,16 @@ export async function POST (request: Request) {
 
   const body = await request.json().catch(() => null) as { to?: string; text?: string } | null
   const to = String(body?.to || '').trim()
-  const text = String(body?.text || 'Teste Conectize — integração WhatsApp OK.').trim()
+  const { data: orgRow } = await auth.supabase
+    .from('organizations')
+    .select('name')
+    .eq('id', auth.organizationId)
+    .maybeSingle()
+  const brand = String(orgRow?.name || '').trim()
+  const defaultTestText = brand
+    ? `Teste ${brand} — integração WhatsApp OK.`
+    : 'Teste de integração WhatsApp OK.'
+  const text = String(body?.text || defaultTestText).trim()
   if (!to) {
     return NextResponse.json({ ok: false, error: 'to_required' }, { status: 400 })
   }

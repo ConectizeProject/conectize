@@ -33,6 +33,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
+import { usePortalOrganizationName } from '@/lib/portal/portal-branding-context'
 
 type SetupStep = { text: string; link?: { url: string; label: string } }
 
@@ -410,6 +411,8 @@ function IntegrationCard({
 }
 
 export function HubClient({ initialConnections, blingConnections: initialBlingConnections = [], isAdmin = false, chatgptModel = 'gpt-5-mini' }: Props) {
+  const organizationName = usePortalOrganizationName()
+  const brandLabel = String(organizationName || '').trim()
   const router = useRouter()
   const [connections, setConnections] = useState<Set<string>>(new Set(initialConnections))
   const [blingConnections, setBlingConnections] = useState<BlingConnection[]>(initialBlingConnections)
@@ -720,7 +723,12 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
       const res = await fetch('/api/portal/hub/whatsapp-test-send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: testTo.trim(), text: 'Teste Conectize — integração WhatsApp.' }),
+        body: JSON.stringify({
+          to: testTo.trim(),
+          text: brandLabel
+            ? `Teste ${brandLabel} — integração WhatsApp.`
+            : 'Teste de integração WhatsApp.',
+        }),
       })
       const data = await res.json().catch(() => null)
       if (!res.ok || !data?.ok) {
@@ -785,7 +793,9 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
     <div className="space-y-6">
       <div className="rounded-lg border bg-muted/30 p-4">
         <p className="text-sm text-muted-foreground">
-          O HUB permite conectar o Conectize com marketplaces, ERPs e ferramentas de IA.
+          {brandLabel
+            ? `O HUB permite integrar ${brandLabel} a marketplaces, ERPs e ferramentas de IA. `
+            : 'O HUB permite integrar sua operação a marketplaces, ERPs e ferramentas de IA. '}
           Cada integração pode ser configurada individualmente. Em breve você poderá criar
           automações como: novo pedido no Mercado Livre → criar OS automaticamente.
         </p>
@@ -837,7 +847,7 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
           <CardHeader>
             <CardTitle>Bling: buscar produto e sincronizar</CardTitle>
             <CardDescription>
-              Busque por SKU ou código de barras. Se encontrar no Bling, o produto será criado ou atualizado no Conectize.
+              Busque por SKU ou código de barras. Se encontrar no Bling, o produto será criado ou atualizado no catálogo desta empresa.
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-[170px_1fr_auto]">

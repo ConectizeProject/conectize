@@ -1,6 +1,10 @@
 import Link from 'next/link'
 import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
+import {
+  ensurePortalOrganizationContext,
+  getPortalOrganizationId,
+} from '@/lib/organizations/portal-organization-context'
 import { resolvePortalCustomer } from '@/lib/portal/resolve-portal-customer'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { OrderStatusBadge } from '@/components/orders'
@@ -28,6 +32,17 @@ export default async function MinhasOrdensPage() {
   const { customer, effectiveTaxId, source } = await resolvePortalCustomer(supabase, user.id)
 
   if (normalizedRole === 'retailer' && source === 'none') {
+    await ensurePortalOrganizationContext(supabase, user.id)
+    const activeOrgId = await getPortalOrganizationId(supabase, user.id)
+    let adminOrgLabel: string | null = null
+    if (activeOrgId) {
+      const { data: orgRow } = await supabase
+        .from('organizations')
+        .select('name')
+        .eq('id', activeOrgId)
+        .maybeSingle()
+      adminOrgLabel = orgRow?.name ? String(orgRow.name).trim() || null : null
+    }
     return (
       <div className="space-y-6">
         <div>
@@ -39,7 +54,9 @@ export default async function MinhasOrdensPage() {
         <Alert>
           <AlertTitle>Vínculo pendente</AlertTitle>
           <AlertDescription>
-            Peça ao administrador da Conectize para vincular seu usuário ao cadastro da sua loja.
+            {adminOrgLabel
+              ? `Peça ao administrador de ${adminOrgLabel} para vincular seu usuário ao cadastro da sua loja.`
+              : 'Peça ao administrador da sua empresa para vincular seu usuário ao cadastro da sua loja.'}
           </AlertDescription>
         </Alert>
       </div>
