@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Pencil, ArrowRightLeft, Plus, Loader2, Settings } from 'lucide-react'
+import { Pencil, ArrowRightLeft, Plus, Loader2, Settings, Scale } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -40,12 +40,14 @@ export function FinanceiroBancosClient() {
   const [banks, setBanks] = useState<BankBalance[]>([])
   const [loading, setLoading] = useState(true)
   const [adjustDialogOpen, setAdjustDialogOpen] = useState(false)
+  const [balanceBaseDialogOpen, setBalanceBaseDialogOpen] = useState(false)
   const [transferDialogOpen, setTransferDialogOpen] = useState(false)
   const [newBankDialogOpen, setNewBankDialogOpen] = useState(false)
   const [editContaDialogOpen, setEditContaDialogOpen] = useState(false)
   const [editingBank, setEditingBank] = useState<BankBalance | null>(null)
   const [newBalanceValue, setNewBalanceValue] = useState('')
   const [adjustDescription, setAdjustDescription] = useState('')
+  const [balanceBaseValue, setBalanceBaseValue] = useState('')
   const [transferFrom, setTransferFrom] = useState('')
   const [transferTo, setTransferTo] = useState('')
   const [transferAmount, setTransferAmount] = useState('')
@@ -83,6 +85,12 @@ export function FinanceiroBancosClient() {
     setEditContaName(bank.name)
     setEditSaldoInicial(maskedFromCents(bank.saldo_inicial_cents ?? 0))
     setEditContaDialogOpen(true)
+  }
+
+  function openBalanceBaseUpdate(bank: BankBalance) {
+    setEditingBank(bank)
+    setBalanceBaseValue(maskedFromCents(bank.balance_cents))
+    setBalanceBaseDialogOpen(true)
   }
 
   async function submitAdjust(e: React.FormEvent) {
@@ -155,6 +163,38 @@ export function FinanceiroBancosClient() {
         loadBanks()
       } else {
         toast({ title: data?.error || 'Erro', variant: 'destructive' })
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function submitBalanceBaseUpdate(e: React.FormEvent) {
+    e.preventDefault()
+    if (!editingBank) return
+    const cents = moneyToCentsFromMasked(balanceBaseValue)
+    if (cents === null) {
+      toast({ title: 'Informe o novo balanço', variant: 'destructive' })
+      return
+    }
+    setSaving(true)
+    try {
+      const res = await portalFetch('/api/portal/admin/finance/balance-base-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conta_id: editingBank.id,
+          new_balance_cents: cents,
+        }),
+      })
+      const data = await res?.json().catch(() => null)
+      if (data?.ok) {
+        toast({ title: 'Balanço atualizado sem lançar movimentação.' })
+        setBalanceBaseDialogOpen(false)
+        setEditingBank(null)
+        loadBanks()
+      } else {
+        toast({ title: data?.message || data?.error || 'Erro', variant: 'destructive' })
       }
     } finally {
       setSaving(false)
@@ -236,7 +276,7 @@ export function FinanceiroBancosClient() {
           <div>
             <CardTitle>Contas</CardTitle>
             <CardDescription>
-              Saldo por conta. Cada forma de pagamento pode ser vinculada a uma conta em Configurações gerais → Formas de pagamento. Editar saldo gera uma entrada ou saída de ajuste.
+              Saldo por conta. Cada forma de pagamento pode ser vinculada a uma conta em Configurações gerais → Formas de pagamento. Editar saldo gera entrada/saída de ajuste; atualizar balanço corrige sem gerar movimentação.
             </CardDescription>
           </div>
           <div className="flex gap-2">
@@ -285,6 +325,9 @@ export function FinanceiroBancosClient() {
                         <Button variant="ghost" size="icon" onClick={() => openEditConta(b)} aria-label="Editar conta">
                           <Settings className="h-4 w-4" />
                         </Button>
+                        <Button variant="ghost" size="icon" onClick={() => openBalanceBaseUpdate(b)} aria-label="Atualizar balanço sem movimento">
+                          <Scale className="h-4 w-4" />
+                        </Button>
                         <Button variant="ghost" size="icon" onClick={() => openAdjust(b)} aria-label="Ajustar saldo">
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -315,6 +358,9 @@ export function FinanceiroBancosClient() {
                   value={newBalanceValue}
                   onChange={(e) => setNewBalanceValue(formatMoneyInput(e.target.value))}
                   placeholder="0,00"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  className="tabular-nums"
                 />
               </div>
               <div>
@@ -329,6 +375,39 @@ export function FinanceiroBancosClient() {
                 <Button type="button" variant="outline" onClick={() => setAdjustDialogOpen(false)}>Cancelar</Button>
                 <Button type="submit" disabled={saving}>
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Ajustar'}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={balanceBaseDialogOpen} onOpenChange={(o) => { if (!o) setEditingBank(null); setBalanceBaseDialogOpen(o) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Atualizar balanço (sem movimentação)</DialogTitle>
+            <DialogDescription>
+              Define o saldo atual da conta sem criar lançamento de entrada/saída. O histórico de movimentações permanece intacto.
+            </DialogDescription>
+          </DialogHeader>
+          {editingBank && (
+            <form onSubmit={submitBalanceBaseUpdate} className="space-y-4">
+              <p className="text-sm text-muted-foreground">Conta: {editingBank.name}</p>
+              <div>
+                <Label>Novo balanço atual (R$)</Label>
+                <Input
+                  value={balanceBaseValue}
+                  onChange={(e) => setBalanceBaseValue(formatMoneyInput(e.target.value))}
+                  placeholder="0,00"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  className="tabular-nums"
+                />
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setBalanceBaseDialogOpen(false)}>Cancelar</Button>
+                <Button type="submit" disabled={saving}>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Atualizar balanço'}
                 </Button>
               </DialogFooter>
             </form>
@@ -377,6 +456,9 @@ export function FinanceiroBancosClient() {
                 value={transferAmount}
                 onChange={(e) => setTransferAmount(formatMoneyInput(e.target.value))}
                 placeholder="0,00"
+                inputMode="numeric"
+                autoComplete="off"
+                className="tabular-nums"
               />
             </div>
             <DialogFooter>
@@ -411,6 +493,9 @@ export function FinanceiroBancosClient() {
                   value={editSaldoInicial}
                   onChange={(e) => setEditSaldoInicial(formatMoneyInputSigned(e.target.value))}
                   placeholder="0,00"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  className="tabular-nums"
                 />
                 <p className="text-xs text-muted-foreground mt-1">Valor que a conta tinha ao ser aberta ou configurada. Pode ser negativo.</p>
               </div>
@@ -446,6 +531,9 @@ export function FinanceiroBancosClient() {
                 value={newSaldoInicial}
                 onChange={(e) => setNewSaldoInicial(formatMoneyInputSigned(e.target.value))}
                 placeholder="0,00"
+                inputMode="numeric"
+                autoComplete="off"
+                className="tabular-nums"
               />
               <p className="text-xs text-muted-foreground mt-1">Valor que a conta tem ao ser criada. Pode ser negativo.</p>
             </div>

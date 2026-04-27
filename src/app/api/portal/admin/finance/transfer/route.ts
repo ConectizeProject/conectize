@@ -34,6 +34,7 @@ export async function POST(request: NextRequest) {
     .insert([
       {
         conta_id: fromContaId,
+        organization_id: auth.organizationId,
         amount_cents: -amountCents,
         type: 'transferencia',
         description: description || 'TransferÃªncia (origem)',
@@ -42,6 +43,7 @@ export async function POST(request: NextRequest) {
       },
       {
         conta_id: toContaId,
+        organization_id: auth.organizationId,
         amount_cents: amountCents,
         type: 'transferencia',
         description: description || 'TransferÃªncia (destino)',
@@ -52,7 +54,11 @@ export async function POST(request: NextRequest) {
     .select()
 
   if (error) {
-    return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+    return NextResponse.json({
+      ok: false,
+      error: 'db_error',
+      ...(process.env.NODE_ENV === 'development' ? { message: error.message } : {}),
+    }, { status: 500 })
   }
 
   return NextResponse.json({ ok: true, transfer_id: transferId, transactions: inserted })

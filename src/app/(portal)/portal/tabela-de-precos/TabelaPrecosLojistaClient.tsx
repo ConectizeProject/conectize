@@ -9,15 +9,18 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "@/components/ui/table";
-import { Loader2, X } from "lucide-react";
+	Battery,
+	Camera,
+	Loader2,
+	Monitor,
+	Palette,
+	Smartphone,
+	Wrench,
+	X,
+	type LucideIcon,
+} from "lucide-react";
 import {
 	useCallback,
 	useEffect,
@@ -41,7 +44,6 @@ type CatalogRow = {
 	productName: string;
 	productKind: string;
 	salePriceCents: number | null;
-	suggestedSaleCents: number | null;
 	pricingTagName: string | null;
 	deviceModelLabel: string | null;
 	brandName: string | null;
@@ -53,33 +55,22 @@ function formatBrl(cents: number | null) {
 	return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-function LojistaValuesCell({
-	salePriceCents,
-	suggestedSaleCents,
-}: {
-	salePriceCents: number | null;
-	suggestedSaleCents: number | null;
-}) {
-	return (
-		<div className="flex flex-col items-end gap-1.5 tabular-nums">
-			<div className="flex flex-col items-end gap-0.5">
-				<span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-					Lista
-				</span>
-				<span className="text-sm font-medium text-foreground">
-					{formatBrl(salePriceCents)}
-				</span>
-			</div>
-			<div className="flex flex-col items-end gap-0.5">
-				<span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-					Sugerido
-				</span>
-				<span className="text-base font-semibold text-primary">
-					{formatBrl(suggestedSaleCents)}
-				</span>
-			</div>
-		</div>
-	);
+function normalizeTagKey(value: string) {
+	return value
+		.normalize("NFD")
+		.replace(/\p{Diacritic}/gu, "")
+		.toLowerCase();
+}
+
+function getTagVisual(tagName: string): { icon: LucideIcon; label: string } {
+	const n = normalizeTagKey(tagName);
+	if (n.includes("display")) return { icon: Monitor, label: "Display" };
+	if (n.includes("bateria")) return { icon: Battery, label: "Bateria" };
+	if (n.includes("troca de vidro") || n.includes("vidro"))
+		return { icon: Wrench, label: "Troca de vidro" };
+	if (n.includes("tampa")) return { icon: Palette, label: "Tampa" };
+	if (n.includes("camera")) return { icon: Camera, label: "Câmera" };
+	return { icon: Smartphone, label: tagName || "Sem tag" };
 }
 
 export function TabelaPrecosLojistaClient() {
@@ -173,10 +164,6 @@ export function TabelaPrecosLojistaClient() {
 				productKind: String(r.productKind),
 				salePriceCents:
 					typeof r.salePriceCents === "number" ? r.salePriceCents : null,
-				suggestedSaleCents:
-					typeof r.suggestedSaleCents === "number"
-						? r.suggestedSaleCents
-						: null,
 				pricingTagName:
 					r.pricingTagName != null ? String(r.pricingTagName) : null,
 				deviceModelLabel:
@@ -223,32 +210,56 @@ export function TabelaPrecosLojistaClient() {
 		el.select();
 	}, [selectedDevice]);
 
-	const sortedRows = useMemo(() => {
-		const copy = [...rows];
-		copy.sort((a, b) => {
-			const tagA = (a.pricingTagName || "Sem tag").trim();
-			const tagB = (b.pricingTagName || "Sem tag").trim();
-			const c = tagA.localeCompare(tagB, "pt-BR");
-			if (c !== 0) return c;
-			return a.productName.localeCompare(b.productName, "pt-BR");
-		});
-		return copy;
+	const groupedRows = useMemo(() => {
+		const grouped = new Map<string, CatalogRow[]>();
+		for (const row of rows) {
+			const key = (row.pricingTagName || "Sem tag").trim() || "Sem tag";
+			const current = grouped.get(key) || [];
+			current.push(row);
+			grouped.set(key, current);
+		}
+
+		const groups = [...grouped.entries()]
+			.map(([tagName, items]) => ({
+				tagName,
+				items: [...items].sort((a, b) =>
+					a.productName.localeCompare(b.productName, "pt-BR"),
+				),
+			}))
+			.sort((a, b) => a.tagName.localeCompare(b.tagName, "pt-BR"));
+
+		return groups;
 	}, [rows]);
 
 	return (
 		<div className="space-y-4">
 			<Card className="min-w-0 max-w-full">
 				<CardHeader className="space-y-1">
-					<CardTitle className="text-lg">Aparelho</CardTitle>
+					<CardTitle className="text-lg">Dispositivo e lojista</CardTitle>
 					<CardDescription>
-						Selecione um modelo para carregar os preços (busca por marca, tipo
-						ou nome do modelo — mínimo 2 caracteres).
+						Selecione um modelo para carregar as opções comerciais por tag.
 					</CardDescription>
 				</CardHeader>
 				<CardContent className="space-y-3">
+					<div className="grid gap-2 md:grid-cols-2">
+						<div className="rounded-md border bg-muted/20 px-3 py-2 text-sm">
+							<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+								Dispositivo
+							</p>
+							<p className="mt-1 truncate font-medium">
+								{selectedDevice?.label || "Nenhum selecionado"}
+							</p>
+						</div>
+						<div className="rounded-md border bg-muted/20 px-3 py-2 text-sm">
+							<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+								Lojista
+							</p>
+							<p className="mt-1 font-medium">Tabela comercial aplicada</p>
+						</div>
+					</div>
 					{selectedDevice ? (
 						<div className="space-y-2">
-							<Label>Modelo selecionado</Label>
+							<Label>Trocar dispositivo</Label>
 							<div className="flex min-h-10 items-center gap-2 rounded-md border border-primary/25 bg-primary/5 text-sm shadow-sm">
 								<button
 									type="button"
@@ -345,8 +356,8 @@ export function TabelaPrecosLojistaClient() {
 				<CardHeader className="space-y-1">
 					<CardTitle className="text-lg">Preços por tag</CardTitle>
 					<CardDescription>
-						Coluna Lojista: preço de lista e sugerido ao consumidor (regras da
-						tag e do seu cadastro). Somente leitura.
+						Exibição agrupada por tag com as opções disponíveis para o
+						dispositivo selecionado.
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
@@ -358,50 +369,58 @@ export function TabelaPrecosLojistaClient() {
 						<div className="flex justify-center py-12 text-muted-foreground">
 							<Loader2 className="h-8 w-8 animate-spin" />
 						</div>
-					) : !loadingRows && sortedRows.length === 0 ? (
+					) : !loadingRows && groupedRows.length === 0 ? (
 						<p className="py-8 text-center text-sm text-muted-foreground">
 							Nenhum item cadastrado para este modelo.
 						</p>
 					) : (
-						<div className="overflow-x-auto rounded-md border">
-							<Table>
-								<TableHeader>
-									<TableRow>
-										<TableHead>Tag</TableHead>
-										<TableHead>Produto</TableHead>
-										<TableHead className="text-right">Lojista</TableHead>
-									</TableRow>
-								</TableHeader>
-								<TableBody>
-									{sortedRows.map((r) => {
-										const tag =
-											(r.pricingTagName || "Sem tag").trim() || "Sem tag";
-										return (
-											<TableRow key={r.productId}>
-												<TableCell className="align-top font-medium">
-													{tag}
-												</TableCell>
-												<TableCell className="max-w-[16rem] align-top">
-													<div className="font-medium leading-snug">
-														{r.productName}
+						<div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+							{groupedRows.map((group) => {
+								const visual = getTagVisual(group.tagName);
+								const Icon = visual.icon;
+								return (
+									<Card key={group.tagName} className="border-border/70">
+										<CardHeader className="pb-3">
+											<div className="flex items-center justify-between gap-2">
+												<div className="flex min-w-0 items-center gap-2">
+													<div className="rounded-md border bg-muted/50 p-1.5">
+														<Icon className="h-4 w-4 text-primary" />
 													</div>
-													{r.productKind ? (
-														<div className="mt-0.5 text-xs text-muted-foreground">
-															{r.productKind}
-														</div>
-													) : null}
-												</TableCell>
-												<TableCell className="align-top">
-													<LojistaValuesCell
-														salePriceCents={r.salePriceCents}
-														suggestedSaleCents={r.suggestedSaleCents}
-													/>
-												</TableCell>
-											</TableRow>
-										);
-									})}
-								</TableBody>
-							</Table>
+													<CardTitle className="truncate text-base">
+														{visual.label}
+													</CardTitle>
+												</div>
+												<Badge variant="secondary">
+													{group.items.length} opção
+													{group.items.length === 1 ? "" : "ões"}
+												</Badge>
+											</div>
+										</CardHeader>
+										<CardContent className="space-y-2">
+											{group.items.map((item) => (
+												<div
+													key={item.productId}
+													className="flex items-start justify-between gap-2 rounded-md border bg-background px-3 py-2"
+												>
+													<div className="min-w-0">
+														<p className="truncate text-sm font-medium">
+															{item.productName}
+														</p>
+														{item.productKind ? (
+															<p className="text-xs text-muted-foreground">
+																{item.productKind}
+															</p>
+														) : null}
+													</div>
+													<p className="shrink-0 text-sm font-semibold tabular-nums text-primary">
+														{formatBrl(item.salePriceCents)}
+													</p>
+												</div>
+											))}
+										</CardContent>
+									</Card>
+								);
+							})}
 						</div>
 					)}
 				</CardContent>
