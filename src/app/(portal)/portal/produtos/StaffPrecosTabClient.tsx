@@ -1,18 +1,21 @@
 'use client'
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Loader2, X } from 'lucide-react'
+import {
+  Battery,
+  Camera,
+  Loader2,
+  Monitor,
+  Palette,
+  Smartphone,
+  Wrench,
+  X,
+  type LucideIcon,
+} from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 import {
   Select,
   SelectContent,
@@ -35,12 +38,8 @@ type PriceRow = {
   productName: string
   productKind: string
   salePriceCents: number | null
-  costPriceCents: number | null
   vendaLojistaCents: number | null
-  suggestedSaleCents: number | null
   pricingTagName: string | null
-  deviceModelLabel: string | null
-  brandName: string | null
 }
 
 type RetailerOption = { id: string; full_name: string | null; email: string | null }
@@ -49,6 +48,23 @@ function formatBrl (cents: number | null) {
   if (cents == null) return '—'
   const v = cents / 100
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
+function normalizeTagKey (value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+}
+
+function getTagVisual (tagName: string): { icon: LucideIcon; label: string } {
+  const n = normalizeTagKey(tagName)
+  if (n.includes('display')) return { icon: Monitor, label: 'Display' }
+  if (n.includes('bateria')) return { icon: Battery, label: 'Bateria' }
+  if (n.includes('troca de vidro') || n.includes('vidro')) return { icon: Wrench, label: 'Troca de vidro' }
+  if (n.includes('tampa')) return { icon: Palette, label: 'Tampa' }
+  if (n.includes('camera')) return { icon: Camera, label: 'Câmera' }
+  return { icon: Smartphone, label: tagName || 'Sem tag' }
 }
 
 export function StaffPrecosTabClient () {
@@ -159,12 +175,8 @@ export function StaffPrecosTabClient () {
           productName: String(r.productName),
           productKind: String(r.productKind),
           salePriceCents: typeof r.salePriceCents === 'number' ? r.salePriceCents : null,
-          costPriceCents: typeof r.costPriceCents === 'number' ? r.costPriceCents : null,
           vendaLojistaCents: typeof r.vendaLojistaCents === 'number' ? r.vendaLojistaCents : null,
-          suggestedSaleCents: typeof r.suggestedSaleCents === 'number' ? r.suggestedSaleCents : null,
           pricingTagName: r.pricingTagName != null ? String(r.pricingTagName) : null,
-          deviceModelLabel: r.deviceModelLabel != null ? String(r.deviceModelLabel) : null,
-          brandName: r.brandName != null ? String(r.brandName) : null,
         })),
       )
     })()
@@ -206,18 +218,33 @@ export function StaffPrecosTabClient () {
     el.select()
   }, [selectedDevice])
 
+  const groupedRows = useMemo(() => {
+    const grouped = new Map<string, PriceRow[]>()
+    for (const row of rows) {
+      const key = (row.pricingTagName || 'Sem tag').trim() || 'Sem tag'
+      const current = grouped.get(key) || []
+      current.push(row)
+      grouped.set(key, current)
+    }
+
+    return [...grouped.entries()]
+      .map(([tagName, items]) => ({
+        tagName,
+        items: [...items].sort((a, b) => a.productName.localeCompare(b.productName, 'pt-BR')),
+      }))
+      .sort((a, b) => a.tagName.localeCompare(b.tagName, 'pt-BR'))
+  }, [rows])
+
   return (
     <Card className="min-w-0 max-w-full">
       <CardHeader className="space-y-1">
         <CardTitle className="text-lg">Tabela de preços (operacional)</CardTitle>
         <CardDescription>
-          Selecione um aparelho. Somente itens com tag e modelo vinculados. Opcionalmente simule um lojista: a coluna
-          Venda lojista só aparece quando existe override de tag para esse lojista; o valor usa custo + margem e piso
-          do override (mesma lógica do catálogo).
+          Selecione um dispositivo e, opcionalmente, um lojista para simular overrides. Exibição agrupada por tag.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="space-y-3">
+        <div className="grid gap-4 md:grid-cols-2">
           {selectedDevice ? (
             <div className="space-y-2">
               <Label>Dispositivo</Label>
@@ -300,89 +327,93 @@ export function StaffPrecosTabClient () {
               ) : null}
             </div>
           )}
-        </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="staff-precos-retailer">Simular lojista (override de tag)</Label>
-          <Select
-            value={retailerUserId || '__none__'}
-            onValueChange={(v) => setRetailerUserId(v === '__none__' ? '' : v)}
-            disabled={retailersLoading}
-          >
-            <SelectTrigger id="staff-precos-retailer" className="max-w-md">
-              <SelectValue placeholder={retailersLoading ? 'Carregando lojistas…' : 'Nenhum'} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__none__">Nenhum</SelectItem>
-              {retailers.map((r) => (
-                <SelectItem key={r.id} value={r.id}>
-                  {[r.full_name, r.email].filter(Boolean).join(' · ') || r.id}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="space-y-2">
+            <Label htmlFor="staff-precos-retailer">Lojista</Label>
+            <Select
+              value={retailerUserId || '__none__'}
+              onValueChange={(v) => setRetailerUserId(v === '__none__' ? '' : v)}
+              disabled={retailersLoading}
+            >
+              <SelectTrigger id="staff-precos-retailer">
+                <SelectValue placeholder={retailersLoading ? 'Carregando lojistas…' : 'Nenhum'} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">Nenhum</SelectItem>
+                {retailers.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {[r.full_name, r.email].filter(Boolean).join(' · ') || r.id}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
-        <div className="overflow-x-auto rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Produto</TableHead>
-                <TableHead>Marca / modelo</TableHead>
-                <TableHead>Tag</TableHead>
-                <TableHead className="text-right">Custo</TableHead>
-                <TableHead className="text-right">Venda</TableHead>
-                <TableHead className="text-right">Venda lojista</TableHead>
-                <TableHead className="text-right">Sugerido</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {!selectedDevice ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground">
-                    Selecione um dispositivo para carregar a tabela.
-                  </TableCell>
-                </TableRow>
-              ) : loadingRows ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
-                    <Loader2 className="mx-auto h-6 w-6 animate-spin" aria-hidden />
-                  </TableCell>
-                </TableRow>
-              ) : rows.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground">
-                    Nenhum item com tag e modelo para este aparelho.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                rows.map((r, idx) => (
-                  <TableRow key={`${r.productId}-${idx}`}>
-                    <TableCell className="max-w-[14rem] truncate font-medium">{r.productName}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {[r.brandName, r.deviceModelLabel].filter(Boolean).join(' ') || '—'}
-                    </TableCell>
-                    <TableCell className="text-sm">{r.pricingTagName || '—'}</TableCell>
-                    <TableCell className="text-right tabular-nums">{formatBrl(r.costPriceCents)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{formatBrl(r.salePriceCents)}</TableCell>
-                    <TableCell
-                      className={
-                        r.vendaLojistaCents != null
-                          ? 'text-right tabular-nums font-medium text-primary'
-                          : 'text-right tabular-nums text-muted-foreground'
-                      }
-                    >
-                      {formatBrl(r.vendaLojistaCents)}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">{formatBrl(r.suggestedSaleCents)}</TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
+        {!selectedDevice ? (
+          <p className="py-10 text-center text-sm text-muted-foreground">
+            Selecione um dispositivo para carregar a tabela.
+          </p>
+        ) : loadingRows ? (
+          <div className="py-10 text-center text-muted-foreground">
+            <Loader2 className="mx-auto h-6 w-6 animate-spin" aria-hidden />
+          </div>
+        ) : groupedRows.length === 0 ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">
+            Nenhum item com tag e modelo para este aparelho.
+          </p>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {groupedRows.map((group) => {
+              const visual = getTagVisual(group.tagName)
+              const Icon = visual.icon
+              return (
+                <Card key={group.tagName} className="border-border/70">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <div className="rounded-md border bg-muted/50 p-1.5">
+                          <Icon className="h-4 w-4 text-primary" />
+                        </div>
+                        <CardTitle className="truncate text-base">
+                          {visual.label}
+                        </CardTitle>
+                      </div>
+                      <Badge variant="secondary">
+                        {group.items.length} opção{group.items.length === 1 ? '' : 'ões'}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {group.items.map((item) => (
+                      <div
+                        key={item.productId}
+                        className="rounded-md border bg-background px-3 py-2"
+                      >
+                        <p className="truncate text-sm font-medium">{item.productName}</p>
+                        {item.productKind ? (
+                          <p className="text-xs text-muted-foreground">{item.productKind}</p>
+                        ) : null}
+                        <div className="mt-1.5 flex items-center justify-between gap-2 text-xs">
+                          <span className="text-muted-foreground">Venda</span>
+                          <span className="font-medium tabular-nums">{formatBrl(item.salePriceCents)}</span>
+                        </div>
+                        <div className="mt-1 flex items-center justify-between gap-2 text-xs">
+                          <span className="text-muted-foreground">Venda lojista</span>
+                          <span className={item.vendaLojistaCents != null ? 'font-semibold tabular-nums text-primary' : 'tabular-nums text-muted-foreground'}>
+                            {formatBrl(item.vendaLojistaCents)}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </div>
+        )}
       </CardContent>
     </Card>
   )

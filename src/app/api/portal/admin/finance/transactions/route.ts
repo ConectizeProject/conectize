@@ -31,6 +31,7 @@ export async function POST(request: NextRequest) {
     .from('financial_transactions')
     .insert({
       conta_id: contaId,
+      organization_id: auth.organizationId,
       amount_cents: signed,
       type,
       description: description || null,
@@ -40,7 +41,11 @@ export async function POST(request: NextRequest) {
     .single()
 
   if (error) {
-    return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+    return NextResponse.json({
+      ok: false,
+      error: 'db_error',
+      ...(process.env.NODE_ENV === 'development' ? { message: error.message } : {}),
+    }, { status: 500 })
   }
 
   return NextResponse.json({ ok: true, transaction: data })

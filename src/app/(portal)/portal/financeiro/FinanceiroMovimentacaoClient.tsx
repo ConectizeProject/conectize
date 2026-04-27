@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { Plus, Pencil, Loader2, CalendarIcon } from 'lucide-react'
+import { Plus, Pencil, Loader2, CalendarIcon, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -93,6 +93,7 @@ export function FinanceiroMovimentacaoClient() {
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [formType, setFormType] = useState<'entrada' | 'saida'>('entrada')
   const [formOccurredAt, setFormOccurredAt] = useState('')
   const [isRecurring, setIsRecurring] = useState(false)
@@ -102,6 +103,7 @@ export function FinanceiroMovimentacaoClient() {
   const [formBillingDay, setFormBillingDay] = useState('')
   const [saving, setSaving] = useState(false)
   const [editingMovement, setEditingMovement] = useState<Movement | null>(null)
+  const [deletingMovement, setDeletingMovement] = useState<Movement | null>(null)
   const [editAmount, setEditAmount] = useState('')
   const [editDescription, setEditDescription] = useState('')
   const [editOccurredAt, setEditOccurredAt] = useState('')
@@ -264,6 +266,33 @@ export function FinanceiroMovimentacaoClient() {
     }
   }
 
+  function openDelete (m: Movement) {
+    if (!m.editable || m.source !== 'transaction' || m.transfer_id) return
+    setDeletingMovement(m)
+    setDeleteDialogOpen(true)
+  }
+
+  async function submitDelete () {
+    if (!deletingMovement) return
+    setSaving(true)
+    try {
+      const res = await portalFetch(`/api/portal/admin/finance/transactions/${deletingMovement.id}`, {
+        method: 'DELETE',
+      })
+      const data = await res?.json().catch(() => null)
+      if (data?.ok) {
+        toast({ title: 'Registro removido' })
+        setDeleteDialogOpen(false)
+        setDeletingMovement(null)
+        loadMovements()
+      } else {
+        toast({ title: data?.error || 'Erro ao excluir', variant: 'destructive' })
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const totalEntradas = movements.filter((m) => m.amount_cents > 0).reduce((s, m) => s + m.amount_cents, 0)
   const totalSaidas = movements.filter((m) => m.amount_cents < 0).reduce((s, m) => s + Math.abs(m.amount_cents), 0)
   const totalBalance = balances.reduce((s, b) => s + b.balance_cents, 0)
@@ -354,9 +383,14 @@ export function FinanceiroMovimentacaoClient() {
                       </TableCell>
                       <TableCell>
                         {m.editable && m.source === 'transaction' && !m.transfer_id && (
-                          <Button variant="ghost" size="icon" onClick={() => openEdit(m)} aria-label="Editar">
-                            <Pencil className="h-4 w-4" />
-                          </Button>
+                          <div className="flex items-center gap-1">
+                            <Button variant="ghost" size="icon" onClick={() => openEdit(m)} aria-label="Editar">
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" onClick={() => openDelete(m)} aria-label="Excluir">
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                         )}
                       </TableCell>
                     </TableRow>
@@ -431,6 +465,9 @@ export function FinanceiroMovimentacaoClient() {
                 value={formAmount}
                 onChange={(e) => setFormAmount(formatMoneyInput(e.target.value))}
                 placeholder="0,00"
+                inputMode="numeric"
+                autoComplete="off"
+                className="tabular-nums"
               />
             </div>
             <div>
@@ -501,6 +538,9 @@ export function FinanceiroMovimentacaoClient() {
                 value={editAmount}
                 onChange={(e) => setEditAmount(formatMoneyInput(e.target.value))}
                 placeholder="0,00"
+                inputMode="numeric"
+                autoComplete="off"
+                className="tabular-nums"
               />
             </div>
             <div>
@@ -531,6 +571,27 @@ export function FinanceiroMovimentacaoClient() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteDialogOpen} onOpenChange={(open) => { if (!open) setDeletingMovement(null); setDeleteDialogOpen(open) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Excluir registro</DialogTitle>
+            <DialogDescription>
+              Esta ação remove permanentemente a movimentação financeira selecionada.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1 text-sm">
+            <p><span className="text-muted-foreground">Descrição:</span> {deletingMovement?.description || '—'}</p>
+            <p><span className="text-muted-foreground">Valor:</span> {deletingMovement ? maskedFromCents(deletingMovement.amount_cents) : '—'}</p>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setDeleteDialogOpen(false)}>Cancelar</Button>
+            <Button type="button" variant="destructive" disabled={saving} onClick={submitDelete}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Excluir'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

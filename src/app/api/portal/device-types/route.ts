@@ -15,6 +15,7 @@ export async function GET(request: Request) {
   const query = auth.supabase
     .from('device_types')
     .select('id, brand_id, name, device_brands ( id, name )')
+    .eq('organization_id', auth.organizationId)
     .order('name', { ascending: true })
   if (brandId) {
     query.eq('brand_id', brandId)
@@ -55,9 +56,18 @@ export async function POST(request: Request) {
   if (!brandId || !name) {
     return NextResponse.json({ ok: false, error: 'invalid_payload' }, { status: 400 })
   }
+  const { data: brandRow } = await auth.supabase
+    .from('device_brands')
+    .select('id')
+    .eq('id', brandId)
+    .eq('organization_id', auth.organizationId)
+    .maybeSingle()
+  if (!brandRow) {
+    return NextResponse.json({ ok: false, error: 'invalid_brand' }, { status: 400 })
+  }
   const { data: inserted, error } = await auth.supabase
     .from('device_types')
-    .insert({ brand_id: brandId, name })
+    .insert({ brand_id: brandId, name, organization_id: auth.organizationId })
     .select('id, brand_id, name')
     .single()
   if (error) {
@@ -65,6 +75,7 @@ export async function POST(request: Request) {
       const { data: existing } = await auth.supabase
         .from('device_types')
         .select('id, brand_id, name')
+        .eq('organization_id', auth.organizationId)
         .eq('brand_id', brandId)
         .eq('name', name)
         .maybeSingle()
