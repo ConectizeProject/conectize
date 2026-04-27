@@ -25,10 +25,20 @@ export async function PATCH (
 	if (!brandId || !name) {
 		return NextResponse.json({ ok: false, error: 'invalid_payload' }, { status: 400 })
 	}
+	const { data: brandRow } = await auth.supabase
+		.from('device_brands')
+		.select('id')
+		.eq('id', brandId)
+		.eq('organization_id', auth.organizationId)
+		.maybeSingle()
+	if (!brandRow) {
+		return NextResponse.json({ ok: false, error: 'invalid_brand' }, { status: 400 })
+	}
 	const { data, error } = await auth.supabase
 		.from('device_types')
 		.update({ brand_id: brandId, name })
 		.eq('id', id)
+		.eq('organization_id', auth.organizationId)
 		.select('id, brand_id, name')
 		.maybeSingle()
 	if (error) {
@@ -64,6 +74,7 @@ export async function DELETE (
 		.from('device_types')
 		.delete()
 		.eq('id', id)
+		.eq('organization_id', auth.organizationId)
 		.select('id')
 		.maybeSingle()
 	if (error) {

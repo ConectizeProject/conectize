@@ -35,6 +35,7 @@ export async function PATCH (
 		.from('device_types')
 		.select('id, name, device_brands ( id, name )')
 		.eq('id', deviceTypeId)
+		.eq('organization_id', auth.organizationId)
 		.maybeSingle()
 	if (typeErr || !typeRow) {
 		return NextResponse.json({ ok: false, error: 'invalid_device_type' }, { status: 400 })
@@ -51,6 +52,7 @@ export async function PATCH (
 		.from('device_models')
 		.update({ device_type_id: deviceTypeId, model })
 		.eq('id', id)
+		.eq('organization_id', auth.organizationId)
 		.select('id, model, device_type_id')
 		.maybeSingle()
 
@@ -97,6 +99,7 @@ export async function DELETE (
 		.from('device_models')
 		.delete()
 		.eq('id', id)
+		.eq('organization_id', auth.organizationId)
 		.select('id')
 		.maybeSingle()
 	if (error) {

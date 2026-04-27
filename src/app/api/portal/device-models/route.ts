@@ -64,6 +64,7 @@ function modelSearchTokens(raw: string): string[] {
  */
 async function searchDeviceModelsByText(
 	supabase: SupabaseClient,
+	organizationId: string,
 	q: string,
 	deviceTypeId: string,
 	limit: number,
@@ -85,6 +86,7 @@ async function searchDeviceModelsByText(
 
 	const base = () => {
 		let qb = supabase.from('device_models').select(DEVICE_MODEL_LIST_SELECT)
+		qb = qb.eq('organization_id', organizationId)
 		if (deviceTypeId) qb = qb.eq('device_type_id', deviceTypeId)
 		return qb
 	}
@@ -117,6 +119,7 @@ async function searchDeviceModelsByText(
 		.select(
 			'id, model, device_type_id, device_types!inner ( id, name, device_brands!inner ( id, name ) )',
 		)
+	qb4 = qb4.eq('organization_id', organizationId)
 	if (deviceTypeId) qb4 = qb4.eq('device_type_id', deviceTypeId)
 	const { data: d4, error: e4 } = await qb4
 		.or(`model.ilike.%${safe}%,device_types.device_brands.name.ilike.%${safe}%`)
@@ -170,6 +173,7 @@ export async function GET(request: Request) {
 		const { data, error } = await auth.supabase
 			.from('device_models')
 			.select('id, model, device_type_id, device_types ( id, name, device_brands ( id, name ) )')
+			.eq('organization_id', auth.organizationId)
 			.in('id', unique)
 
 		if (error) {
@@ -192,12 +196,13 @@ export async function GET(request: Request) {
 	let rows: ReturnType<typeof mapDeviceModelRows>
 
 	if (q) {
-		const merged = await searchDeviceModelsByText(auth.supabase, q, deviceTypeId, limit)
+		const merged = await searchDeviceModelsByText(auth.supabase, auth.organizationId, q, deviceTypeId, limit)
 		rows = mapDeviceModelRows(merged)
 	} else {
 		const query = auth.supabase
 			.from('device_models')
 			.select(DEVICE_MODEL_LIST_SELECT)
+			.eq('organization_id', auth.organizationId)
 			.order('model', { ascending: true })
 			.limit(limit)
 
@@ -234,6 +239,7 @@ export async function POST(request: Request) {
 		.from('device_types')
 		.select('id, name, device_brands ( id, name )')
 		.eq('id', deviceTypeId)
+		.eq('organization_id', auth.organizationId)
 		.maybeSingle()
 	const tr = typeRow as { name?: string | null; device_brands?: { name?: string | null } | { name?: string | null }[] | null } | null
 	const db = tr?.device_brands
@@ -246,6 +252,7 @@ export async function POST(request: Request) {
 	const { data: existing } = await auth.supabase
 		.from('device_models')
 		.select('id, model, device_type_id')
+		.eq('organization_id', auth.organizationId)
 		.eq('device_type_id', deviceTypeId)
 		.eq('model', model)
 		.maybeSingle()
@@ -263,6 +270,7 @@ export async function POST(request: Request) {
 		.insert({
 			device_type_id: deviceTypeId,
 			model,
+			organization_id: auth.organizationId,
 		})
 		.select('id, model, device_type_id')
 		.single()
@@ -271,6 +279,7 @@ export async function POST(request: Request) {
 		const { data: after } = await auth.supabase
 			.from('device_models')
 			.select('id, model, device_type_id')
+			.eq('organization_id', auth.organizationId)
 			.eq('device_type_id', deviceTypeId)
 			.eq('model', model)
 			.maybeSingle()

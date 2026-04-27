@@ -13,6 +13,7 @@ export async function GET() {
   const { data, error } = await auth.supabase
     .from('device_brands')
     .select('id, name')
+    .eq('organization_id', auth.organizationId)
     .order('name', { ascending: true })
   if (error) {
     console.error('[device-brands GET]', error)
@@ -34,7 +35,7 @@ export async function POST(request: Request) {
   }
   const { data: inserted, error } = await auth.supabase
     .from('device_brands')
-    .insert({ name })
+    .insert({ name, organization_id: auth.organizationId })
     .select('id, name')
     .single()
   if (error) {
@@ -42,6 +43,7 @@ export async function POST(request: Request) {
       const { data: existing } = await auth.supabase
         .from('device_brands')
         .select('id, name')
+        .eq('organization_id', auth.organizationId)
         .eq('name', name)
         .maybeSingle()
       if (existing) {
