@@ -1,6 +1,10 @@
 import { redirect } from 'next/navigation'
 import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
+import {
+  ensurePortalOrganizationContext,
+  getPortalOrganizationId,
+} from '@/lib/organizations/portal-organization-context'
 import { FormasPagamentoClient } from '@/app/(portal)/portal/admin/dados-empresa/formas-pagamento/FormasPagamentoClient'
 
 export default async function FormasPagamentoPage () {
@@ -16,9 +20,16 @@ export default async function FormasPagamentoPage () {
 
   if (me?.role !== 'admin' && me?.role !== 'platform_admin') redirect('/portal/ordens')
 
+  await ensurePortalOrganizationContext(supabase, user.id)
+  const organizationId = await getPortalOrganizationId(supabase, user.id)
+  if (!organizationId) {
+    return <FormasPagamentoClient initialPaymentMethods={[]} />
+  }
+
   const { data: paymentMethods } = await supabase
     .from('payment_methods')
     .select('*')
+    .eq('organization_id', organizationId)
     .order('sort_order', { ascending: true })
 
   return (

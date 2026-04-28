@@ -12,6 +12,7 @@ export async function GET() {
   const { data, error } = await auth.supabase
     .from('payment_methods')
     .select('*')
+    .eq('organization_id', auth.organizationId)
     .order('sort_order', { ascending: true })
 
   if (error) {
@@ -45,6 +46,7 @@ export async function POST(request: NextRequest) {
   const { data: maxSort } = await auth.supabase
     .from('payment_methods')
     .select('sort_order')
+    .eq('organization_id', auth.organizationId)
     .order('sort_order', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -56,6 +58,7 @@ export async function POST(request: NextRequest) {
     .insert({
       description,
       type,
+      organization_id: auth.organizationId,
       fee_percent: feePercent,
       credit_installment_fees: type === 'credito' ? creditInstallmentFees : [],
       sort_order: sortOrder,

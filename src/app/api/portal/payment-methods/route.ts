@@ -10,6 +10,7 @@ export async function GET() {
   const { data, error } = await auth.supabase
     .from('payment_methods')
     .select('id, description, type, fee_percent, credit_installment_fees, sort_order')
+    .eq('organization_id', auth.organizationId)
     .order('sort_order', { ascending: true })
 
   if (error) {

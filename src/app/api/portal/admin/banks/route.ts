@@ -10,6 +10,7 @@ export async function GET() {
   const { data, error } = await auth.supabase
     .from('contas')
     .select('id, name, saldo_inicial_cents, created_at')
+    .eq('organization_id', auth.organizationId)
     .order('name', { ascending: true })
 
   if (error) {
@@ -34,7 +35,11 @@ export async function POST(request: NextRequest) {
 
   const { data, error } = await auth.supabase
     .from('contas')
-    .insert({ name, saldo_inicial_cents: Number.isFinite(saldoInicialCents) ? saldoInicialCents : 0 })
+    .insert({
+      name,
+      organization_id: auth.organizationId,
+      saldo_inicial_cents: Number.isFinite(saldoInicialCents) ? saldoInicialCents : 0,
+    })
     .select()
     .single()
 

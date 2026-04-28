@@ -24,6 +24,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'conta_id_required' }, { status: 400 })
   }
 
+  const { data: contaRow } = await auth.supabase
+    .from('contas')
+    .select('id')
+    .eq('id', contaId)
+    .eq('organization_id', auth.organizationId)
+    .maybeSingle()
+  if (!contaRow) {
+    return NextResponse.json({ ok: false, error: 'invalid_conta' }, { status: 400 })
+  }
+
   const signed = type === 'entrada' ? amountCents : -amountCents
   const dateStr = occurredAt && /^\d{4}-\d{2}-\d{2}$/.test(String(occurredAt)) ? String(occurredAt) : new Date().toISOString().slice(0, 10)
 

@@ -10,11 +10,13 @@ export async function GET() {
   const { data: contas } = await auth.supabase
     .from('contas')
     .select('id, name, saldo_inicial_cents')
+    .eq('organization_id', auth.organizationId)
     .order('name', { ascending: true })
 
   const { data: txRows } = await auth.supabase
     .from('financial_transactions')
     .select('conta_id, amount_cents')
+    .eq('organization_id', auth.organizationId)
   const txByConta: Record<string, number> = {}
   for (const r of txRows ?? []) {
     const cid = (r as { conta_id: string }).conta_id

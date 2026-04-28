@@ -29,6 +29,7 @@ export async function PATCH(
     .from('contas')
     .update(update)
     .eq('id', id)
+    .eq('organization_id', auth.organizationId)
     .select()
     .single()
 
