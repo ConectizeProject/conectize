@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { registerCustomerFromOsLinkAction } from './actions'
+import { CadastroClienteGoogleButton } from './CadastroClienteGoogleButton'
 
 export const metadata = {
   title: 'Criar conta — cliente',
@@ -62,12 +63,25 @@ export default async function CadastroClientePage ({
                 {err === 'os_invalida' && 'Link da ordem inválido ou expirado.'}
                 {err === 'email_em_uso' && 'Este e-mail já está em uso.'}
                 {err === 'dados_invalidos' && 'Preencha todos os campos obrigatórios.'}
+                {err === 'senhas_nao_conferem' && 'As senhas não conferem. Digite novamente.'}
+                {err === 'google_oauth' && 'Não foi possível iniciar o cadastro com Google. Tente novamente.'}
                 {err === 'documento_invalido' && 'Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido.'}
                 {err === 'config' && 'Serviço indisponível. Tente mais tarde.'}
-                {!['os_invalida', 'email_em_uso', 'dados_invalidos', 'documento_invalido', 'config'].includes(String(err)) &&
+                {!['os_invalida', 'email_em_uso', 'dados_invalidos', 'senhas_nao_conferem', 'google_oauth', 'documento_invalido', 'config'].includes(String(err)) &&
                   'Não foi possível concluir o cadastro.'}
               </p>
             ) : null}
+            <div className='mb-4'>
+              <CadastroClienteGoogleButton orgSlug={orgSlug} refOs={refOs} />
+            </div>
+            <div className='relative mb-4'>
+              <div className='absolute inset-0 flex items-center'>
+                <span className='w-full border-t' />
+              </div>
+              <div className='relative flex justify-center text-xs uppercase'>
+                <span className='bg-card px-2 text-muted-foreground'>ou</span>
+              </div>
+            </div>
             <form action={registerCustomerFromOsLinkAction} className="space-y-4">
               <input type="hidden" name="orgSlug" value={orgSlug} />
               <input type="hidden" name="refOs" value={refOs} />
@@ -86,6 +100,17 @@ export default async function CadastroClientePage ({
               <div className="space-y-2">
                 <Label htmlFor="password">Senha</Label>
                 <Input id="password" name="password" type="password" required minLength={8} autoComplete="new-password" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="passwordConfirm">Confirmar senha</Label>
+                <Input
+                  id="passwordConfirm"
+                  name="passwordConfirm"
+                  type="password"
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                />
               </div>
               <Button type="submit" className="w-full">
                 Criar conta

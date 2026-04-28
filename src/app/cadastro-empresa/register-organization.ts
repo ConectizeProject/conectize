@@ -8,6 +8,7 @@ export type RegisterOrganizationPayload = {
   cnpj: string
   email: string
   password: string
+  passwordConfirm: string
   fullName: string
   logoUrl?: string | null
 }
@@ -17,6 +18,7 @@ export type RegisterOrganizationErrorCode =
   | 'config'
   | 'cnpj_em_uso'
   | 'email_em_uso'
+  | 'senhas_nao_conferem'
   | 'org_falhou'
 
 export type RegisterOrganizationResult =
@@ -39,6 +41,7 @@ function normalizePayload (payload: RegisterOrganizationPayload) {
   const cnpj = onlyDigits(String(payload.cnpj || '')).slice(0, 14)
   const email = String(payload.email || '').trim().toLowerCase()
   const password = String(payload.password || '')
+  const passwordConfirm = String(payload.passwordConfirm || '')
   const fullName = String(payload.fullName || '').trim()
   const rawLogoUrl = String(payload.logoUrl || '').trim()
   const logoUrl = rawLogoUrl || null
@@ -48,6 +51,7 @@ function normalizePayload (payload: RegisterOrganizationPayload) {
     cnpj,
     email,
     password,
+    passwordConfirm,
     fullName,
     logoUrl,
   }
@@ -58,6 +62,7 @@ function hasInvalidPayload (payload: ReturnType<typeof normalizePayload>) {
   if (!payload.fullName) return true
   if (!payload.email) return true
   if (payload.password.length < 8) return true
+  if (!payload.passwordConfirm) return true
   if (payload.cnpj.length !== 14) return true
 
   if (payload.logoUrl) {
@@ -95,6 +100,9 @@ export async function registerOrganization (payload: RegisterOrganizationPayload
 
   if (hasInvalidPayload(normalized)) {
     return { ok: false, error: 'dados_invalidos' }
+  }
+  if (normalized.password !== normalized.passwordConfirm) {
+    return { ok: false, error: 'senhas_nao_conferem' }
   }
 
   let svc

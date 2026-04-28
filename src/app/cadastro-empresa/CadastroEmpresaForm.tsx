@@ -20,6 +20,7 @@ type FormValues = {
   fullName: string
   email: string
   password: string
+  passwordConfirm: string
   logoUrl: string
 }
 
@@ -58,6 +59,9 @@ export function CadastroEmpresaForm ({ initialError }: Props) {
       password: Yup.string()
         .min(8, 'A senha deve ter pelo menos 8 caracteres.')
         .required('Informe a senha.'),
+      passwordConfirm: Yup.string()
+        .required('Confirme a senha.')
+        .oneOf([Yup.ref('password')], 'As senhas não conferem.'),
       logoUrl: Yup.string()
         .trim()
         .url('Informe uma URL válida (http/https).')
@@ -72,6 +76,7 @@ export function CadastroEmpresaForm ({ initialError }: Props) {
       fullName: '',
       email: '',
       password: '',
+      passwordConfirm: '',
       logoUrl: '',
     }
   }, [])
@@ -93,6 +98,7 @@ export function CadastroEmpresaForm ({ initialError }: Props) {
               fullName: values.fullName.trim(),
               email: values.email.trim().toLowerCase(),
               password: values.password,
+              passwordConfirm: values.passwordConfirm,
               logoUrl: values.logoUrl.trim(),
             }),
           })
@@ -201,6 +207,23 @@ export function CadastroEmpresaForm ({ initialError }: Props) {
             />
             {formik.touched.password && formik.errors.password ? (
               <p className='text-sm text-destructive'>{formik.errors.password}</p>
+            ) : null}
+          </div>
+
+          <div className='space-y-2'>
+            <Label htmlFor='passwordConfirm'>Confirmar senha</Label>
+            <Input
+              id='passwordConfirm'
+              name='passwordConfirm'
+              type='password'
+              autoComplete='new-password'
+              value={formik.values.passwordConfirm}
+              onChange={formik.handleChange}
+              onBlur={formik.handleBlur}
+              aria-invalid={Boolean(formik.touched.passwordConfirm && formik.errors.passwordConfirm)}
+            />
+            {formik.touched.passwordConfirm && formik.errors.passwordConfirm ? (
+              <p className='text-sm text-destructive'>{formik.errors.passwordConfirm}</p>
             ) : null}
           </div>
 
