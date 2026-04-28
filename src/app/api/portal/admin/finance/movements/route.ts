@@ -18,6 +18,7 @@ export async function GET(request: NextRequest) {
   let query = auth.supabase
     .from('financial_transactions')
     .select('id, conta_id, amount_cents, type, description, occurred_at, created_at, transfer_id, recurring_expense_id, service_order_id, resale_device_id, contas(name)')
+    .eq('organization_id', auth.organizationId)
     .order('occurred_at', { ascending: false })
     .order('created_at', { ascending: false })
 
@@ -41,6 +42,7 @@ export async function GET(request: NextRequest) {
     const { data: contasList } = await auth.supabase
       .from('contas')
       .select('id, name')
+      .eq('organization_id', auth.organizationId)
       .in('id', Array.from(contaIds))
     for (const c of contasList ?? []) {
       contaNameMap[(c as { id: string; name: string }).id] = (c as { id: string; name: string }).name
@@ -59,6 +61,7 @@ export async function GET(request: NextRequest) {
     const { data: soRows } = await auth.supabase
       .from('service_orders')
       .select('id, display_number')
+      .eq('organization_id', auth.organizationId)
       .in('id', serviceOrderIds)
     for (const r of soRows ?? []) {
       const row = r as { id: string; display_number: number | null }
