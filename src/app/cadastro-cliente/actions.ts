@@ -9,11 +9,15 @@ export async function registerCustomerFromOsLinkAction (formData: FormData) {
   const refOs = String(formData.get('refOs') || '').trim()
   const email = String(formData.get('email') || '').trim().toLowerCase()
   const password = String(formData.get('password') || '')
+  const passwordConfirm = String(formData.get('passwordConfirm') || '')
   const fullName = String(formData.get('fullName') || '').trim()
   const document = onlyDigits(String(formData.get('document') || '')).slice(0, 14)
 
   if (!orgSlug || !refOs || !email || password.length < 8 || !fullName) {
     redirect(`/cadastro-cliente?org=${encodeURIComponent(orgSlug)}&ref_os=${encodeURIComponent(refOs)}&error=dados_invalidos`)
+  }
+  if (password !== passwordConfirm) {
+    redirect(`/cadastro-cliente?org=${encodeURIComponent(orgSlug)}&ref_os=${encodeURIComponent(refOs)}&error=senhas_nao_conferem`)
   }
   if (document.length !== 11 && document.length !== 14) {
     redirect(`/cadastro-cliente?org=${encodeURIComponent(orgSlug)}&ref_os=${encodeURIComponent(refOs)}&error=documento_invalido`)

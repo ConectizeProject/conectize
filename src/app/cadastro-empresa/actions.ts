@@ -9,6 +9,7 @@ export async function registerOrganizationAction (formData: FormData) {
     cnpj: String(formData.get('cnpj') || ''),
     email: String(formData.get('email') || ''),
     password: String(formData.get('password') || ''),
+    passwordConfirm: String(formData.get('passwordConfirm') || ''),
     fullName: String(formData.get('fullName') || ''),
     logoUrl: String(formData.get('logoUrl') || ''),
   })
