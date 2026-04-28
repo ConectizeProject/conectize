@@ -33,6 +33,7 @@ export default async function PortalLayout({
   const supabase = await createSupabaseServerClient()
   const activeOrganizationId = await getPortalOrganizationId(supabase, user.id)
   let organizationDisplayName: string | null = null
+  let hasWhatsappIntegration = false
   if (activeOrganizationId) {
     const { data: orgRow } = await supabase
       .from('organizations')
@@ -40,6 +41,15 @@ export default async function PortalLayout({
       .eq('id', activeOrganizationId)
       .maybeSingle()
     organizationDisplayName = orgRow?.name ? String(orgRow.name).trim() || null : null
+
+    const { data: whatsappConn } = await supabase
+      .from('hub_connections')
+      .select('id')
+      .eq('organization_id', activeOrganizationId)
+      .eq('platform_id', 'whatsapp_business')
+      .limit(1)
+      .maybeSingle()
+    hasWhatsappIntegration = Boolean(whatsappConn?.id)
   }
 
   let platformOrganizations = null as
@@ -61,6 +71,7 @@ export default async function PortalLayout({
         userEmail={user.email || ''}
         userName={fullName}
         organizationName={organizationDisplayName}
+        hasWhatsappIntegration={hasWhatsappIntegration}
         supabasePlatformStatus={supabasePlatformStatus}
         platformOrganizations={platformOrganizations}
         activeOrganizationId={activeOrganizationId}

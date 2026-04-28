@@ -75,6 +75,8 @@ type PortalShellProps = {
 	userName: string
 	/** Nome da organização ativa (`organizations.name`). */
 	organizationName?: string | null
+	/** Exibe menu WhatsApp apenas quando a integração existir na empresa ativa. */
+	hasWhatsappIntegration?: boolean
 	supabasePlatformStatus?: SupabasePlatformStatusBanner | null
 	platformOrganizations?: PlatformOrganizationOption[] | null
 	activeOrganizationId?: string | null
@@ -128,7 +130,9 @@ export function PortalShell(props: PortalShellProps) {
 			? [
 				{ href: '/portal/dashboard', label: 'Dashboard', icon: LayoutDashboard },
 				{ href: '/portal/ordens', label: 'Ordens de serviço', icon: ClipboardList },
-				{ href: '/portal/whatsapp', label: 'WhatsApp', icon: MessageCircle },
+				...(props.hasWhatsappIntegration
+					? [{ href: '/portal/whatsapp', label: 'WhatsApp', icon: MessageCircle }]
+					: []),
 				{ href: '/portal/produtos', label: 'Produtos e serviços', icon: Package },
 				{ href: '/portal/clientes', label: 'Clientes', icon: Users },
 				{ href: '/portal/revendaaparelhos', label: 'Aparelhos à venda', icon: Smartphone },
@@ -136,7 +140,9 @@ export function PortalShell(props: PortalShellProps) {
 			: [
 				{ href: '/portal/dashboard', label: 'Dashboard', icon: LayoutDashboard },
 				{ href: '/portal/ordens', label: 'Ordens de serviço', icon: ClipboardList },
-				{ href: '/portal/whatsapp', label: 'WhatsApp', icon: MessageCircle },
+				...(props.hasWhatsappIntegration
+					? [{ href: '/portal/whatsapp', label: 'WhatsApp', icon: MessageCircle }]
+					: []),
 				{ href: '/portal/produtos', label: 'Produtos e serviços', icon: Package },
 				{ href: '/portal/clientes', label: 'Clientes', icon: Users },
 				{ href: '/portal/admin/usuarios', label: 'Usuários', icon: UserCheck },
