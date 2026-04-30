@@ -91,6 +91,7 @@ import {
 import { revendaPath } from "@/lib/revenda/revenda-paths";
 import { formatCpfCnpj } from "@/lib/utils/format-cpf-cnpj";
 import { formatDateBr } from "@/lib/utils/format-date";
+import { formatCentsBr } from "@/lib/utils/format-money";
 import {
 	formatMoneyInput,
 	maskedFromCents,
@@ -106,11 +107,13 @@ import {
 	Eye,
 	EyeOff,
 	FileInput,
+	Loader2,
 	MessageCircle,
 	MoreHorizontal,
 	Package,
 	Plus,
 	Receipt,
+	Search,
 	Store,
 	Tag,
 	Trash2,
@@ -125,19 +128,38 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DeviceBadges } from "./DeviceBadges";
 import { ResaleDeviceTermsDialog } from "./ResaleDeviceTermsDialog";
 import {
-	ResaleSellCommissionPanel,
+	ResaleSellAdminProfitCard,
+	ResaleSellCommissionFields,
 	type ResaleSellCommissionPanelRef,
 	type SellCommissionInitial,
+	type SellCommissionSnapshot,
 } from "./ResaleSellCommissionPanel";
 import { SeminovoDeviceCard } from "./SeminovoDeviceCard";
 import { SeminovosFilterCollapsible } from "./SeminovosFilterCollapsible";
 
-const EMPTY_SELL_COMMISSION_INITIAL: SellCommissionInitial = {
+const DEFAULT_SELL_COMMISSION_INITIAL: SellCommissionInitial = {
 	enabled: false,
 	userId: "",
-	kind: "percent",
+	kind: "fixed",
 	percentRaw: "",
-	fixedMasked: "",
+	fixedMasked: maskedFromCents(3000),
+};
+
+type SellAddonCatalogRow = {
+	id: string;
+	name: string;
+	sku: string | null;
+	sale_price_cents: number | null;
+	cost_price_cents: number | null;
+	stock: number;
+};
+
+type SellAddonLine = {
+	productId: string;
+	name: string;
+	quantity: number;
+	unitSaleCents: number;
+	unitCostCents: number;
 };
 
 type CostRow = { id?: string; description: string; value_cents: number };
@@ -386,15 +408,27 @@ export function SeminovosListClient({
 	);
 	const [teamUsers, setTeamUsers] = useState<TeamUser[]>([]);
 	const sellCommissionPanelRef = useRef<ResaleSellCommissionPanelRef>(null);
+	const [sellCommissionSnapshot, setSellCommissionSnapshot] =
+		useState<SellCommissionSnapshot>(DEFAULT_SELL_COMMISSION_INITIAL);
 	const [commissionBoot, setCommissionBoot] = useState<{
 		seq: number;
 		initial: SellCommissionInitial;
 	}>({
 		seq: 0,
-		initial: EMPTY_SELL_COMMISSION_INITIAL,
+		initial: DEFAULT_SELL_COMMISSION_INITIAL,
 	});
 	const [sellDate, setSellDate] = useState("");
 	const [isSavingSell, setIsSavingSell] = useState(false);
+	const [sellDeviceAmountMasked, setSellDeviceAmountMasked] = useState("");
+	const [sellAddonQuery, setSellAddonQuery] = useState("");
+	const [sellAddonBusy, setSellAddonBusy] = useState(false);
+	const [sellAddonResults, setSellAddonResults] = useState<SellAddonCatalogRow[]>(
+		[],
+	);
+	const [sellAddonItems, setSellAddonItems] = useState<SellAddonLine[]>([]);
+	const sellAddonSearchCacheRef = useRef<Map<string, SellAddonCatalogRow[]>>(
+		new Map(),
+	);
 	const [sellPaymentMethods, setSellPaymentMethods] = useState<
 		SalePaymentEntry[]
 	>([]);
@@ -415,7 +449,7 @@ export function SeminovosListClient({
 	);
 	const [whatsAppTextAtacado, setWhatsAppTextAtacado] = useState("");
 	const [whatsAppTextCliente, setWhatsAppTextCliente] = useState("");
-	const [showPurchaseValue, setShowPurchaseValue] = useState(true);
+	const [showPurchaseValue, setShowPurchaseValue] = useState(isAdmin);
 	const [showWholesaleValue, setShowWholesaleValue] = useState(true);
 	const [simulateModalTarget, setSimulateModalTarget] =
 		useState<ResaleDevice | null>(null);
@@ -442,6 +476,58 @@ export function SeminovosListClient({
 		setDevices(initialDevices as ResaleDevice[]);
 		setStats(initialStats);
 	}, [initialDevices, initialStats]);
+
+	useEffect(() => {
+		setSellCommissionSnapshot(commissionBoot.initial);
+	}, [commissionBoot.seq, commissionBoot.initial]);
+
+	useEffect(() => {
+		if (!sellModalTarget) {
+			setSellAddonResults([]);
+			return;
+		}
+		const q = sellAddonQuery.trim();
+		if (q.length < 2) {
+			setSellAddonResults([]);
+			setSellAddonBusy(false);
+			return;
+		}
+		const cached = sellAddonSearchCacheRef.current.get(q);
+		if (cached) {
+			setSellAddonResults(cached);
+			setSellAddonBusy(false);
+			return;
+		}
+		let cancelled = false;
+		const controller = new AbortController();
+		const t = window.setTimeout(() => {
+			void (async () => {
+				setSellAddonBusy(true);
+				try {
+					const res = await portalFetch(
+						`/api/portal/pdv/catalog?q=${encodeURIComponent(q)}`,
+						{ signal: controller.signal },
+					);
+					const data = await res?.json().catch(() => null);
+					if (cancelled) return;
+					if (data?.ok && Array.isArray(data.products)) {
+						const products = data.products as SellAddonCatalogRow[];
+						sellAddonSearchCacheRef.current.set(q, products);
+						setSellAddonResults(products);
+					} else {
+						setSellAddonResults([]);
+					}
+				} finally {
+					if (!cancelled) setSellAddonBusy(false);
+				}
+			})();
+		}, 280);
+		return () => {
+			cancelled = true;
+			controller.abort();
+			window.clearTimeout(t);
+		};
+	}, [sellModalTarget, sellAddonQuery]);
 
 	const loadSoldDevices = useCallback(async () => {
 		setIsLoadingSold(true);
@@ -583,11 +669,11 @@ export function SeminovosListClient({
 				"imei",
 				"purchase_date",
 				"sale_date",
-				"purchase_value_cents",
 				"wholesale_value_cents",
 				"sale_value_cents",
 				"sold_for_cents",
 			];
+			if (isAdmin) fields.push("purchase_value_cents");
 			for (const k of fields) {
 				const v = edited[k];
 				const o = orig[k];
@@ -677,9 +763,14 @@ export function SeminovosListClient({
 		setSellBuyerName("");
 		setSellBuyerCpf("");
 		setSellSaleDetails("");
+		setSellDeviceAmountMasked(
+			d.sale_value_cents != null ? maskedFromCents(d.sale_value_cents) : "",
+		);
+		setSellAddonQuery("");
+		setSellAddonItems([]);
 		setCommissionBoot((b) => ({
 			seq: b.seq + 1,
-			initial: EMPTY_SELL_COMMISSION_INITIAL,
+			initial: DEFAULT_SELL_COMMISSION_INITIAL,
 		}));
 		loadPaymentMethods();
 		loadTeamUsers();
@@ -731,7 +822,16 @@ export function SeminovosListClient({
 						percentRaw: "",
 						fixedMasked: maskedFromCents(commLine.value_cents ?? 0),
 					}
-				: EMPTY_SELL_COMMISSION_INITIAL;
+				: DEFAULT_SELL_COMMISSION_INITIAL;
+		setSellDeviceAmountMasked(
+			d.sold_for_cents != null
+				? maskedFromCents(d.sold_for_cents)
+				: d.sale_value_cents != null
+					? maskedFromCents(d.sale_value_cents)
+					: "",
+		);
+		setSellAddonQuery("");
+		setSellAddonItems([]);
 		setCommissionBoot((b) => ({ seq: b.seq + 1, initial: commissionInitial }));
 		loadPaymentMethods();
 		loadTeamUsers();
@@ -765,6 +865,90 @@ export function SeminovosListClient({
 		}
 		if (sum <= 0) return null;
 		return sum;
+	}
+
+	function getSellAddonRevenueCents(): number {
+		return sellAddonItems.reduce(
+			(acc, l) => acc + l.quantity * l.unitSaleCents,
+			0,
+		);
+	}
+
+	function getSellAddonCostTotalCents(): number {
+		return sellAddonItems.reduce(
+			(acc, l) => acc + l.quantity * l.unitCostCents,
+			0,
+		);
+	}
+
+	function getSellDeviceSaleCents(): number | null {
+		return moneyToCentsFromMasked(sellDeviceAmountMasked);
+	}
+
+	function getSellTransactionTotalCents(): number | null {
+		const device = getSellDeviceSaleCents();
+		if (device === null || device < 0) return null;
+		return device + getSellAddonRevenueCents();
+	}
+
+	function getSellNetFromPaymentsCents(): number | null {
+		const valid = sellPaymentMethods.filter((e) => e.payment_method_id?.trim());
+		const sum = getSellPaymentsTotalCents();
+		if (sum == null) return null;
+		const fee = paymentFeeCentsForSaleEntries(valid, paymentMethods);
+		const net = sum - fee;
+		if (net <= 0) return null;
+		return net;
+	}
+
+	function addSellAddonProduct(p: SellAddonCatalogRow) {
+		const unitSale = Number(p.sale_price_cents) || 0;
+		const unitCost = Number(p.cost_price_cents) || 0;
+		setSellAddonItems((prev) => {
+			const idx = prev.findIndex((x) => x.productId === p.id);
+			if (idx < 0) {
+				return [
+					...prev,
+					{
+						productId: p.id,
+						name: p.name,
+						quantity: 1,
+						unitSaleCents: unitSale,
+						unitCostCents: unitCost,
+					},
+				];
+			}
+			const next = [...prev];
+			next[idx] = { ...next[idx], quantity: next[idx].quantity + 1 };
+			return next;
+		});
+		setSellAddonQuery('');
+		setSellAddonResults([]);
+	}
+
+	function updateSellAddonQty(productId: string, quantity: number) {
+		const q = Math.max(1, Math.round(Number(quantity) || 1));
+		setSellAddonItems((prev) =>
+			prev.map((x) => (x.productId === productId ? { ...x, quantity: q } : x)),
+		);
+	}
+
+	function updateSellAddonUnitSaleMasked(productId: string, masked: string) {
+		const cents = moneyToCentsFromMasked(formatMoneyInput(masked));
+		setSellAddonItems((prev) =>
+			prev.map((x) =>
+				x.productId === productId
+					? {
+							...x,
+							unitSaleCents: cents === null ? 0 : Math.max(0, cents),
+						}
+					: x,
+			),
+		);
+	}
+
+	function removeSellAddonLine(productId: string) {
+		setSellAddonItems((prev) => prev.filter((x) => x.productId !== productId));
 	}
 
 	function openCostModal(d: ResaleDevice) {
@@ -982,12 +1166,38 @@ ${devicesBlockCliente}
 	async function handleConfirmSell() {
 		const d = sellModalTarget;
 		if (!d || isSavingSell) return;
-		const valueCents = getSellPaymentsTotalCents();
-		if (valueCents === null) {
+		const transactionTotal = getSellTransactionTotalCents();
+		if (transactionTotal === null || transactionTotal <= 0) {
+			toast({
+				title: "Valor da venda",
+				description:
+					"Informe o valor do aparelho. Com itens extras, o total da operação deve ser maior que zero.",
+				variant: "destructive",
+			});
+			return;
+		}
+		const paymentsSum = getSellPaymentsTotalCents();
+		if (paymentsSum === null) {
 			toast({
 				title: "Valores de pagamento",
 				description:
-					"Informe o valor (R$) em cada forma de pagamento usada. O total da venda é a soma desses valores.",
+					"Informe o valor (R$) em cada forma de pagamento usada.",
+				variant: "destructive",
+			});
+			return;
+		}
+		const validMethodsForFee = sellPaymentMethods.filter((e) =>
+			e.payment_method_id?.trim(),
+		);
+		const paymentFeePreview = paymentFeeCentsForSaleEntries(
+			validMethodsForFee,
+			paymentMethods,
+		);
+		const netFromPayments = paymentsSum - paymentFeePreview;
+		if (netFromPayments !== transactionTotal) {
+			toast({
+				title: "Pagamentos",
+				description: `Com as taxas da maquininha, o valor líquido (${formatCentsBr(netFromPayments)}) deve ser igual ao total líquido da venda (${formatCentsBr(transactionTotal)}). Ajuste os valores cobrados.`,
 				variant: "destructive",
 			});
 			return;
@@ -1031,10 +1241,19 @@ ${devicesBlockCliente}
 		const costsWithoutDerived = baseCosts.filter(
 			(c) => !isSaleDerivedCostDescription(c.description),
 		);
-		const baseOperationalTotal = costsWithoutDerived.reduce(
-			(acc, c) => acc + (c.value_cents ?? 0),
-			0,
-		);
+		const addonOpCents = getSellAddonCostTotalCents();
+		const addonCostLines =
+			sellAddonItems.length > 0
+				? sellAddonItems.map((l) => ({
+						description: `${l.name} (custo estoque) × ${l.quantity}`,
+						value_cents: l.quantity * l.unitCostCents,
+					}))
+				: [];
+		const baseOperationalTotal =
+			costsWithoutDerived.reduce(
+				(acc, c) => acc + (c.value_cents ?? 0),
+				0,
+			) + addonOpCents;
 		const purchaseCents = d.purchase_value_cents ?? 0;
 
 		const comm = sellCommissionPanelRef.current?.getValues();
@@ -1044,16 +1263,13 @@ ${devicesBlockCliente}
 		const sellCommissionPercent = comm?.percentRaw ?? "";
 		const sellCommissionFixed = comm?.fixedMasked ?? "";
 
-		let costsPayload =
-			paymentFeeCents > 0
-				? [
-						...costsWithoutDerived,
-						{
-							description: "Taxa forma de pagamento",
-							value_cents: paymentFeeCents,
-						},
-					]
-				: [...costsWithoutDerived];
+		let costsPayload = [...costsWithoutDerived, ...addonCostLines];
+		if (paymentFeeCents > 0) {
+			costsPayload.push({
+				description: "Taxa forma de pagamento",
+				value_cents: paymentFeeCents,
+			});
+		}
 
 		let commissionUserIdForDb: string | null = null;
 		let commissionCents = 0;
@@ -1087,7 +1303,7 @@ ${devicesBlockCliente}
 					return;
 				}
 				const gross = grossProfitBeforeCommissionCents(
-					valueCents,
+					transactionTotal,
 					purchaseCents,
 					baseOperationalTotal,
 					paymentFeeCents,
@@ -1138,7 +1354,7 @@ ${devicesBlockCliente}
 
 		const payload: Record<string, unknown> = {
 			sold: true,
-			sold_for_cents: valueCents,
+			sold_for_cents: transactionTotal,
 			sale_date: sellDate || null,
 			sale_payment_methods: salePaymentMethodsPayload,
 			sale_commission_user_id: sellCommissionEnabled
@@ -1152,6 +1368,14 @@ ${devicesBlockCliente}
 				? sellSaleDetails.trim() || null
 				: null,
 			costs: costsPayload,
+			...(sellAddonItems.length > 0
+				? {
+						addon_inventory_lines: sellAddonItems.map((l) => ({
+							product_id: l.productId,
+							quantity: l.quantity,
+						})),
+					}
+				: {}),
 		};
 
 		setIsSavingSell(true);
@@ -1172,6 +1396,13 @@ ${devicesBlockCliente}
 				router.refresh();
 				if (soldCollapsibleOpen) loadSoldDevices();
 				toast({ description: "Aparelho marcado como vendido", duration: 2000 });
+			} else if (data?.error === "stock_unavailable") {
+				toast({
+					title: "Estoque insuficiente",
+					description:
+						"Um dos produtos extras não tem quantidade suficiente em estoque para esta venda.",
+					variant: "destructive",
+				});
 			}
 		} finally {
 			setIsSavingSell(false);
@@ -1383,7 +1614,8 @@ ${devicesBlockCliente}
 																	key={d.id}
 																	device={d}
 																	variant="available"
-																	showPurchaseValue={showPurchaseValue}
+																	canViewPurchaseValue={isAdmin}
+																	showPurchaseValue={isAdmin && showPurchaseValue}
 																	showWholesaleValue={showWholesaleValue}
 																	renderMenu={(device) => (
 																		<>
@@ -1486,7 +1718,7 @@ ${devicesBlockCliente}
 														<col className="w-[22%]" />
 														<col className="w-[11%]" />
 														<col className="w-[14%]" />
-														<col className="w-[9%]" />
+														{isAdmin ? <col className="w-[9%]" /> : null}
 														<col className="w-[8%]" />
 														<col className="w-[12%]" />
 														<col className="w-[10%]" />
@@ -1497,37 +1729,39 @@ ${devicesBlockCliente}
 															<TableHead>Aparelho</TableHead>
 															<TableHead>IMEI</TableHead>
 															<TableHead>Informações</TableHead>
-															<TableHead>
-																<span className="inline-flex items-center gap-1.5">
-																	Valor compra
-																	<Button
-																		type="button"
-																		variant="ghost"
-																		size="icon"
-																		className="h-7 w-7"
-																		onClick={(e) => {
-																			e.stopPropagation();
-																			setShowPurchaseValue((v) => !v);
-																		}}
-																		title={
-																			showPurchaseValue
-																				? "Ocultar valor de compra"
-																				: "Exibir valor de compra"
-																		}
-																		aria-label={
-																			showPurchaseValue
-																				? "Ocultar valor de compra"
-																				: "Exibir valor de compra"
-																		}
-																	>
-																		{showPurchaseValue ? (
-																			<EyeOff className="h-3.5 w-3.5" />
-																		) : (
-																			<Eye className="h-3.5 w-3.5" />
-																		)}
-																	</Button>
-																</span>
-															</TableHead>
+															{isAdmin ? (
+																<TableHead>
+																	<span className="inline-flex items-center gap-1.5">
+																		Valor compra
+																		<Button
+																			type="button"
+																			variant="ghost"
+																			size="icon"
+																			className="h-7 w-7"
+																			onClick={(e) => {
+																				e.stopPropagation();
+																				setShowPurchaseValue((v) => !v);
+																			}}
+																			title={
+																				showPurchaseValue
+																					? "Ocultar valor de compra"
+																					: "Exibir valor de compra"
+																			}
+																			aria-label={
+																				showPurchaseValue
+																					? "Ocultar valor de compra"
+																					: "Exibir valor de compra"
+																			}
+																		>
+																			{showPurchaseValue ? (
+																				<EyeOff className="h-3.5 w-3.5" />
+																			) : (
+																				<Eye className="h-3.5 w-3.5" />
+																			)}
+																		</Button>
+																	</span>
+																</TableHead>
+															) : null}
 															<TableHead>Custos</TableHead>
 															<TableHead>
 																<span className="inline-flex items-center gap-1.5">
@@ -1592,7 +1826,7 @@ ${devicesBlockCliente}
 																	className="bg-muted/40 hover:bg-muted/40"
 																>
 																	<TableCell
-																		colSpan={8}
+																		colSpan={isAdmin ? 8 : 7}
 																		className="font-semibold py-2 text-sm"
 																	>
 																		{item.modelKey}
@@ -1623,7 +1857,7 @@ ${devicesBlockCliente}
 																		>
 																			{!isBulkEdit ? (
 																				<TableCell
-																					colSpan={7}
+																					colSpan={isAdmin ? 7 : 6}
 																					className="relative p-0 align-middle"
 																				>
 																					<Link
@@ -1635,7 +1869,9 @@ ${devicesBlockCliente}
 																						className="relative z-10 grid items-center py-2 px-4 pointer-events-none [&_button]:pointer-events-auto min-w-0"
 																						style={{
 																							gridTemplateColumns:
-																								"22fr 11fr 14fr 9fr 8fr 12fr 10fr",
+																								isAdmin
+																									? "22fr 11fr 14fr 9fr 8fr 12fr 10fr"
+																									: "22fr 11fr 14fr 8fr 12fr 10fr",
 																						}}
 																					>
 																						<DeviceBadges
@@ -1682,18 +1918,20 @@ ${devicesBlockCliente}
 																						>
 																							{d.info || "-"}
 																						</span>
-																						<span className="min-w-0">
-																							{showPurchaseValue ? (
-																								d.purchase_value_cents !=
-																								null ? (
-																									`R$ ${centsToReais(d.purchase_value_cents)}`
+																						{isAdmin ? (
+																							<span className="min-w-0">
+																								{showPurchaseValue ? (
+																									d.purchase_value_cents !=
+																									null ? (
+																										`R$ ${centsToReais(d.purchase_value_cents)}`
+																									) : (
+																										"-"
+																									)
 																								) : (
-																									"-"
-																								)
-																							) : (
-																								<Skeleton className="h-4 w-16" />
-																							)}
-																						</span>
+																									<Skeleton className="h-4 w-16" />
+																								)}
+																							</span>
+																						) : null}
 																						<span className="min-w-0">
 																							{totalCostsCents > 0
 																								? `R$ ${centsToReais(totalCostsCents)}`
@@ -1956,37 +2194,39 @@ ${devicesBlockCliente}
 																							d.info || "-"
 																						)}
 																					</TableCell>
-																					<TableCell>
-																						{showPurchaseValue ? (
-																							isBulkEdit ? (
-																								<Input
-																									value={
-																										d.purchase_value_cents !=
-																										null
-																											? centsToReais(
-																													d.purchase_value_cents,
-																												)
-																											: ""
-																									}
-																									onChange={(e) =>
-																										updateMoney(
-																											d.id,
-																											"purchase_value_cents",
-																											e.target.value,
-																										)
-																									}
-																									placeholder="0,00"
-																								/>
-																							) : d.purchase_value_cents !=
-																							  null ? (
-																								`R$ ${centsToReais(d.purchase_value_cents)}`
+																					{isAdmin ? (
+																						<TableCell>
+																							{showPurchaseValue ? (
+																								isBulkEdit ? (
+																									<Input
+																										value={
+																											d.purchase_value_cents !=
+																											null
+																												? centsToReais(
+																														d.purchase_value_cents,
+																													)
+																												: ""
+																										}
+																										onChange={(e) =>
+																											updateMoney(
+																												d.id,
+																												"purchase_value_cents",
+																												e.target.value,
+																											)
+																										}
+																										placeholder="0,00"
+																									/>
+																								) : d.purchase_value_cents !=
+																								  null ? (
+																									`R$ ${centsToReais(d.purchase_value_cents)}`
+																								) : (
+																									"-"
+																								)
 																							) : (
-																								"-"
-																							)
-																						) : (
-																							<Skeleton className="h-8 w-20" />
-																						)}
-																					</TableCell>
+																								<Skeleton className="h-8 w-20" />
+																							)}
+																						</TableCell>
+																					) : null}
 																					<TableCell>
 																						{totalCostsCents > 0
 																							? `R$ ${centsToReais(totalCostsCents)}`
@@ -2322,7 +2562,8 @@ ${devicesBlockCliente}
 														key={d.id}
 														device={d}
 														variant="sold"
-														showPurchaseValue={showPurchaseValue}
+														canViewPurchaseValue={isAdmin}
+														showPurchaseValue={isAdmin && showPurchaseValue}
 														showWholesaleValue={showWholesaleValue}
 														renderMenu={(device) => (
 															<>
@@ -2768,63 +3009,302 @@ ${devicesBlockCliente}
 				open={!!sellModalTarget}
 				onOpenChange={(open) => !open && setSellModalTarget(null)}
 			>
-				<DialogContent className="max-h-[90vh] overflow-y-auto">
-					<DialogHeader>
+				<DialogContent className="max-w-3xl sm:max-w-5xl w-[min(96vw,72rem)] max-h-[90vh] overflow-y-auto gap-0">
+					<DialogHeader className="pb-2">
 						<DialogTitle>Marcar como vendido</DialogTitle>
-						<DialogDescription>
-							O valor total da venda é a soma dos valores informados em cada
-							forma de pagamento. A data da venda será registrada.
-						</DialogDescription>
 					</DialogHeader>
-					<div className="grid gap-4 py-4">
-						{sellModalTarget ? (
-							<div className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground space-y-1">
-								<p className="font-medium text-foreground">
-									Valores sugeridos (referência)
-								</p>
-								{sellModalTarget.sale_value_cents != null && (
-									<p>
-										Varejo cadastrado: R${" "}
-										{centsToReais(sellModalTarget.sale_value_cents)}
-									</p>
-								)}
-								{sellModalTarget.wholesale_value_cents != null && (
-									<p>
-										Atacado cadastrado: R${" "}
-										{centsToReais(sellModalTarget.wholesale_value_cents)}
-									</p>
-								)}
-								{sellModalTarget.sale_value_cents == null &&
-									sellModalTarget.wholesale_value_cents == null && (
-										<p>
-											Não há preços de varejo ou atacado cadastrados neste
-											aparelho; use apenas as formas de pagamento abaixo.
+					<div className="grid gap-5 py-4 lg:grid-cols-2 lg:gap-6 lg:items-start">
+						<div className="flex flex-col gap-4 min-w-0">
+							{sellModalTarget ? (
+								<>
+									<div className="rounded-lg border bg-muted/30 px-3 py-2.5 text-sm space-y-2">
+										<p className="font-medium text-foreground">
+											{sellModalTarget.device_name ||
+												sellModalTarget.model ||
+												"Aparelho"}
 										</p>
-									)}
+										<p className="text-muted-foreground text-xs leading-snug">
+											{[
+												sellModalTarget.model,
+												sellModalTarget.storage_gb,
+												sellModalTarget.color,
+											]
+												.filter(Boolean)
+												.join(" · ")}
+										</p>
+										{sellModalTarget.battery?.trim() ? (
+											<p className="text-xs text-muted-foreground">
+												Bateria: {sellModalTarget.battery}
+											</p>
+										) : null}
+										{sellModalTarget.imei?.trim() ? (
+											<p className="text-xs text-muted-foreground font-mono break-all">
+												IMEI: {sellModalTarget.imei}
+											</p>
+										) : null}
+										{sellModalTarget.serial?.trim() ? (
+											<p className="text-xs text-muted-foreground">
+												S/N: {sellModalTarget.serial}
+											</p>
+										) : null}
+									</div>
+									<ResaleSellCommissionFields
+										key={commissionBoot.seq}
+										ref={sellCommissionPanelRef}
+										device={sellModalTarget}
+										sellPaymentMethods={sellPaymentMethods}
+										paymentMethods={paymentMethods}
+										teamUsers={teamUsers}
+										initial={commissionBoot.initial}
+										addonCostTotalCents={getSellAddonCostTotalCents()}
+										onSnapshotChange={setSellCommissionSnapshot}
+									/>
+									<div className="space-y-3 rounded-md border p-3">
+										<div className="flex items-start space-x-2">
+											<Checkbox
+												id="sell-generate-term"
+												className="mt-0.5"
+												checked={sellGenerateWarrantyTerm}
+												onCheckedChange={(v) => {
+													const on = v === true;
+													setSellGenerateWarrantyTerm(on);
+													if (
+														on &&
+														!sellSaleDetails.trim() &&
+														sellModalTarget?.info?.trim()
+													) {
+														setSellSaleDetails(sellModalTarget.info.trim());
+													}
+												}}
+											/>
+											<Label
+												htmlFor="sell-generate-term"
+												className="font-normal cursor-pointer leading-snug"
+											>
+												Gerar termo de garantia
+											</Label>
+										</div>
+										{sellGenerateWarrantyTerm ? (
+											<div className="space-y-3 border-t pt-3 pl-1">
+												<div className="space-y-2">
+													<Label>Nome completo do comprador</Label>
+													<Input
+														value={sellBuyerName}
+														onChange={(e) => setSellBuyerName(e.target.value)}
+														placeholder="Nome completo"
+													/>
+												</div>
+												<div className="space-y-2">
+													<Label>CPF/CNPJ do comprador</Label>
+													<Input
+														value={sellBuyerCpf}
+														onChange={(e) =>
+															setSellBuyerCpf(formatCpfCnpj(e.target.value))
+														}
+														placeholder="CPF ou CNPJ"
+														inputMode="numeric"
+													/>
+												</div>
+												<div className="space-y-2">
+													<Label>Detalhes do aparelho no termo</Label>
+													<Textarea
+														value={sellSaleDetails}
+														onChange={(e) => setSellSaleDetails(e.target.value)}
+														placeholder="Texto exibido no termo de compra."
+														rows={3}
+													/>
+												</div>
+											</div>
+										) : null}
+									</div>
+									<div className="space-y-2">
+										<Label htmlFor="sell-date">Data da venda</Label>
+										<Input
+											id="sell-date"
+											type="date"
+											value={sellDate}
+											onChange={(e) => setSellDate(e.target.value)}
+										/>
+									</div>
+								</>
+							) : null}
+						</div>
+
+						<div className="flex flex-col gap-4 min-w-0">
+							{sellModalTarget ? (
+								<>
+									<div className="space-y-2">
+										<Label htmlFor="sell-device-amount">
+											Valor do aparelho (R$)
+										</Label>
+										<Input
+											id="sell-device-amount"
+											value={sellDeviceAmountMasked}
+											onChange={(e) =>
+												setSellDeviceAmountMasked(
+													formatMoneyInput(e.target.value),
+												)
+											}
+											placeholder="0,00"
+											className="h-10"
+										/>
+									</div>
+
+						<div className="space-y-3">
+							<div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+								<div className="flex-1 space-y-1.5">
+									<Label className="text-sm">Adicionar produto à venda</Label>
+									<div className="relative">
+										<Search className="absolute left-2.5 top-4 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+										<Input
+											value={sellAddonQuery}
+											onChange={(e) => setSellAddonQuery(e.target.value)}
+											placeholder="Buscar por nome, SKU ou código…"
+											className="h-9 pl-8"
+											disabled={!sellModalTarget}
+										/>
+										{sellAddonQuery.trim().length >= 2 ? (
+											<div className="absolute z-30 mt-1 w-full rounded-md border bg-popover text-popover-foreground shadow-md">
+												{sellAddonBusy ? (
+													<div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
+														<Loader2 className="h-3.5 w-3.5 animate-spin" />
+														Buscando...
+													</div>
+												) : sellAddonResults.length > 0 ? (
+													<ul className="max-h-56 overflow-y-auto divide-y text-sm">
+														{sellAddonResults.map((p) => (
+															<li key={p.id}>
+																<button
+																	type="button"
+																	className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left hover:bg-muted/60"
+																	onClick={() => addSellAddonProduct(p)}
+																>
+																	<span className="truncate font-medium">{p.name}</span>
+																	<span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+																		{p.sale_price_cents != null
+																			? formatCentsBr(p.sale_price_cents)
+																			: "—"}{" "}
+																		· est. {p.stock}
+																	</span>
+																</button>
+															</li>
+														))}
+													</ul>
+												) : (
+													<p className="p-3 text-xs text-muted-foreground">
+														Nenhum produto encontrado.
+													</p>
+												)}
+											</div>
+										) : null}
+									</div>
+								</div>
 							</div>
-						) : null}
+							{sellAddonQuery.trim().length > 0 &&
+							sellAddonQuery.trim().length < 2 ? (
+								<p className="text-xs text-muted-foreground py-1">
+									Continue digitando para filtrar o catálogo.
+								</p>
+							) : null}
+							{sellAddonItems.length > 0 ? (
+								<div className="space-y-2">
+									<p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+										Itens na venda
+									</p>
+									<div className="hidden md:grid md:grid-cols-12 md:gap-3 text-xs font-medium text-muted-foreground px-1">
+										<div className="md:col-span-5">Produto</div>
+										<div className="md:col-span-2">Qtd.</div>
+										<div className="md:col-span-2">Venda (R$)</div>
+										<div className="md:col-span-2">Total</div>
+										<div className="md:col-span-1 text-right">Ações</div>
+									</div>
+									<ul className="space-y-3">
+										{sellAddonItems.map((line) => (
+											<li
+												key={line.productId}
+												className="grid gap-3 md:grid-cols-12 items-end"
+											>
+												<div className="md:col-span-5 space-y-1">
+													<Label className="md:hidden">Produto</Label>
+													<Input value={line.name} readOnly className="h-9" />
+												</div>
+												<div className="md:col-span-2 space-y-1">
+													<Label className="md:hidden">Qtd.</Label>
+													<Input
+														type="number"
+														min={1}
+														className="h-9"
+														value={line.quantity}
+														onChange={(e) =>
+															updateSellAddonQty(
+																line.productId,
+																Number(e.target.value),
+															)
+														}
+													/>
+												</div>
+												<div className="md:col-span-2 space-y-1">
+													<Label className="md:hidden">Venda (R$)</Label>
+													<Input
+														className="h-9"
+														value={maskedFromCents(line.unitSaleCents)}
+														onChange={(e) =>
+															updateSellAddonUnitSaleMasked(
+																line.productId,
+																e.target.value,
+															)
+														}
+														inputMode="decimal"
+														placeholder="0,00"
+													/>
+												</div>
+												<div className="md:col-span-2 space-y-1">
+													<Label className="md:hidden">Total</Label>
+													<Input
+														value={maskedFromCents(
+															line.quantity * line.unitSaleCents,
+														)}
+														readOnly
+														className="h-9"
+													/>
+												</div>
+												<div className="md:col-span-1 flex justify-end">
+													<Button
+														type="button"
+														variant="ghost"
+														size="icon"
+														className="h-9 w-9 text-red-600 hover:text-red-700 hover:bg-red-500/10"
+														onClick={() => removeSellAddonLine(line.productId)}
+														aria-label="Remover item"
+													>
+														<Trash2 className="h-4 w-4" />
+													</Button>
+												</div>
+											</li>
+										))}
+									</ul>
+								</div>
+							) : null}
+						</div>
+
 						<div className="space-y-2">
 							<div className="flex items-center justify-between">
 								<Label>Formas de pagamento</Label>
-								<Button
-									type="button"
-									variant="outline"
-									size="sm"
-									onClick={addSellPaymentMethod}
-									className="gap-1"
-								>
-									<Plus className="h-3.5 w-3.5" />
-									Adicionar
-								</Button>
 							</div>
 							<div className="space-y-3">
+								<div className="hidden md:grid md:grid-cols-12 md:gap-3 text-xs font-medium text-muted-foreground px-1">
+									<div className="md:col-span-6">Forma de pagamento</div>
+									<div className="md:col-span-3">Valor</div>
+									<div className="md:col-span-2">Parcelas</div>
+									<div className="md:col-span-1 text-right">Ações</div>
+								</div>
 								{sellPaymentMethods.map((entry, i) => (
 									<div
 										key={entry.rowKey}
-										className="flex flex-wrap items-end gap-2 rounded border p-2 bg-muted/30"
+										className="grid gap-3 md:grid-cols-12 items-end"
 									>
-										<div className="flex-1 min-w-[140px] space-y-1">
-											<Label className="text-xs">Forma</Label>
+										<div className="md:col-span-6 space-y-1">
+											<Label className="md:hidden">Forma de pagamento</Label>
 											<Select
 												value={entry.payment_method_id || "__none__"}
 												onValueChange={(v) => {
@@ -2855,8 +3335,8 @@ ${devicesBlockCliente}
 												</SelectContent>
 											</Select>
 										</div>
-										<div className="w-28 space-y-1">
-											<Label className="text-xs">Valor (R$)</Label>
+										<div className="md:col-span-3 space-y-1">
+											<Label className="md:hidden">Valor</Label>
 											<Input
 												value={
 													entry.value_cents != null
@@ -2879,7 +3359,9 @@ ${devicesBlockCliente}
 													(p) => p.id === entry.payment_method_id,
 												);
 												const isCredit = pm?.type === "credito";
-												if (!isCredit) return null;
+												if (!isCredit) {
+													return <div className="hidden md:block md:col-span-2" aria-hidden />;
+												}
 												const maxInstallments = pm?.credit_installment_fees
 													?.length
 													? Math.max(
@@ -2889,8 +3371,8 @@ ${devicesBlockCliente}
 														)
 													: 12;
 												return (
-													<div className="w-20 space-y-1">
-														<Label className="text-xs">Parcelas</Label>
+													<div className="md:col-span-2 space-y-1">
+														<Label className="md:hidden">Parcelas</Label>
 														<Select
 															value={String(entry.installments || 1)}
 															onValueChange={(v) =>
@@ -2916,104 +3398,86 @@ ${devicesBlockCliente}
 													</div>
 												);
 											})()}
-										<Button
-											type="button"
-											variant="ghost"
-											size="icon"
-											className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
-											onClick={() => removeSellPaymentMethod(i)}
-											disabled={sellPaymentMethods.length <= 1}
-											aria-label="Remover forma de pagamento"
-										>
-											<Trash2 className="h-4 w-4" />
-										</Button>
+										<div className="md:col-span-1 flex justify-end">
+											<Button
+												type="button"
+												variant="ghost"
+												size="icon"
+												className="h-9 w-9 text-red-600 hover:text-red-700 hover:bg-red-500/10"
+												onClick={() => removeSellPaymentMethod(i)}
+												disabled={sellPaymentMethods.length <= 1}
+												aria-label="Remover forma de pagamento"
+											>
+												<Trash2 className="h-4 w-4" />
+											</Button>
+										</div>
 									</div>
 								))}
 							</div>
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								onClick={addSellPaymentMethod}
+								className="w-full border-dashed border-green-600 bg-green-600/5 text-green-700 hover:bg-green-600/10 hover:text-green-800"
+							>
+								<Plus className="h-4 w-4 mr-2" />
+								Incluir forma de pagamento
+							</Button>
+							{(() => {
+								const tx = getSellTransactionTotalCents();
+								const sum = getSellPaymentsTotalCents();
+								const net = getSellNetFromPaymentsCents();
+								if (tx == null || tx <= 0) return null;
+								return (
+									<div className="text-sm text-muted-foreground pt-1">
+										Total líquido da venda: {formatCentsBr(tx)}
+										{sum != null && sum > 0 ? (
+											<>
+												{" — "}
+												Total a cobrar: {formatCentsBr(sum)}
+												{net != null ? (
+													<span
+														className={
+															net !== tx
+																? tx - net > 0
+																	? "text-amber-600"
+																	: "text-destructive"
+																: "text-green-600"
+														}
+													>
+														{" "}
+														(Líquido: {formatCentsBr(net)})
+													</span>
+												) : null}
+											</>
+										) : null}
+									</div>
+								);
+							})()}
 						</div>
-						{sellModalTarget ? (
-							<ResaleSellCommissionPanel
-								key={commissionBoot.seq}
-								ref={sellCommissionPanelRef}
-								device={sellModalTarget}
-								sellPaymentMethods={sellPaymentMethods}
-								paymentMethods={paymentMethods}
-								teamUsers={teamUsers}
-								initial={commissionBoot.initial}
-							/>
-						) : null}
-						<div className="space-y-3 rounded-md border p-3">
-							<div className="flex items-start space-x-2">
-								<Checkbox
-									id="sell-generate-term"
-									className="mt-0.5"
-									checked={sellGenerateWarrantyTerm}
-									onCheckedChange={(v) => {
-										const on = v === true;
-										setSellGenerateWarrantyTerm(on);
-										if (
-											on &&
-											!sellSaleDetails.trim() &&
-											sellModalTarget?.info?.trim()
-										) {
-											setSellSaleDetails(sellModalTarget.info.trim());
+									<ResaleSellAdminProfitCard
+										device={sellModalTarget}
+										sellPaymentMethods={sellPaymentMethods}
+										paymentMethods={paymentMethods}
+										isAdmin={isAdmin}
+										transactionTotalCents={getSellTransactionTotalCents()}
+										deviceSaleCents={getSellDeviceSaleCents()}
+										addonLines={sellAddonItems}
+										addonCostTotalCents={getSellAddonCostTotalCents()}
+										commissionUserName={
+											teamUsers.find(
+												(u) => u.id === sellCommissionSnapshot.userId,
+											)?.full_name ||
+											teamUsers.find(
+												(u) => u.id === sellCommissionSnapshot.userId,
+											)?.email ||
+											null
 										}
-									}}
-								/>
-								<div className="space-y-0.5 leading-snug">
-									<Label
-										htmlFor="sell-generate-term"
-										className="font-normal cursor-pointer"
-									>
-										Gerar termo de garantia
-									</Label>
-									<p className="text-xs text-muted-foreground">
-										Só é necessário preencher nome, documento e detalhes quando
-										for imprimir o termo.
-									</p>
-								</div>
-							</div>
-							{sellGenerateWarrantyTerm ? (
-								<div className="space-y-3 border-t pt-3 pl-1">
-									<div className="space-y-2">
-										<Label>Nome completo do comprador</Label>
-										<Input
-											value={sellBuyerName}
-											onChange={(e) => setSellBuyerName(e.target.value)}
-											placeholder="Nome completo"
-										/>
-									</div>
-									<div className="space-y-2">
-										<Label>CPF/CNPJ do comprador</Label>
-										<Input
-											value={sellBuyerCpf}
-											onChange={(e) =>
-												setSellBuyerCpf(formatCpfCnpj(e.target.value))
-											}
-											placeholder="CPF ou CNPJ"
-											inputMode="numeric"
-										/>
-									</div>
-									<div className="space-y-2">
-										<Label>Detalhes do aparelho no termo</Label>
-										<Textarea
-											value={sellSaleDetails}
-											onChange={(e) => setSellSaleDetails(e.target.value)}
-											placeholder="Texto exibido no termo de compra."
-											rows={3}
-										/>
-									</div>
-								</div>
+										commission={sellCommissionSnapshot}
+									/>
+								</>
 							) : null}
-						</div>
-						<div className="space-y-2">
-							<Label htmlFor="sell-date">Data da venda</Label>
-							<Input
-								id="sell-date"
-								type="date"
-								value={sellDate}
-								onChange={(e) => setSellDate(e.target.value)}
-							/>
 						</div>
 					</div>
 					<DialogFooter>
@@ -3028,7 +3492,19 @@ ${devicesBlockCliente}
 						<Button
 							type="button"
 							onClick={handleConfirmSell}
-							disabled={isSavingSell || getSellPaymentsTotalCents() === null}
+							disabled={(() => {
+								const tx = getSellTransactionTotalCents();
+								const pay = getSellPaymentsTotalCents();
+								const net = getSellNetFromPaymentsCents();
+								return (
+									isSavingSell ||
+									tx === null ||
+									tx <= 0 ||
+									pay === null ||
+									net === null ||
+									net !== tx
+								);
+							})()}
 						>
 							{isSavingSell ? "Salvando…" : "Confirmar venda"}
 						</Button>

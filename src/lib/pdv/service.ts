@@ -1,0 +1,327 @@
+import type { SupabaseClient } from '@supabase/supabase-js'
+
+type SaleItemInput = {
+  product_id: string
+  quantity: number
+  unit_price_cents: number
+  discount_cents?: number
+}
+
+type SalePaymentInput = {
+  payment_method_id?: string | null
+  payment_method_type: 'dinheiro' | 'pix' | 'credito' | 'debito' | 'outro'
+  amount_cents: number
+  status?: 'pending' | 'paid' | 'canceled'
+  metadata?: Record<string, unknown> | null
+}
+
+type AuthCtx = {
+  organizationId: string
+  userId: string
+  supabase: SupabaseClient
+}
+
+function toInt (value: unknown, min = 0) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return min
+  return Math.max(min, Math.round(n))
+}
+
+export function calcItemSubtotal (item: SaleItemInput) {
+  const quantity = toInt(item.quantity, 0)
+  const unitPrice = toInt(item.unit_price_cents, 0)
+  const discount = toInt(item.discount_cents ?? 0, 0)
+  const raw = quantity * unitPrice
+  return Math.max(0, raw - discount)
+}
+
+export function calcSaleTotals (items: SaleItemInput[], discountTotalCents = 0) {
+  const subtotal = items.reduce((acc, item) => acc + calcItemSubtotal(item), 0)
+  const discountTotal = toInt(discountTotalCents, 0)
+  const total = Math.max(0, subtotal - discountTotal)
+  return {
+    subtotalCents: subtotal,
+    discountTotalCents: discountTotal,
+    totalCents: total,
+  }
+}
+
+export async function getOpenCashSession (auth: AuthCtx) {
+  const { data, error } = await auth.supabase
+    .from('pos_cash_sessions')
+    .select('id, opened_by, opening_amount_cents, created_at')
+    .eq('organization_id', auth.organizationId)
+    .is('closed_at', null)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) return { ok: false as const, error: 'db_error' as const }
+  if (!data) return { ok: false as const, error: 'cash_not_open' as const }
+  return { ok: true as const, session: data }
+}
+
+export async function createPendingSale (
+  auth: AuthCtx,
+  items: SaleItemInput[],
+  discountTotalCents = 0,
+): Promise<
+  | { ok: true, saleId: string }
+  | { ok: false, error: 'db_error' | 'cash_not_open' }
+> {
+  const session = await getOpenCashSession(auth)
+  if (!session.ok) {
+    return { ok: false, error: session.error === 'cash_not_open' ? 'cash_not_open' : 'db_error' }
+  }
+
+  const totals = calcSaleTotals(items, discountTotalCents)
+  const { data: sale, error: saleError } = await auth.supabase
+    .from('pos_sales')
+    .insert({
+      organization_id: auth.organizationId,
+      cash_session_id: session.session.id,
+      status: 'pending',
+      seller_user_id: auth.userId,
+      subtotal_cents: totals.subtotalCents,
+      discount_total_cents: totals.discountTotalCents,
+      total_cents: totals.totalCents,
+      paid_amount_cents: 0,
+      change_cents: 0,
+    })
+    .select('id')
+    .single()
+
+  if (saleError || !sale) return { ok: false as const, error: 'db_error' as const }
+
+  if (items.length > 0) {
+    const rows = items.map((item) => ({
+      organization_id: auth.organizationId,
+      sale_id: sale.id,
+      product_id: item.product_id,
+      quantity: toInt(item.quantity, 1),
+      unit_price_cents: toInt(item.unit_price_cents, 0),
+      unit_cost_cents: 0,
+      discount_cents: toInt(item.discount_cents ?? 0, 0),
+      subtotal_cents: calcItemSubtotal(item),
+    }))
+    const { error: itemError } = await auth.supabase.from('pos_sale_items').insert(rows)
+    if (itemError) return { ok: false as const, error: 'db_error' as const }
+  }
+
+  return { ok: true as const, saleId: sale.id }
+}
+
+export async function listSaleItems (auth: AuthCtx, saleId: string) {
+  const { data, error } = await auth.supabase
+    .from('pos_sale_items')
+    .select('id, product_id, quantity, unit_price_cents, unit_cost_cents, discount_cents, subtotal_cents')
+    .eq('organization_id', auth.organizationId)
+    .eq('sale_id', saleId)
+    .order('created_at', { ascending: true })
+
+  if (error) return { ok: false as const, error: 'db_error' as const }
+  return { ok: true as const, items: data ?? [] }
+}
+
+export async function replaceSaleItems (auth: AuthCtx, saleId: string, items: SaleItemInput[]) {
+  const { error: delError } = await auth.supabase
+    .from('pos_sale_items')
+    .delete()
+    .eq('organization_id', auth.organizationId)
+    .eq('sale_id', saleId)
+
+  if (delError) return { ok: false as const, error: 'db_error' as const }
+
+  if (items.length > 0) {
+    const rows = items.map((item) => ({
+      organization_id: auth.organizationId,
+      sale_id: saleId,
+      product_id: item.product_id,
+      quantity: toInt(item.quantity, 1),
+      unit_price_cents: toInt(item.unit_price_cents, 0),
+      unit_cost_cents: 0,
+      discount_cents: toInt(item.discount_cents ?? 0, 0),
+      subtotal_cents: calcItemSubtotal(item),
+    }))
+    const { error: insError } = await auth.supabase.from('pos_sale_items').insert(rows)
+    if (insError) return { ok: false as const, error: 'db_error' as const }
+  }
+
+  return { ok: true as const }
+}
+
+export async function replaceSalePayments (auth: AuthCtx, saleId: string, payments: SalePaymentInput[]) {
+  const { error: delError } = await auth.supabase
+    .from('pos_sale_payments')
+    .delete()
+    .eq('organization_id', auth.organizationId)
+    .eq('sale_id', saleId)
+
+  if (delError) return { ok: false as const, error: 'db_error' as const }
+
+  if (payments.length > 0) {
+    const rows = payments.map((payment) => ({
+      organization_id: auth.organizationId,
+      sale_id: saleId,
+      payment_method_id: payment.payment_method_id ?? null,
+      payment_method_type: payment.payment_method_type,
+      amount_cents: toInt(payment.amount_cents, 1),
+      status: payment.status ?? 'paid',
+      metadata: payment.metadata ?? null,
+    }))
+    const { error: insError } = await auth.supabase.from('pos_sale_payments').insert(rows)
+    if (insError) return { ok: false as const, error: 'db_error' as const }
+  }
+
+  return { ok: true as const }
+}
+
+export async function loadSale (auth: AuthCtx, saleId: string) {
+  const { data: sale, error: saleError } = await auth.supabase
+    .from('pos_sales')
+    .select('id, sale_number, status, seller_user_id, subtotal_cents, discount_total_cents, total_cents, paid_amount_cents, change_cents, cash_session_id, created_at')
+    .eq('organization_id', auth.organizationId)
+    .eq('id', saleId)
+    .maybeSingle()
+
+  if (saleError) return { ok: false as const, error: 'db_error' as const }
+  if (!sale) return { ok: false as const, error: 'not_found' as const }
+
+  const [items, payments] = await Promise.all([
+    auth.supabase
+      .from('pos_sale_items')
+      .select('id, product_id, quantity, unit_price_cents, unit_cost_cents, discount_cents, subtotal_cents, products(id, name, sku, barcode)')
+      .eq('organization_id', auth.organizationId)
+      .eq('sale_id', saleId)
+      .order('created_at', { ascending: true }),
+    auth.supabase
+      .from('pos_sale_payments')
+      .select('id, payment_method_id, payment_method_type, amount_cents, status, metadata')
+      .eq('organization_id', auth.organizationId)
+      .eq('sale_id', saleId)
+      .order('created_at', { ascending: true }),
+  ])
+
+  if (items.error || payments.error) return { ok: false as const, error: 'db_error' as const }
+
+  return {
+    ok: true as const,
+    sale,
+    items: items.data ?? [],
+    payments: payments.data ?? [],
+  }
+}
+
+export async function ensureStockAvailable (auth: AuthCtx, saleId: string) {
+  const itemsRes = await listSaleItems(auth, saleId)
+  if (!itemsRes.ok) return itemsRes
+  if (itemsRes.items.length === 0) return { ok: false as const, error: 'empty_sale' as const }
+
+  const productIds = itemsRes.items.map((item) => String(item.product_id))
+  const { data, error } = await auth.supabase.rpc('portal_products_list_stock_summary', {
+    p_product_ids: productIds,
+  })
+  if (error) return { ok: false as const, error: 'db_error' as const }
+
+  const stockById = new Map<string, number>()
+  for (const row of (data ?? []) as Array<{ product_id: string, current_stock: number | string }>) {
+    const raw = row.current_stock
+    const stock = typeof raw === 'number' ? raw : Number(raw)
+    stockById.set(String(row.product_id), Number.isFinite(stock) ? stock : 0)
+  }
+
+  for (const item of itemsRes.items) {
+    const pid = String(item.product_id)
+    const qty = toInt(item.quantity, 0)
+    const stock = stockById.get(pid) ?? 0
+    if (stock < qty) {
+      return { ok: false as const, error: 'stock_unavailable' as const, productId: pid, requested: qty, available: stock }
+    }
+  }
+
+  return { ok: true as const, items: itemsRes.items }
+}
+
+export async function finalizeSale (auth: AuthCtx, saleId: string) {
+  const saleData = await loadSale(auth, saleId)
+  if (!saleData.ok) return saleData
+  if (saleData.sale.status === 'paid') return { ok: true as const, sale: saleData.sale }
+  if (saleData.sale.status === 'canceled') return { ok: false as const, error: 'sale_canceled' as const }
+
+  const stock = await ensureStockAvailable(auth, saleId)
+  if (!stock.ok) return stock
+
+  const paidAmount = saleData.payments.reduce((acc, p) => acc + toInt(p.amount_cents, 0), 0)
+  const total = toInt(saleData.sale.total_cents, 0)
+  if (paidAmount < total) return { ok: false as const, error: 'payment_insufficient' as const }
+
+  const hasCash = saleData.payments.some((p) => p.payment_method_type === 'dinheiro')
+  const change = hasCash ? Math.max(0, paidAmount - total) : 0
+
+  for (const item of stock.items) {
+    const quantity = toInt(item.quantity, 1)
+    const unitCost = toInt(item.unit_cost_cents ?? 0, 0)
+    const ref = `pdv_sale:${saleId}:item:${item.id}`
+    const { error: movError } = await auth.supabase
+      .from('product_stock_movements')
+      .insert({
+        organization_id: auth.organizationId,
+        product_id: item.product_id,
+        type: 'exit',
+        quantity,
+        unit_value_cents: unitCost,
+        total_value_cents: unitCost * quantity,
+        source: 'pdv_sale',
+        external_reference: ref,
+        created_by: auth.userId,
+      })
+    if (movError) return { ok: false as const, error: 'db_error' as const }
+  }
+
+  const paymentMethodIds = saleData.payments.map((p) => p.payment_method_id).filter(Boolean)
+  let contaByMethod = new Map<string, string>()
+  if (paymentMethodIds.length > 0) {
+    const { data: methods } = await auth.supabase
+      .from('payment_methods')
+      .select('id, conta_id')
+      .eq('organization_id', auth.organizationId)
+      .in('id', paymentMethodIds)
+    contaByMethod = new Map(
+      (methods ?? [])
+        .filter((m) => m.conta_id)
+        .map((m) => [String(m.id), String(m.conta_id)]),
+    )
+  }
+
+  for (const payment of saleData.payments) {
+    const contaId = payment.payment_method_id ? contaByMethod.get(String(payment.payment_method_id)) : null
+    const value = toInt(payment.amount_cents, 0)
+    if (!contaId || value <= 0) continue
+
+    const { error: finError } = await auth.supabase
+      .from('financial_transactions')
+      .insert({
+        organization_id: auth.organizationId,
+        conta_id: contaId,
+        amount_cents: value,
+        type: 'entrada',
+        description: `Venda PDV #${saleData.sale.sale_number ?? ''}`.trim(),
+        occurred_at: new Date().toISOString().slice(0, 10),
+      })
+    if (finError) return { ok: false as const, error: 'db_error' as const }
+  }
+
+  const { error: updError } = await auth.supabase
+    .from('pos_sales')
+    .update({
+      status: 'paid',
+      paid_amount_cents: paidAmount,
+      change_cents: change,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('organization_id', auth.organizationId)
+    .eq('id', saleId)
+
+  if (updError) return { ok: false as const, error: 'db_error' as const }
+  return { ok: true as const, sale: { ...saleData.sale, status: 'paid', paid_amount_cents: paidAmount, change_cents: change } }
+}

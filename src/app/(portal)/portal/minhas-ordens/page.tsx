@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
-import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
+import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import {
   ensurePortalOrganizationContext,
   getPortalOrganizationId,
@@ -16,7 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 
 export default async function MinhasOrdensPage() {
   const supabase = await createSupabaseServerClient()
-  const { user } = await getAuthUser()
+  const { user, role } = await getPortalAuth()
 
   if (!user) await redirectToPortalLogin()
 
@@ -26,7 +26,6 @@ export default async function MinhasOrdensPage() {
     .eq('id', user.id)
     .maybeSingle()
 
-  const role = appUser?.role || 'user'
   const normalizedRole = role === 'customer' ? 'user' : role
 
   const { customer, effectiveTaxId, source } = await resolvePortalCustomer(supabase, user.id)

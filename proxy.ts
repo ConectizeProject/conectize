@@ -5,6 +5,10 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { parseServiceProductSlug } from './src/lib/utils/service-product-slug'
 import { brands, services } from './src/lib/data/services'
 import { buildServiceProductSlug } from './src/lib/utils/service-product-slug'
+import {
+  PORTAL_SIMULATED_ROLE_COOKIE,
+  resolveEffectivePortalRole,
+} from './src/lib/auth/portal-role-simulation'
 
 const serviceSlugs = new Set(services.map(s => s.slug))
 const brandSlugs = new Set(Object.keys(brands))
@@ -40,7 +44,7 @@ function copyCookiesToResponse(
  * Valida sessão via getClaims (JWT nos cookies, sem chamada ao Auth server).
  * Proxy roda em Node.js (Next.js 16+); getClaims() valida localmente.
  */
-async function getUserRole(supabase: SupabaseClient) {
+async function getUserRole(supabase: SupabaseClient, request: NextRequest) {
   const { data: claimsData } = await supabase.auth.getClaims()
   const sub = claimsData?.claims?.sub
   if (!sub) return { user: null, role: null }
@@ -53,8 +57,10 @@ async function getUserRole(supabase: SupabaseClient) {
 
   // Não degrada para "user" quando a leitura de users falha/retorna vazio.
   // Isso evita redirecionamentos indevidos para /portal/minhas-ordens.
-  const role = appUser?.role ?? null
-  return { user: { id: sub }, role }
+  const realRole = appUser?.role ?? null
+  const simulatedRole = request.cookies.get(PORTAL_SIMULATED_ROLE_COOKIE)?.value ?? null
+  const role = realRole ? resolveEffectivePortalRole(realRole, simulatedRole) : null
+  return { user: { id: sub }, role, realRole }
 }
 
 export async function proxy(request: NextRequest) {
@@ -114,7 +120,7 @@ export async function proxy(request: NextRequest) {
       }
     })
 
-    const { user, role } = await getUserRole(supabase)
+    const { user, role } = await getUserRole(supabase, request)
 
     if (!user) {
       if (isPublicPortalPath) return response

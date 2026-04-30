@@ -34,6 +34,10 @@ export default async function RevendaEditDevicePage ({ params }: Props) {
 
   const withCosts = { ...device, costs: costs ?? [] }
   const initialDevice = await attachResaleDeviceDisplayImage(supabase, withCosts)
+  const isAdmin = normalizedRole === 'admin' || normalizedRole === 'platform_admin'
+  const initialDeviceForRole = isAdmin
+    ? initialDevice
+    : { ...initialDevice, purchase_value_cents: null }
 
   const backHref =
     initialDevice.stock_type === 'lacrado' ? revendaPath.novos : revendaPath.seminovos
@@ -42,9 +46,10 @@ export default async function RevendaEditDevicePage ({ params }: Props) {
     <SeminovosFormClient
       deviceId={id}
       isCreate={false}
-      initialDevice={initialDevice}
+      initialDevice={initialDeviceForRole}
       initialDisplayImageUrl={initialDevice.display_image_url}
       backHref={backHref}
+      role={normalizedRole}
     />
   )
 }

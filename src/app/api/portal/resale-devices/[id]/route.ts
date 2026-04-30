@@ -5,6 +5,11 @@ import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 import { attachResaleDeviceDisplayImage } from '@/lib/seminovos/resale-device-display-image'
 import { normalizeSalePaymentMethodsForPersistence } from '@/lib/resale/sale-payment-methods'
 import { stripSaleDerivedCosts } from '@/lib/resale/resale-sale-costs'
+import {
+  insertStockExitsForResaleAddons,
+  parseAddonInventoryLines,
+  validateAddonStockAvailable,
+} from '@/lib/resale/resale-addon-stock'
 
 type PortalSupabase = Awaited<ReturnType<typeof createSupabaseServerClient>>
 
@@ -51,6 +56,15 @@ const DEVICE_SELECT = `
 
 function cleanText (value: unknown): string {
   return String(value ?? '').trim()
+}
+
+function hasPurchaseValueMutation (body: Record<string, unknown>): boolean {
+  return body.purchase_value_cents !== undefined || body.purchase_value !== undefined
+}
+
+function redactPurchaseValue (row: Record<string, unknown>, canView: boolean): Record<string, unknown> {
+  if (canView) return row
+  return { ...row, purchase_value_cents: null }
 }
 
 function toCents (value: unknown, alreadyCents = false): number | null {
@@ -274,7 +288,7 @@ export async function GET (
 
   return NextResponse.json({
     ok: true,
-    device: loaded.device,
+    device: redactPurchaseValue(loaded.device, auth.isAdmin),
   })
 }
 
@@ -298,6 +312,9 @@ export async function PATCH (
     return NextResponse.json({ ok: false, error: 'invalid_payload' }, { status: 400 })
   }
   const b = body as Record<string, unknown>
+  if (!auth.isAdmin && hasPurchaseValueMutation(b)) {
+    return NextResponse.json({ ok: false, error: 'purchase_value_forbidden' }, { status: 403 })
+  }
 
   const { data: existingRow, error: fetchErr } = await auth.supabase
     .from('resale_devices')
@@ -313,6 +330,27 @@ export async function PATCH (
   }
 
   const existing = existingRow as Record<string, unknown>
+  const wasSold = Boolean(existing.sold)
+  const addonStockLines = parseAddonInventoryLines(b)
+  if (!wasSold && b.sold === true && addonStockLines.length > 0) {
+    const stockCheck = await validateAddonStockAvailable(auth.supabase, addonStockLines)
+    if (stockCheck.ok === false) {
+      if (stockCheck.reason === 'db_error') {
+        return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+      }
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'stock_unavailable',
+          productId: stockCheck.productId,
+          requested: stockCheck.requested,
+          available: stockCheck.available,
+        },
+        { status: 400 },
+      )
+    }
+  }
+
   const row = buildPatchRow(b, existing)
 
   const RESALE_PHOTO_BUCKET = 'resale-device-photos'
@@ -340,7 +378,7 @@ export async function PATCH (
     if (!loaded.device) {
       return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
     }
-    return NextResponse.json({ ok: true, device: loaded.device })
+    return NextResponse.json({ ok: true, device: redactPurchaseValue(loaded.device, auth.isAdmin) })
   }
 
   if (
@@ -407,11 +445,24 @@ export async function PATCH (
     }
   }
 
+  if (!wasSold && b.sold === true && addonStockLines.length > 0) {
+    const ins = await insertStockExitsForResaleAddons({
+      supabase: auth.supabase,
+      organizationId: auth.organizationId,
+      userId: auth.userId,
+      deviceId,
+      lines: addonStockLines,
+    })
+    if (!ins.ok) {
+      return NextResponse.json({ ok: false, error: 'stock_movement_failed' }, { status: 500 })
+    }
+  }
+
   const loaded = await loadDeviceWithCosts(auth.supabase, deviceId)
   if (!loaded.device) {
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
   }
-  return NextResponse.json({ ok: true, device: loaded.device })
+  return NextResponse.json({ ok: true, device: redactPurchaseValue(loaded.device, auth.isAdmin) })
 }
 
 export async function DELETE (

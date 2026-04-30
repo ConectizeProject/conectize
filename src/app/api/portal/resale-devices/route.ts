@@ -5,6 +5,15 @@ function cleanText(value: unknown): string {
   return String(value ?? '').trim()
 }
 
+function hasPurchaseValueMutation(body: Record<string, unknown>): boolean {
+  return body.purchase_value_cents !== undefined || body.purchase_value !== undefined
+}
+
+function redactPurchaseValue(row: Record<string, unknown>, canView: boolean): Record<string, unknown> {
+  if (canView) return row
+  return { ...row, purchase_value_cents: null }
+}
+
 function toCents(value: unknown, alreadyCents = false): number | null {
   if (value === null || value === undefined || value === '') return null
   if (typeof value === 'number') {
@@ -145,10 +154,10 @@ export async function GET(request: Request) {
     }
   }
 
-  const list = (devices || []).map((d: Record<string, unknown>) => ({
+  const list = (devices || []).map((d: Record<string, unknown>) => redactPurchaseValue({
     ...d,
     costs: costsMap[(d.id as string)] || [],
-  }))
+  }, auth.isAdmin))
 
   return NextResponse.json({ ok: true, devices: list })
 }
@@ -162,6 +171,9 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => null)
   if (!body || typeof body !== 'object') {
     return NextResponse.json({ ok: false, error: 'invalid_payload' }, { status: 400 })
+  }
+  if (!auth.isAdmin && hasPurchaseValueMutation(body as Record<string, unknown>)) {
+    return NextResponse.json({ ok: false, error: 'purchase_value_forbidden' }, { status: 403 })
   }
 
   const device_model_id = body.device_model_id || null

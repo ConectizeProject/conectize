@@ -22,7 +22,7 @@ export default async function PortalLayout({
 }: {
   children: React.ReactNode
 }) {
-  const [{ user, role, fullName }, supabasePlatformStatus] = await Promise.all([
+  const [{ user, role, realRole, simulatedRole, fullName }, supabasePlatformStatus] = await Promise.all([
     getPortalAuth(),
     getSupabasePlatformStatus(),
   ])
@@ -56,7 +56,7 @@ export default async function PortalLayout({
     | Array<{ id: string; slug: string; name: string | null; is_host: boolean }>
     | null
 
-  if (role === 'platform_admin') {
+  if (realRole === 'platform_admin') {
     const { data: orgs } = await supabase
       .from('organizations')
       .select('id, slug, name, is_host')
@@ -68,6 +68,8 @@ export default async function PortalLayout({
     <RouteProviders>
       <PortalShell
         role={role}
+        realRole={realRole}
+        simulatedRole={simulatedRole}
         userEmail={user.email || ''}
         userName={fullName}
         organizationName={organizationDisplayName}

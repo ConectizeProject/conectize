@@ -5,6 +5,10 @@ function cleanText(value: unknown): string {
   return String(value ?? '').trim()
 }
 
+function hasPurchaseValueMutation(body: Record<string, unknown>): boolean {
+  return body.purchase_value_cents !== undefined || body.purchase_value !== undefined
+}
+
 function toCents(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null
   if (typeof value === 'number') return Math.round(value)
@@ -78,6 +82,11 @@ export async function PATCH(request: Request) {
     const id = item?.id
     if (!id || typeof id !== 'string') {
       results.push({ id: String(id ?? ''), ok: false, error: 'invalid_id' })
+      continue
+    }
+
+    if (!auth.isAdmin && hasPurchaseValueMutation(item as Record<string, unknown>)) {
+      results.push({ id, ok: false, error: 'purchase_value_forbidden' })
       continue
     }
 

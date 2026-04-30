@@ -32,6 +32,7 @@ import { cn } from '@/lib/utils'
 import { SupabaseStatusBanner } from '@/components/SupabaseStatusBanner'
 import type { SupabasePlatformStatusBanner } from '@/lib/supabase/platform-status'
 import { PlatformOrgSwitcher } from './PlatformOrgSwitcher'
+import { PortalRoleSwitcher } from './PortalRoleSwitcher'
 import { PortalBrandingProvider } from '@/lib/portal/portal-branding-context'
 
 type NavItem = { href: string; label: string; icon: React.ComponentType<{ className?: string }> }
@@ -71,6 +72,8 @@ function PortalSidebarNav ({ items, pathname }: { items: NavItem[]; pathname: st
 type PortalShellProps = {
 	children: React.ReactNode
 	role: string
+	realRole?: string
+	simulatedRole?: string | null
 	userEmail: string
 	userName: string
 	/** Nome da organização ativa (`organizations.name`). */
@@ -107,6 +110,7 @@ export function PortalShell(props: PortalShellProps) {
 	}
 
 	const normalizedRole = props.role === 'customer' ? 'user' : props.role
+	const isPlatformMaster = props.realRole === 'platform_admin' || props.role === 'platform_admin'
 	const isAdmin = props.role === 'admin' || props.role === 'platform_admin'
 	const isBasicUser = normalizedRole === 'user' || !normalizedRole
 	const isRetailer = normalizedRole === 'retailer'
@@ -134,6 +138,7 @@ export function PortalShell(props: PortalShellProps) {
 					? [{ href: '/portal/whatsapp', label: 'WhatsApp', icon: MessageCircle }]
 					: []),
 				{ href: '/portal/produtos', label: 'Produtos e serviços', icon: Package },
+				{ href: '/portal/pdv', label: 'PDV', icon: DollarSign },
 				{ href: '/portal/clientes', label: 'Clientes', icon: Users },
 				{ href: '/portal/revendaaparelhos', label: 'Aparelhos à venda', icon: Smartphone },
 			]
@@ -144,6 +149,7 @@ export function PortalShell(props: PortalShellProps) {
 					? [{ href: '/portal/whatsapp', label: 'WhatsApp', icon: MessageCircle }]
 					: []),
 				{ href: '/portal/produtos', label: 'Produtos e serviços', icon: Package },
+				{ href: '/portal/pdv', label: 'PDV', icon: DollarSign },
 				{ href: '/portal/clientes', label: 'Clientes', icon: Users },
 				{ href: '/portal/admin/usuarios', label: 'Usuários', icon: UserCheck },
 				{ href: '/portal/hub', label: 'HUB', icon: Plug2 },
@@ -195,7 +201,13 @@ export function PortalShell(props: PortalShellProps) {
 					</div>
 
 					<div className="flex items-center gap-3 min-w-0">
-						{props.role === 'platform_admin' && props.platformOrganizations?.length ? (
+						{isPlatformMaster ? (
+							<PortalRoleSwitcher
+								role={props.realRole || props.role}
+								simulatedRole={props.simulatedRole ?? null}
+							/>
+						) : null}
+						{isPlatformMaster && props.platformOrganizations?.length ? (
 							<PlatformOrgSwitcher
 								organizations={props.platformOrganizations}
 								activeOrganizationId={props.activeOrganizationId ?? null}

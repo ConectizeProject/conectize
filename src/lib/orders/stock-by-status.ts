@@ -125,22 +125,22 @@ export async function applyOrderStatusStockTransition (input: ApplyOrderStatusSt
         .select('id')
         .eq('product_id', line.productId)
         .eq('type', 'exit')
-        .eq('source', 'system')
-        .ilike('external_reference', `os:${input.orderId}:%`)
+        .eq('source', 'service_order')
+        .ilike('external_reference', `service_order:${input.orderId}:%`)
         .limit(1)
         .maybeSingle()
       if (existingExit?.id) continue
     }
 
     const unit = Math.max(0, Number(line.unitCostCents) || 0)
-    const ref = `os:${input.orderId}:status:${previousStatus}->${nextStatus}:${line.productId}`
+    const ref = `service_order:${input.orderId}:item:${line.productId}`
     const payload: Record<string, unknown> = {
       product_id: line.productId,
       type,
       quantity,
       unit_value_cents: unit,
       total_value_cents: quantity * unit,
-      source: 'system',
+      source: 'service_order',
       external_reference: ref,
     }
     if (input.actorUserId) payload.created_by = input.actorUserId

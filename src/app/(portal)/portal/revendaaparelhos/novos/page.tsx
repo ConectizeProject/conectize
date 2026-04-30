@@ -74,10 +74,14 @@ async function RevendaNovosInner ({
   const devices = await Promise.all(
     devicesRaw.map((d) => attachResaleDeviceDisplayImage(supabase, d)),
   )
+  const isAdmin = normalizedRole === 'admin' || normalizedRole === 'platform_admin'
+  const devicesForRole = isAdmin
+    ? devices
+    : devices.map((d) => ({ ...d, purchase_value_cents: null }))
 
   return (
     <SeminovosListClient
-      initialDevices={devices}
+      initialDevices={devicesForRole}
       initialStats={stats}
       filterInitialValues={filters}
       distinctDeviceNames={distinctDeviceNames}
