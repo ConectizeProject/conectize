@@ -67,6 +67,7 @@ import {
 	grossProfitBeforeCommissionCents,
 	paymentFeeCentsForSaleEntries,
 } from "@/lib/resale/resale-commission";
+import { computeSimulatePaymentResult } from "@/lib/resale/simulate-single-payment";
 import {
 	buildCommissionCostDescription,
 	isCommissionCostDescription,
@@ -1014,64 +1015,11 @@ export function SeminovosListClient({
 		if (receiveCents == null || receiveCents <= 0) return null;
 		const pm = paymentMethods.find((p) => p.id === simulatePaymentMethodId);
 		if (!pm) return null;
-
-		if (pm.type === "dinheiro") {
-			return {
-				receiveCents,
-				feePercent: 0,
-				feeCents: 0,
-				chargeCents: receiveCents,
-			};
-		}
-
-		const feePercent =
-			pm.type === "credito"
-				? (() => {
-						const fees = Array.isArray(pm.credit_installment_fees)
-							? pm.credit_installment_fees
-							: [];
-						const sorted = [...fees].sort(
-							(a, b) => a.installments - b.installments,
-						);
-						const exact = sorted.find(
-							(f) => f.installments === simulateInstallments,
-						);
-						const match =
-							exact ??
-							sorted
-								.filter((f) => f.installments <= simulateInstallments)
-								.pop() ??
-							sorted[0];
-						return match ? match.fee_percent : 0;
-					})()
-				: (pm.fee_percent ?? 0);
-
-		if (feePercent >= 100)
-			return {
-				receiveCents,
-				feePercent,
-				feeCents: 0,
-				chargeCents: receiveCents,
-			};
-
-		const chargeCents = Math.round(receiveCents / (1 - feePercent / 100));
-		const feeCents = chargeCents - receiveCents;
-
-		if (pm.type === "credito") {
-			const valuePerInstallmentCents = Math.round(
-				chargeCents / simulateInstallments,
-			);
-			return {
-				receiveCents,
-				feePercent,
-				feeCents,
-				chargeCents,
-				installments: simulateInstallments,
-				valuePerInstallmentCents,
-			};
-		}
-
-		return { receiveCents, feePercent, feeCents, chargeCents };
+		return computeSimulatePaymentResult(
+			receiveCents,
+			pm,
+			simulateInstallments,
+		);
 	}
 
 	function openWhatsAppModal() {
