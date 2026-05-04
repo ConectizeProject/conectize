@@ -22,7 +22,7 @@ export default async function PortalLayout({
 }: {
   children: React.ReactNode
 }) {
-  const [{ user, role, fullName }, supabasePlatformStatus] = await Promise.all([
+  const [{ user, role, realRole, simulatedRole, fullName }, supabasePlatformStatus] = await Promise.all([
     getPortalAuth(),
     getSupabasePlatformStatus(),
   ])
@@ -33,6 +33,7 @@ export default async function PortalLayout({
   const supabase = await createSupabaseServerClient()
   const activeOrganizationId = await getPortalOrganizationId(supabase, user.id)
   let organizationDisplayName: string | null = null
+  let hasWhatsappIntegration = false
   if (activeOrganizationId) {
     const { data: orgRow } = await supabase
       .from('organizations')
@@ -40,13 +41,22 @@ export default async function PortalLayout({
       .eq('id', activeOrganizationId)
       .maybeSingle()
     organizationDisplayName = orgRow?.name ? String(orgRow.name).trim() || null : null
+
+    const { data: whatsappConn } = await supabase
+      .from('hub_connections')
+      .select('id')
+      .eq('organization_id', activeOrganizationId)
+      .eq('platform_id', 'whatsapp_business')
+      .limit(1)
+      .maybeSingle()
+    hasWhatsappIntegration = Boolean(whatsappConn?.id)
   }
 
   let platformOrganizations = null as
     | Array<{ id: string; slug: string; name: string | null; is_host: boolean }>
     | null
 
-  if (role === 'platform_admin') {
+  if (realRole === 'platform_admin') {
     const { data: orgs } = await supabase
       .from('organizations')
       .select('id, slug, name, is_host')
@@ -58,9 +68,12 @@ export default async function PortalLayout({
     <RouteProviders>
       <PortalShell
         role={role}
+        realRole={realRole}
+        simulatedRole={simulatedRole}
         userEmail={user.email || ''}
         userName={fullName}
         organizationName={organizationDisplayName}
+        hasWhatsappIntegration={hasWhatsappIntegration}
         supabasePlatformStatus={supabasePlatformStatus}
         platformOrganizations={platformOrganizations}
         activeOrganizationId={activeOrganizationId}

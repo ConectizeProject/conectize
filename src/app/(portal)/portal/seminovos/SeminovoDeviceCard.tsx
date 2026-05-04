@@ -47,6 +47,7 @@ function centsToReais(cents: number | null | undefined): string {
 type SeminovoDeviceCardProps = {
 	device: SeminovoDeviceCardDevice
 	variant: 'available' | 'sold'
+	canViewPurchaseValue: boolean
 	showPurchaseValue: boolean
 	showWholesaleValue: boolean
 	renderMenu: (device: SeminovoDeviceCardDevice) => React.ReactNode
@@ -55,6 +56,7 @@ type SeminovoDeviceCardProps = {
 export function SeminovoDeviceCard({
 	device: d,
 	variant,
+	canViewPurchaseValue,
 	showPurchaseValue,
 	showWholesaleValue,
 	renderMenu,
@@ -127,12 +129,14 @@ export function SeminovoDeviceCard({
 							</div>
 						) : null}
 						<div className="grid grid-cols-2 gap-x-4 gap-y-1 pt-1 border-t border-border/60">
-							<div>
-								<span className="text-muted-foreground text-xs">Compra</span>
-								<p className="font-medium">
-									{showPurchaseValue && d.purchase_value_cents != null ? `R$ ${centsToReais(d.purchase_value_cents)}` : '—'}
-								</p>
-							</div>
+							{canViewPurchaseValue ? (
+								<div>
+									<span className="text-muted-foreground text-xs">Compra</span>
+									<p className="font-medium">
+										{showPurchaseValue && d.purchase_value_cents != null ? `R$ ${centsToReais(d.purchase_value_cents)}` : '—'}
+									</p>
+								</div>
+							) : null}
 							<div>
 								<span className="text-muted-foreground text-xs">Custos</span>
 								<p className="font-medium">{totalCostsCents > 0 ? `R$ ${centsToReais(totalCostsCents)}` : '—'}</p>

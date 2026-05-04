@@ -5,6 +5,11 @@ import {
   ensurePortalOrganizationContext,
   getPortalOrganizationId,
 } from '@/lib/organizations/portal-organization-context'
+import {
+  PORTAL_SIMULATED_ROLE_COOKIE,
+  resolveEffectivePortalRole,
+} from '@/lib/auth/portal-role-simulation'
+import { cookies } from 'next/headers'
 
 export type PortalStaffRole = 'staff' | 'admin'
 
@@ -74,12 +79,16 @@ export async function requireStaffOrAdmin (): Promise<PortalAuthFailure | Portal
     .maybeSingle()
 
   const rawRole = String(appUser?.role || '')
-  const normalized = normalizePortalRole(appUser?.role)
-  const isPlatformAdmin = rawRole === 'platform_admin'
+  const cookieStore = await cookies()
+  const simulatedRole =
+    cookieStore.get(PORTAL_SIMULATED_ROLE_COOKIE)?.value || null
+  const effectiveRole = resolveEffectivePortalRole(rawRole, simulatedRole)
+  const normalized = normalizePortalRole(effectiveRole)
+  const isPlatformAdmin = normalized === 'platform_admin'
   if (
     normalized !== 'staff'
     && normalized !== 'admin'
-    && !isPlatformAdmin
+    && normalized !== 'platform_admin'
   ) {
     return { ok: false as const, status: 403, error: 'forbidden' }
   }
@@ -94,7 +103,7 @@ export async function requireStaffOrAdmin (): Promise<PortalAuthFailure | Portal
     String(appUser?.full_name || appUser?.email || '').trim() || '(Sem nome)'
 
   const roleForApi: PortalStaffRole =
-    isPlatformAdmin || normalized === 'admin' ? 'admin' : 'staff'
+    normalized === 'admin' || normalized === 'platform_admin' ? 'admin' : 'staff'
 
   return {
     ok: true as const,
@@ -102,7 +111,7 @@ export async function requireStaffOrAdmin (): Promise<PortalAuthFailure | Portal
     role: roleForApi,
     userId: user.id,
     authorDisplayName,
-    isAdmin: normalized === 'admin' || isPlatformAdmin,
+    isAdmin: normalized === 'admin' || normalized === 'platform_admin',
     organizationId,
     isPlatformAdmin,
   }
@@ -124,7 +133,12 @@ export async function requireRetailer (): Promise<PortalAuthFailure | PortalAuth
     .eq('id', user.id)
     .maybeSingle()
 
-  const normalized = normalizePortalRole(appUser?.role)
+  const rawRole = String(appUser?.role || '')
+  const cookieStore = await cookies()
+  const simulatedRole =
+    cookieStore.get(PORTAL_SIMULATED_ROLE_COOKIE)?.value || null
+  const effectiveRole = resolveEffectivePortalRole(rawRole, simulatedRole)
+  const normalized = normalizePortalRole(effectiveRole)
   if (normalized !== 'retailer') {
     return { ok: false as const, status: 403, error: 'forbidden' }
   }
@@ -151,7 +165,12 @@ export async function requireStaffAdminOrRetailer (): Promise<
     .eq('id', user.id)
     .maybeSingle()
 
-  const normalized = normalizePortalRole(appUser?.role)
+  const rawRole = String(appUser?.role || '')
+  const cookieStore = await cookies()
+  const simulatedRole =
+    cookieStore.get(PORTAL_SIMULATED_ROLE_COOKIE)?.value || null
+  const effectiveRole = resolveEffectivePortalRole(rawRole, simulatedRole)
+  const normalized = normalizePortalRole(effectiveRole)
   if (normalized === 'retailer') {
     return {
       ok: true as const,
@@ -161,12 +180,11 @@ export async function requireStaffAdminOrRetailer (): Promise<
     }
   }
 
-  const rawRole = String(appUser?.role || '')
-  const isPlatformAdmin = rawRole === 'platform_admin'
+  const isPlatformAdmin = normalized === 'platform_admin'
   if (
     normalized !== 'staff'
     && normalized !== 'admin'
-    && !isPlatformAdmin
+    && normalized !== 'platform_admin'
   ) {
     return { ok: false as const, status: 403, error: 'forbidden' }
   }
@@ -181,7 +199,7 @@ export async function requireStaffAdminOrRetailer (): Promise<
     String(appUser?.full_name || appUser?.email || '').trim() || '(Sem nome)'
 
   const roleForApi: PortalStaffRole =
-    isPlatformAdmin || normalized === 'admin' ? 'admin' : 'staff'
+    normalized === 'admin' || normalized === 'platform_admin' ? 'admin' : 'staff'
 
   return {
     ok: true as const,
@@ -190,7 +208,7 @@ export async function requireStaffAdminOrRetailer (): Promise<
     role: roleForApi,
     userId: user.id,
     authorDisplayName,
-    isAdmin: normalized === 'admin' || isPlatformAdmin,
+    isAdmin: normalized === 'admin' || normalized === 'platform_admin',
     organizationId,
     isPlatformAdmin,
   }
@@ -212,7 +230,11 @@ export async function requireAdmin (): Promise<PortalAuthFailure | PortalAuthAdm
     .eq('id', user.id)
     .maybeSingle()
 
-  const role = String(appUser?.role || '')
+  const rawRole = String(appUser?.role || '')
+  const cookieStore = await cookies()
+  const simulatedRole =
+    cookieStore.get(PORTAL_SIMULATED_ROLE_COOKIE)?.value || null
+  const role = resolveEffectivePortalRole(rawRole, simulatedRole)
   if (role !== 'admin' && role !== 'platform_admin') {
     return { ok: false as const, status: 403, error: 'forbidden' }
   }

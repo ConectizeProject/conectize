@@ -21,6 +21,7 @@ export default async function RevendaNovaPage () {
       isCreate
       defaultStockType="seminovo"
       backHref={revendaPath.seminovos}
+      role={normalizedRole}
     />
   )
 }

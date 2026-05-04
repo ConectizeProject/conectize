@@ -21,6 +21,7 @@ export default async function RevendaNovaNovoPage () {
       isCreate
       defaultStockType="lacrado"
       backHref={revendaPath.novos}
+      role={normalizedRole}
     />
   )
 }

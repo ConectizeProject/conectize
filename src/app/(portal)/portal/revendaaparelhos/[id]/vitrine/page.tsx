@@ -22,6 +22,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { VitrinePagamentoSimulator } from './VitrinePagamentoSimulator'
 
 type Props = {
   params: Promise<{ id: string }>
@@ -36,6 +37,7 @@ export default async function RevendaVitrinePage ({ params }: Props) {
   const canAccessVitrine =
     normalizedRole === 'staff' ||
     normalizedRole === 'admin' ||
+    normalizedRole === 'platform_admin' ||
     normalizedRole === 'retailer'
   if (!canAccessVitrine) redirect('/portal')
 
@@ -49,7 +51,7 @@ export default async function RevendaVitrinePage ({ params }: Props) {
     supabase
       .from('resale_devices')
       .select(
-        'id, device_name, model, color, storage_gb, battery, condition, sale_value_cents, stock_type, sold, image_url, image_storage_path, image_gallery_paths',
+        'id, device_name, model, color, storage_gb, battery, condition, sale_value_cents, wholesale_value_cents, stock_type, sold, image_url, image_storage_path, image_gallery_paths',
       )
       .eq('id', id)
       .maybeSingle(),
@@ -59,15 +61,17 @@ export default async function RevendaVitrinePage ({ params }: Props) {
   if (deviceError || !device) notFound()
 
   const saleCents = device.sale_value_cents ?? null
-  const installmentRows =
-    saleCents != null && saleCents > 0
-      ? buildInstallmentTableRows(saleCents, paymentMethods, 12)
-      : []
+  const wholesaleCents = device.wholesale_value_cents ?? null
 
   const row12 =
     !device.sold && saleCents != null && saleCents > 0
       ? getInstallmentRowForCount(saleCents, paymentMethods, 12)
       : null
+
+  const installmentTableRows =
+    !device.sold && saleCents != null && saleCents > 0
+      ? buildInstallmentTableRows(saleCents, paymentMethods, 12)
+      : []
 
   const stockLabel = device.stock_type === 'lacrado' ? 'Novo' : 'Seminovo'
   const title = (device.device_name || device.model || 'Aparelho').trim() || 'Aparelho'
@@ -84,6 +88,13 @@ export default async function RevendaVitrinePage ({ params }: Props) {
         <Button variant="ghost" size="sm" className="text-muted-foreground" asChild>
           <Link href={revendaPath.listagem}>← Listagem</Link>
         </Button>
+        {!device.sold ? (
+          <VitrinePagamentoSimulator
+            paymentMethods={paymentMethods}
+            saleValueCents={saleCents}
+            wholesaleValueCents={wholesaleCents}
+          />
+        ) : null}
         {!isRetailer ? (
           <Button variant="outline" size="sm" asChild>
             <Link href={revendaPath.device(id)}>Editar cadastro</Link>
@@ -178,14 +189,14 @@ export default async function RevendaVitrinePage ({ params }: Props) {
         </CardContent>
       </Card>
 
-      {!device.sold && saleCents != null && saleCents > 0 ? (
+      {!device.sold && installmentTableRows.length > 0 ? (
         <Card>
           <CardHeader>
             <CardTitle>Cartão de crédito</CardTitle>
             <CardDescription>
-              Simulação de 1× a 12× com base nas formas de pagamento em cartão cadastradas. O valor à vista
-              acima é a referência da loja; no cartão, os valores consideram os encargos de cada opção de
-              parcelamento.
+              Simulação de 1× a 12× com base nas formas de pagamento em cartão cadastradas. O valor à
+              vista acima é a referência da loja; no cartão, os valores consideram os encargos de cada
+              opção de parcelamento.
             </CardDescription>
           </CardHeader>
           <CardContent className="overflow-x-auto">
@@ -199,14 +210,10 @@ export default async function RevendaVitrinePage ({ params }: Props) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {installmentRows.map((row) => (
+                {installmentTableRows.map((row) => (
                   <TableRow key={row.installments}>
-                    <TableCell className="font-medium">
-                      {row.installments}×
-                    </TableCell>
-                    <TableCell>
-                      {row.feePercent > 0 ? `${row.feePercent}%` : '—'}
-                    </TableCell>
+                    <TableCell className="font-medium">{row.installments}×</TableCell>
+                    <TableCell>{row.feePercent > 0 ? `${row.feePercent}%` : '—'}</TableCell>
                     <TableCell>R$ {maskedFromCents(row.totalChargeCents)}</TableCell>
                     <TableCell className="text-right">
                       R$ {maskedFromCents(row.installmentValueCents)}

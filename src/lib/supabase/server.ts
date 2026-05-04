@@ -2,6 +2,11 @@ import { cache } from 'react'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { getSupabaseEnv } from './env'
+import {
+  PORTAL_SIMULATED_ROLE_COOKIE,
+  isPortalSimulatableRole,
+  resolveEffectivePortalRole,
+} from '@/lib/auth/portal-role-simulation'
 
 /** Claims do JWT Supabase (sub = user id) */
 type AuthClaims = { sub?: string; email?: string }
@@ -56,7 +61,15 @@ export const getPortalAuth = cache(async () => {
   try {
     const supabase = await createSupabaseServerClient()
     const { user } = await getAuthUser()
-    if (!user) return { user: null, role: 'user' as const, fullName: '' }
+    if (!user) {
+      return {
+        user: null,
+        role: 'user' as const,
+        realRole: 'user' as const,
+        simulatedRole: null as string | null,
+        fullName: '',
+      }
+    }
     const { ensurePortalOrganizationContext } = await import(
       '@/lib/organizations/portal-organization-context'
     )
@@ -69,15 +82,28 @@ export const getPortalAuth = cache(async () => {
     if (error && process.env.NODE_ENV === 'development') {
       console.warn('[supabase] users lookup:', error.message)
     }
-    const role = appUser?.role || 'user'
+    const realRole = appUser?.role || 'user'
+    const cookieStore = await cookies()
+    const simulatedRoleRaw =
+      cookieStore.get(PORTAL_SIMULATED_ROLE_COOKIE)?.value || null
+    const simulatedRole = isPortalSimulatableRole(simulatedRoleRaw)
+      ? simulatedRoleRaw
+      : null
+    const role = resolveEffectivePortalRole(realRole, simulatedRole)
     const fullName = String(appUser?.full_name || '').trim()
-    return { user, role, fullName }
+    return { user, role, realRole, simulatedRole, fullName }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     if (process.env.NODE_ENV === 'development') {
       console.warn('[portal] getPortalAuth:', msg)
     }
-    return { user: null, role: 'user' as const, fullName: '' }
+    return {
+      user: null,
+      role: 'user' as const,
+      realRole: 'user' as const,
+      simulatedRole: null as string | null,
+      fullName: '',
+    }
   }
 })
 

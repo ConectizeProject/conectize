@@ -13,12 +13,12 @@ import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { formatCentsBr } from '@/lib/utils/format-money'
 import { formatMoneyInput, maskedFromCents, moneyToCentsFromMasked } from '@/lib/utils/money'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { toast } from '@/hooks/use-toast'
@@ -37,8 +37,9 @@ import {
   buildSeminovoLabelHtml,
   type SeminovoActionDevice,
 } from '@/lib/seminovos/seminovos-device-actions'
-import { ArrowLeft, DollarSign, Eye, FileInput, Loader2, MoreHorizontal, Plus, Smartphone, Store, Tag, Trash2, Undo2, UserRound } from 'lucide-react'
+import { ArrowLeft, DollarSign, Eye, FileInput, Loader2, MoreHorizontal, Plus, Search, Smartphone, Store, Tag, Trash2, Undo2, UserRound } from 'lucide-react'
 import { ResaleDeviceTermsDialog } from './ResaleDeviceTermsDialog'
+import { ResaleSellAdminProfitCard } from './ResaleSellCommissionPanel'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import {
   buildCommissionCostDescription,
@@ -111,6 +112,23 @@ type TeamUser = { id: string; email: string | null; full_name: string | null; ro
 
 type SalePaymentEntry = { rowKey: string; payment_method_id: string; value_cents: number | null; installments: number }
 
+type SellAddonCatalogRow = {
+  id: string
+  name: string
+  sku: string | null
+  sale_price_cents: number | null
+  cost_price_cents: number | null
+  stock: number
+}
+
+type SellAddonLine = {
+  productId: string
+  name: string
+  quantity: number
+  unitSaleCents: number
+  unitCostCents: number
+}
+
 function makeSalePaymentRowKey (): string {
   return typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
@@ -172,6 +190,7 @@ type Props = {
   initialDisplayImageUrl?: string | null
   defaultStockType?: 'seminovo' | 'lacrado'
   backHref?: string
+  role?: string
 }
 
 export function SeminovosFormClient ({
@@ -181,8 +200,10 @@ export function SeminovosFormClient ({
   initialDisplayImageUrl = null,
   defaultStockType = 'seminovo',
   backHref = revendaPath.seminovos,
+  role = 'staff',
 }: Props) {
   const router = useRouter()
+  const isAdmin = role === 'admin' || role === 'platform_admin'
   const init = getInitialFromDevice(initialDevice)
   const hasInitial = Boolean(init)
   const isNewLacradoFlow = isCreate && defaultStockType === 'lacrado'
@@ -248,6 +269,12 @@ export function SeminovosFormClient ({
   const [sellBuyerName, setSellBuyerName] = useState('')
   const [sellBuyerCpf, setSellBuyerCpf] = useState('')
   const [sellSaleDetails, setSellSaleDetails] = useState('')
+  const [sellDeviceAmountMasked, setSellDeviceAmountMasked] = useState('')
+  const [sellAddonQuery, setSellAddonQuery] = useState('')
+  const [sellAddonBusy, setSellAddonBusy] = useState(false)
+  const [sellAddonResults, setSellAddonResults] = useState<SellAddonCatalogRow[]>([])
+  const [sellAddonItems, setSellAddonItems] = useState<SellAddonLine[]>([])
+  const sellAddonSearchCacheRef = useRef<Map<string, SellAddonCatalogRow[]>>(new Map())
   const [showTermsDialog, setShowTermsDialog] = useState(false)
   const [termsDevice, setTermsDevice] = useState<ResaleDevice | null>(null)
 
@@ -316,6 +343,54 @@ export function SeminovosFormClient ({
   useEffect(() => {
     loadPaymentMethods()
   }, [loadPaymentMethods])
+
+  useEffect(() => {
+    if (!showSellModal) {
+      setSellAddonResults([])
+      return
+    }
+    const q = sellAddonQuery.trim()
+    if (q.length < 2) {
+      setSellAddonResults([])
+      setSellAddonBusy(false)
+      return
+    }
+    const cached = sellAddonSearchCacheRef.current.get(q)
+    if (cached) {
+      setSellAddonResults(cached)
+      setSellAddonBusy(false)
+      return
+    }
+    let cancelled = false
+    const controller = new AbortController()
+    const t = window.setTimeout(() => {
+      void (async () => {
+        setSellAddonBusy(true)
+        try {
+          const res = await portalFetch(
+            `/api/portal/pdv/catalog?q=${encodeURIComponent(q)}`,
+            { signal: controller.signal },
+          )
+          const data = await res?.json().catch(() => null)
+          if (cancelled) return
+          if (data?.ok && Array.isArray(data.products)) {
+            const products = data.products as SellAddonCatalogRow[]
+            sellAddonSearchCacheRef.current.set(q, products)
+            setSellAddonResults(products)
+          } else {
+            setSellAddonResults([])
+          }
+        } finally {
+          if (!cancelled) setSellAddonBusy(false)
+        }
+      })()
+    }, 280)
+    return () => {
+      cancelled = true
+      controller.abort()
+      window.clearTimeout(t)
+    }
+  }, [showSellModal, sellAddonQuery])
 
   useEffect(() => {
     setPhotoPreviewUrl(initialDisplayImageUrl ?? null)
@@ -551,7 +626,7 @@ export function SeminovosFormClient ({
       return cents / 100
     }
 
-    const payload = {
+    const payload: Record<string, unknown> = {
       device_name: formDeviceName.trim() || null,
       model: formModel.trim() || null,
       color: formColor.trim() || null,
@@ -564,19 +639,9 @@ export function SeminovosFormClient ({
       imei: formImei.trim() || null,
       imei2: formImei2.trim() || null,
       serial: formSerial.trim() || null,
-      purchase_value: toReaisNum(formPurchaseValue) ?? null,
       wholesale_value: toReaisNum(formWholesaleValue) ?? null,
-      expected_profit_wholesale: toReaisNum(formExpectedProfitWholesale) ?? null,
       sale_value: toReaisNum(formSaleValue) ?? null,
-      expected_profit_sale: toReaisNum(formExpectedProfitSale) ?? null,
       sold_for: toReaisNum(formSoldFor) ?? null,
-      actual_profit: (() => {
-        const soldCents = moneyToCentsFromMasked(formSoldFor)
-        const purchaseCents = moneyToCentsFromMasked(formPurchaseValue) ?? 0
-        const costsCents = formCosts.reduce((acc, c) => acc + (c.value_cents ?? 0), 0)
-        if (soldCents === null) return null
-        return soldCents - purchaseCents - costsCents
-      })(),
       advertised: formAdvertised,
       tested: formTested,
       label: formLabel ? '1' : null,
@@ -585,6 +650,18 @@ export function SeminovosFormClient ({
       sale_date: formSaleDate.trim() || null,
       costs: costsPayload,
       stock_type: formStockType,
+    }
+    if (isAdmin) {
+      payload.purchase_value = toReaisNum(formPurchaseValue) ?? null
+      payload.expected_profit_wholesale = toReaisNum(formExpectedProfitWholesale) ?? null
+      payload.expected_profit_sale = toReaisNum(formExpectedProfitSale) ?? null
+      payload.actual_profit = (() => {
+        const soldCents = moneyToCentsFromMasked(formSoldFor)
+        const purchaseCents = moneyToCentsFromMasked(formPurchaseValue) ?? 0
+        const costsCents = formCosts.reduce((acc, c) => acc + (c.value_cents ?? 0), 0)
+        if (soldCents === null) return null
+        return soldCents - purchaseCents - costsCents
+      })()
     }
 
     setIsSaving(true)
@@ -650,11 +727,18 @@ export function SeminovosFormClient ({
     setSellBuyerName('')
     setSellBuyerCpf('')
     setSellSaleDetails('')
+    const varejo = moneyToCentsFromMasked(formSaleValue)
+    setSellDeviceAmountMasked(
+      varejo != null && varejo >= 0 ? maskedFromCents(varejo) : '',
+    )
+    setSellAddonQuery('')
+    setSellAddonResults([])
+    setSellAddonItems([])
     setSellCommissionEnabled(false)
     setSellCommissionUserId('')
-    setSellCommissionKind('percent')
+    setSellCommissionKind('fixed')
     setSellCommissionPercent('')
-    setSellCommissionFixed('')
+    setSellCommissionFixed(maskedFromCents(3000))
     loadTeamUsers()
     setShowSellModal(true)
   }
@@ -672,36 +756,97 @@ export function SeminovosFormClient ({
     return sum
   }
 
-  function previewCommissionCents (
-    totalSalesCents: number,
-    purchaseCents: number,
-    baseOperationalCents: number,
-    paymentFeeCents: number
-  ): number {
-    if (!sellCommissionEnabled || !sellCommissionUserId.trim()) return 0
-    if (sellCommissionKind === 'percent') {
-      const p = Number.parseFloat(sellCommissionPercent.replace(',', '.'))
-      const gross = grossProfitBeforeCommissionCents(
-        totalSalesCents,
-        purchaseCents,
-        baseOperationalCents,
-        paymentFeeCents
-      )
-      return commissionFromPercentOfGrossCents(gross, p)
-    }
-    return moneyToCentsFromMasked(sellCommissionFixed) ?? 0
+  function getSellAddonRevenueCents (): number {
+    return sellAddonItems.reduce(
+      (acc, l) => acc + l.quantity * l.unitSaleCents,
+      0,
+    )
+  }
+
+  function getSellAddonCostTotalCents (): number {
+    return sellAddonItems.reduce(
+      (acc, l) => acc + l.quantity * l.unitCostCents,
+      0,
+    )
+  }
+
+  function getSellDeviceSaleCents (): number | null {
+    return moneyToCentsFromMasked(sellDeviceAmountMasked)
+  }
+
+  function getSellTransactionTotalCents (): number | null {
+    const device = getSellDeviceSaleCents()
+    if (device === null || device < 0) return null
+    return device + getSellAddonRevenueCents()
+  }
+
+  function getSellNetFromPaymentsCents (): number | null {
+    const valid = sellPaymentMethods.filter((e) => e.payment_method_id?.trim())
+    const sum = getSellPaymentsTotalCents()
+    if (sum == null) return null
+    const fee = paymentFeeCentsForSaleEntries(valid, paymentMethods)
+    const net = sum - fee
+    if (net <= 0) return null
+    return net
+  }
+
+  function addSellAddonProduct (p: SellAddonCatalogRow) {
+    const unitSale = Number(p.sale_price_cents) || 0
+    const unitCost = Number(p.cost_price_cents) || 0
+    setSellAddonItems((prev) => {
+      const idx = prev.findIndex((x) => x.productId === p.id)
+      if (idx < 0) {
+        return [
+          ...prev,
+          {
+            productId: p.id,
+            name: p.name,
+            quantity: 1,
+            unitSaleCents: unitSale,
+            unitCostCents: unitCost,
+          },
+        ]
+      }
+      const next = [...prev]
+      next[idx] = { ...next[idx], quantity: next[idx].quantity + 1 }
+      return next
+    })
+    setSellAddonQuery('')
+    setSellAddonResults([])
+  }
+
+  function updateSellAddonQty (productId: string, quantity: number) {
+    const q = Math.max(1, Math.round(Number(quantity) || 1))
+    setSellAddonItems((prev) =>
+      prev.map((x) => (x.productId === productId ? { ...x, quantity: q } : x)),
+    )
+  }
+
+  function removeSellAddonLine (productId: string) {
+    setSellAddonItems((prev) => prev.filter((x) => x.productId !== productId))
+  }
+
+  function updateSellAddonUnitSaleMasked (productId: string, masked: string) {
+    const cents = moneyToCentsFromMasked(formatMoneyInput(masked))
+    setSellAddonItems((prev) =>
+      prev.map((x) =>
+        x.productId === productId
+          ? { ...x, unitSaleCents: cents === null ? 0 : Math.max(0, cents) }
+          : x,
+      ),
+    )
   }
 
   function percentCommissionHintFromForm (): { commissionCents: number; grossCents: number } | null {
-    const total = getSellPaymentsTotalCents()
+    const total = getSellPaymentsTotalCents() ?? getSellTransactionTotalCents()
     if (total == null || sellCommissionKind !== 'percent') return null
     const p = Number.parseFloat(sellCommissionPercent.replace(',', '.'))
     if (!Number.isFinite(p) || p <= 0) return null
     const purchaseCents = moneyToCentsFromMasked(formPurchaseValue) ?? 0
     const baseOperationalCents = formCosts.reduce(
       (acc, c) => acc + (isSaleDerivedCostDescription(c.description) ? 0 : (c.value_cents ?? 0)),
-      0
-    )
+      0,
+    ) + getSellAddonCostTotalCents()
     const valid = sellPaymentMethods.filter((e) => e.payment_method_id?.trim())
     const fee = paymentFeeCentsForSaleEntries(valid, paymentMethods)
     const gross = grossProfitBeforeCommissionCents(total, purchaseCents, baseOperationalCents, fee)
@@ -758,6 +903,15 @@ export function SeminovosFormClient ({
         setSellBuyerName(d.buyer_name ?? '')
         setSellBuyerCpf(formatCpfCnpj(d.buyer_cpf ?? ''))
         setSellSaleDetails(d.sale_details ?? (hasTermData ? (d.info ?? '') : ''))
+        setSellDeviceAmountMasked(
+          d.sold_for_cents != null
+            ? maskedFromCents(d.sold_for_cents)
+            : d.sale_value_cents != null
+              ? maskedFromCents(d.sale_value_cents)
+              : '',
+        )
+        setSellAddonQuery('')
+        setSellAddonItems([])
         const commLine = (d.costs || []).find((c) => isCommissionCostDescription(c.description))
         const commUserId = d.sale_commission_user_id ?? ''
         if (commLine && commUserId) {
@@ -769,9 +923,9 @@ export function SeminovosFormClient ({
         } else {
           setSellCommissionEnabled(false)
           setSellCommissionUserId('')
-          setSellCommissionKind('percent')
+          setSellCommissionKind('fixed')
           setSellCommissionPercent('')
-          setSellCommissionFixed('')
+          setSellCommissionFixed(maskedFromCents(3000))
         }
         loadPaymentMethods()
         loadTeamUsers()
@@ -784,11 +938,32 @@ export function SeminovosFormClient ({
 
   async function handleConfirmSell() {
     if (!deviceId || isSavingSell) return
-    const valueCents = getSellPaymentsTotalCents()
-    if (valueCents === null) {
+    const transactionTotal = getSellTransactionTotalCents()
+    if (transactionTotal === null || transactionTotal <= 0) {
+      toast({
+        title: 'Valor da venda',
+        description:
+          'Informe o valor do aparelho. Com itens extras, o total da operação deve ser maior que zero.',
+        variant: 'destructive',
+      })
+      return
+    }
+    const paymentsSum = getSellPaymentsTotalCents()
+    if (paymentsSum === null) {
       toast({
         title: 'Valores de pagamento',
-        description: 'Informe o valor (R$) em cada forma de pagamento usada. O total da venda é a soma desses valores.',
+        description: 'Informe o valor (R$) em cada forma de pagamento usada.',
+        variant: 'destructive',
+      })
+      return
+    }
+    const validMethodsForFee = sellPaymentMethods.filter((e) => e.payment_method_id?.trim())
+    const paymentFeePreview = paymentFeeCentsForSaleEntries(validMethodsForFee, paymentMethods)
+    const netFromPayments = paymentsSum - paymentFeePreview
+    if (netFromPayments !== transactionTotal) {
+      toast({
+        title: 'Pagamentos',
+        description: `Com as taxas da maquininha, o valor líquido (${formatCentsBr(netFromPayments)}) deve ser igual ao total líquido da venda (${formatCentsBr(transactionTotal)}). Ajuste os valores cobrados.`,
         variant: 'destructive',
       })
       return
@@ -817,19 +992,25 @@ export function SeminovosFormClient ({
       }))
 
     const costsWithoutDerived = baseCosts.filter((c) => !isSaleDerivedCostDescription(c.description))
-    const baseOperationalTotal = costsWithoutDerived.reduce((acc, c) => acc + (c.value_cents ?? 0), 0)
+    const addonOpCents = getSellAddonCostTotalCents()
+    const addonCostLines =
+      sellAddonItems.length > 0
+        ? sellAddonItems.map((l) => ({
+            description: `${l.name} (custo estoque) × ${l.quantity}`,
+            value_cents: l.quantity * l.unitCostCents,
+          }))
+        : []
+    const baseOperationalTotal =
+      costsWithoutDerived.reduce((acc, c) => acc + (c.value_cents ?? 0), 0) + addonOpCents
     const purchaseCents = moneyToCentsFromMasked(formPurchaseValue) ?? 0
 
-    let costsPayload =
-      paymentFeeCents > 0
-        ? [
-            ...costsWithoutDerived,
-            {
-              description: 'Taxa forma de pagamento',
-              value_cents: paymentFeeCents,
-            },
-          ]
-        : [...costsWithoutDerived]
+    let costsPayload = [...costsWithoutDerived, ...addonCostLines]
+    if (paymentFeeCents > 0) {
+      costsPayload.push({
+        description: 'Taxa forma de pagamento',
+        value_cents: paymentFeeCents,
+      })
+    }
 
     let commissionUserIdForDb: string | null = null
     let commissionCents = 0
@@ -851,7 +1032,7 @@ export function SeminovosFormClient ({
           return
         }
         const gross = grossProfitBeforeCommissionCents(
-          valueCents,
+          transactionTotal,
           purchaseCents,
           baseOperationalTotal,
           paymentFeeCents
@@ -895,7 +1076,7 @@ export function SeminovosFormClient ({
 
     const payload: Record<string, unknown> = {
       sold: true,
-      sold_for_cents: valueCents,
+      sold_for_cents: transactionTotal,
       sale_date: sellModalDate || null,
       sale_payment_methods: salePaymentMethodsPayload,
       sale_commission_user_id: sellCommissionEnabled ? commissionUserIdForDb : null,
@@ -903,6 +1084,14 @@ export function SeminovosFormClient ({
       buyer_cpf: sellGenerateWarrantyTerm ? sellBuyerCpf.trim() || null : null,
       sale_details: sellGenerateWarrantyTerm ? sellSaleDetails.trim() || null : null,
       costs: costsPayload,
+      ...(sellAddonItems.length > 0
+        ? {
+            addon_inventory_lines: sellAddonItems.map((l) => ({
+              product_id: l.productId,
+              quantity: l.quantity,
+            })),
+          }
+        : {}),
     }
 
     setIsSavingSell(true)
@@ -932,6 +1121,13 @@ export function SeminovosFormClient ({
           setShowTermsDialog(true)
         }
         toast({ description: 'Aparelho marcado como vendido', duration: 2000 })
+      } else if (data?.error === 'stock_unavailable') {
+        toast({
+          title: 'Estoque insuficiente',
+          description:
+            'Um dos produtos extras não tem quantidade suficiente em estoque para esta venda.',
+          variant: 'destructive',
+        })
       } else {
         setErrorMessage(data?.message || 'Não foi possível salvar.')
       }
@@ -1431,19 +1627,25 @@ export function SeminovosFormClient ({
         <Card>
           <CardHeader>
             <CardTitle>Valores (R$)</CardTitle>
-            <CardDescription>Compra, atacado, varejo, valor da venda e lucros.</CardDescription>
+            <CardDescription>
+              {isAdmin
+                ? 'Compra, atacado, varejo, valor da venda e lucros.'
+                : 'Atacado, varejo, valor da venda e lucros.'}
+            </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="formPurchaseValue">Valor Compra</Label>
-              <Input
-                id="formPurchaseValue"
-                inputMode="decimal"
-                value={formPurchaseValue}
-                onChange={(e) => setFormPurchaseValue(formatMoneyInput(e.target.value))}
-                placeholder="0,00"
-              />
-            </div>
+            {isAdmin ? (
+              <div className="space-y-2">
+                <Label htmlFor="formPurchaseValue">Valor Compra</Label>
+                <Input
+                  id="formPurchaseValue"
+                  inputMode="decimal"
+                  value={formPurchaseValue}
+                  onChange={(e) => setFormPurchaseValue(formatMoneyInput(e.target.value))}
+                  placeholder="0,00"
+                />
+              </div>
+            ) : null}
             <div className="space-y-2">
               <Label htmlFor="formWholesaleValue">Valor Atacado</Label>
               <Input
@@ -1454,16 +1656,18 @@ export function SeminovosFormClient ({
                 placeholder="0,00"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="formExpectedProfitWholesale">Lucro Previsto (Atacado)</Label>
-              <Input
-                id="formExpectedProfitWholesale"
-                inputMode="decimal"
-                value={formExpectedProfitWholesale}
-                readOnly
-                placeholder="0,00"
-              />
-            </div>
+            {isAdmin ? (
+              <div className="space-y-2">
+                <Label htmlFor="formExpectedProfitWholesale">Lucro Previsto (Atacado)</Label>
+                <Input
+                  id="formExpectedProfitWholesale"
+                  inputMode="decimal"
+                  value={formExpectedProfitWholesale}
+                  readOnly
+                  placeholder="0,00"
+                />
+              </div>
+            ) : null}
             <div className="space-y-2">
               <Label htmlFor="formSaleValue">Valor Varejo</Label>
               <Input
@@ -1474,16 +1678,18 @@ export function SeminovosFormClient ({
                 placeholder="0,00"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="formExpectedProfitSale">Lucro Previsto (Varejo)</Label>
-              <Input
-                id="formExpectedProfitSale"
-                inputMode="decimal"
-                value={formExpectedProfitSale}
-                readOnly
-                placeholder="0,00"
-              />
-            </div>
+            {isAdmin ? (
+              <div className="space-y-2">
+                <Label htmlFor="formExpectedProfitSale">Lucro Previsto (Varejo)</Label>
+                <Input
+                  id="formExpectedProfitSale"
+                  inputMode="decimal"
+                  value={formExpectedProfitSale}
+                  readOnly
+                  placeholder="0,00"
+                />
+              </div>
+            ) : null}
           </CardContent>
         </Card>
 
@@ -1579,7 +1785,9 @@ export function SeminovosFormClient ({
             <CardHeader>
               <CardTitle>Resumo da venda</CardTitle>
               <CardDescription>
-                O valor total corresponde à soma das formas de pagamento registradas na venda. O lucro real considera compra, custos, taxas e comissão.
+                {isAdmin
+                  ? 'O valor total corresponde à soma das formas de pagamento registradas na venda. O lucro real considera compra, custos, taxas e comissão.'
+                  : 'O valor total corresponde à soma das formas de pagamento registradas na venda.'}
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 sm:grid-cols-2">
@@ -1593,23 +1801,25 @@ export function SeminovosFormClient ({
                   placeholder="0,00"
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="formActualProfit">Lucro real</Label>
-                <Input
-                  id="formActualProfit"
-                  inputMode="decimal"
-                  value={(() => {
-                    const soldCents = moneyToCentsFromMasked(formSoldFor)
-                    const purchaseCents = moneyToCentsFromMasked(formPurchaseValue) ?? 0
-                    const costsCents = formCosts.reduce((acc, c) => acc + (c.value_cents ?? 0), 0)
-                    if (soldCents === null) return ''
-                    const profit = soldCents - purchaseCents - costsCents
-                    return maskedFromCents(profit)
-                  })()}
-                  readOnly
-                  placeholder="0,00"
-                />
-              </div>
+              {isAdmin ? (
+                <div className="space-y-2">
+                  <Label htmlFor="formActualProfit">Lucro real</Label>
+                  <Input
+                    id="formActualProfit"
+                    inputMode="decimal"
+                    value={(() => {
+                      const soldCents = moneyToCentsFromMasked(formSoldFor)
+                      const purchaseCents = moneyToCentsFromMasked(formPurchaseValue) ?? 0
+                      const costsCents = formCosts.reduce((acc, c) => acc + (c.value_cents ?? 0), 0)
+                      if (soldCents === null) return ''
+                      const profit = soldCents - purchaseCents - costsCents
+                      return maskedFromCents(profit)
+                    })()}
+                    readOnly
+                    placeholder="0,00"
+                  />
+                </div>
+              ) : null}
             </CardContent>
           </Card>
         )}
@@ -1625,107 +1835,33 @@ export function SeminovosFormClient ({
       </form>
 
       <Dialog open={showSellModal} onOpenChange={(open) => !open && setShowSellModal(false)}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="max-w-3xl sm:max-w-5xl w-[min(96vw,72rem)] max-h-[90vh] overflow-y-auto gap-0">
+          <DialogHeader className="pb-2">
             <DialogTitle>Marcar como vendido</DialogTitle>
-            <DialogDescription>
-              O valor total da venda é a soma dos valores em cada forma de pagamento. A data da venda será registrada.
-            </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground space-y-1">
-              <p className="font-medium text-foreground">Valores sugeridos (referência)</p>
-              {moneyToCentsFromMasked(formSaleValue) != null && (
-                <p>Varejo cadastrado: R$ {formSaleValue}</p>
-              )}
-              {moneyToCentsFromMasked(formWholesaleValue) != null && (
-                <p>Atacado cadastrado: R$ {formWholesaleValue}</p>
-              )}
-              {moneyToCentsFromMasked(formSaleValue) == null && moneyToCentsFromMasked(formWholesaleValue) == null && (
-                <p>Cadastre preços de varejo ou atacado no formulário para referência; a venda usa apenas os pagamentos abaixo.</p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label>Formas de pagamento</Label>
-                <Button type="button" variant="outline" size="sm" onClick={addSellPaymentMethod} className="gap-1">
-                  <Plus className="h-3.5 w-3.5" />
-                  Adicionar
-                </Button>
+          <div className="grid gap-5 py-4 lg:grid-cols-2 lg:gap-6 lg:items-start">
+            <div className="flex flex-col gap-4 min-w-0">
+              <div className="rounded-lg border bg-muted/30 px-3 py-2.5 text-sm space-y-2">
+                <p className="font-medium text-foreground">
+                  {formDeviceName.trim() || formModel.trim() || 'Aparelho'}
+                </p>
+                <p className="text-muted-foreground text-xs leading-snug">
+                  {[formModel, formStorageGb, formColor].filter(Boolean).join(' · ')}
+                </p>
+                {formBattery.trim() ? (
+                  <p className="text-xs text-muted-foreground">Bateria: {formBattery}</p>
+                ) : null}
+                {formImei.trim() ? (
+                  <p className="text-xs text-muted-foreground font-mono break-all">IMEI: {formImei}</p>
+                ) : null}
+                {formImei2.trim() ? (
+                  <p className="text-xs text-muted-foreground font-mono break-all">IMEI 2: {formImei2}</p>
+                ) : null}
+                {formSerial.trim() ? (
+                  <p className="text-xs text-muted-foreground">S/N: {formSerial}</p>
+                ) : null}
               </div>
-              <div className="space-y-3">
-                {sellPaymentMethods.map((entry, i) => (
-                  <div key={entry.rowKey} className="flex flex-wrap items-end gap-2 rounded border p-2 bg-muted/30">
-                    <div className="flex-1 min-w-[140px] space-y-1">
-                      <Label className="text-xs">Forma</Label>
-                      <select
-                        className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-                        value={entry.payment_method_id || ''}
-                        onChange={(e) => {
-                          const v = e.target.value
-                          setSellPaymentMethodAt(i, { payment_method_id: v, installments: 1 })
-                        }}
-                        disabled={isLoadingPaymentMethods}
-                      >
-                        <option value="">Selecione</option>
-                        {paymentMethods.map((pm) => (
-                          <option key={pm.id} value={pm.id}>
-                            {pm.description}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="w-28 space-y-1">
-                      <Label className="text-xs">Valor (R$)</Label>
-                      <Input
-                        value={entry.value_cents != null ? maskedFromCents(entry.value_cents) : ''}
-                        onChange={(e) => {
-                          const raw = moneyToCentsFromMasked(formatMoneyInput(e.target.value))
-                          setSellPaymentMethodAt(i, { value_cents: raw })
-                        }}
-                        placeholder="0,00"
-                        className="h-9"
-                      />
-                    </div>
-                    {entry.payment_method_id && (() => {
-                      const pm = paymentMethods.find((p) => p.id === entry.payment_method_id)
-                      const isCredit = pm?.type === 'credito'
-                      if (!isCredit) return null
-                      const maxInstallments = pm?.credit_installment_fees?.length
-                        ? Math.max(...pm.credit_installment_fees.map((f) => f.installments))
-                        : 12
-                      return (
-                        <div className="w-20 space-y-1">
-                          <Label className="text-xs">Parcelas</Label>
-                          <select
-                            className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-                            value={String(entry.installments || 1)}
-                            onChange={(e) => setSellPaymentMethodAt(i, { installments: Number(e.target.value) || 1 })}
-                          >
-                            {Array.from({ length: maxInstallments }, (_, n) => n + 1).map((n) => (
-                              <option key={n} value={n}>
-                                {n}x
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      )
-                    })()}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
-                      onClick={() => removeSellPaymentMethod(i)}
-                      disabled={sellPaymentMethods.length <= 1}
-                      aria-label="Remover forma de pagamento"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </div>
+
             <div className="space-y-3 rounded-md border p-3">
               <div className="flex items-center space-x-2">
                 <Checkbox
@@ -1734,13 +1870,13 @@ export function SeminovosFormClient ({
                   onCheckedChange={(v) => setSellCommissionEnabled(v === true)}
                 />
                 <Label htmlFor="form-sell-commission" className="font-normal cursor-pointer leading-snug">
-                  Comissão (descontada do lucro da venda)
+                  Comissão
                 </Label>
               </div>
               {sellCommissionEnabled ? (
                 <div className="grid gap-3 sm:grid-cols-2 pl-6 border-t pt-3">
                   <div className="space-y-1 sm:col-span-2">
-                    <Label className="text-xs">Colaborador (staff / admin)</Label>
+                    <Label className="text-xs">Colaborador</Label>
                     <select
                       className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
                       value={sellCommissionUserId || ''}
@@ -1762,21 +1898,31 @@ export function SeminovosFormClient ({
                       className="flex flex-wrap gap-4"
                     >
                       <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="percent" id="form-comm-pct" />
-                        <Label htmlFor="form-comm-pct" className="font-normal cursor-pointer">
-                          Percentual sobre o lucro bruto
-                        </Label>
-                      </div>
-                      <div className="flex items-center space-x-2">
                         <RadioGroupItem value="fixed" id="form-comm-fix" />
                         <Label htmlFor="form-comm-fix" className="font-normal cursor-pointer">
                           Valor fixo (R$)
                         </Label>
                       </div>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="percent" id="form-comm-pct" />
+                        <Label htmlFor="form-comm-pct" className="font-normal cursor-pointer">
+                          Percentual sobre o lucro bruto
+                        </Label>
+                      </div>
                     </RadioGroup>
                   </div>
                   <div className="space-y-1 sm:col-span-2">
-                    {sellCommissionKind === 'percent' ? (
+                    {sellCommissionKind === 'fixed' ? (
+                      <>
+                        <Label className="text-xs">Valor (R$)</Label>
+                        <Input
+                          value={sellCommissionFixed}
+                          onChange={(e) => setSellCommissionFixed(formatMoneyInput(e.target.value))}
+                          placeholder="0,00"
+                          className="h-9"
+                        />
+                      </>
+                    ) : (
                       <>
                         <Label className="text-xs">Percentual sobre o lucro bruto (%)</Label>
                         <Input
@@ -1802,16 +1948,6 @@ export function SeminovosFormClient ({
                           )
                         })()}
                       </>
-                    ) : (
-                      <>
-                        <Label className="text-xs">Valor (R$)</Label>
-                        <Input
-                          value={sellCommissionFixed}
-                          onChange={(e) => setSellCommissionFixed(formatMoneyInput(e.target.value))}
-                          placeholder="0,00"
-                          className="h-9"
-                        />
-                      </>
                     )}
                   </div>
                 </div>
@@ -1831,14 +1967,9 @@ export function SeminovosFormClient ({
                     }
                   }}
                 />
-                <div className="space-y-0.5 leading-snug">
-                  <Label htmlFor="form-sell-generate-term" className="font-normal cursor-pointer">
-                    Gerar termo de garantia
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    Só é necessário preencher nome, documento e detalhes quando for imprimir o termo.
-                  </p>
-                </div>
+                <Label htmlFor="form-sell-generate-term" className="font-normal cursor-pointer leading-snug">
+                  Gerar termo de garantia
+                </Label>
               </div>
               {sellGenerateWarrantyTerm ? (
                 <div className="space-y-3 border-t pt-3 pl-1">
@@ -1880,53 +2011,306 @@ export function SeminovosFormClient ({
                 onChange={(e) => setSellModalDate(e.target.value)}
               />
             </div>
-            <div className="rounded-lg border bg-muted/50 px-4 py-3 space-y-2">
-              {(() => {
-                const totalCents = getSellPaymentsTotalCents()
-                const purchaseCents = moneyToCentsFromMasked(formPurchaseValue) ?? 0
-                const baseOperationalCents = formCosts.reduce(
-                  (acc, c) => acc + (isSaleDerivedCostDescription(c.description) ? 0 : (c.value_cents ?? 0)),
-                  0
-                )
-                const validPreview = sellPaymentMethods.filter((e) => e.payment_method_id?.trim())
-                const paymentFeePreviewCents = paymentFeeCentsForSaleEntries(validPreview, paymentMethods)
-                const commPreview =
-                  totalCents != null
-                    ? previewCommissionCents(
-                      totalCents,
-                      purchaseCents,
-                      baseOperationalCents,
-                      paymentFeePreviewCents
-                    )
-                    : 0
-                const costsCents = baseOperationalCents + paymentFeePreviewCents + commPreview
-                const lucroCents = totalCents != null ? totalCents - purchaseCents - costsCents : null
-                return (
-                  <>
-                    {totalCents != null ? (
-                      <p className="text-sm text-muted-foreground">
-                        Total da venda (soma dos pagamentos):{' '}
-                        <span className="font-medium text-foreground">R$ {maskedFromCents(totalCents)}</span>
-                      </p>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">Preencha os valores em cada forma de pagamento para ver o total e o lucro.</p>
-                    )}
-                    <div>
-                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Lucro real estimado</p>
-                      <p className={`text-lg font-bold ${lucroCents != null ? (lucroCents >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400') : ''}`}>
-                        {lucroCents != null ? `R$ ${maskedFromCents(lucroCents)}` : '-'}
-                      </p>
+            </div>
+
+            <div className="flex flex-col gap-4 min-w-0">
+              <div className="space-y-2">
+                <Label htmlFor="form-sell-device-amount">Valor do aparelho (R$)</Label>
+                <Input
+                  id="form-sell-device-amount"
+                  value={sellDeviceAmountMasked}
+                  onChange={(e) => setSellDeviceAmountMasked(formatMoneyInput(e.target.value))}
+                  placeholder="0,00"
+                  className="h-10"
+                />
+              </div>
+
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label className="text-sm">Adicionar produto à venda</Label>
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-4 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={sellAddonQuery}
+                    onChange={(e) => setSellAddonQuery(e.target.value)}
+                    placeholder="Buscar por nome, SKU ou código…"
+                    className="h-9 pl-8"
+                  />
+                  {sellAddonQuery.trim().length >= 2 ? (
+                    <div className="absolute z-30 mt-1 w-full rounded-md border bg-popover text-popover-foreground shadow-md">
+                      {sellAddonBusy ? (
+                        <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          Buscando...
+                        </div>
+                      ) : sellAddonResults.length > 0 ? (
+                        <ul className="max-h-56 overflow-y-auto divide-y text-sm">
+                          {sellAddonResults.map((p) => (
+                            <li key={p.id}>
+                              <button
+                                type="button"
+                                className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left hover:bg-muted/60"
+                                onClick={() => addSellAddonProduct(p)}
+                              >
+                                <span className="truncate font-medium">{p.name}</span>
+                                <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                                  {p.sale_price_cents != null ? formatCentsBr(p.sale_price_cents) : '—'} · est. {p.stock}
+                                </span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="p-3 text-xs text-muted-foreground">
+                          Nenhum produto encontrado.
+                        </p>
+                      )}
                     </div>
-                  </>
+                  ) : null}
+                </div>
+              </div>
+              {sellAddonQuery.trim().length > 0 && sellAddonQuery.trim().length < 2 ? (
+                <p className="text-xs text-muted-foreground py-1">
+                  Continue digitando para filtrar o catálogo.
+                </p>
+              ) : null}
+              {sellAddonItems.length > 0 ? (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Itens na venda</p>
+                  <div className="hidden md:grid md:grid-cols-12 md:gap-3 text-xs font-medium text-muted-foreground px-1">
+                    <div className="md:col-span-5">Produto</div>
+                    <div className="md:col-span-2">Qtd.</div>
+                    <div className="md:col-span-2">Venda (R$)</div>
+                    <div className="md:col-span-2">Total</div>
+                    <div className="md:col-span-1 text-right">Ações</div>
+                  </div>
+                  <ul className="space-y-3">
+                    {sellAddonItems.map((line) => (
+                      <li
+                        key={line.productId}
+                        className="grid gap-3 md:grid-cols-12 items-end"
+                      >
+                        <div className="md:col-span-5 space-y-1">
+                          <Label className="md:hidden">Produto</Label>
+                          <Input value={line.name} readOnly className="h-9" />
+                        </div>
+                        <div className="md:col-span-2 space-y-1">
+                          <Label className="md:hidden">Qtd.</Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            className="h-9"
+                            value={line.quantity}
+                            onChange={(e) => updateSellAddonQty(line.productId, Number(e.target.value))}
+                          />
+                        </div>
+                        <div className="md:col-span-2 space-y-1">
+                          <Label className="md:hidden">Venda (R$)</Label>
+                          <Input
+                            className="h-9"
+                            value={maskedFromCents(line.unitSaleCents)}
+                            onChange={(e) =>
+                              updateSellAddonUnitSaleMasked(line.productId, e.target.value)
+                            }
+                            inputMode="decimal"
+                            placeholder="0,00"
+                          />
+                        </div>
+                        <div className="md:col-span-2 space-y-1">
+                          <Label className="md:hidden">Total</Label>
+                          <Input value={maskedFromCents(line.quantity * line.unitSaleCents)} readOnly className="h-9" />
+                        </div>
+                        <div className="md:col-span-1 flex justify-end">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-9 w-9 text-red-600 hover:text-red-700 hover:bg-red-500/10"
+                            onClick={() => removeSellAddonLine(line.productId)}
+                            aria-label="Remover item"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Formas de pagamento</Label>
+              </div>
+              <div className="space-y-3">
+                <div className="hidden md:grid md:grid-cols-12 md:gap-3 text-xs font-medium text-muted-foreground px-1">
+                  <div className="md:col-span-6">Forma de pagamento</div>
+                  <div className="md:col-span-3">Valor</div>
+                  <div className="md:col-span-2">Parcelas</div>
+                  <div className="md:col-span-1 text-right">Ações</div>
+                </div>
+                {sellPaymentMethods.map((entry, i) => (
+                  <div key={entry.rowKey} className="grid gap-3 md:grid-cols-12 items-end">
+                    <div className="md:col-span-6 space-y-1">
+                      <Label className="md:hidden">Forma de pagamento</Label>
+                      <select
+                        className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                        value={entry.payment_method_id || ''}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          setSellPaymentMethodAt(i, { payment_method_id: v, installments: 1 })
+                        }}
+                        disabled={isLoadingPaymentMethods}
+                      >
+                        <option value="">Selecione</option>
+                        {paymentMethods.map((pm) => (
+                          <option key={pm.id} value={pm.id}>
+                            {pm.description}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="md:col-span-3 space-y-1">
+                      <Label className="md:hidden">Valor</Label>
+                      <Input
+                        value={entry.value_cents != null ? maskedFromCents(entry.value_cents) : ''}
+                        onChange={(e) => {
+                          const raw = moneyToCentsFromMasked(formatMoneyInput(e.target.value))
+                          setSellPaymentMethodAt(i, { value_cents: raw })
+                        }}
+                        placeholder="0,00"
+                        className="h-9"
+                      />
+                    </div>
+                    {entry.payment_method_id && (() => {
+                      const pm = paymentMethods.find((p) => p.id === entry.payment_method_id)
+                      const isCredit = pm?.type === 'credito'
+                      if (!isCredit) {
+                        return <div className="hidden md:block md:col-span-2" aria-hidden />
+                      }
+                      const maxInstallments = pm?.credit_installment_fees?.length
+                        ? Math.max(...pm.credit_installment_fees.map((f) => f.installments))
+                        : 12
+                      return (
+                        <div className="md:col-span-2 space-y-1">
+                          <Label className="md:hidden">Parcelas</Label>
+                          <select
+                            className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                            value={String(entry.installments || 1)}
+                            onChange={(e) => setSellPaymentMethodAt(i, { installments: Number(e.target.value) || 1 })}
+                          >
+                            {Array.from({ length: maxInstallments }, (_, n) => n + 1).map((n) => (
+                              <option key={n} value={n}>
+                                {n}x
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )
+                    })()}
+                    <div className="md:col-span-1 flex justify-end">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 text-red-600 hover:text-red-700 hover:bg-red-500/10"
+                        onClick={() => removeSellPaymentMethod(i)}
+                        disabled={sellPaymentMethods.length <= 1}
+                        aria-label="Remover forma de pagamento"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={addSellPaymentMethod}
+                className="w-full border-dashed border-green-600 bg-green-600/5 text-green-700 hover:bg-green-600/10 hover:text-green-800"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Incluir forma de pagamento
+              </Button>
+              {(() => {
+                const tx = getSellTransactionTotalCents()
+                const sum = getSellPaymentsTotalCents()
+                const net = getSellNetFromPaymentsCents()
+                if (tx == null || tx <= 0) return null
+                return (
+                  <div className="text-sm text-muted-foreground pt-1">
+                    Total líquido da venda: {formatCentsBr(tx)}
+                    {sum != null && sum > 0 ? (
+                      <>
+                        {' — '}
+                        Total a cobrar: {formatCentsBr(sum)}
+                        {net != null ? (
+                          <span className={net !== tx ? (tx - net > 0 ? 'text-amber-600' : 'text-destructive') : 'text-green-600'}>
+                            {' '}
+                            (Líquido: {formatCentsBr(net)})
+                          </span>
+                        ) : null}
+                      </>
+                    ) : null}
+                  </div>
                 )
               })()}
+            </div>
+
+            <ResaleSellAdminProfitCard
+              device={{
+                purchase_value_cents: moneyToCentsFromMasked(formPurchaseValue),
+                costs: formCosts.map((c) => ({
+                  description: c.description || null,
+                  value_cents: c.value_cents ?? 0,
+                })),
+              }}
+              sellPaymentMethods={sellPaymentMethods}
+              paymentMethods={paymentMethods}
+              isAdmin={isAdmin}
+              transactionTotalCents={getSellTransactionTotalCents()}
+              deviceSaleCents={getSellDeviceSaleCents()}
+              addonLines={sellAddonItems}
+              addonCostTotalCents={getSellAddonCostTotalCents()}
+              commissionUserName={
+                teamUsers.find((u) => u.id === sellCommissionUserId)?.full_name ||
+                teamUsers.find((u) => u.id === sellCommissionUserId)?.email ||
+                null
+              }
+              commission={{
+                enabled: sellCommissionEnabled,
+                userId: sellCommissionUserId,
+                kind: sellCommissionKind,
+                percentRaw: sellCommissionPercent,
+                fixedMasked: sellCommissionFixed,
+              }}
+            />
             </div>
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setShowSellModal(false)} disabled={isSavingSell}>
               Cancelar
             </Button>
-            <Button type="button" onClick={handleConfirmSell} disabled={isSavingSell || getSellPaymentsTotalCents() === null}>
+            <Button
+              type="button"
+              onClick={handleConfirmSell}
+              disabled={(() => {
+                const tx = getSellTransactionTotalCents()
+                const pay = getSellPaymentsTotalCents()
+                const net = getSellNetFromPaymentsCents()
+                return (
+                  isSavingSell ||
+                  tx === null ||
+                  tx <= 0 ||
+                  pay === null ||
+                  net === null ||
+                  net !== tx
+                )
+              })()}
+            >
               {isSavingSell ? 'Salvando…' : 'Confirmar venda'}
             </Button>
           </DialogFooter>

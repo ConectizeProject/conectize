@@ -24,6 +24,21 @@ type StockData = {
   movements: Movement[]
 }
 
+function originLabel (m: Movement) {
+  const ref = String(m.externalReference || '')
+  if (m.source === 'pdv_sale' && ref.startsWith('pdv_sale:')) {
+    const saleId = ref.split(':')[1] || ''
+    return `Venda (${saleId.slice(0, 8)})`
+  }
+  if (m.source === 'service_order' && ref.startsWith('service_order:')) {
+    const orderId = ref.split(':')[1] || ''
+    return `OS (${orderId.slice(0, 8)})`
+  }
+  if (m.source === 'bling') return 'Bling'
+  if (m.source === 'system') return 'Sistema'
+  return 'Portal'
+}
+
 type Props = {
   productId: string
   productName: string
@@ -262,11 +277,7 @@ export function ProductStockPanel ({
                       {m.totalValueCents ? formatCurrency(m.totalValueCents / 100) : '-'}
                     </td>
                     <td className="py-2 pl-2 text-muted-foreground">
-                      {m.source === 'bling'
-                        ? 'Bling'
-                        : m.source === 'system'
-                          ? 'Sistema'
-                          : 'Portal'}
+                      {originLabel(m)}
                     </td>
                   </tr>
                 ))}
