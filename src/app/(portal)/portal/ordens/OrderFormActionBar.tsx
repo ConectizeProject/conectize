@@ -9,6 +9,10 @@ type Props = {
 	className?: string;
 };
 
+/** Coloque imediatamente antes de `<OrderFormActionBar>` para o fim do scroll não ficar atrás da barra `fixed`. */
+export const orderFormActionBarFlowSpacerClassName =
+	'pointer-events-none shrink-0 h-[calc(6.5rem+env(safe-area-inset-bottom,0px))]'
+
 /**
  * Barra inferior fixa visível ao rolar, alinhada à coluna de conteúdo do portal
  * (menu lateral expandido ou recolhido). Coluna interna max-w-4xl alinhada como o formulário; botões à direita.
@@ -19,14 +23,14 @@ export function OrderFormActionBar({ children, className }: Props) {
 	return (
 		<div
 			className={cn(
-				"fixed bottom-0 z-50 py-3 px-4 md:px-0 border-t bg-background/95 backdrop-blur right-0 supports-[backdrop-filter]:bg-background/80",
+				"fixed bottom-0 z-50 border-t bg-background/95 py-3 px-4 backdrop-blur right-0 supports-[backdrop-filter]:bg-background/80",
 				isMobile
 					? "left-0 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
 					: cn(
-							"md:right-[2rem]",
+							// Mesmo recuo horizontal que o main: spacer da sidebar + px-4 do scroll (abaixo)
 							state === "expanded"
-								? "left-[calc(var(--sidebar-width)+1.5rem)] md:left-[calc(var(--sidebar-width)+2rem)]"
-								: "left-[calc(var(--sidebar-width-icon)+1rem+1.5rem)] md:left-[calc(var(--sidebar-width-icon)+1rem+2rem)]",
+								? "left-[calc(var(--sidebar-width))]"
+								: "left-[calc(var(--sidebar-width-icon))]",
 						),
 				className,
 			)}

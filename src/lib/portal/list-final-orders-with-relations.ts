@@ -9,6 +9,10 @@ import type {
   PortalOrdensListRow,
   PortalServiceOrderListQueryRow,
 } from '@/lib/orders/portal-ordens-list-types'
+import {
+  buildServiceOrdersMacroQOrClause,
+  fetchCustomerIdsForOrdensMacroSearch,
+} from '@/lib/portal/portal-ordens-macro-search'
 
 /** Limite alinhado à listagem final (RSC e API). */
 export const PORTAL_FINAL_ORDERS_LIST_LIMIT = 500
@@ -120,8 +124,14 @@ export async function listFinalOrdersWithRelations(
     .range(offset, rangeTo)
 
   if (q) {
-    const escaped = q.replaceAll(',', ' ').trim()
-    baseQuery.or(`title.ilike.%${escaped}%,description.ilike.%${escaped}%`)
+    const macroCustomerIds =
+      q.trim().length >= 2
+        ? await fetchCustomerIdsForOrdensMacroSearch(supabase, q)
+        : []
+    const orClause = buildServiceOrdersMacroQOrClause(q, macroCustomerIds)
+    if (orClause) {
+      baseQuery.or(orClause)
+    }
   }
   if (osNumber) {
     const displayNum = Number.parseInt(osNumber, 10)

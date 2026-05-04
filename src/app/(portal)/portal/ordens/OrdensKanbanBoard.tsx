@@ -7,7 +7,8 @@ import {
   DragOverlay,
   MeasuringFrequency,
   MeasuringStrategy,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -381,9 +382,16 @@ export function OrdensKanbanBoard ({
   const showEmptySplash =
     totalOpen === 0 && finalsLoaded && totalFinalItems === 0
 
+  /** Mouse: arrastar após pequeno movimento. Touch: pressionar ~200ms evita roubar o scroll vertical. */
   const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 3 },
+    useSensor(MouseSensor, {
+      activationConstraint: { distance: 8 },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 200,
+        tolerance: 8,
+      },
     }),
   )
 

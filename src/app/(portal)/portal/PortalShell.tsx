@@ -286,7 +286,7 @@ export function PortalShell(props: PortalShellProps) {
 					</div>
 				) : null}
 
-				<div className="flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-y-auto px-4">
+				<div className="flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-y-auto px-4 [scrollbar-gutter:stable]">
 					{props.children}
 				</div>
 			</SidebarInset>

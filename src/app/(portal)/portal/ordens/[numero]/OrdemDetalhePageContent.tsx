@@ -21,7 +21,10 @@ import {
 } from '@/lib/utils/previsao-ordem'
 import { Plus } from 'lucide-react'
 import Link from 'next/link'
-import { OrderFormActionBar } from '../OrderFormActionBar'
+import {
+	OrderFormActionBar,
+	orderFormActionBarFlowSpacerClassName,
+} from '../OrderFormActionBar'
 import { OrdemActionsMenu } from './OrdemActionsMenu'
 import { OrdemDetalheToastClient } from './OrdemDetalheToastClient'
 import { OrdemLabelPrintButton } from './OrdemLabelPrintButton'
@@ -108,7 +111,7 @@ export function OrdemDetalhePageContent (props: Props) {
 		isPortalReadOnly || (isFinalized && !canEditDeviceModelWhenFinalized)
 
 	return (
-		<div className="max-w-4xl space-y-6 pb-24">
+		<div className="max-w-4xl space-y-6">
 			<OrdemDetalheToastClient />
 
 			<div className="space-y-1.5">
@@ -334,6 +337,7 @@ export function OrdemDetalhePageContent (props: Props) {
 						</Card>
 					) : null}
 
+					<div aria-hidden className={orderFormActionBarFlowSpacerClassName} />
 					<OrderFormActionBar>
 						<Button
 							variant="ghost"

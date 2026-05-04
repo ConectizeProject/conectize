@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
+import { stripAutoHostOrganizationMembership } from '@/lib/organizations/strip-auto-host-membership'
 import { getAuthUser } from '@/lib/supabase/server'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 
@@ -50,7 +51,7 @@ export default async function VincularCadastroClientePage ({
 
   const organizationId = String(orderRow.organization_id)
 
-  await svc.from('organization_members').upsert(
+  const { error: memberErr } = await svc.from('organization_members').upsert(
     {
       organization_id: organizationId,
       user_id: user.id,
@@ -59,10 +60,23 @@ export default async function VincularCadastroClientePage ({
     { onConflict: 'organization_id,user_id' },
   )
 
-  await svc.from('user_portal_context').upsert({
+  if (memberErr) {
+    redirect('/portal/complete-profile?error=vinculo_falhou')
+  }
+
+  const stripErr = await stripAutoHostOrganizationMembership(svc, user.id)
+  if (stripErr) {
+    redirect('/portal/complete-profile?error=vinculo_falhou')
+  }
+
+  const { error: portalErr } = await svc.from('user_portal_context').upsert({
     user_id: user.id,
     active_organization_id: organizationId,
   })
+
+  if (portalErr) {
+    redirect('/portal/complete-profile?error=vinculo_falhou')
+  }
 
   if (orderRow.customer_id) {
     const customerId = String(orderRow.customer_id)

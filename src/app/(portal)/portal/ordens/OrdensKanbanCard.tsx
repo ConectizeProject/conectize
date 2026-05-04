@@ -56,7 +56,7 @@ export const OrdensKanbanCard = memo(function OrdensKanbanCard ({
     <div
       ref={setNodeRef}
       className={cn(
-        'relative rounded-md touch-none',
+        'relative rounded-md touch-pan-y',
         pointerStillOverSourceColumn && 'opacity-50 saturate-[0.72]',
         'cursor-grab active:cursor-grabbing',
       )}

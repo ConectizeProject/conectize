@@ -63,7 +63,9 @@ export default async function CompleteProfilePage ({
             initialError={error
               ? (error === 'cpf_invalido'
                   ? 'CPF inválido. Confira e tente novamente.'
-                  : 'Não foi possível vincular seu CPF agora. Tente novamente.')
+                  : error === 'vinculo_falhou'
+                    ? 'Não foi possível vincular sua conta à assistência. Abra o link do cadastro novamente ou fale com o suporte.'
+                    : 'Não foi possível vincular seu CPF agora. Tente novamente.')
               : undefined}
           />
 

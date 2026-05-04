@@ -29,33 +29,34 @@ export function OrderStatusBlockerAlertDialog ({
 }: Props) {
   const exit = blocker?.exit === true
   const warranty = blocker?.warranty === true
+  const pendingCount = (exit ? 1 : 0) + (warranty ? 1 : 0)
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>
-            {exit && warranty
-              ? 'Antes de finalizar'
-              : warranty
-                ? 'Sem termos de garantia'
-                : 'Considerações da assistência não preenchidas'}
-          </AlertDialogTitle>
+          <AlertDialogTitle>Antes de finalizar</AlertDialogTitle>
           <AlertDialogDescription asChild>
             <div className="space-y-3 text-sm text-muted-foreground">
-              {exit ? (
-                <p>
-                  Esta OS não tem checklist nem fotos de saída. Abra a ordem para
-                  registrar ou confirme se deseja finalizar assim mesmo.
-                </p>
-              ) : null}
-              {warranty ? (
-                <p>
-                  Não há modelo nem texto de garantia nesta ordem. Na impressão e no
-                  link público não será exibido termo de garantia para o cliente.
-                  Deseja finalizar assim mesmo?
-                </p>
-              ) : null}
+              <p>
+                {pendingCount > 1
+                  ? 'Há pendências nesta ordem. Confira abaixo e confirme se deseja finalizar assim mesmo.'
+                  : 'Há uma pendência nesta ordem. Confira abaixo e confirme se deseja finalizar assim mesmo.'}
+              </p>
+              <ul className="list-disc space-y-2 pl-5 text-foreground">
+                {exit ? (
+                  <li>
+                    Considerações de saída incompletas (checklist de saída e/ou fotos de
+                    saída não registrados).
+                  </li>
+                ) : null}
+                {warranty ? (
+                  <li>
+                    Termos de garantia não definidos (sem modelo nem texto de garantia na
+                    ordem — impressão e link público ficarão sem termo para o cliente).
+                  </li>
+                ) : null}
+              </ul>
             </div>
           </AlertDialogDescription>
         </AlertDialogHeader>
@@ -66,7 +67,7 @@ export function OrderStatusBlockerAlertDialog ({
               e.preventDefault()
               onConfirm()
             }}
-            disabled={updating || !blocker}
+            disabled={updating || !blocker || (!exit && !warranty)}
           >
             {updating ? 'Salvando…' : 'Sim, finalizar'}
           </AlertDialogAction>
