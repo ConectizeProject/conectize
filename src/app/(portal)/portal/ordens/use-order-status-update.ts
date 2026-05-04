@@ -56,21 +56,12 @@ export function useOrderStatusUpdate () {
 
         const result = await updateOrderStatusAction(fd)
         if (result.ok === false) {
-          if (result.error === 'exit_considerations_incomplete') {
+          if (result.error === 'finalize_blockers') {
             setBlockerDialog({
               orderId,
               status: newStatus,
-              exit: true,
-              warranty: false,
-            })
-            return 'blocked'
-          }
-          if (result.error === 'warranty_terms_missing') {
-            setBlockerDialog({
-              orderId,
-              status: newStatus,
-              exit: false,
-              warranty: true,
+              exit: result.exitIncomplete === true,
+              warranty: result.warrantyMissing === true,
             })
             return 'blocked'
           }

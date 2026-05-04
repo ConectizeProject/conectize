@@ -42,7 +42,7 @@ type Props = {
 	onPrintLabel: (product: ProductRow) => void
 }
 
-export const ProductListCard = memo(function ProductListCard ({
+export const ProductListCard = memo(function ProductListCard({
 	product,
 	isSelected,
 	isProductTab,

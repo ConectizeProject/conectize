@@ -57,15 +57,14 @@ export async function PATCH (
     if (err === 'invalid_status') {
       return NextResponse.json({ ok: false, error: 'invalid_status' }, { status: 400 })
     }
-    if (err === 'exit_considerations_incomplete') {
+    if (err === 'finalize_blockers') {
       return NextResponse.json(
-        { ok: false, error: 'exit_considerations_incomplete' },
-        { status: 409 },
-      )
-    }
-    if (err === 'warranty_terms_missing') {
-      return NextResponse.json(
-        { ok: false, error: 'warranty_terms_missing' },
+        {
+          ok: false,
+          error: 'finalize_blockers',
+          exitIncomplete: result.exitIncomplete,
+          warrantyMissing: result.warrantyMissing,
+        },
         { status: 409 },
       )
     }

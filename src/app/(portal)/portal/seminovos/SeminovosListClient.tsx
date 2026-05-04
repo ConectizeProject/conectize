@@ -40,7 +40,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
 	Select,
 	SelectContent,
@@ -60,34 +59,35 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
-import { getLabelWindowFeatures } from "@/lib/ordem-print";
 import { portalFetch } from "@/lib/portal/portal-fetch";
 import {
 	commissionFromPercentOfGrossCents,
 	grossProfitBeforeCommissionCents,
 	paymentFeeCentsForSaleEntries,
 } from "@/lib/resale/resale-commission";
-import { computeSimulatePaymentResult } from "@/lib/resale/simulate-single-payment";
 import {
 	buildCommissionCostDescription,
 	isCommissionCostDescription,
 	isSaleDerivedCostDescription,
 } from "@/lib/resale/resale-sale-costs";
-import { getSeminovosColorEmoji } from "@/lib/seminovos/colors";
 import type {
 	ResaleDeviceRow,
 	SeminovosFilters,
 	SeminovosStats,
 } from "@/lib/seminovos/fetch-seminovos-data";
 import {
-	getModelSortKey,
+	copyImeiWithPortalToast,
+	copyTextWithPortalToast,
+	printResaleDeviceLabel,
+} from "@/lib/seminovos/resale-portal-clipboard";
+import { buildConectizeStockWhatsAppTexts } from "@/lib/seminovos/whatsapp-stock-broadcast-text";
+import {
 	groupDevicesByModel,
 	parseStorageGb,
 } from "@/lib/seminovos/group-devices-by-model";
 import {
 	buildCopyClienteText,
 	buildCopyLojistaText,
-	buildSeminovoLabelHtml,
 } from "@/lib/seminovos/seminovos-device-actions";
 import { revendaPath } from "@/lib/revenda/revenda-paths";
 import { formatCpfCnpj } from "@/lib/utils/format-cpf-cnpj";
@@ -115,14 +115,13 @@ import {
 	Plus,
 	Receipt,
 	Search,
-	Store,
-	Tag,
 	Trash2,
 	TrendingUp,
 	Undo2,
-	UserRound,
 	Wrench,
 } from "lucide-react";
+import { ResaleDeviceStandardActionItems } from "@/components/resale/ResaleDeviceStandardActionItems";
+import { ResaleSimulatePaymentDialog } from "@/components/resale/ResaleSimulatePaymentDialog";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -137,6 +136,7 @@ import {
 } from "./ResaleSellCommissionPanel";
 import { SeminovoDeviceCard } from "./SeminovoDeviceCard";
 import { SeminovosFilterCollapsible } from "./SeminovosFilterCollapsible";
+import { WhatsAppTextModalButton } from "@/components/whatsapp-text-modal";
 
 const DEFAULT_SELL_COMMISSION_INITIAL: SellCommissionInitial = {
 	enabled: false,
@@ -285,94 +285,6 @@ function buildResaleDevicesListQuery(
 	return p.toString();
 }
 
-type WhatsAppModelRow = {
-	name: string;
-	storage: string;
-	minCents: number;
-	maxCents: number;
-	colorsByKey: Map<string, string>;
-};
-
-/** Exibe valor em reais sem centavos (arredondado), ex.: 2700 → 2.700 */
-function centsToReaisInteiro(cents: number): string {
-	return Math.round(cents / 100).toLocaleString("pt-BR");
-}
-
-function buildWhatsAppModelRows(
-	list: ResaleDevice[],
-	getPriceCents: (d: ResaleDevice) => number | null | undefined,
-): WhatsAppModelRow[] {
-	const map = new Map<string, WhatsAppModelRow>();
-	for (const d of list) {
-		const price = getPriceCents(d) ?? 0;
-		if (price <= 0) continue;
-		const name = (d.device_name || "").trim() || "Aparelho";
-		const storageRaw = d.storage_gb ? `${String(d.storage_gb).trim()}gb` : "";
-		const storage = storageRaw.toLowerCase();
-		const key = `${name}|${storage}`;
-		const colorRaw = (d.color || "").trim();
-		const existing = map.get(key);
-		if (existing === undefined) {
-			const colorsByKey = new Map<string, string>();
-			if (colorRaw) colorsByKey.set(colorRaw.toLowerCase(), colorRaw);
-			map.set(key, {
-				name,
-				storage,
-				minCents: price,
-				maxCents: price,
-				colorsByKey,
-			});
-		} else {
-			existing.minCents = Math.min(existing.minCents, price);
-			existing.maxCents = Math.max(existing.maxCents, price);
-			if (colorRaw) {
-				const ck = colorRaw.toLowerCase();
-				if (!existing.colorsByKey.has(ck))
-					existing.colorsByKey.set(ck, colorRaw);
-			}
-		}
-	}
-	const entries = Array.from(map.values());
-	entries.sort((a, b) => {
-		const keyA = getModelSortKey(a.name);
-		const keyB = getModelSortKey(b.name);
-		if (keyA !== keyB) return keyA - keyB;
-		const storageA = Number.parseInt(a.storage.replace(/\D/g, ""), 10) || 0;
-		const storageB = Number.parseInt(b.storage.replace(/\D/g, ""), 10) || 0;
-		if (storageA !== storageB) return storageA - storageB;
-		return a.name.localeCompare(b.name);
-	});
-	return entries;
-}
-
-function formatWhatsAppDevicesBlock(rows: WhatsAppModelRow[]): string {
-	if (rows.length === 0) return "(Nenhum aparelho disponível)";
-	return rows
-		.map((e) => {
-			const colorLabels = [...e.colorsByKey.values()].sort((a, b) =>
-				a.localeCompare(b, "pt-BR", { sensitivity: "base" }),
-			);
-			const colorTokens =
-				colorLabels.length > 0
-					? ` · ${colorLabels
-							.map((label) => {
-								const emoji = getSeminovosColorEmoji(label);
-								return `\`${label} ${emoji}\``;
-							})
-							.join(" ")}`
-					: "";
-			const linha1 = e.storage
-				? `*${e.name}* \`${e.storage}\`${colorTokens}`
-				: `*${e.name}*${colorTokens}`;
-			const preco =
-				e.minCents === e.maxCents
-					? `R$ ${centsToReaisInteiro(e.minCents)}`
-					: `R$ ${centsToReaisInteiro(e.minCents)} ~ R$ ${centsToReaisInteiro(e.maxCents)}`;
-			return `${linha1}\n${preco}`;
-		})
-		.join("\n\n");
-}
-
 type SeminovosListClientProps = {
 	initialDevices: ResaleDeviceRow[];
 	initialStats: SeminovosStats;
@@ -444,24 +356,11 @@ export function SeminovosListClient({
 	const [costDescription, setCostDescription] = useState("");
 	const [costValue, setCostValue] = useState("");
 	const [isSavingCost, setIsSavingCost] = useState(false);
-	const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
-	const [whatsAppTab, setWhatsAppTab] = useState<"atacado" | "cliente">(
-		"atacado",
-	);
-	const [whatsAppTextAtacado, setWhatsAppTextAtacado] = useState("");
-	const [whatsAppTextCliente, setWhatsAppTextCliente] = useState("");
 	const [showPurchaseValue, setShowPurchaseValue] = useState(isAdmin);
 	const [showWholesaleValue, setShowWholesaleValue] = useState(true);
 	const [simulateModalTarget, setSimulateModalTarget] =
 		useState<ResaleDevice | null>(null);
 	const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
-	const [simulatePaymentMethodId, setSimulatePaymentMethodId] =
-		useState<string>("");
-	const [simulateInstallments, setSimulateInstallments] = useState<number>(1);
-	const [simulateValueSource, setSimulateValueSource] = useState<
-		"varejo" | "atacado" | "custom"
-	>("varejo");
-	const [simulateValue, setSimulateValue] = useState("");
 	const [soldDevices, setSoldDevices] = useState<ResaleDevice[]>([]);
 	const [soldCollapsibleOpen, setSoldCollapsibleOpen] = useState(false);
 	const [isLoadingSold, setIsLoadingSold] = useState(false);
@@ -976,100 +875,12 @@ export function SeminovosListClient({
 
 	function openSimulateModal(d: ResaleDevice) {
 		setSimulateModalTarget(d);
-		setSimulatePaymentMethodId("");
-		setSimulateInstallments(1);
-		const varejo = d.sale_value_cents ?? null;
-		const atacado = d.wholesale_value_cents ?? null;
-		const source =
-			varejo != null ? "varejo" : atacado != null ? "atacado" : "custom";
-		setSimulateValueSource(source);
-		setSimulateValue(
-			varejo != null
-				? centsToReais(varejo)
-				: atacado != null
-					? centsToReais(atacado)
-					: "",
-		);
 		loadPaymentMethods();
 	}
 
-	function getSimulateBaseValueCents(): number | null {
-		const d = simulateModalTarget;
-		if (!d) return null;
-		if (simulateValueSource === "varejo" && d.sale_value_cents != null)
-			return d.sale_value_cents;
-		if (simulateValueSource === "atacado" && d.wholesale_value_cents != null)
-			return d.wholesale_value_cents;
-		return moneyToCentsFromMasked(simulateValue);
-	}
-
-	function getSimulateResult(): {
-		receiveCents: number;
-		feePercent: number;
-		feeCents: number;
-		chargeCents: number;
-		installments?: number;
-		valuePerInstallmentCents?: number;
-	} | null {
-		const receiveCents = getSimulateBaseValueCents();
-		if (receiveCents == null || receiveCents <= 0) return null;
-		const pm = paymentMethods.find((p) => p.id === simulatePaymentMethodId);
-		if (!pm) return null;
-		return computeSimulatePaymentResult(
-			receiveCents,
-			pm,
-			simulateInstallments,
-		);
-	}
-
-	function openWhatsAppModal() {
-		const today = new Date();
-		const dateStr = `${String(today.getDate()).padStart(2, "0")}/${String(today.getMonth() + 1).padStart(2, "0")}`;
+	function buildWhatsAppTexts() {
 		const available = devices.filter((d) => !d.sold);
-		const atacadoEntries = buildWhatsAppModelRows(
-			available,
-			(d) => d.wholesale_value_cents,
-		);
-		const clienteEntries = buildWhatsAppModelRows(
-			available,
-			(d) => d.sale_value_cents,
-		);
-		const devicesBlockAtacado = formatWhatsAppDevicesBlock(atacadoEntries);
-		const devicesBlockCliente = formatWhatsAppDevicesBlock(clienteEntries);
-		const textAtacado = `🟢 CONECTIZE ATACADO 🟢
-📅 Estoque atualizado – ${dateStr}
-
-🚨 LIBERADO HOJE
-
-📦 MODELOS DISPONÍVEIS:
-
-${devicesBlockAtacado}
-
-🔒 Seminovos revisados
-✅ Garantia 90 dias
-⚠️ Reservas mediante pagamento integral do aparelho
-
-🚨 PROMOÇÃO ESPECIAL
-Comprando 3 iPhones
-💰 R$100 OFF no total
-
-📲 Garanta o seu no privado`;
-		const textCliente = `🔵 CONECTIZE 🔵
-📅 Estoque atualizado – ${dateStr}
-
-📱 APARELHOS DISPONÍVEIS:
-
-${devicesBlockCliente}
-
-🔒 Seminovos testados e com garantia
-✅ Garantia 90 dias
-⚠️ Reservas mediante pagamento integral do aparelho
-
-📲 Chame no privado e garanta o seu`;
-		setWhatsAppTextAtacado(textAtacado);
-		setWhatsAppTextCliente(textCliente);
-		setWhatsAppTab("atacado");
-		setShowWhatsAppModal(true);
+		return buildConectizeStockWhatsAppTexts(available);
 	}
 
 	async function handleConfirmCost() {
@@ -1251,7 +1062,7 @@ ${devicesBlockCliente}
 					return;
 				}
 				const gross = grossProfitBeforeCommissionCents(
-					transactionTotal,
+					paymentsSum,
 					purchaseCents,
 					baseOperationalTotal,
 					paymentFeeCents,
@@ -1396,46 +1207,17 @@ ${devicesBlockCliente}
 	async function handleCopyDeviceLojista(d: ResaleDevice) {
 		const text = buildCopyLojistaText(d);
 		if (!text) return;
-
-		try {
-			if (navigator?.clipboard?.writeText) {
-				await navigator.clipboard.writeText(text);
-				toast({
-					description: "Copiado para a área de transferência",
-					duration: 2000,
-				});
-			}
-		} catch {
-			// ignore clipboard errors
-		}
+		await copyTextWithPortalToast(text);
 	}
 
 	async function handleCopyDeviceCliente(d: ResaleDevice) {
 		const text = buildCopyClienteText(d);
 		if (!text) return;
-
-		try {
-			if (navigator?.clipboard?.writeText) {
-				await navigator.clipboard.writeText(text);
-				toast({
-					description: "Copiado para a área de transferência",
-					duration: 2000,
-				});
-			}
-		} catch {
-			// ignore clipboard errors
-		}
+		await copyTextWithPortalToast(text);
 	}
 
 	function handlePrintLabel(d: ResaleDevice) {
-		if (typeof window === "undefined") return;
-		const win = window.open("", "_blank", getLabelWindowFeatures());
-		if (!win) return;
-
-		const html = buildSeminovoLabelHtml(d);
-		win.document.open();
-		win.document.write(html);
-		win.document.close();
+		printResaleDeviceLabel(d);
 	}
 
 	return (
@@ -1514,16 +1296,10 @@ ${devicesBlockCliente}
 								>
 									Edição em massa
 								</Button>
-								<Button
-									type="button"
-									variant="outline"
-									size="icon"
+								<WhatsAppTextModalButton
+									buildTexts={buildWhatsAppTexts}
 									className="shrink-0 touch-manipulation"
-									onClick={openWhatsAppModal}
-									aria-label="Texto para WhatsApp"
-								>
-									<MessageCircle className="h-4 w-4" aria-hidden />
-								</Button>
+								/>
 								<Button variant="default" size="icon" className="shrink-0 touch-manipulation" asChild>
 									<Link href={novaDeviceHref} aria-label="Cadastrar aparelho">
 										<Plus className="h-4 w-4" aria-hidden />
@@ -1599,46 +1375,34 @@ ${devicesBlockCliente}
 																				<Receipt className="h-3.5 w-3.5 mr-1.5" />
 																				Adicionar custo
 																			</DropdownMenuItem>
-																			<DropdownMenuItem
-																				onClick={() =>
+																			<ResaleDeviceStandardActionItems
+																				device={device}
+																				onSimulate={() =>
 																					openSimulateModal(
 																						device as ResaleDevice,
 																					)
 																				}
-																			>
-																				<Calculator className="h-3.5 w-3.5 mr-1.5" />
-																				Simular
-																			</DropdownMenuItem>
-																			<DropdownMenuItem
-																				onClick={() =>
+																				onPrintLabel={() =>
 																					handlePrintLabel(
 																						device as ResaleDevice,
 																					)
 																				}
-																			>
-																				<Tag className="h-3.5 w-3.5 mr-1.5" />
-																				Imprimir etiqueta
-																			</DropdownMenuItem>
-																			<DropdownMenuItem
-																				onClick={() =>
-																					handleCopyDeviceLojista(
+																				onCopyLojista={() =>
+																					void handleCopyDeviceLojista(
 																						device as ResaleDevice,
 																					)
 																				}
-																			>
-																				<Store className="h-3.5 w-3.5 mr-1.5" />
-																				Copiar dados para lojista
-																			</DropdownMenuItem>
-																			<DropdownMenuItem
-																				onClick={() =>
-																					handleCopyDeviceCliente(
+																				onCopyCliente={() =>
+																					void handleCopyDeviceCliente(
 																						device as ResaleDevice,
 																					)
 																				}
-																			>
-																				<UserRound className="h-3.5 w-3.5 mr-1.5" />
-																				Copiar dados para cliente
-																			</DropdownMenuItem>
+																				onCopyImei={() =>
+																					void copyImeiWithPortalToast(
+																						device.imei,
+																					)
+																				}
+																			/>
 																			<DropdownMenuItem
 																				className="text-destructive focus:text-destructive"
 																				onClick={() =>
@@ -2403,38 +2167,26 @@ ${devicesBlockCliente}
 																							<Receipt className="h-3.5 w-3.5 mr-1.5" />
 																							Adicionar custo
 																						</DropdownMenuItem>
-																						<DropdownMenuItem
-																							onClick={() =>
+																						<ResaleDeviceStandardActionItems
+																							device={d}
+																							onSimulate={() =>
 																								openSimulateModal(d)
 																							}
-																						>
-																							<Calculator className="h-3.5 w-3.5 mr-1.5" />
-																							Simular
-																						</DropdownMenuItem>
-																						<DropdownMenuItem
-																							onClick={() =>
+																							onPrintLabel={() =>
 																								handlePrintLabel(d)
 																							}
-																						>
-																							<Tag className="h-3.5 w-3.5 mr-1.5" />
-																							Imprimir etiqueta
-																						</DropdownMenuItem>
-																						<DropdownMenuItem
-																							onClick={() =>
-																								handleCopyDeviceLojista(d)
+																							onCopyLojista={() =>
+																								void handleCopyDeviceLojista(d)
 																							}
-																						>
-																							<Store className="h-3.5 w-3.5 mr-1.5" />
-																							Copiar dados para lojista
-																						</DropdownMenuItem>
-																						<DropdownMenuItem
-																							onClick={() =>
-																								handleCopyDeviceCliente(d)
+																							onCopyCliente={() =>
+																								void handleCopyDeviceCliente(d)
 																							}
-																						>
-																							<UserRound className="h-3.5 w-3.5 mr-1.5" />
-																							Copiar dados para cliente
-																						</DropdownMenuItem>
+																							onCopyImei={() =>
+																								void copyImeiWithPortalToast(
+																									d.imei,
+																								)
+																							}
+																						/>
 																						<DropdownMenuItem
 																							className="text-destructive focus:text-destructive"
 																							onClick={() => setDeleteTarget(d)}
@@ -2557,34 +2309,26 @@ ${devicesBlockCliente}
 																	<Receipt className="h-3.5 w-3.5 mr-1.5" />
 																	Adicionar custo
 																</DropdownMenuItem>
-																<DropdownMenuItem
-																	onClick={() =>
+																<ResaleDeviceStandardActionItems
+																	device={device}
+																	includeSimulate={false}
+																	onPrintLabel={() =>
 																		handlePrintLabel(device as ResaleDevice)
 																	}
-																>
-																	<Tag className="h-3.5 w-3.5 mr-1.5" />
-																	Imprimir etiqueta
-																</DropdownMenuItem>
-																<DropdownMenuItem
-																	onClick={() =>
-																		handleCopyDeviceLojista(
+																	onCopyLojista={() =>
+																		void handleCopyDeviceLojista(
 																			device as ResaleDevice,
 																		)
 																	}
-																>
-																	<Store className="h-3.5 w-3.5 mr-1.5" />
-																	Copiar dados para lojista
-																</DropdownMenuItem>
-																<DropdownMenuItem
-																	onClick={() =>
-																		handleCopyDeviceCliente(
+																	onCopyCliente={() =>
+																		void handleCopyDeviceCliente(
 																			device as ResaleDevice,
 																		)
 																	}
-																>
-																	<UserRound className="h-3.5 w-3.5 mr-1.5" />
-																	Copiar dados para cliente
-																</DropdownMenuItem>
+																	onCopyImei={() =>
+																		void copyImeiWithPortalToast(device.imei)
+																	}
+																/>
 																<DropdownMenuItem
 																	className="text-destructive focus:text-destructive"
 																	onClick={() =>
@@ -2608,274 +2352,19 @@ ${devicesBlockCliente}
 				</Card>
 			</div>
 
-			<Dialog open={showWhatsAppModal} onOpenChange={setShowWhatsAppModal}>
-				<DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
-					<DialogHeader>
-						<DialogTitle>Texto WhatsApp</DialogTitle>
-						<DialogDescription>
-							Escolha a aba (atacado ou cliente final), edite se quiser e copie
-							para o WhatsApp.
-						</DialogDescription>
-					</DialogHeader>
-					<Tabs
-						value={whatsAppTab}
-						onValueChange={(v) => setWhatsAppTab(v as "atacado" | "cliente")}
-						className="flex min-h-0 flex-1 flex-col"
-					>
-						<TabsList className="grid w-full grid-cols-2 shrink-0">
-							<TabsTrigger value="atacado">Atacado</TabsTrigger>
-							<TabsTrigger value="cliente">Cliente final</TabsTrigger>
-						</TabsList>
-						<TabsContent
-							value="atacado"
-							className="mt-3 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden"
-						>
-							<Textarea
-								value={whatsAppTextAtacado}
-								onChange={(e) => setWhatsAppTextAtacado(e.target.value)}
-								placeholder="Texto para WhatsApp (atacado)..."
-								className="min-h-[280px] flex-1 resize-y font-mono text-sm"
-								dir="ltr"
-							/>
-						</TabsContent>
-						<TabsContent
-							value="cliente"
-							className="mt-3 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden"
-						>
-							<Textarea
-								value={whatsAppTextCliente}
-								onChange={(e) => setWhatsAppTextCliente(e.target.value)}
-								placeholder="Texto para WhatsApp (cliente final)..."
-								className="min-h-[280px] flex-1 resize-y font-mono text-sm"
-								dir="ltr"
-							/>
-						</TabsContent>
-					</Tabs>
-					<DialogFooter>
-						<Button
-							type="button"
-							variant="outline"
-							onClick={() => {
-								const text =
-									whatsAppTab === "atacado"
-										? whatsAppTextAtacado
-										: whatsAppTextCliente;
-								navigator?.clipboard
-									?.writeText(text)
-									.then(() => {
-										toast({
-											description: "Copiado para a área de transferência",
-											duration: 2000,
-										});
-									})
-									.catch(() => {});
-							}}
-						>
-							<Copy className="h-4 w-4 mr-2" />
-							Copiar
-						</Button>
-						<Button type="button" onClick={() => setShowWhatsAppModal(false)}>
-							Fechar
-						</Button>
-					</DialogFooter>
-				</DialogContent>
-			</Dialog>
-
-			<Dialog
-				open={!!simulateModalTarget}
-				onOpenChange={(open) => !open && setSimulateModalTarget(null)}
-			>
-				<DialogContent>
-					<DialogHeader>
-						<DialogTitle>Simular pagamento</DialogTitle>
-						<DialogDescription>
-							Informe o valor que deseja receber e a forma de pagamento. A taxa
-							é descontada do valor cobrado ao cliente.
-						</DialogDescription>
-					</DialogHeader>
-					<div className="grid gap-4 py-4">
-						{simulateModalTarget && (
-							<>
-								<div className="space-y-3">
-									<Label>Valor a receber</Label>
-									<RadioGroup
-										value={simulateValueSource}
-										onValueChange={(v: "varejo" | "atacado" | "custom") => {
-											setSimulateValueSource(v);
-											const d = simulateModalTarget;
-											if (!d) return;
-											if (v === "varejo" && d.sale_value_cents != null)
-												setSimulateValue(centsToReais(d.sale_value_cents));
-											else if (
-												v === "atacado" &&
-												d.wholesale_value_cents != null
-											)
-												setSimulateValue(centsToReais(d.wholesale_value_cents));
-											else if (v === "custom") setSimulateValue("");
-										}}
-										className="flex flex-col gap-2"
-									>
-										{simulateModalTarget.sale_value_cents != null && (
-											<div className="flex items-center space-x-2">
-												<RadioGroupItem value="varejo" id="sim-varejo" />
-												<Label
-													htmlFor="sim-varejo"
-													className="font-normal cursor-pointer"
-												>
-													Varejo – R${" "}
-													{centsToReais(simulateModalTarget.sale_value_cents)}
-												</Label>
-											</div>
-										)}
-										{simulateModalTarget.wholesale_value_cents != null && (
-											<div className="flex items-center space-x-2">
-												<RadioGroupItem value="atacado" id="sim-atacado" />
-												<Label
-													htmlFor="sim-atacado"
-													className="font-normal cursor-pointer"
-												>
-													Atacado – R${" "}
-													{centsToReais(
-														simulateModalTarget.wholesale_value_cents,
-													)}
-												</Label>
-											</div>
-										)}
-										<div className="flex items-center space-x-2">
-											<RadioGroupItem value="custom" id="sim-custom" />
-											<Label
-												htmlFor="sim-custom"
-												className="font-normal cursor-pointer"
-											>
-												Outro valor
-											</Label>
-										</div>
-									</RadioGroup>
-									{(simulateValueSource === "custom" ||
-										(simulateValueSource === "varejo" &&
-											simulateModalTarget.sale_value_cents == null) ||
-										(simulateValueSource === "atacado" &&
-											simulateModalTarget.wholesale_value_cents == null)) && (
-										<Input
-											value={simulateValue}
-											onChange={(e) =>
-												setSimulateValue(formatMoneyInput(e.target.value))
-											}
-											placeholder="0,00"
-											className="mt-1"
-										/>
-									)}
-								</div>
-								<div className="space-y-2">
-									<Label>Forma de pagamento</Label>
-									<Select
-										value={simulatePaymentMethodId}
-										onValueChange={(v) => {
-											setSimulatePaymentMethodId(v);
-											setSimulateInstallments(1);
-										}}
-									>
-										<SelectTrigger>
-											<SelectValue placeholder="Selecione..." />
-										</SelectTrigger>
-										<SelectContent>
-											{paymentMethods.map((pm) => (
-												<SelectItem key={pm.id} value={pm.id}>
-													{pm.description}
-												</SelectItem>
-											))}
-										</SelectContent>
-									</Select>
-								</div>
-								{simulatePaymentMethodId &&
-									(() => {
-										const pm = paymentMethods.find(
-											(p) => p.id === simulatePaymentMethodId,
-										);
-										if (pm?.type === "credito") {
-											const fees = Array.isArray(pm.credit_installment_fees)
-												? pm.credit_installment_fees
-												: [];
-											const maxInstallments =
-												fees.length > 0
-													? Math.max(...fees.map((f) => f.installments))
-													: 12;
-											return (
-												<div className="space-y-2">
-													<Label>Parcelas</Label>
-													<Select
-														value={String(simulateInstallments)}
-														onValueChange={(v) =>
-															setSimulateInstallments(parseInt(v, 10) || 1)
-														}
-													>
-														<SelectTrigger>
-															<SelectValue />
-														</SelectTrigger>
-														<SelectContent>
-															{Array.from(
-																{ length: maxInstallments },
-																(_, i) => i + 1,
-															).map((n) => (
-																<SelectItem key={n} value={String(n)}>
-																	{n}x
-																</SelectItem>
-															))}
-														</SelectContent>
-													</Select>
-												</div>
-											);
-										}
-										return null;
-									})()}
-								{getSimulateResult() && (
-									<div className="rounded-lg border bg-muted/50 px-4 py-3 space-y-2">
-										<p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-											Resultado
-										</p>
-										{(() => {
-											const r = getSimulateResult()!;
-											return (
-												<>
-													<p className="text-sm">
-														Valor a receber: R$ {centsToReais(r.receiveCents)}
-													</p>
-													<p className="text-sm">
-														Valor que preciso cobrar: R${" "}
-														{centsToReais(r.chargeCents)}
-													</p>
-													{r.installments != null &&
-														r.valuePerInstallmentCents != null && (
-															<p className="text-sm">
-																Valor da parcela: R${" "}
-																{centsToReais(r.valuePerInstallmentCents)}
-															</p>
-														)}
-													{r.feePercent > 0 && (
-														<>
-															<p className="text-sm">
-																Valor do juros: R$ {centsToReais(r.feeCents)}
-															</p>
-															<p className="text-sm">
-																Percentual: {r.feePercent.toFixed(2)}%
-															</p>
-														</>
-													)}
-												</>
-											);
-										})()}
-									</div>
-								)}
-							</>
-						)}
-					</div>
-					<DialogFooter>
-						<Button type="button" onClick={() => setSimulateModalTarget(null)}>
-							Fechar
-						</Button>
-					</DialogFooter>
-				</DialogContent>
-			</Dialog>
+			<ResaleSimulatePaymentDialog
+				device={
+					simulateModalTarget
+						? {
+								sale_value_cents: simulateModalTarget.sale_value_cents,
+								wholesale_value_cents:
+									simulateModalTarget.wholesale_value_cents,
+							}
+						: null
+				}
+				paymentMethods={paymentMethods}
+				onClose={() => setSimulateModalTarget(null)}
+			/>
 			<ResaleDeviceTermsDialog
 				open={showTermsDialog}
 				onOpenChange={setShowTermsDialog}

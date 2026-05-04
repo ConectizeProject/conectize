@@ -67,7 +67,9 @@ export default async function CadastroClientePage ({
                 {err === 'google_oauth' && 'Não foi possível iniciar o cadastro com Google. Tente novamente.'}
                 {err === 'documento_invalido' && 'Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido.'}
                 {err === 'config' && 'Serviço indisponível. Tente mais tarde.'}
-                {!['os_invalida', 'email_em_uso', 'dados_invalidos', 'senhas_nao_conferem', 'google_oauth', 'documento_invalido', 'config'].includes(String(err)) &&
+                {err === 'cadastro_falhou' &&
+                  'Não foi possível finalizar o vínculo com a assistência. Tente novamente em instantes.'}
+                {!['os_invalida', 'email_em_uso', 'dados_invalidos', 'senhas_nao_conferem', 'google_oauth', 'documento_invalido', 'config', 'cadastro_falhou'].includes(String(err)) &&
                   'Não foi possível concluir o cadastro.'}
               </p>
             ) : null}

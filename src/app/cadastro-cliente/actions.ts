@@ -1,6 +1,7 @@
 'use server'
 
 import { redirect } from 'next/navigation'
+import { stripAutoHostOrganizationMembership } from '@/lib/organizations/strip-auto-host-membership'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { onlyDigits } from '@/lib/utils/strings'
 
@@ -75,7 +76,7 @@ export async function registerCustomerFromOsLinkAction (formData: FormData) {
     })
     .eq('id', userId)
 
-  await svc.from('organization_members').upsert(
+  const { error: memberErr } = await svc.from('organization_members').upsert(
     {
       organization_id: organizationId,
       user_id: userId,
@@ -84,10 +85,26 @@ export async function registerCustomerFromOsLinkAction (formData: FormData) {
     { onConflict: 'organization_id,user_id' },
   )
 
-  await svc.from('user_portal_context').upsert({
+  if (memberErr) {
+    await svc.auth.admin.deleteUser(userId)
+    redirect(`/cadastro-cliente?org=${encodeURIComponent(orgSlug)}&ref_os=${encodeURIComponent(refOs)}&error=cadastro_falhou`)
+  }
+
+  const stripErr = await stripAutoHostOrganizationMembership(svc, userId)
+  if (stripErr) {
+    await svc.auth.admin.deleteUser(userId)
+    redirect(`/cadastro-cliente?org=${encodeURIComponent(orgSlug)}&ref_os=${encodeURIComponent(refOs)}&error=cadastro_falhou`)
+  }
+
+  const { error: portalErr } = await svc.from('user_portal_context').upsert({
     user_id: userId,
     active_organization_id: organizationId,
   })
+
+  if (portalErr) {
+    await svc.auth.admin.deleteUser(userId)
+    redirect(`/cadastro-cliente?org=${encodeURIComponent(orgSlug)}&ref_os=${encodeURIComponent(refOs)}&error=cadastro_falhou`)
+  }
 
   const cpf = document.length === 11 ? document : null
   const cnpj = document.length === 14 ? document : null

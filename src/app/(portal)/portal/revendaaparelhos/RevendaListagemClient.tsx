@@ -1,16 +1,29 @@
 'use client'
 
+import { ResaleDeviceQuickActionsDropdown } from '@/components/resale/ResaleDeviceQuickActionsDropdown'
+import { ResaleSimulatePaymentDialog } from '@/components/resale/ResaleSimulatePaymentDialog'
 import { Card, CardContent } from '@/components/ui/card'
+import { WhatsAppTextModalButton } from '@/components/whatsapp-text-modal'
 import { getInstallmentRowForCount } from '@/lib/resale/credit-installment-max-fee'
 import { revendaPath } from '@/lib/revenda/revenda-paths'
 import { getSeminovosColorEmoji } from '@/lib/seminovos/colors'
 import type { ResaleDeviceRow } from '@/lib/seminovos/fetch-seminovos-data'
 import { groupDevicesByModel } from '@/lib/seminovos/group-devices-by-model'
+import {
+  copyImeiWithPortalToast,
+  copyTextWithPortalToast,
+  printResaleDeviceLabel,
+} from '@/lib/seminovos/resale-portal-clipboard'
+import {
+  buildCopyClienteText,
+  buildCopyLojistaText,
+} from '@/lib/seminovos/seminovos-device-actions'
+import { buildConectizeStockWhatsAppTexts } from '@/lib/seminovos/whatsapp-stock-broadcast-text'
 import { cn } from '@/lib/utils'
 import { maskedFromCents } from '@/lib/utils/money'
 import { Smartphone } from 'lucide-react'
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { SeminovosFilterCollapsible } from '../seminovos/SeminovosFilterCollapsible'
 
 type PaymentMethod = {
@@ -43,6 +56,8 @@ type Props = {
   distinctDeviceNames: string[]
 }
 
+type CatalogDeviceRow = Props['devices'][number]
+
 const noop = () => {}
 
 function formatStorageLabel (raw: string | null | undefined): string | null {
@@ -59,42 +74,76 @@ export function RevendaListagemClient ({
   distinctDeviceNames,
 }: Props) {
   const [priceMode, setPriceMode] = useState<'varejo' | 'atacado'>('varejo')
+  const [simulateDevice, setSimulateDevice] = useState<CatalogDeviceRow | null>(
+    null,
+  )
 
   const orderedDevices = useMemo(
     () => groupDevicesByModel(devices).flatMap((g) => g.devices),
     [devices],
   )
 
+  const buildWhatsAppTexts = useCallback(() => {
+    const available = orderedDevices.filter((d) => !d.sold)
+    return buildConectizeStockWhatsAppTexts(available)
+  }, [orderedDevices])
+
+  const openSimulateForDevice = useCallback((d: CatalogDeviceRow) => {
+    setSimulateDevice(d)
+  }, [])
+
+  const handleCatalogPrintLabel = useCallback((d: CatalogDeviceRow) => {
+    printResaleDeviceLabel(d)
+  }, [])
+
+  const handleCatalogCopyLojista = useCallback(async (d: CatalogDeviceRow) => {
+    await copyTextWithPortalToast(buildCopyLojistaText(d))
+  }, [])
+
+  const handleCatalogCopyCliente = useCallback(async (d: CatalogDeviceRow) => {
+    await copyTextWithPortalToast(buildCopyClienteText(d))
+  }, [])
+
+  const handleCatalogCopyImei = useCallback(async (d: CatalogDeviceRow) => {
+    await copyImeiWithPortalToast(d.imei)
+  }, [])
+
   const priceToggle = (
-    <div
-      role="group"
-      aria-label="Modo de preço"
-      className="inline-flex h-10 shrink-0 items-center gap-0.5 rounded-md border border-border bg-muted/50 p-0.5"
-    >
-      <button
-        type="button"
-        className={cn(
-          'h-9 min-w-[4.5rem] rounded px-3 text-sm font-semibold transition-colors',
-          priceMode === 'varejo'
-            ? 'bg-primary text-primary-foreground shadow'
-            : 'text-muted-foreground hover:bg-muted',
-        )}
-        onClick={() => setPriceMode('varejo')}
+    <div className="flex items-center gap-2">
+      <div
+        role="group"
+        aria-label="Modo de preço"
+        className="inline-flex h-10 shrink-0 items-center gap-0.5 rounded-md border border-border bg-muted/50 p-0.5"
       >
-        Varejo
-      </button>
-      <button
-        type="button"
-        className={cn(
-          'h-9 min-w-[4.5rem] rounded px-3 text-sm font-semibold transition-colors',
-          priceMode === 'atacado'
-            ? 'bg-primary text-primary-foreground shadow'
-            : 'text-muted-foreground hover:bg-muted',
-        )}
-        onClick={() => setPriceMode('atacado')}
-      >
-        Atacado
-      </button>
+        <button
+          type="button"
+          className={cn(
+            'h-9 min-w-[4.5rem] rounded px-3 text-sm font-semibold transition-colors',
+            priceMode === 'varejo'
+              ? 'bg-primary text-primary-foreground shadow'
+              : 'text-muted-foreground hover:bg-muted',
+          )}
+          onClick={() => setPriceMode('varejo')}
+        >
+          Varejo
+        </button>
+        <button
+          type="button"
+          className={cn(
+            'h-9 min-w-[4.5rem] rounded px-3 text-sm font-semibold transition-colors',
+            priceMode === 'atacado'
+              ? 'bg-primary text-primary-foreground shadow'
+              : 'text-muted-foreground hover:bg-muted',
+          )}
+          onClick={() => setPriceMode('atacado')}
+        >
+          Atacado
+        </button>
+      </div>
+      <WhatsAppTextModalButton
+        buildTexts={buildWhatsAppTexts}
+        className="h-10 w-10 shrink-0 touch-manipulation"
+      />
     </div>
   )
 
@@ -175,8 +224,11 @@ export function RevendaListagemClient ({
             const priceHint = 'Cadastre valores de venda'
 
             return (
-              <Link
+              <div
                 key={d.id}
+                className="group/card relative h-full"
+              >
+              <Link
                 href={revendaPath.vitrine(d.id)}
                 className="group block h-full rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
@@ -251,10 +303,39 @@ export function RevendaListagemClient ({
                   </CardContent>
                 </Card>
               </Link>
+              <div
+                className="absolute right-2 top-2 z-[5] opacity-0 pointer-events-none transition-opacity duration-200 [@media(hover:none)]:opacity-100 [@media(hover:none)]:pointer-events-auto group-hover/card:opacity-100 group-hover/card:pointer-events-auto group-focus-within/card:opacity-100 group-focus-within/card:pointer-events-auto"
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                }}
+              >
+                <ResaleDeviceQuickActionsDropdown
+                  device={d}
+                  onSimulate={() => openSimulateForDevice(d)}
+                  onPrintLabel={() => handleCatalogPrintLabel(d)}
+                  onCopyLojista={() => void handleCatalogCopyLojista(d)}
+                  onCopyCliente={() => void handleCatalogCopyCliente(d)}
+                  onCopyImei={() => void handleCatalogCopyImei(d)}
+                />
+              </div>
+              </div>
             )
           })}
         </div>
       )}
+      <ResaleSimulatePaymentDialog
+        device={
+          simulateDevice
+            ? {
+                sale_value_cents: simulateDevice.sale_value_cents,
+                wholesale_value_cents: simulateDevice.wholesale_value_cents,
+              }
+            : null
+        }
+        paymentMethods={paymentMethods}
+        onClose={() => setSimulateDevice(null)}
+      />
     </div>
   )
 }

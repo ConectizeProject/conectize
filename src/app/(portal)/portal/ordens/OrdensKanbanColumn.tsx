@@ -1,9 +1,9 @@
 'use client'
 
-import { memo, useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { UIEvent } from 'react'
 import { useDroppable } from '@dnd-kit/core'
-import { Loader2 } from 'lucide-react'
+import { ChevronLeft, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { getOrderStatusLabel } from '@/lib/orders/order-status'
@@ -95,6 +95,38 @@ export const OrdensKanbanColumn = memo(function OrdensKanbanColumn ({
   const scrollRootRef = useRef<HTMLDivElement>(null)
   const [listOverflows, setListOverflows] = useState(false)
   const lastScrollLoadAtRef = useRef(0)
+  const prevOrderCountRef = useRef<number | null>(null)
+
+  const isEmptyContent = orders.length === 0 && !columnLoading
+  const [manuallyExpanded, setManuallyExpanded] = useState(false)
+
+  useEffect(() => {
+    const prev = prevOrderCountRef.current
+    prevOrderCountRef.current = orders.length
+    if (isFinalColumn) {
+      if (prev != null && prev > 0 && orders.length === 0) {
+        setManuallyExpanded(false)
+      }
+      return
+    }
+    if (orders.length > 0) {
+      setManuallyExpanded(false)
+      return
+    }
+    if (prev != null && prev > 0 && orders.length === 0) {
+      setManuallyExpanded(false)
+    }
+  }, [orders.length, isFinalColumn])
+
+  /**
+   * Faixa estreita: colunas de pipeline vazias, ou colunas finais (sempre fechadas por padrão).
+   * Durante arraste todas abrem (`dragActiveId`); ao soltar volta o estado local.
+   */
+  const showCollapsedStrip =
+    !dragActiveId &&
+    !manuallyExpanded &&
+    !columnLoading &&
+    (isFinalColumn || isEmptyContent)
 
   useLayoutEffect(() => {
     const el = scrollRootRef.current
@@ -135,6 +167,33 @@ export const OrdensKanbanColumn = memo(function OrdensKanbanColumn ({
   const showManualLoadMore =
     isFinalColumn && hasMore && onRequestLoadMore && !listOverflows
 
+  if (showCollapsedStrip) {
+    return (
+      <div
+        ref={setNodeRef}
+        className="flex h-full min-h-0 w-12 shrink-0 flex-col rounded-xl border bg-muted/40"
+        role="region"
+        aria-label={`Coluna ${label} (recolhida)`}
+      >
+        <button
+          type="button"
+          className="flex min-h-[120px] flex-1 flex-col items-center justify-start gap-0 pt-3 pb-4 hover:bg-muted/50"
+          onClick={() => setManuallyExpanded(true)}
+          aria-expanded={false}
+          aria-label={`Abrir coluna ${label}`}
+        >
+          <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', dotClass)} aria-hidden />
+          <span
+            className="mt-2 max-h-[min(42vh,14rem)] min-h-0 shrink overflow-hidden text-center text-[10px] font-medium leading-tight text-muted-foreground [text-orientation:mixed] [writing-mode:vertical-rl]"
+            title={label}
+          >
+            {label}
+          </span>
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div
       ref={setNodeRef}
@@ -143,11 +202,24 @@ export const OrdensKanbanColumn = memo(function OrdensKanbanColumn ({
       aria-label={`Coluna ${label}`}
     >
       <div className="flex shrink-0 items-center gap-2 border-b bg-muted/60 px-3 py-2.5">
+        {isFinalColumn || isEmptyContent ? (
+          <button
+            type="button"
+            className="flex shrink-0 items-center justify-center rounded-md p-1 text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+            onClick={() => setManuallyExpanded(false)}
+            aria-label={`Recolher coluna ${label}`}
+            title="Recolher coluna"
+          >
+            <ChevronLeft className="h-4 w-4" aria-hidden />
+          </button>
+        ) : null}
         <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', dotClass)} aria-hidden />
         <span className="min-w-0 truncate text-sm font-medium">{label}</span>
-        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">
-          {orders.length}
-        </span>
+        {!isFinalColumn ? (
+          <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">
+            {orders.length}
+          </span>
+        ) : null}
       </div>
       <div
         ref={scrollRootRef}

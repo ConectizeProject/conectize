@@ -1032,7 +1032,7 @@ export function SeminovosFormClient ({
           return
         }
         const gross = grossProfitBeforeCommissionCents(
-          transactionTotal,
+          paymentsSum,
           purchaseCents,
           baseOperationalTotal,
           paymentFeeCents

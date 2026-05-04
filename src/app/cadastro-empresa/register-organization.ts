@@ -1,6 +1,7 @@
 import 'server-only'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { CONECTIZE_HOST_ORGANIZATION_ID } from '@/lib/organizations/constants'
+import { stripAutoHostOrganizationMembership } from '@/lib/organizations/strip-auto-host-membership'
 import { onlyDigits } from '@/lib/utils/strings'
 
 export type RegisterOrganizationPayload = {
@@ -167,16 +168,37 @@ export async function registerOrganization (payload: RegisterOrganizationPayload
 
   const organizationId = String(orgRow.id)
 
-  await svc.from('organization_members').insert({
+  const { error: memberErr } = await svc.from('organization_members').insert({
     organization_id: organizationId,
     user_id: userId,
     role_in_org: 'admin',
   })
 
-  await svc.from('user_portal_context').upsert({
+  if (memberErr) {
+    await svc.from('organizations').delete().eq('id', organizationId)
+    await svc.auth.admin.deleteUser(userId)
+    return { ok: false, error: 'org_falhou' }
+  }
+
+  const stripErr = await stripAutoHostOrganizationMembership(svc, userId)
+  if (stripErr) {
+    await svc.from('organization_members').delete().eq('organization_id', organizationId).eq('user_id', userId)
+    await svc.from('organizations').delete().eq('id', organizationId)
+    await svc.auth.admin.deleteUser(userId)
+    return { ok: false, error: 'org_falhou' }
+  }
+
+  const { error: portalErr } = await svc.from('user_portal_context').upsert({
     user_id: userId,
     active_organization_id: organizationId,
   })
+
+  if (portalErr) {
+    await svc.from('organization_members').delete().eq('organization_id', organizationId).eq('user_id', userId)
+    await svc.from('organizations').delete().eq('id', organizationId)
+    await svc.auth.admin.deleteUser(userId)
+    return { ok: false, error: 'org_falhou' }
+  }
 
   const { data: templatePayments } = await svc
     .from('payment_methods')

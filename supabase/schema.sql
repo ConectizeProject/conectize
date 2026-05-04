@@ -164,11 +164,23 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  v_host uuid := 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'::uuid;
 begin
   insert into public.users (id, email, role)
   values (new.id, new.email, 'user')
   on conflict (id)
   do update set email = excluded.email;
+
+  -- Cadastro direto no /portal/cadastro deve nascer vinculado à Conectize.
+  insert into public.organization_members (organization_id, user_id, role_in_org)
+  values (v_host, new.id, 'user')
+  on conflict (organization_id, user_id) do nothing;
+
+  insert into public.user_portal_context (user_id, active_organization_id)
+  values (new.id, v_host)
+  on conflict (user_id) do update
+    set active_organization_id = coalesce(public.user_portal_context.active_organization_id, excluded.active_organization_id);
 
   return new;
 end;

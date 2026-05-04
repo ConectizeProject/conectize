@@ -321,8 +321,9 @@ export type UpdateOrderStatusActionResult =
 				| 'invalid_status'
 				| 'not_found'
 				| 'db_error'
-				| 'exit_considerations_incomplete'
-				| 'warranty_terms_missing'
+				| 'finalize_blockers'
+			exitIncomplete?: boolean
+			warrantyMissing?: boolean
 	  }
 
 /**
@@ -375,11 +376,13 @@ export async function updateOrderStatusAction (
 
 	if (applied.ok) return { ok: true }
 	if (applied.ok === false) {
-		if (applied.error === 'exit_considerations_incomplete') {
-			return { ok: false, error: 'exit_considerations_incomplete' }
-		}
-		if (applied.error === 'warranty_terms_missing') {
-			return { ok: false, error: 'warranty_terms_missing' }
+		if (applied.error === 'finalize_blockers') {
+			return {
+				ok: false,
+				error: 'finalize_blockers',
+				exitIncomplete: applied.exitIncomplete,
+				warrantyMissing: applied.warrantyMissing,
+			}
 		}
 		if (applied.error === 'not_found') {
 			return { ok: false, error: 'not_found' }

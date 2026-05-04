@@ -15,12 +15,13 @@ export type ApplyOrderStatusChangeResult =
   | { ok: true }
   | {
       ok: false
-      error:
-        | 'invalid_status'
-        | 'not_found'
-        | 'db_error'
-        | 'exit_considerations_incomplete'
-        | 'warranty_terms_missing'
+      error: 'finalize_blockers'
+      exitIncomplete: boolean
+      warrantyMissing: boolean
+    }
+  | {
+      ok: false
+      error: 'invalid_status' | 'not_found' | 'db_error'
     }
 
 /**
@@ -69,44 +70,49 @@ export async function applyOrderStatusChange (
 
   const previousStatus = String(existing.status || '')
 
-  if (
-    !skipExitConsiderationsCheck &&
+  const needsFinalizeChecks =
     shouldRequireExitConsiderationsOnStatusChange(previousStatus, nextStatus)
-  ) {
-    const { count: exitPhotoCount, error: exitCountErr } = await supabase
-      .from('service_order_exit_photos')
-      .select('*', { count: 'exact', head: true })
-      .eq('service_order_id', orderId)
 
-    if (exitCountErr) {
-      console.error('[applyOrderStatusChange exit photos count]', exitCountErr)
-      return { ok: false, error: 'db_error' }
+  if (needsFinalizeChecks) {
+    let exitPhotoCount = 0
+    if (!skipExitConsiderationsCheck) {
+      const { count, error: exitCountErr } = await supabase
+        .from('service_order_exit_photos')
+        .select('*', { count: 'exact', head: true })
+        .eq('service_order_id', orderId)
+
+      if (exitCountErr) {
+        console.error('[applyOrderStatusChange exit photos count]', exitCountErr)
+        return { ok: false, error: 'db_error' }
+      }
+      exitPhotoCount = count ?? 0
     }
 
-    const exitEmpty = isExitConsiderationsEmpty(
-      (existing as { device_exit_checks?: unknown }).device_exit_checks,
-      exitPhotoCount ?? 0,
-    )
-    if (exitEmpty) {
-      return { ok: false, error: 'exit_considerations_incomplete' }
-    }
-  }
+    const exitIncomplete =
+      !skipExitConsiderationsCheck &&
+      isExitConsiderationsEmpty(
+        (existing as { device_exit_checks?: unknown }).device_exit_checks,
+        exitPhotoCount,
+      )
 
-  if (
-    !skipWarrantyTermsCheck &&
-    shouldRequireExitConsiderationsOnStatusChange(previousStatus, nextStatus)
-  ) {
     const row = existing as {
       warranty_template_id?: string | null
       warranty_text?: string | null
     }
-    if (
+    const warrantyMissing =
+      !skipWarrantyTermsCheck &&
       isOrderWarrantyTermsUnset({
         warranty_template_id: row.warranty_template_id,
         warranty_text: row.warranty_text,
       })
-    ) {
-      return { ok: false, error: 'warranty_terms_missing' }
+
+    if (exitIncomplete || warrantyMissing) {
+      return {
+        ok: false,
+        error: 'finalize_blockers',
+        exitIncomplete,
+        warrantyMissing,
+      }
     }
   }
 

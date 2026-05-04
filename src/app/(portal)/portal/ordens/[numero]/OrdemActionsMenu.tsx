@@ -178,15 +178,12 @@ export function OrdemActionsMenu({
       }
       const result = await updateOrderStatusAction(fd)
       if (result.ok === false) {
-        if (result.error === 'exit_considerations_incomplete') {
+        if (result.error === 'finalize_blockers') {
           setPendingFinalizeStatus(newStatus)
-          setFinalizeBlockers({ exit: true, warranty: false })
-          setExitConsiderationsOpen(true)
-          return
-        }
-        if (result.error === 'warranty_terms_missing') {
-          setPendingFinalizeStatus(newStatus)
-          setFinalizeBlockers({ exit: false, warranty: true })
+          setFinalizeBlockers({
+            exit: result.exitIncomplete === true,
+            warranty: result.warrantyMissing === true,
+          })
           setExitConsiderationsOpen(true)
           return
         }
@@ -339,28 +336,28 @@ export function OrdemActionsMenu({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              {finalizeBlockers?.exit && finalizeBlockers?.warranty
-                ? 'Antes de finalizar'
-                : finalizeBlockers?.warranty
-                  ? 'Sem termos de garantia'
-                  : 'Considerações da assistência não preenchidas'}
-            </AlertDialogTitle>
+            <AlertDialogTitle>Antes de finalizar</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-3 text-sm text-muted-foreground">
-                {finalizeBlockers?.exit ? (
-                  <p>
-                    Não há checklist de saída nem fotos de saída registrados nesta OS. Em geral
-                    isso ajuda a comparar o aparelho na entrega com o recebimento.
-                  </p>
-                ) : null}
-                {finalizeBlockers?.warranty ? (
-                  <p>
-                    Não há modelo nem texto de garantia nesta ordem. Na impressão e no link
-                    público não será exibido termo de garantia para o cliente. Deseja finalizar
-                    assim mesmo?
-                  </p>
-                ) : null}
+                <p>
+                  {(finalizeBlockers?.exit && finalizeBlockers?.warranty)
+                    ? 'Há pendências nesta ordem. Confira abaixo e confirme se deseja finalizar assim mesmo.'
+                    : 'Há uma pendência nesta ordem. Confira abaixo e confirme se deseja finalizar assim mesmo.'}
+                </p>
+                <ul className="list-disc space-y-2 pl-5 text-foreground">
+                  {finalizeBlockers?.exit ? (
+                    <li>
+                      Considerações de saída incompletas (checklist de saída e/ou fotos de saída
+                      não registrados).
+                    </li>
+                  ) : null}
+                  {finalizeBlockers?.warranty ? (
+                    <li>
+                      Termos de garantia não definidos (sem modelo nem texto de garantia na ordem
+                      — impressão e link público ficarão sem termo para o cliente).
+                    </li>
+                  ) : null}
+                </ul>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
