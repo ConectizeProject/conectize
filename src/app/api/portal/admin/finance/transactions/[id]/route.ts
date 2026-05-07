@@ -10,7 +10,7 @@ async function loadEditableTransaction (
 ) {
   const { data, error } = await supabase
     .from('financial_transactions')
-    .select('id, amount_cents, service_order_id, resale_device_id, transfer_id')
+    .select('id, amount_cents, service_order_id, resale_device_id, transfer_id, description')
     .eq('id', id)
     .eq('organization_id', organizationId)
     .maybeSingle()
@@ -22,8 +22,10 @@ async function loadEditableTransaction (
     service_order_id?: string | null
     resale_device_id?: string | null
     transfer_id?: string | null
+    description?: string | null
   }
-  if (row.service_order_id || row.resale_device_id || row.transfer_id) {
+  const isPdvFinancial = /^PDV:[0-9a-fA-F-]{36}:/.test(String(row.description || ''))
+  if (row.service_order_id || row.resale_device_id || row.transfer_id || isPdvFinancial) {
     return { ok: false as const, error: 'not_editable' as const }
   }
   return { ok: true as const, row }

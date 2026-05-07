@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { syncPdvSaleFinancialTransactions } from '@/lib/finance/service-order-financial-sync'
 
 type SaleItemInput = {
   product_id: string
@@ -278,39 +279,6 @@ export async function finalizeSale (auth: AuthCtx, saleId: string) {
     if (movError) return { ok: false as const, error: 'db_error' as const }
   }
 
-  const paymentMethodIds = saleData.payments.map((p) => p.payment_method_id).filter(Boolean)
-  let contaByMethod = new Map<string, string>()
-  if (paymentMethodIds.length > 0) {
-    const { data: methods } = await auth.supabase
-      .from('payment_methods')
-      .select('id, conta_id')
-      .eq('organization_id', auth.organizationId)
-      .in('id', paymentMethodIds)
-    contaByMethod = new Map(
-      (methods ?? [])
-        .filter((m) => m.conta_id)
-        .map((m) => [String(m.id), String(m.conta_id)]),
-    )
-  }
-
-  for (const payment of saleData.payments) {
-    const contaId = payment.payment_method_id ? contaByMethod.get(String(payment.payment_method_id)) : null
-    const value = toInt(payment.amount_cents, 0)
-    if (!contaId || value <= 0) continue
-
-    const { error: finError } = await auth.supabase
-      .from('financial_transactions')
-      .insert({
-        organization_id: auth.organizationId,
-        conta_id: contaId,
-        amount_cents: value,
-        type: 'entrada',
-        description: `Venda PDV #${saleData.sale.sale_number ?? ''}`.trim(),
-        occurred_at: new Date().toISOString().slice(0, 10),
-      })
-    if (finError) return { ok: false as const, error: 'db_error' as const }
-  }
-
   const { error: updError } = await auth.supabase
     .from('pos_sales')
     .update({
@@ -323,5 +291,14 @@ export async function finalizeSale (auth: AuthCtx, saleId: string) {
     .eq('id', saleId)
 
   if (updError) return { ok: false as const, error: 'db_error' as const }
+  try {
+    await syncPdvSaleFinancialTransactions({
+      supabase: auth.supabase,
+      organizationId: auth.organizationId,
+      saleId: saleId,
+    })
+  } catch {
+    return { ok: false as const, error: 'db_error' as const }
+  }
   return { ok: true as const, sale: { ...saleData.sale, status: 'paid', paid_amount_cents: paidAmount, change_cents: change } }
 }

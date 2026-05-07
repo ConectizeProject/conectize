@@ -15,6 +15,7 @@ import {
 	isValidOrderStatus,
 } from '@/lib/orders/order-status'
 import { applyOrderStatusStockTransition } from '@/lib/orders/stock-by-status'
+import { syncServiceOrderFinancialTransactions } from '@/lib/finance/service-order-financial-sync'
 import {
 	createSupabaseServerClient,
 	getPortalAuth,
@@ -42,6 +43,7 @@ export async function updateOrderAction (formData: FormData) {
 		formData.get('passcodePattern') || '',
 	).trim()
 	const paymentMethodsJson = formData.get('paymentMethodsJson')
+	const paymentMethods = parsePaymentMethodsJson(paymentMethodsJson)
 	const customerDescription = String(
 		formData.get('customerDescription') || '',
 	).trim()
@@ -122,7 +124,7 @@ export async function updateOrderAction (formData: FormData) {
 				warranty_template_id, warranty_text, device_model_id, brand, model,
 				services_total_cents, services_cost_total_cents,
 				device_entry_checks, device_exit_checks, seller_user_id, closed_at,
-				created_at`,
+				created_at, organization_id`,
 		)
 		.eq('id', formOrderId)
 		.maybeSingle()
@@ -201,7 +203,7 @@ export async function updateOrderAction (formData: FormData) {
 		passcode_text: passcodeType === 'text' ? passcodeText || null : null,
 		passcode_pattern:
 			passcodeType === 'pattern' ? passcodePattern || null : null,
-		payment_methods: parsePaymentMethodsJson(paymentMethodsJson),
+		payment_methods: paymentMethods,
 		customer_description: customerDescription || null,
 		receiving_notes: receivingNotes || null,
 		warranty_template_id: warrantyTemplateId,
@@ -305,6 +307,25 @@ export async function updateOrderAction (formData: FormData) {
 		})
 	} catch (err) {
 		console.error('[order-save stock]', err)
+	}
+
+	try {
+		await syncServiceOrderFinancialTransactions({
+			supabase,
+			orderId: formOrderId,
+			organizationId: String(existing.organization_id),
+			orderRow: {
+				id: formOrderId,
+				organization_id: String(existing.organization_id),
+				display_number: existing.display_number ?? null,
+				payment_methods: paymentMethods,
+				closed_at: String(updatePayload.closed_at || existing.closed_at || '') || null,
+				updated_at: new Date().toISOString(),
+			},
+		})
+	} catch (err) {
+		console.error('[order-save finance-sync]', { orderId: formOrderId, err })
+		redirect(`${ordemPath}?error=nao_foi_possivel_registrar_financeiro`)
 	}
 
 	redirect(`${ordemPath}?ok=1`)
