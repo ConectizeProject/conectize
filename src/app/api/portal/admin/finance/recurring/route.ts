@@ -47,6 +47,7 @@ export async function POST(request: NextRequest) {
   const { data, error } = await auth.supabase
     .from('recurring_expenses')
     .insert({
+      organization_id: auth.organizationId,
       description,
       amount_cents: amountCents,
       conta_id: contaId,

@@ -10,6 +10,7 @@ import {
   parseAddonInventoryLines,
   validateAddonStockAvailable,
 } from '@/lib/resale/resale-addon-stock'
+import { syncResaleDeviceFinancialTransactions } from '@/lib/finance/service-order-financial-sync'
 
 type PortalSupabase = Awaited<ReturnType<typeof createSupabaseServerClient>>
 
@@ -456,6 +457,17 @@ export async function PATCH (
     if (!ins.ok) {
       return NextResponse.json({ ok: false, error: 'stock_movement_failed' }, { status: 500 })
     }
+  }
+
+  try {
+    await syncResaleDeviceFinancialTransactions({
+      supabase: auth.supabase,
+      organizationId: auth.organizationId,
+      resaleDeviceId: deviceId,
+    })
+  } catch (err) {
+    console.error('[resale-device finance-sync]', { deviceId, err })
+    return NextResponse.json({ ok: false, error: 'finance_sync_error' }, { status: 500 })
   }
 
   const loaded = await loadDeviceWithCosts(auth.supabase, deviceId)

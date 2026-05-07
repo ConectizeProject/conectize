@@ -1,6 +1,7 @@
 'use server'
 
 import { requireAdmin } from '@/lib/auth/portal-api'
+import { syncServiceOrderFinancialTransactions } from '@/lib/finance/service-order-financial-sync'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 
 export type ApplyBulkPaymentResult =
@@ -26,6 +27,23 @@ export async function applyBulkPaymentMethodsAction (
     return { ok: false, message: 'Loja e forma de pagamento são obrigatórios.' }
   }
 
+  const { data: paymentMethod, error: paymentMethodErr } = await supabase
+    .from('payment_methods')
+    .select('id, conta_id')
+    .eq('organization_id', auth.organizationId)
+    .eq('id', paymentMethodId)
+    .maybeSingle()
+
+  if (paymentMethodErr || !paymentMethod?.id) {
+    return { ok: false, message: 'Forma de pagamento inválida para a organização atual.' }
+  }
+  if (!paymentMethod.conta_id) {
+    return {
+      ok: false,
+      message: 'A forma de pagamento selecionada não está vinculada a uma conta financeira.',
+    }
+  }
+
   const orderIds = orderIdsRaw
     .split(',')
     .map((s) => s.trim())
@@ -37,7 +55,7 @@ export async function applyBulkPaymentMethodsAction (
 
   const { data: orders, error: fetchErr } = await supabase
     .from('service_orders')
-    .select('id, customer_id, services_total_cents, display_number')
+    .select('id, customer_id, organization_id, services_total_cents, display_number, closed_at, updated_at')
     .in('id', orderIds)
 
   if (fetchErr || !orders?.length) {
@@ -71,6 +89,26 @@ export async function applyBulkPaymentMethodsAction (
     if (upErr) {
       return { ok: false, message: upErr.message || 'Erro ao atualizar OS.' }
     }
+
+    try {
+      await syncServiceOrderFinancialTransactions({
+        supabase,
+        orderId: o.id,
+        organizationId: auth.organizationId,
+        orderRow: {
+          id: o.id,
+          organization_id: o.organization_id,
+          display_number: o.display_number,
+          payment_methods,
+          closed_at: o.closed_at,
+          updated_at: new Date().toISOString(),
+        },
+      })
+    } catch (err) {
+      console.error('[bulk-payment][finance-sync]', { orderId: o.id, err })
+      return { ok: false, message: 'Pagamentos salvos, mas houve erro ao registrar no financeiro.' }
+    }
+
     updated += 1
   }
 

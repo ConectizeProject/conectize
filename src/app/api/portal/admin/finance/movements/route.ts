@@ -74,8 +74,12 @@ export async function GET(request: NextRequest) {
     const conta = t.contas as { name?: string } | null
     const serviceOrderId = t.service_order_id as string | null
     const resaleDeviceId = t.resale_device_id as string | null
-    const source = serviceOrderId ? 'os' : resaleDeviceId ? 'seminovo' : 'transaction'
-    const editable = !serviceOrderId && !resaleDeviceId
+    const description = (t.description as string) ?? ''
+    const pdvMatch = description.match(/^PDV:([0-9a-fA-F-]{36}):/)
+    const posSaleId = pdvMatch?.[1] ?? null
+    const visibleDescription = pdvMatch ? description.replace(/^PDV:[0-9a-fA-F-]{36}:/, '').trim() : description
+    const source = serviceOrderId ? 'os' : resaleDeviceId ? 'seminovo' : posSaleId ? 'pdv' : 'transaction'
+    const editable = !serviceOrderId && !resaleDeviceId && !posSaleId
     const serviceOrderHref = serviceOrderId
       ? getOrdemPortalPath({
           id: serviceOrderId,
@@ -89,7 +93,7 @@ export async function GET(request: NextRequest) {
       conta_name: conta?.name ?? contaNameMap[contaId] ?? '',
       amount_cents: t.amount_cents as number,
       type: t.type as string,
-      description: (t.description as string) ?? '',
+      description: visibleDescription,
       occurred_at: t.occurred_at as string,
       created_at: t.created_at as string,
       transfer_id: t.transfer_id ?? null,
@@ -97,6 +101,7 @@ export async function GET(request: NextRequest) {
       service_order_id: serviceOrderId,
       service_order_href: serviceOrderHref,
       resale_device_id: resaleDeviceId,
+      pos_sale_id: posSaleId,
       editable,
     }
   }).sort((a, b) => {

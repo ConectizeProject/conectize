@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import { syncResaleDeviceFinancialTransactions } from '@/lib/finance/service-order-financial-sync'
 
 function cleanText(value: unknown): string {
   return String(value ?? '').trim()
@@ -112,6 +113,17 @@ export async function PATCH(request: Request) {
     if (error) {
       results.push({ id, ok: false, error: error.message })
     } else {
+      try {
+        await syncResaleDeviceFinancialTransactions({
+          supabase: auth.supabase,
+          organizationId: auth.organizationId,
+          resaleDeviceId: id,
+        })
+      } catch (syncErr) {
+        const message = syncErr instanceof Error ? syncErr.message : 'finance_sync_error'
+        results.push({ id, ok: false, error: message })
+        continue
+      }
       results.push({ id, ok: true })
     }
   }

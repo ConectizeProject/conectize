@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 
 const submenuItems = [
   { href: '/portal/financeiro', label: 'Movimentação', icon: List, exact: true },
-  { href: '/portal/financeiro/bancos', label: 'Contas', icon: Landmark, exact: false },
+  { href: '/portal/financeiro/bancos', label: 'Carteiras', icon: Landmark, exact: false },
   { href: '/portal/financeiro/formas-pagamento', label: 'Formas de pagamento', icon: CreditCard, exact: false },
 ]
 

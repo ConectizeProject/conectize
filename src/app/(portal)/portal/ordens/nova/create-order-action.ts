@@ -9,6 +9,7 @@ import {
   parsePaymentMethodsJson,
   parseServicesJson,
 } from '@/lib/orders/order-form-parsers'
+import { syncServiceOrderFinancialTransactions } from '@/lib/finance/service-order-financial-sync'
 import { applyOrderStatusStockTransition } from '@/lib/orders/stock-by-status'
 import { getOrdemPortalPath, getOrdemPortalPathSegment } from '@/lib/orders/ordem-portal-path'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
@@ -42,6 +43,7 @@ export async function createOrderAction(formData: FormData) {
   const paymentMethodsJson = formData.get('paymentMethodsJson')
   const servicesJson = formData.get('servicesJson')
   const services = parseServicesJson(servicesJson)
+  const paymentMethods = parsePaymentMethodsJson(paymentMethodsJson)
 
   const estimatedReadyAt = previsaoToISO(estimatedReadyAtRaw)
 
@@ -125,7 +127,7 @@ export async function createOrderAction(formData: FormData) {
       passcode_type: (passcodeType === 'text' || passcodeType === 'pattern') ? passcodeType : null,
       passcode_text: passcodeType === 'text' ? (passcodeText || null) : null,
       passcode_pattern: passcodeType === 'pattern' ? (passcodePattern || null) : null,
-      payment_methods: parsePaymentMethodsJson(paymentMethodsJson),
+      payment_methods: paymentMethods,
       customer_description: customerDescription || null,
       receiving_notes: receivingNotes || null,
       device_entry_checks: deviceEntryChecks,
@@ -165,6 +167,24 @@ export async function createOrderAction(formData: FormData) {
     })
   } catch (err) {
     console.error('[order-create][stock-transition]', { orderId: insertedOrder.id, err })
+  }
+
+  try {
+    await syncServiceOrderFinancialTransactions({
+      supabase,
+      orderId: insertedOrder.id,
+      organizationId,
+      orderRow: {
+        id: insertedOrder.id,
+        organization_id: organizationId,
+        display_number: insertedOrder.display_number ?? null,
+        payment_methods: paymentMethods,
+        closed_at: null,
+        updated_at: new Date().toISOString(),
+      },
+    })
+  } catch (err) {
+    console.error('[order-create][finance-sync]', { orderId: insertedOrder.id, err })
   }
 
   if (internalInitialComment) {
