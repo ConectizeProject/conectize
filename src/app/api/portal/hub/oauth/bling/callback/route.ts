@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { BLING_API_V3_BASE_URL } from '@/lib/integrations/bling/constants'
+import {
+  blingAuthorizeErrorToMessageKey,
+  blingTokenErrorToMessageKey,
+  truncateBlingHubQueryDetail,
+} from '@/lib/integrations/bling/hub-oauth-query'
 import { requireAdmin } from '@/lib/auth/portal-api'
 
 const BLING_TOKEN_URL = `${BLING_API_V3_BASE_URL}/oauth/token`
@@ -49,8 +54,27 @@ export async function GET(request: NextRequest) {
   const error = searchParams.get('error')
 
   if (error) {
+    const messageKey = blingAuthorizeErrorToMessageKey(error)
+    const params = new URLSearchParams({
+      toast: 'bling_error',
+      message: messageKey,
+    })
+    const rawDesc = searchParams.get('error_description')
+    const detailParts: string[] = []
+    if (messageKey === 'bling_oauth_unknown') {
+      detailParts.push(`Código retornado pelo Bling: ${error}`)
+    }
+    if (rawDesc) {
+      detailParts.push(rawDesc)
+    }
+    const detail = detailParts.length
+      ? truncateBlingHubQueryDetail(detailParts.join(' — '))
+      : ''
+    if (detail) {
+      params.set('detail', detail)
+    }
     return NextResponse.redirect(
-      new URL(`/portal/hub?toast=bling_error&message=${encodeURIComponent(error)}`, getAppBaseUrl(request))
+      new URL(`/portal/hub?${params.toString()}`, getAppBaseUrl(request))
     )
   }
 
@@ -95,9 +119,38 @@ export async function GET(request: NextRequest) {
   const tokenData = await tokenRes.json().catch(() => null)
 
   if (!tokenRes.ok || !tokenData?.access_token) {
-    const errMsg = tokenData?.error_description || tokenData?.error || 'token_failed'
+    const errCode =
+      typeof tokenData?.error === 'string' && tokenData.error.trim()
+        ? tokenData.error.trim()
+        : 'token_failed'
+    const messageKey =
+      errCode === 'token_failed' ? 'token_failed' : blingTokenErrorToMessageKey(errCode)
+    const params = new URLSearchParams({
+      toast: 'bling_error',
+      message: messageKey,
+    })
+    const rawDesc =
+      typeof tokenData?.error_description === 'string'
+        ? tokenData.error_description.trim()
+        : ''
+    const detailParts: string[] = []
+    if (messageKey === 'bling_token_unknown') {
+      detailParts.push(`Resposta do Bling: ${errCode}`)
+    }
+    if (rawDesc) {
+      detailParts.push(rawDesc)
+    }
+    if (!tokenRes.ok && !rawDesc) {
+      detailParts.push(`HTTP ${tokenRes.status}`)
+    }
+    const detail = detailParts.length
+      ? truncateBlingHubQueryDetail(detailParts.join(' — '))
+      : ''
+    if (detail) {
+      params.set('detail', detail)
+    }
     return NextResponse.redirect(
-      new URL(`/portal/hub?toast=bling_error&message=${encodeURIComponent(String(errMsg))}`, getAppBaseUrl(request))
+      new URL(`/portal/hub?${params.toString()}`, getAppBaseUrl(request))
     )
   }
 

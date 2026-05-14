@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getPortalAuth } from '@/lib/supabase/server'
 import { getBlingClientForCurrentUser } from '@/lib/integrations/bling/api'
-import { mapBlingProductToLocal } from '@/lib/integrations/bling/mappers'
+import { buildParentNameByBlingIdFromPageItems, mapBlingProductToLocal } from '@/lib/integrations/bling/mappers'
 import { createProductSyncSnapshot } from '@/lib/products/bling-sync'
 import { allocateCatalogSortKeyForInsert } from '@/lib/products/catalog-sort-key'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
@@ -87,10 +87,13 @@ export async function POST (request: Request) {
     let imported = 0
     let updated = 0
 
+    const parentNames = buildParentNameByBlingIdFromPageItems(items)
+    const mapCtx = { parentNameByBlingId: parentNames }
+
     for (const raw of items) {
       const dto = raw?.produto ?? raw
 
-      const local = mapBlingProductToLocal(dto)
+      const local = mapBlingProductToLocal(dto, null, mapCtx)
       if (!local.name) continue
       const blingId = local.blingId
       if (!blingId) continue

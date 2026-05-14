@@ -17,6 +17,33 @@ export function parseKanbanColumnStatus (droppableId: string): string | null {
   return droppableId.slice(KANBAN_COLUMN_ID_PREFIX.length) || null
 }
 
+const KANBAN_FILTER_STRING_KEYS = [
+  'q',
+  'cpf',
+  'osNumber',
+  'status',
+  'customerId',
+  'customerName',
+  'deviceModelId',
+  'createdFrom',
+  'createdTo',
+  'readyFrom',
+  'readyTo',
+] as const
+
+export type KanbanFilterStrings = Record<
+  (typeof KANBAN_FILTER_STRING_KEYS)[number],
+  string
+>
+
+/** Indica se a listagem do Kanban deve carregar todas as colunas finais (e expandir as com resultado). */
+export function hasActiveKanbanFilters (f: KanbanFilterStrings): boolean {
+  for (const k of KANBAN_FILTER_STRING_KEYS) {
+    if (String(f[k] || '').trim() !== '') return true
+  }
+  return false
+}
+
 /**
  * Chave estável do “visual de drag” por coluna: só muda quando esta coluna
  * de fato precisa atualizar (evita re-render de todas as colunas a cada `overId`).
