@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 import { getBlingClientForCurrentUser } from '@/lib/integrations/bling/api'
-import { mapBlingProductToLocal } from '@/lib/integrations/bling/mappers'
+import { buildParentNameByBlingIdFromPageItems, mapBlingProductToLocal } from '@/lib/integrations/bling/mappers'
 import { createProductSyncSnapshot } from '@/lib/products/bling-sync'
 import { allocateCatalogSortKeyForInsert } from '@/lib/products/catalog-sort-key'
 
@@ -37,9 +37,11 @@ function pickMatch (
   query: string,
 ): { dto: Record<string, unknown>; local: ReturnType<typeof mapBlingProductToLocal> } | null {
   const normalizedQuery = mode === 'sku' ? normalizeSku(query) : normalizeBarcode(query)
+  const parentNames = buildParentNameByBlingIdFromPageItems(items)
+  const mapCtx = { parentNameByBlingId: parentNames }
   for (const raw of items) {
     const dto = (raw as { produto?: Record<string, unknown> })?.produto ?? (raw as Record<string, unknown>)
-    const local = mapBlingProductToLocal(dto)
+    const local = mapBlingProductToLocal(dto, null, mapCtx)
     const candidate = mode === 'sku'
       ? normalizeSku(local.sku || '')
       : normalizeBarcode(local.barcode || '')

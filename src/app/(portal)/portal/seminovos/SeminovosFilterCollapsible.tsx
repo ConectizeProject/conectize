@@ -1,13 +1,15 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState, type ReactNode } from 'react'
-import { SlidersHorizontal } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { SlidersHorizontal, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { revendaPath } from '@/lib/revenda/revenda-paths'
+import { formatDateBr } from '@/lib/utils/format-date'
 import { formatMoneyInput } from '@/lib/utils/money'
 
 const CONDITION_OPTIONS = [
@@ -105,6 +107,36 @@ type Props = {
     onToggleNoLabel: () => void
     onToggleWithInfo: () => void
   }
+  /** Filtros ativos fora da URL (ex.: atalhos operacionais na listagem). */
+  extraAppliedChips?: { id: string; text: string }[]
+  /** Chamado ao clicar em «Limpar todos» (zera também filtros só no cliente). */
+  onClearClientFilters?: () => void
+}
+
+function seminovosFilterHref (
+  basePath: string,
+  iv: Props['initialValues'],
+  omit: ReadonlySet<string>,
+): string {
+  const p = new URLSearchParams()
+  if (!omit.has('q') && iv.q.trim()) p.set('q', iv.q.trim())
+  const dn = (iv.deviceName || '').trim()
+  if (!omit.has('deviceName') && dn) p.set('deviceName', dn)
+  if (!omit.has('storageGb') && iv.storageGb.trim()) p.set('storageGb', iv.storageGb)
+  if (!omit.has('condition') && iv.condition.trim()) p.set('condition', iv.condition)
+  if (!omit.has('color') && iv.color.trim()) p.set('color', iv.color)
+  if (!omit.has('purchaseDateFrom') && iv.purchaseDateFrom.trim()) {
+    p.set('purchaseDateFrom', iv.purchaseDateFrom.trim())
+  }
+  if (!omit.has('purchaseDateTo') && iv.purchaseDateTo.trim()) {
+    p.set('purchaseDateTo', iv.purchaseDateTo.trim())
+  }
+  const vmin = (iv.valueMin || '').trim()
+  const vmax = (iv.valueMax || '').trim()
+  if (!omit.has('valueMin') && vmin) p.set('valueMin', vmin)
+  if (!omit.has('valueMax') && vmax) p.set('valueMax', vmax)
+  const qs = p.toString()
+  return qs ? `${basePath}?${qs}` : basePath
 }
 
 function hasUrlExtraFilters (initialValues: Props['initialValues']) {
@@ -127,7 +159,63 @@ export function SeminovosFilterCollapsible ({
   catalogMode = false,
   trailingSlot,
   quickFilters,
+  extraAppliedChips = [],
+  onClearClientFilters,
 }: Props) {
+  const router = useRouter()
+  const [qInput, setQInput] = useState(initialValues.q)
+
+  useEffect(() => {
+    setQInput(initialValues.q)
+  }, [initialValues.q])
+
+  const urlExtraChips = useMemo(() => {
+    const rows: { id: string; text: string }[] = []
+    const dn = (initialValues.deviceName || '').trim()
+    if (dn) {
+      rows.push({ id: 'deviceName', text: `Modelo: ${dn}` })
+    }
+    if (initialValues.storageGb.trim()) {
+      const label =
+        STORAGE_OPTIONS.find((o) => o.value === initialValues.storageGb)?.label ??
+        initialValues.storageGb
+      rows.push({ id: 'storage', text: `Armazenamento: ${label}` })
+    }
+    if (initialValues.condition.trim()) {
+      const label =
+        CONDITION_OPTIONS.find((o) => o.value === initialValues.condition)?.label ??
+        initialValues.condition
+      rows.push({ id: 'condition', text: `Estado: ${label}` })
+    }
+    if (initialValues.color.trim()) {
+      rows.push({ id: 'color', text: `Cor: ${initialValues.color.trim()}` })
+    }
+    if (initialValues.purchaseDateFrom.trim()) {
+      rows.push({
+        id: 'pf',
+        text: `Compra a partir de ${formatDateBr(`${initialValues.purchaseDateFrom.trim()}T12:00:00`)}`,
+      })
+    }
+    if (initialValues.purchaseDateTo.trim()) {
+      rows.push({
+        id: 'pt',
+        text: `Compra até ${formatDateBr(`${initialValues.purchaseDateTo.trim()}T12:00:00`)}`,
+      })
+    }
+    const vmin = (initialValues.valueMin || '').trim()
+    const vmax = (initialValues.valueMax || '').trim()
+    if (vmin) rows.push({ id: 'vmin', text: `Valor de: R$ ${vmin}` })
+    if (vmax) rows.push({ id: 'vmax', text: `Valor até: R$ ${vmax}` })
+    return rows
+  }, [initialValues])
+
+  const mergedExtraChips = useMemo(
+    () => [...urlExtraChips, ...extraAppliedChips],
+    [urlExtraChips, extraAppliedChips],
+  )
+
+  const showAppliedExtrasRow = mergedExtraChips.length > 0
+
   const urlExtra = hasUrlExtraFilters(initialValues)
   const [extraOpen, setExtraOpen] = useState(urlExtra)
 
@@ -152,13 +240,32 @@ export function SeminovosFilterCollapsible ({
       <form action={filterFormAction} method="get">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3">
           <div className="min-w-0 flex-1">
-            <Input
-              id="seminovos-q"
-              name="q"
-              placeholder="Modelo, cor, IMEI, informações…"
-              defaultValue={initialValues.q}
-              aria-label="Busca ampla"
-            />
+            <div className="relative">
+              <Input
+                id="seminovos-q"
+                name="q"
+                placeholder="Modelo, cor, IMEI, informações…"
+                value={qInput}
+                onChange={(e) => setQInput(e.target.value)}
+                aria-label="Busca ampla"
+                className={qInput.trim() ? 'pr-10' : undefined}
+              />
+              {qInput.trim() ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    router.push(
+                      seminovosFilterHref(filterFormAction, initialValues, new Set(['q'])),
+                    )
+                  }}
+                  className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                  aria-label="Limpar busca ampla"
+                  title="Limpar busca"
+                >
+                  <X className="h-4 w-4" aria-hidden />
+                </button>
+              ) : null}
+            </div>
           </div>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
             <Button type="submit" className="h-10 touch-manipulation px-4">
@@ -189,6 +296,32 @@ export function SeminovosFilterCollapsible ({
             {trailingSlot ? <div className="flex items-center">{trailingSlot}</div> : null}
           </div>
         </div>
+
+        {showAppliedExtrasRow ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-border/50 pt-2 text-[11px] leading-snug sm:text-xs">
+            <span className="mr-0.5 shrink-0 font-medium text-foreground/80">
+              Filtros extras:
+            </span>
+            {mergedExtraChips.map((chip, idx) => (
+              <span
+                key={`${chip.id}-${idx}`}
+                className="max-w-full truncate rounded-md bg-muted/70 px-2 py-0.5 text-muted-foreground"
+                title={chip.text}
+              >
+                {chip.text}
+              </span>
+            ))}
+            <Link
+              href={clearHref}
+              onClick={() => {
+                onClearClientFilters?.()
+              }}
+              className="ml-auto shrink-0 font-medium text-primary underline-offset-2 hover:underline"
+            >
+              Limpar todos
+            </Link>
+          </div>
+        ) : null}
 
         <Collapsible
           open={extraOpen}

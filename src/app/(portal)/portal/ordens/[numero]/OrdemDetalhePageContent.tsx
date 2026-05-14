@@ -111,7 +111,7 @@ export function OrdemDetalhePageContent (props: Props) {
 		isPortalReadOnly || (isFinalized && !canEditDeviceModelWhenFinalized)
 
 	return (
-		<div className="max-w-4xl space-y-6">
+		<div className="max-w-4xl shrink-0 space-y-6">
 			<OrdemDetalheToastClient />
 
 			<div className="space-y-1.5">

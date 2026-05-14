@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Barcode, Check, X } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { Barcode, Check, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -23,6 +24,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { suggestedSaleCents } from '@/lib/pricing/suggested-sale-cents'
+import { composePortalVariationDisplayName } from '@/lib/products/variation-display-name'
 import { cn } from '@/lib/utils'
 import { formatMoneyInput, maskedFromCents, moneyToCentsFromMasked } from '@/lib/utils/money'
 import { toast } from '@/hooks/use-toast'
@@ -39,6 +41,8 @@ export type ProductFormProduct = {
   pricingTagId: string | null
   isActive: boolean
   kind?: 'product' | 'service' | null
+  variationAttributeKeys?: string[]
+  variationAttributeValues?: Record<string, string>
 }
 
 export type ProductFormSubmitPayload = {
@@ -54,6 +58,8 @@ export type ProductFormSubmitPayload = {
   pricingTagId: string | null
   compatibleModelIds: string[]
   initialStock: number
+  variationAttributeKeys?: string[]
+  variationAttributeValues?: Record<string, string>
 }
 
 type PricingTagRow = {
@@ -154,6 +160,26 @@ type Props = {
   onApplyImageToVariationChildren?: (imageUrl: string | null) => Promise<void>
   onSubmit: (payload: ProductFormSubmitPayload) => Promise<void>
   onCancel: () => void
+  /** Criação vinculada a um pai (nova variação): esconde editor de chaves no filho. */
+  creatingAsVariation?: boolean
+  /** Nome do produto pai (pré-visualização do título composto na variação). */
+  parentProductNameForVariation?: string | null
+  /** Chaves definidas no pai; quando não vazio, o nome da variação vem dos valores destes atributos. */
+  parentVariationAttributeKeys?: string[]
+  /** true quando `product` é uma variação (edição direta do filho). */
+  isVariation?: boolean
+  /**
+   * Só edição de variação: elemento na aba «Variações» do diálogo onde os campos de atributo são renderizados (portal).
+   */
+  variationAttributesPortalEl?: HTMLElement | null
+  /**
+   * Só edição do produto pai (não variação): aba «Variações» — cartão «Atributos das variações» (portal).
+   */
+  variationAttributeKeysPortalEl?: HTMLElement | null
+  /**
+   * Edição de produto pai com abas: o editor de chaves só aparece na aba Variações (aguarda o alvo do portal).
+   */
+  embedVariationKeysInVariationsTab?: boolean
 }
 
 export function ProductForm ({
@@ -167,6 +193,13 @@ export function ProductForm ({
   onApplyImageToVariationChildren,
   onSubmit,
   onCancel,
+  creatingAsVariation = false,
+  parentProductNameForVariation = null,
+  parentVariationAttributeKeys = [],
+  isVariation = false,
+  variationAttributesPortalEl = null,
+  variationAttributeKeysPortalEl = null,
+  embedVariationKeysInVariationsTab = false,
 }: Props) {
   const nameInputRef = useRef<HTMLInputElement>(null)
   const [submitErrors, setSubmitErrors] = useState<{
@@ -209,6 +242,56 @@ export function ProductForm ({
   const [deviceModelQuery, setDeviceModelQuery] = useState('')
   const [compatibleSuggestions, setCompatibleSuggestions] = useState<{ value: string; label: string }[]>([])
   const deviceCompatBlurRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const useAttrMode = Boolean(
+    (isVariation || creatingAsVariation) &&
+    parentProductNameForVariation &&
+    parentVariationAttributeKeys.length > 0,
+  )
+
+  const [attrValues, setAttrValues] = useState<Record<string, string>>({})
+  useEffect(() => {
+    if (!useAttrMode) return
+    const next: Record<string, string> = {}
+    for (const k of parentVariationAttributeKeys) {
+      next[k] = String(product?.variationAttributeValues?.[k] ?? '').trim()
+    }
+    setAttrValues(next)
+  }, [
+    useAttrMode,
+    product?.id,
+    product?.variationAttributeValues,
+    parentVariationAttributeKeys,
+  ])
+
+  const composedVariationName = useMemo(() => {
+    if (!useAttrMode || !parentProductNameForVariation) return ''
+    return composePortalVariationDisplayName(
+      parentProductNameForVariation,
+      parentVariationAttributeKeys,
+      attrValues,
+    )
+  }, [useAttrMode, parentProductNameForVariation, parentVariationAttributeKeys, attrValues])
+
+  const showVariationKeyEditor =
+    !creatingAsVariation &&
+    !isVariation &&
+    kind === 'product' &&
+    (mode === 'edit' || mode === 'create')
+
+  const [variationKeyDrafts, setVariationKeyDrafts] = useState<string[]>(() =>
+    Array.isArray(product?.variationAttributeKeys) && product.variationAttributeKeys.length > 0
+      ? [...product.variationAttributeKeys]
+      : [],
+  )
+  useEffect(() => {
+    if (!product?.id) return
+    setVariationKeyDrafts(
+      Array.isArray(product.variationAttributeKeys) && product.variationAttributeKeys.length > 0
+        ? [...product.variationAttributeKeys]
+        : [],
+    )
+  }, [product?.id, product?.variationAttributeKeys])
 
   const [tagSuggestOpen, setTagSuggestOpen] = useState(false)
   const [tagSuggestDraft, setTagSuggestDraft] = useState('')
@@ -403,11 +486,26 @@ export function ProductForm ({
     event.preventDefault()
     setSubmitErrors({})
     const formData = new FormData(event.currentTarget)
-    const name = String(formData.get('name') || '').trim()
+    const name = useAttrMode
+      ? composedVariationName.trim()
+      : String(formData.get('name') || '').trim()
     if (!name) {
-      setSubmitErrors({ name: 'Informe um nome para o produto ou serviço.' })
-      queueMicrotask(() => nameInputRef.current?.focus())
+      setSubmitErrors({
+        name: useAttrMode
+          ? 'Preencha todos os atributos da variação.'
+          : 'Informe um nome para o produto ou serviço.',
+      })
+      if (!useAttrMode) queueMicrotask(() => nameInputRef.current?.focus())
       return
+    }
+
+    if (useAttrMode) {
+      for (const k of parentVariationAttributeKeys) {
+        if (!String(attrValues[k] || '').trim()) {
+          setSubmitErrors({ name: `Informe o valor para «${k}».` })
+          return
+        }
+      }
     }
 
     const saleCentsParsed = parseMaskedMoneyToCents(saleReais)
@@ -446,6 +544,29 @@ export function ProductForm ({
       initialStock,
     }
 
+    if (showVariationKeyEditor) {
+      const seen = new Set<string>()
+      const keys: string[] = []
+      for (const raw of variationKeyDrafts) {
+        const k = raw.trim().replace(/\s+/g, ' ')
+        if (!k || k.length > 48) continue
+        const low = k.toLowerCase()
+        if (seen.has(low)) continue
+        seen.add(low)
+        keys.push(k)
+        if (keys.length >= 8) break
+      }
+      payload.variationAttributeKeys = keys
+    }
+
+    if (useAttrMode) {
+      const vals: Record<string, string> = {}
+      for (const k of parentVariationAttributeKeys) {
+        vals[k] = String(attrValues[k] || '').trim()
+      }
+      payload.variationAttributeValues = vals
+    }
+
     setPending(true)
     try {
       await onSubmit(payload)
@@ -454,7 +575,96 @@ export function ProductForm ({
     }
   }
 
+  function renderVariationKeysEditorSection () {
+    return (
+      <div className="space-y-3 rounded-md border border-border/70 bg-muted/20 p-4">
+        <div>
+          <p className="text-sm font-medium text-foreground">Atributos das variações</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Ex.: Tamanho, Cor, Modelo. Em cada variação você informa o valor; o nome no catálogo fica
+            «Nome do produto atributo:valor» (vários atributos na mesma linha).
+          </p>
+        </div>
+        <div className="space-y-2">
+          {variationKeyDrafts.map((draft, idx) => (
+            <div key={idx} className="flex gap-2">
+              <Input
+                value={draft}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setVariationKeyDrafts((prev) => prev.map((x, i) => (i === idx ? v : x)))
+                }}
+                placeholder="Ex.: Tamanho"
+                disabled={pending}
+                aria-label={`Nome do atributo ${idx + 1}`}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-10 shrink-0"
+                disabled={pending}
+                onClick={() => setVariationKeyDrafts((prev) => prev.filter((_, i) => i !== idx))}
+                aria-label={`Remover atributo ${idx + 1}`}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+        </div>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="h-9"
+          disabled={pending || variationKeyDrafts.length >= 8}
+          onClick={() => setVariationKeyDrafts((prev) => [...prev, ''])}
+        >
+          <Plus className="mr-1 h-4 w-4" aria-hidden />
+          Adicionar atributo
+        </Button>
+      </div>
+    )
+  }
+
   const title = mode === 'create' ? 'Novo produto/serviço' : 'Editar produto/serviço'
+
+  function renderVariationAttributesSection () {
+    return (
+      <div className="space-y-3">
+        <Label id="variation-attrs-label">Atributos da variação</Label>
+        <p className="text-xs text-muted-foreground">
+          Nome composto no catálogo:{' '}
+          <span className="font-medium text-foreground">{composedVariationName || '—'}</span>
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {parentVariationAttributeKeys.map((attrKey) => (
+            <div key={attrKey} className="space-y-2">
+              <Label htmlFor={`attr-${attrKey}`}>{attrKey}</Label>
+              <Input
+                id={`attr-${attrKey}`}
+                value={attrValues[attrKey] ?? ''}
+                onChange={(e) => {
+                  setAttrValues((prev) => ({ ...prev, [attrKey]: e.target.value }))
+                  if (submitErrors.name) setSubmitErrors((s) => ({ ...s, name: undefined }))
+                }}
+                disabled={pending}
+                placeholder={`Valor para ${attrKey}`}
+                autoComplete="off"
+              />
+            </div>
+          ))}
+        </div>
+        {submitErrors.name
+          ? (
+            <p className="text-sm text-destructive" role="alert">
+              {submitErrors.name}
+            </p>
+          )
+          : null}
+      </div>
+    )
+  }
 
   const formInner = (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -555,30 +765,62 @@ export function ProductForm ({
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <div className="space-y-2">
-          <Label htmlFor="name">Nome *</Label>
-          <Input
-            ref={nameInputRef}
-            id="name"
-            name="name"
-            defaultValue={product?.name || ''}
-            required
-            disabled={pending}
-            className={cn(submitErrors.name && 'border-destructive')}
-            aria-invalid={submitErrors.name ? true : undefined}
-            aria-describedby={submitErrors.name ? 'name-error' : undefined}
-            onChange={() => {
-              if (submitErrors.name) setSubmitErrors((s) => ({ ...s, name: undefined }))
-            }}
-          />
-          {submitErrors.name
-            ? (
-              <p id="name-error" className="text-sm text-destructive" role="alert">
-                {submitErrors.name}
-              </p>
-            )
-            : null}
-        </div>
+        {useAttrMode ? (
+          variationAttributesPortalEl ? (
+            <>
+              {createPortal(renderVariationAttributesSection(), variationAttributesPortalEl)}
+              <div className="space-y-2 md:col-span-2 rounded-md border border-border/60 bg-muted/20 px-3 py-2.5">
+                <p className="text-sm text-muted-foreground">
+                  Os atributos desta variação ficam na aba{' '}
+                  <span className="font-medium text-foreground">Variações</span>
+                  . Altere-os lá; em seguida pode salvar por aqui ou pela mesma aba.
+                </p>
+              </div>
+            </>
+          ) : creatingAsVariation ? (
+            <section
+              className="space-y-3 md:col-span-2 rounded-md border border-border/70 bg-muted/15 p-4"
+              aria-labelledby="nova-variacao-atributos-heading"
+            >
+              <h3
+                id="nova-variacao-atributos-heading"
+                className="text-sm font-semibold tracking-tight text-foreground"
+              >
+                Variações
+              </h3>
+              {renderVariationAttributesSection()}
+            </section>
+          ) : (
+            <div className="space-y-3 md:col-span-2">
+              {renderVariationAttributesSection()}
+            </div>
+          )
+        ) : (
+          <div className="space-y-2">
+            <Label htmlFor="name">Nome *</Label>
+            <Input
+              ref={nameInputRef}
+              id="name"
+              name="name"
+              defaultValue={product?.name || ''}
+              required
+              disabled={pending}
+              className={cn(submitErrors.name && 'border-destructive')}
+              aria-invalid={submitErrors.name ? true : undefined}
+              aria-describedby={submitErrors.name ? 'name-error' : undefined}
+              onChange={() => {
+                if (submitErrors.name) setSubmitErrors((s) => ({ ...s, name: undefined }))
+              }}
+            />
+            {submitErrors.name
+              ? (
+                <p id="name-error" className="text-sm text-destructive" role="alert">
+                  {submitErrors.name}
+                </p>
+              )
+              : null}
+          </div>
+        )}
         <div className="space-y-2">
           <Label htmlFor="barcode">Código de barras</Label>
           <div className="relative">
@@ -720,6 +962,29 @@ export function ProductForm ({
           disabled={pending}
         />
       </div>
+
+      {showVariationKeyEditor ? (
+        embedVariationKeysInVariationsTab && mode === 'edit' ? (
+          variationAttributeKeysPortalEl ? (
+            <>
+              {createPortal(renderVariationKeysEditorSection(), variationAttributeKeysPortalEl)}
+              <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2.5">
+                <p className="text-sm text-muted-foreground">
+                  O cartão <span className="font-medium text-foreground">Atributos das variações</span> está na aba{' '}
+                  <span className="font-medium text-foreground">Variações</span>. Defina ou altere os atributos lá
+                  antes de guardar.
+                </p>
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              O editor de atributos abre na aba <span className="font-medium text-foreground">Variações</span>…
+            </p>
+          )
+        ) : (
+          renderVariationKeysEditorSection()
+        )
+      ) : null}
 
       <div className="space-y-2">
         <Label htmlFor="product-image-url">URL da imagem (capa)</Label>

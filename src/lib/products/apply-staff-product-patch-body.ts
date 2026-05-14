@@ -1,6 +1,13 @@
 import type { PortalFieldForBling } from '@/lib/products/bling-sync'
 import {
+  composePortalVariationDisplayName,
+  parseVariationAttributeKeys,
+  parseVariationAttributeValues,
+} from '@/lib/products/variation-display-name'
+import {
+  getParentProductForVariation,
   getProductById,
+  recomputeVariationDisplayNamesForParent,
   replaceProductCompatibleDeviceModels,
   type Product,
   type UpdateProductInput,
@@ -78,6 +85,12 @@ export async function applyStaffProductPatchFromBody (
     return { ok: false, error: 'id_invalid', status: 400 }
   }
 
+  const curRes = await getProductById(id)
+  if (!curRes.ok || !('product' in curRes)) {
+    return { ok: false, error: 'not_found', status: 404 }
+  }
+  const current = curRes.product
+
   const patch: UpdateProductInput = {}
 
   const salePriceField = parseMoneyField(body, 'salePrice')
@@ -100,8 +113,46 @@ export async function applyStaffProductPatchFromBody (
   if ('error' in nameField) {
     return { ok: false, error: nameField.error, status: 400 }
   }
-  if (nameField.hasValue) {
+
+  let skipExplicitName = false
+
+  if (Object.prototype.hasOwnProperty.call(body, 'variationAttributeValues')) {
+    const rawVals = body.variationAttributeValues
+    if (rawVals !== null && (typeof rawVals !== 'object' || Array.isArray(rawVals))) {
+      return { ok: false, error: 'variationAttributeValues_invalid', status: 400 }
+    }
+    if (current.parentBlingId == null) {
+      return { ok: false, error: 'variationAttributeValues_not_allowed', status: 400 }
+    }
+    const partial = parseVariationAttributeValues(rawVals)
+    const merged = { ...current.variationAttributeValues, ...partial }
+    const parentRes = await getParentProductForVariation(current)
+    if (parentRes.ok && parentRes.parent.variationAttributeKeys.length > 0) {
+      patch.variationAttributeValues = merged
+      patch.name = composePortalVariationDisplayName(
+        parentRes.parent.name.trim(),
+        parentRes.parent.variationAttributeKeys,
+        merged,
+      )
+      skipExplicitName = true
+    } else {
+      patch.variationAttributeValues = partial
+    }
+  }
+
+  if (!skipExplicitName && nameField.hasValue) {
     patch.name = nameField.value ?? ''
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'variationAttributeKeys')) {
+    if (current.parentBlingId != null) {
+      return { ok: false, error: 'variationAttributeKeys_not_allowed', status: 400 }
+    }
+    const rawKeys = body.variationAttributeKeys
+    if (rawKeys !== null && !Array.isArray(rawKeys)) {
+      return { ok: false, error: 'variationAttributeKeys_invalid', status: 400 }
+    }
+    patch.variationAttributeKeys = parseVariationAttributeKeys(rawKeys)
   }
 
   const skuField = parseTextField(body, 'sku')
@@ -209,12 +260,14 @@ export async function applyStaffProductPatchFromBody (
     syncedToBling = upd.syncedToBling
     blingFieldsChanged = upd.blingFieldsChanged
     midProduct = upd.product
-  } else {
-    const cur = await getProductById(id)
-    if (!cur.ok || !('product' in cur)) {
-      return { ok: false, error: 'not_found', status: 404 }
+    if (patch.variationAttributeKeys !== undefined && current.parentBlingId == null) {
+      const rec = await recomputeVariationDisplayNamesForParent(id)
+      if (!rec.ok) {
+        return { ok: false, error: rec.error, status: 500 }
+      }
     }
-    midProduct = cur.product
+  } else {
+    midProduct = current
   }
 
   if (hasCompatUpdate && compatibleIds) {

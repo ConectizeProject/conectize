@@ -6,13 +6,17 @@ import { ProdutosGestaoTab } from './ProdutosGestaoTab'
 import { ProdutosStaffTabsNav, type ProdutosStaffTabId } from './ProdutosStaffTabsNav'
 import { StaffPrecosTabClient } from './StaffPrecosTabClient'
 import { PricingTagsStaffTab } from './PricingTagsStaffTab'
+import { ProdutosGestaoActionsProvider } from './ProdutosGestaoActionsContext'
+import { ProdutosGestaoHeaderActions } from './ProdutosGestaoHeaderActions'
 
 export const dynamic = 'force-dynamic'
 
 type SearchParams = Promise<{
   q?: string
-  page?: string
+  loaded?: string
   kind?: string
+  sku?: string
+  barcode?: string
   tab?: string
   edit?: string
   newVariationOf?: string
@@ -46,35 +50,37 @@ export default async function ProdutosPage ({ searchParams }: { searchParams: Se
     tab === 'tags' ? await loadStaffPricingTagsTabData(await createSupabaseServerClient()) : null
 
   return (
-    <div className="min-w-0 max-w-full space-y-4 sm:space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
-        <div className="min-w-0 space-y-1">
-          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Produtos e serviços</h1>
-          <p className="text-sm text-muted-foreground">
-            Gestão interna do catálogo, tabela de preços operacional e tags de precificação.
-          </p>
+    <ProdutosGestaoActionsProvider>
+      <div className="min-w-0 max-w-full space-y-4 sm:space-y-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Produtos e serviços</h1>
+          </div>
+          {tab === 'gestao' ? <ProdutosGestaoHeaderActions /> : null}
         </div>
-      </div>
 
-      <ProdutosStaffTabsNav activeTab={tab} />
+        <ProdutosStaffTabsNav activeTab={tab} />
 
-      {tab === 'gestao' ? (
+        {tab === 'gestao' ? (
         <ProdutosGestaoTab
           q={String(sp.q || '')}
-          page={String(sp.page || '')}
+          loaded={String(sp.loaded || '')}
           kind={String(sp.kind || '')}
+          sku={String(sp.sku || '')}
+          barcode={String(sp.barcode || '')}
           initialEditProductId={initialEditProductId}
           initialCreateVariationParentId={initialCreateVariationParentId}
         />
-      ) : null}
-      {tab === 'precos' ? <StaffPrecosTabClient /> : null}
-      {tab === 'tags' && pricingTagsTabData ? (
-        <PricingTagsStaffTab
-          initialPricingTags={pricingTagsTabData.pricingTags}
-          initialRetailers={pricingTagsTabData.retailers}
-          initialOverrides={pricingTagsTabData.overrides}
-        />
-      ) : null}
-    </div>
+        ) : null}
+        {tab === 'precos' ? <StaffPrecosTabClient /> : null}
+        {tab === 'tags' && pricingTagsTabData ? (
+          <PricingTagsStaffTab
+            initialPricingTags={pricingTagsTabData.pricingTags}
+            initialRetailers={pricingTagsTabData.retailers}
+            initialOverrides={pricingTagsTabData.overrides}
+          />
+        ) : null}
+      </div>
+    </ProdutosGestaoActionsProvider>
   )
 }

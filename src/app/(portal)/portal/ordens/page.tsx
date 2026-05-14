@@ -258,9 +258,6 @@ export default async function OrdensPage({
 			<div className="flex shrink-0 flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
 				<div className="min-w-0">
 					<h1 className="text-xl font-bold sm:text-2xl">Ordens de serviço</h1>
-					<p className="mt-0.5 text-sm text-muted-foreground">
-						Área interna (staff/admin).
-					</p>
 				</div>
 				<Button asChild className="w-full sm:w-auto shrink-0">
 					<Link href="/portal/ordens/nova">Nova ordem</Link>

@@ -51,7 +51,10 @@ export async function POST (request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'minSuggestedSaleCents_invalid' }, { status: 400 })
   }
 
-  const insert: Record<string, unknown> = { name }
+  const insert: Record<string, unknown> = {
+    name,
+    organization_id: auth.organizationId,
+  }
   if (marginBps !== undefined) insert.margin_bps = marginBps
   if (minSuggestedSaleCents !== undefined) insert.min_suggested_sale_cents = minSuggestedSaleCents
 

@@ -4,10 +4,8 @@ import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { ClientesTableClient, type CustomerRow } from './ClientesTableClient'
-import { DocumentMaskedInput } from './DocumentMaskedInput'
+import { ClientesFilterCard } from './ClientesFilterCard'
 
 export const dynamic = 'force-dynamic'
 
@@ -73,24 +71,10 @@ export default async function ClientesPage({
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
-					<form action="/portal/clientes" method="get" className="grid gap-4 md:grid-cols-3">
-						<div className="space-y-2 md:col-span-2">
-							<Label htmlFor="q">Nome / e-mail</Label>
-							<Input id="q" name="q" defaultValue={query} placeholder="Ex: Maria, cliente@exemplo.com" />
-						</div>
-						<div className="space-y-2">
-							<Label htmlFor="document">CPF/CNPJ</Label>
-							<div id="document">
-								<DocumentMaskedInput name="document" defaultValue={documentDigits} placeholder="000.000.000-00" />
-							</div>
-						</div>
-						<div className="md:col-span-3 flex items-center gap-3 flex-wrap">
-							<Button type="submit">Buscar</Button>
-							<Button variant="outline" asChild>
-								<Link href="/portal/clientes">Limpar</Link>
-							</Button>
-						</div>
-					</form>
+					<ClientesFilterCard
+						initialQ={query}
+						initialDocumentDigits={documentDigits}
+					/>
 				</CardContent>
 			</Card>
 

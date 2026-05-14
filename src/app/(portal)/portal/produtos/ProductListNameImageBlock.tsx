@@ -1,7 +1,6 @@
 'use client'
 
-import Image from 'next/image'
-import { isAllowedProductImageHost, type ProductRow } from './product-list-shared'
+import { isSafeProductListImageUrl, type ProductRow } from './product-list-shared'
 
 type Props = {
 	product: ProductRow
@@ -30,27 +29,19 @@ export function ProductListNameImageBlock ({ product, nameTruncate = false }: Pr
 			<div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-card">
 				{(() => {
 					const url = product.image_url
-					if (!url) {
-						return null
-					}
-					try {
-						const parsed = new URL(url)
-						if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-							return null
-						}
-						if (!isAllowedProductImageHost(parsed.hostname)) {
-							return null
-						}
-					} catch {
+					if (!url || !isSafeProductListImageUrl(url)) {
 						return null
 					}
 					return (
-						<Image
+						<img
 							src={url}
 							alt={product.name}
 							width={40}
 							height={40}
-							className="object-cover"
+							loading="lazy"
+							decoding="async"
+							referrerPolicy="no-referrer"
+							className="h-full w-full object-cover"
 						/>
 					)
 				})() || (

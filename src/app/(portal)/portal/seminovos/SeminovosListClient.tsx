@@ -488,6 +488,20 @@ export function SeminovosListClient({
 	const groupedAvailableAll = groupDevicesByModel(devices);
 	const flatAvailableAll = groupedAvailableAll.flatMap((g) => g.devices);
 
+	const seminovosQuickFilterChips = useMemo(() => {
+		const r: { id: string; text: string }[] = [];
+		if (filterNotTested) r.push({ id: "op-nt", text: "Não testados" });
+		if (filterNotAdvertised) r.push({ id: "op-na", text: "Não anunciados" });
+		if (filterNoLabel) r.push({ id: "op-nl", text: "Sem etiqueta" });
+		if (filterWithInfo) r.push({ id: "op-wi", text: "Com informação" });
+		return r;
+	}, [
+		filterNotTested,
+		filterNotAdvertised,
+		filterNoLabel,
+		filterWithInfo,
+	]);
+
 	const filteredDevices = devices.filter((d) => {
 		if (filterNotTested && d.tested) return false;
 		if (filterNotAdvertised && d.advertised) return false;
@@ -1271,6 +1285,13 @@ export function SeminovosListClient({
 						onToggleNotAdvertised: () => setFilterNotAdvertised((v) => !v),
 						onToggleNoLabel: () => setFilterNoLabel((v) => !v),
 						onToggleWithInfo: () => setFilterWithInfo((v) => !v),
+					}}
+					extraAppliedChips={seminovosQuickFilterChips}
+					onClearClientFilters={() => {
+						setFilterNotTested(false);
+						setFilterNotAdvertised(false);
+						setFilterNoLabel(false);
+						setFilterWithInfo(false);
 					}}
 				/>
 
