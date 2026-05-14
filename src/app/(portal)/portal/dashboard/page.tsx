@@ -6,7 +6,13 @@ import { DashboardOsAtivasCard } from '@/components/dashboard/DashboardOsAtivasC
 import { DashboardAguardandoPecasCard } from '@/components/dashboard/DashboardAguardandoPecasCard'
 import { DashboardAlertaAmareloCard } from '@/components/dashboard/DashboardAlertaAmareloCard'
 import { DashboardAlertaVermelhoCard } from '@/components/dashboard/DashboardAlertaVermelhoCard'
+import { DashboardRecorrentesCard } from '@/components/dashboard/DashboardRecorrentesCard'
 import { OPEN_ORDER_STATUSES } from '@/lib/orders/order-status'
+import {
+  mapRecurringRowsToPending,
+  recurringInvoiceVisibleInShortList,
+  type RecurringRowInput,
+} from '@/lib/finance/recurring-due'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,6 +44,8 @@ export default async function DashboardPage() {
   if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
 
   const supabase = await createSupabaseServerClient()
+  const isAdminOrPlatform =
+    normalizedRole === 'admin' || normalizedRole === 'platform_admin'
   const isStaffOrAdmin =
     normalizedRole === 'staff' ||
     normalizedRole === 'admin' ||
@@ -73,6 +81,18 @@ export default async function DashboardPage() {
   const ordersNearDeadline: Array<{ id: string; display_number: string | null; title: string; status: string }> = []
   const ordersOverdueOrOld: Array<{ id: string; display_number: string | null; title: string; status: string }> = []
   let ordersAguardandoPecas: Array<{ id: string; display_number: string | null; status: string; title: string }> = []
+  let recurringFinanceAlerts: ReturnType<typeof mapRecurringRowsToPending> = []
+
+  if (isAdminOrPlatform) {
+    const { data: recurringRows } = await supabase
+      .from('recurring_expenses')
+      .select('id, description, amount_cents, conta_id, billing_day, is_active, last_generated_for, contas(name)')
+      .eq('is_active', true)
+    recurringFinanceAlerts = mapRecurringRowsToPending(
+      (recurringRows ?? []) as RecurringRowInput[],
+      now
+    ).filter((p) => recurringInvoiceVisibleInShortList(p, now))
+  }
 
   if (isStaffOrAdmin && staffResults.length >= 3) {
     type DevicesRes = { data: Array<{ id: string; device_model_id: string | null; device_name: string | null; model: string | null; color: string | null; sale_value_cents: number | null }> | null }
@@ -211,7 +231,7 @@ export default async function DashboardPage() {
       </div>
 
       {isStaffOrAdmin && (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
           <DashboardSeminovosCard
             totalAvailable={seminovosGroups.reduce((s, g) => s + g.total, 0)}
             groups={seminovosGroups}
@@ -224,6 +244,9 @@ export default async function DashboardPage() {
           <DashboardAguardandoPecasCard orders={ordersAguardandoPecas} />
           <DashboardAlertaAmareloCard orders={ordersNearDeadline} />
           <DashboardAlertaVermelhoCard orders={ordersOverdueOrOld} />
+          {isAdminOrPlatform ? (
+            <DashboardRecorrentesCard items={recurringFinanceAlerts} />
+          ) : null}
         </div>
       )}
     </div>

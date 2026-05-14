@@ -35,6 +35,7 @@ export async function POST (
   const { data: inserted, error } = await auth.supabase
     .from('resale_device_costs')
     .insert({
+      organization_id: auth.organizationId,
       resale_device_id: deviceId,
       description: cleanText((body as { description?: unknown }).description) || null,
       value_cents,
