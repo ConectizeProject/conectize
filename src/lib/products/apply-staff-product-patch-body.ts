@@ -262,7 +262,7 @@ export async function applyStaffProductPatchFromBody (
     midProduct = upd.product
     if (patch.variationAttributeKeys !== undefined && current.parentBlingId == null) {
       const rec = await recomputeVariationDisplayNamesForParent(id)
-      if (!rec.ok) {
+      if (rec.ok === false) {
         return { ok: false, error: rec.error, status: 500 }
       }
     }

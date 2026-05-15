@@ -501,6 +501,9 @@ export function ProductFormDialog ({
     loadedProduct && !isVariationChild && onCreateVariationFromParent,
   )
   const mountProductEditTabPanels = isEditProductWithStock
+  const productEditTabMountProps = mountProductEditTabPanels
+    ? { forceMount: true as const }
+    : {}
   const variationTabPanelClass = cn(
     'mt-0 focus-visible:outline-none',
     mountProductEditTabPanels && 'data-[state=inactive]:hidden',
@@ -645,7 +648,7 @@ export function ProductFormDialog ({
                 <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
                   <TabsContent
                     value="dados"
-                    forceMount={mountProductEditTabPanels}
+                    {...productEditTabMountProps}
                     className={variationTabPanelClass}
                   >
                     <div className="mb-4 space-y-2">
@@ -750,7 +753,7 @@ export function ProductFormDialog ({
                     <>
                       <TabsContent
                         value="variacoes"
-                        forceMount={mountProductEditTabPanels}
+                        {...productEditTabMountProps}
                         className={variationTabPanelClass}
                       >
                         {isVariationChild ? (
@@ -921,7 +924,7 @@ export function ProductFormDialog ({
 
                       <TabsContent
                         value="estoque"
-                        forceMount={mountProductEditTabPanels}
+                        {...productEditTabMountProps}
                         className={variationTabPanelClass}
                       >
                         {productId ? (
