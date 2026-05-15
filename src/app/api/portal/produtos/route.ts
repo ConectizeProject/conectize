@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import {
+  parseVariationAttributeKeys,
+  parseVariationAttributeValues,
+} from '@/lib/products/variation-display-name'
 import { addStockMovement, createProduct, replaceProductCompatibleDeviceModels } from '@/lib/products/service'
 
 const UUID_RE =
@@ -84,6 +88,16 @@ export async function POST (request: NextRequest) {
     parentBlingId = raw == null ? null : (String(raw).trim() || null)
   }
 
+  let variationAttributeKeys: string[] | undefined
+  if (Object.prototype.hasOwnProperty.call(body, 'variationAttributeKeys')) {
+    variationAttributeKeys = parseVariationAttributeKeys(body.variationAttributeKeys)
+  }
+
+  let variationAttributeValues: Record<string, string> | undefined
+  if (Object.prototype.hasOwnProperty.call(body, 'variationAttributeValues')) {
+    variationAttributeValues = parseVariationAttributeValues(body.variationAttributeValues)
+  }
+
   let imageUrl: string | null | undefined
   if (Object.prototype.hasOwnProperty.call(body, 'imageUrl')) {
     const raw = body.imageUrl
@@ -107,6 +121,8 @@ export async function POST (request: NextRequest) {
     ...(parentProductId !== undefined ? { parentProductId } : {}),
     ...(parentBlingId !== undefined ? { parentBlingId } : {}),
     ...(imageUrl !== undefined ? { imageUrl } : {}),
+    ...(variationAttributeKeys !== undefined ? { variationAttributeKeys } : {}),
+    ...(variationAttributeValues !== undefined ? { variationAttributeValues } : {}),
   })
 
   if (!created.ok || !('product' in created)) {

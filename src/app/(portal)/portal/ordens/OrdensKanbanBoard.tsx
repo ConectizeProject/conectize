@@ -27,6 +27,7 @@ import { OrderStatusBlockerAlertDialog } from './OrderStatusBlockerAlertDialog'
 import { KanbanGhostClickOrderIdRefContext } from './kanban-ghost-click-context'
 import {
   KANBAN_STATUS_ORDER,
+  hasActiveKanbanFilters,
   kanbanColumnDroppableId,
   kanbanColumnsCollisionDetection,
   parseKanbanColumnStatus,
@@ -63,11 +64,12 @@ type FinalColState = {
   hasLoaded: boolean
 }
 
-function emptyFinalCol (): FinalColState {
+/** Coluna final ainda não carregada (lazy até clique ou filtro ativo). */
+function lazyFinalCol (): FinalColState {
   return {
     items: [],
     hasMore: false,
-    loading: true,
+    loading: false,
     loadingMore: false,
     hasLoaded: false,
   }
@@ -88,7 +90,7 @@ function cloneFinalByStatus (
 ): Record<string, FinalColState> {
   const out: Record<string, FinalColState> = {}
   for (const s of FINALIZED_ORDER_STATUSES) {
-    const c = src[s] ?? emptyFinalCol()
+    const c = src[s] ?? lazyFinalCol()
     out[s] = {
       ...c,
       items: [...c.items],
@@ -106,7 +108,7 @@ function removeOrderFromKanbanStatus (
   if (isOpenOrderStatus(status)) {
     openCopy[status] = (openCopy[status] ?? []).filter((o) => o.id !== orderId)
   } else if (FINALIZED_ORDER_STATUS_SET.has(status)) {
-    const col = finalCopy[status] ?? emptyFinalCol()
+    const col = finalCopy[status] ?? lazyFinalCol()
     finalCopy[status] = {
       ...col,
       items: col.items.filter((o) => o.id !== orderId),
@@ -124,7 +126,7 @@ function addOrderToKanbanStatus (
     const list = openCopy[status] ?? []
     openCopy[status] = [order, ...list.filter((o) => o.id !== order.id)]
   } else if (FINALIZED_ORDER_STATUS_SET.has(status)) {
-    const col = finalCopy[status] ?? emptyFinalCol()
+    const col = finalCopy[status] ?? lazyFinalCol()
     const items = [order, ...col.items.filter((o) => o.id !== order.id)]
     finalCopy[status] = {
       ...col,
@@ -181,7 +183,7 @@ export function OrdensKanbanBoard ({
   >(() => {
     const init: Record<string, FinalColState> = {}
     for (const s of FINALIZED_ORDER_STATUSES) {
-      init[s] = emptyFinalCol()
+      init[s] = lazyFinalCol()
     }
     return init
   })
@@ -335,18 +337,87 @@ export function OrdensKanbanBoard ({
     )
   }, [fetchFinalColumnPage])
 
+  const filtersKey = useMemo(
+    () =>
+      [
+        filters.q,
+        filters.cpf,
+        filters.osNumber,
+        filters.status,
+        filters.customerId,
+        filters.customerName,
+        filters.deviceModelId,
+        filters.createdFrom,
+        filters.createdTo,
+        filters.readyFrom,
+        filters.readyTo,
+      ].join('\n'),
+    [
+      filters.q,
+      filters.cpf,
+      filters.osNumber,
+      filters.status,
+      filters.customerId,
+      filters.customerName,
+      filters.deviceModelId,
+      filters.createdFrom,
+      filters.createdTo,
+      filters.readyFrom,
+      filters.readyTo,
+    ],
+  )
+
+  const filtersActive = useMemo(
+    () => hasActiveKanbanFilters(filters),
+    [filtersKey],
+  )
+
+  const [dismissedFilterExpand, setDismissedFilterExpand] = useState<
+    Record<string, true>
+  >({})
+
   useEffect(() => {
+    if (!filtersActive) return
     let cancelled = false
-    void Promise.all(
-      FINALIZED_ORDER_STATUSES.map(async (s) => {
-        if (cancelled) return
-        await fetchFinalColumnPage(s, 0, false)
-      }),
-    )
+    void (async () => {
+      await Promise.all(
+        FINALIZED_ORDER_STATUSES.map(async (s) => {
+          if (cancelled) return
+          await fetchFinalColumnPage(s, 0, false)
+        }),
+      )
+    })()
     return () => {
       cancelled = true
     }
-  }, [fetchFinalColumnPage])
+  }, [filtersActive, filtersKey, fetchFinalColumnPage])
+
+  useEffect(() => {
+    setDismissedFilterExpand({})
+  }, [filtersKey])
+
+  const reloadFinalColumnsAfterMutation = useCallback(async () => {
+    if (hasActiveKanbanFilters(filtersRef.current)) {
+      await reloadAllFinalColumns()
+      return
+    }
+    const loaded = FINALIZED_ORDER_STATUSES.filter(
+      (s) => finalByStatusRef.current[s]?.hasLoaded,
+    )
+    if (loaded.length === 0) return
+    await Promise.all(loaded.map((s) => fetchFinalColumnPage(s, 0, false)))
+  }, [reloadAllFinalColumns, fetchFinalColumnPage])
+
+  const handleFinalStripActivate = useCallback(
+    (status: string) => {
+      void fetchFinalColumnPage(status, 0, false)
+    },
+    [fetchFinalColumnPage],
+  )
+
+  const handleDismissPinnedFilterExpand = useCallback((status: string) => {
+    setDismissedFilterExpand((prev) => ({ ...prev, [status]: true }))
+  }, [])
 
   const ordersById = useMemo(() => {
     const m = new Map<string, PortalOrdensListRow>()
@@ -372,15 +443,18 @@ export function OrdensKanbanBoard ({
     [effectiveOpen],
   )
 
-  const finalsLoaded = FINALIZED_ORDER_STATUSES.every(
-    (s) => finalByStatus[s]?.hasLoaded,
-  )
+  const finalsLoadedForActiveFilter =
+    filtersActive &&
+    FINALIZED_ORDER_STATUSES.every((s) => finalByStatus[s]?.hasLoaded)
   const totalFinalItems = FINALIZED_ORDER_STATUSES.reduce(
     (acc, s) => acc + (finalByStatus[s]?.items?.length ?? 0),
     0,
   )
   const showEmptySplash =
-    totalOpen === 0 && finalsLoaded && totalFinalItems === 0
+    filtersActive &&
+    totalOpen === 0 &&
+    finalsLoadedForActiveFilter &&
+    totalFinalItems === 0
 
   /** Mouse: arrastar após pequeno movimento. Touch: pressionar ~200ms evita roubar o scroll vertical. */
   const sensors = useSensors(
@@ -472,7 +546,7 @@ export function OrdensKanbanBoard ({
       try {
         result = await updateStatus(orderId, nextStatus, {
           onAfterSuccess: () => {
-            void reloadAllFinalColumns()
+            void reloadFinalColumnsAfterMutation()
           },
         })
       } finally {
@@ -498,7 +572,7 @@ export function OrdensKanbanBoard ({
     [
       ordersById,
       updateStatus,
-      reloadAllFinalColumns,
+      reloadFinalColumnsAfterMutation,
       updating,
       cancelOverRaf,
       openOverride,
@@ -549,6 +623,12 @@ export function OrdensKanbanBoard ({
                 ? (effectiveOpen[status] ?? [])
                 : (finalByStatus[status]?.items ?? [])
               const col = finalByStatus[status]
+              const expandPinnedFromFilter =
+                !isOpen &&
+                filtersActive &&
+                !dismissedFilterExpand[status] &&
+                (col?.hasLoaded ?? false) &&
+                (col?.items?.length ?? 0) > 0
               return (
                 <OrdensKanbanColumn
                   key={status}
@@ -558,14 +638,18 @@ export function OrdensKanbanBoard ({
                   isFinalColumn={!isOpen}
                   hasMore={!isOpen ? col?.hasMore : false}
                   loadingMore={!isOpen ? col?.loadingMore : false}
-                  columnLoading={
-                    !isOpen ? col?.loading === true && !col?.hasLoaded : false
-                  }
+                  columnLoading={!isOpen ? !!col?.loading : false}
                   onRequestLoadMore={!isOpen ? requestLoadMore : undefined}
                   dragActiveId={activeId}
                   dragOverId={overId}
                   activeDragSourceStatus={activeDragSourceStatus}
                   savingByOrderId={savingByOrderId}
+                  expandPinnedFromFilter={expandPinnedFromFilter}
+                  finalColumnHasLoaded={!isOpen ? (col?.hasLoaded ?? false) : true}
+                  onFinalStripActivate={!isOpen ? handleFinalStripActivate : undefined}
+                  onDismissPinnedFilterExpand={
+                    !isOpen ? handleDismissPinnedFilterExpand : undefined
+                  }
                 />
               )
             })}
@@ -593,7 +677,7 @@ export function OrdensKanbanBoard ({
               confirmIncompleteExit: blockerDialog.exit,
               confirmFinalizeWithoutWarranty: blockerDialog.warranty,
               onAfterSuccess: () => {
-                void reloadAllFinalColumns()
+                void reloadFinalColumnsAfterMutation()
               },
             })
           }}

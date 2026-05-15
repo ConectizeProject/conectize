@@ -20,19 +20,23 @@ export type ProductRow = {
 	parent_name?: string | null
 }
 
-const allowedImageHosts = new Set<string>([
-	'm.media-amazon.com',
-	'http2.mlstatic.com',
-	'elastobor.vtexassets.com',
-	'nacionalsmart.com.br',
-])
+const MAX_PRODUCT_LIST_IMAGE_URL_LEN = 2048
 
-export function isAllowedProductImageHost (hostname: string): boolean {
-	const h = hostname.toLowerCase()
-	if (allowedImageHosts.has(h)) return true
-	if (h === 'bling.com.br' || h.endsWith('.bling.com.br')) return true
-	if (h === 'tcdn.com.br' || h.endsWith('.tcdn.com.br')) return true
-	return false
+/**
+ * URLs de capa vindas do Bling, Tray, VTEX, lojas próprias, etc. — não dá para manter lista fechada de hosts.
+ * Só aceita `http:` / `https:` com hostname válido (evita `javascript:` e esquemas estranhos).
+ */
+export function isSafeProductListImageUrl (raw: string): boolean {
+	const t = String(raw || '').trim()
+	if (!t || t.length > MAX_PRODUCT_LIST_IMAGE_URL_LEN) return false
+	try {
+		const u = new URL(t)
+		if (u.protocol !== 'https:' && u.protocol !== 'http:') return false
+		if (!u.hostname || u.hostname.length > 253) return false
+		return true
+	} catch {
+		return false
+	}
 }
 
 /** Largura fixa em px da coluna do checkbox (tabela + card). Repetir no primeiro `<col>` do colgroup. */

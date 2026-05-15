@@ -35,14 +35,16 @@ function getBlingRedirectUri (request: NextRequest) {
 export async function GET (request: NextRequest) {
   const auth = await requireAdmin()
   if (auth.ok === false) {
-    return NextResponse.redirect(new URL('/portal/login', getAppBaseUrl(request)))
+    if (auth.status === 401) {
+      return NextResponse.redirect(new URL('/portal/login', getAppBaseUrl(request)))
+    }
+    return NextResponse.redirect(new URL('/portal/minhas-ordens', getAppBaseUrl(request)))
   }
 
   const clientId = process.env.BLING_CLIENT_ID
   if (!clientId) {
-    return NextResponse.json(
-      { error: 'Bling OAuth nÃ£o configurado. Defina BLING_CLIENT_ID e BLING_CLIENT_SECRET.' },
-      { status: 500 }
+    return NextResponse.redirect(
+      new URL('/portal/hub?toast=bling_error&message=client_id_missing', getAppBaseUrl(request))
     )
   }
 
@@ -55,6 +57,11 @@ export async function GET (request: NextRequest) {
     state,
     redirect_uri: redirectUri,
   })
+
+  const scope = process.env.BLING_OAUTH_SCOPE?.trim()
+  if (scope) {
+    params.set('scope', scope)
+  }
 
   const authorizeUrl = `${BLING_AUTHORIZE_URL}?${params.toString()}`
 

@@ -488,6 +488,20 @@ export function SeminovosListClient({
 	const groupedAvailableAll = groupDevicesByModel(devices);
 	const flatAvailableAll = groupedAvailableAll.flatMap((g) => g.devices);
 
+	const seminovosQuickFilterChips = useMemo(() => {
+		const r: { id: string; text: string }[] = [];
+		if (filterNotTested) r.push({ id: "op-nt", text: "Não testados" });
+		if (filterNotAdvertised) r.push({ id: "op-na", text: "Não anunciados" });
+		if (filterNoLabel) r.push({ id: "op-nl", text: "Sem etiqueta" });
+		if (filterWithInfo) r.push({ id: "op-wi", text: "Com informação" });
+		return r;
+	}, [
+		filterNotTested,
+		filterNotAdvertised,
+		filterNoLabel,
+		filterWithInfo,
+	]);
+
 	const filteredDevices = devices.filter((d) => {
 		if (filterNotTested && d.tested) return false;
 		if (filterNotAdvertised && d.advertised) return false;
@@ -1222,6 +1236,7 @@ export function SeminovosListClient({
 
 	return (
 		<>
+			{!sellModalTarget ? (
 			<div className="space-y-4">
 				{isBulkEdit ? (
 					<div className="flex flex-wrap items-center gap-2">
@@ -1270,6 +1285,13 @@ export function SeminovosListClient({
 						onToggleNotAdvertised: () => setFilterNotAdvertised((v) => !v),
 						onToggleNoLabel: () => setFilterNoLabel((v) => !v),
 						onToggleWithInfo: () => setFilterWithInfo((v) => !v),
+					}}
+					extraAppliedChips={seminovosQuickFilterChips}
+					onClearClientFilters={() => {
+						setFilterNotTested(false);
+						setFilterNotAdvertised(false);
+						setFilterNoLabel(false);
+						setFilterWithInfo(false);
 					}}
 				/>
 
@@ -2351,6 +2373,7 @@ export function SeminovosListClient({
 					</Collapsible>
 				</Card>
 			</div>
+			) : null}
 
 			<ResaleSimulatePaymentDialog
 				device={
@@ -2449,6 +2472,9 @@ export function SeminovosListClient({
 				<DialogContent className="max-w-3xl sm:max-w-5xl w-[min(96vw,72rem)] max-h-[90vh] overflow-y-auto gap-0">
 					<DialogHeader className="pb-2">
 						<DialogTitle>Marcar como vendido</DialogTitle>
+						<DialogDescription>
+							Informe data, valor do aparelho, formas de pagamento e, se quiser, comissão, extras e termo de garantia.
+						</DialogDescription>
 					</DialogHeader>
 					<div className="grid gap-5 py-4 lg:grid-cols-2 lg:gap-6 lg:items-start">
 						<div className="flex flex-col gap-4 min-w-0">

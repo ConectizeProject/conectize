@@ -37,6 +37,11 @@ import { toast } from '@/hooks/use-toast'
 import { maskedFromCents } from '@/lib/utils/money'
 import { formatMoneyInput, moneyToCentsFromMasked } from '@/lib/utils/money'
 import { portalFetch } from '@/lib/portal/portal-fetch'
+import type { RecurringPendingDto } from '@/lib/finance/recurring-due'
+import {
+  FinanceiroNovoRegistroDialog,
+  type ApiFinancialTransactionRow,
+} from './FinanceiroNovoRegistroDialog'
 
 type Movement = {
   id: string
@@ -56,6 +61,28 @@ type Movement = {
   resale_device_id: string | null
   pos_sale_id: string | null
   editable: boolean
+}
+
+function movementFromApiTransaction (tx: ApiFinancialTransactionRow, contaName: string): Movement {
+  const oc = String(tx.occurred_at ?? '').slice(0, 10)
+  return {
+    id: tx.id,
+    source: 'transaction',
+    conta_id: tx.conta_id,
+    conta_name: contaName,
+    amount_cents: Number(tx.amount_cents),
+    type: String(tx.type ?? ''),
+    description: tx.description ?? '',
+    occurred_at: oc,
+    created_at: String(tx.created_at ?? new Date().toISOString()),
+    transfer_id: tx.transfer_id ?? null,
+    recurring_expense_id: tx.recurring_expense_id ?? null,
+    service_order_id: null,
+    service_order_href: null,
+    resale_device_id: null,
+    pos_sale_id: null,
+    editable: true,
+  }
 }
 
 type Bank = { id: string; name: string }
@@ -107,13 +134,6 @@ export function FinanceiroMovimentacaoClient() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [formType, setFormType] = useState<'entrada' | 'saida'>('entrada')
-  const [formOccurredAt, setFormOccurredAt] = useState('')
-  const [isRecurring, setIsRecurring] = useState(false)
-  const [formDescription, setFormDescription] = useState('')
-  const [formAmount, setFormAmount] = useState('')
-  const [formContaId, setFormContaId] = useState('')
-  const [formBillingDay, setFormBillingDay] = useState('')
   const [saving, setSaving] = useState(false)
   const [editingMovement, setEditingMovement] = useState<Movement | null>(null)
   const [deletingMovement, setDeletingMovement] = useState<Movement | null>(null)
@@ -136,6 +156,9 @@ export function FinanceiroMovimentacaoClient() {
   const [newRecurringAmount, setNewRecurringAmount] = useState('')
   const [newRecurringContaId, setNewRecurringContaId] = useState('')
   const [newRecurringBillingDay, setNewRecurringBillingDay] = useState('1')
+  const [recurringPending, setRecurringPending] = useState<RecurringPendingDto[]>([])
+  const [settleTarget, setSettleTarget] = useState<RecurringPendingDto | null>(null)
+  const [settlePaidAt, setSettlePaidAt] = useState('')
 
   const range = preset === 'custom'
     ? {
@@ -163,11 +186,23 @@ export function FinanceiroMovimentacaoClient() {
     }
   }, [])
 
+  const fetchRecurringPending = useCallback(async () => {
+    const pendRes = await portalFetch('/api/portal/admin/finance/recurring/pending')
+    const pendData = await pendRes?.json().catch(() => null)
+    if (pendData?.ok && Array.isArray(pendData.pending)) {
+      setRecurringPending(pendData.pending)
+    } else {
+      setRecurringPending([])
+    }
+  }, [])
+
   const loadMovements = useCallback(async () => {
     setLoading(true)
-    await portalFetch('/api/portal/admin/finance/recurring/generate', { method: 'POST' })
-    const res = await portalFetch(`/api/portal/admin/finance/movements?from=${from}&to=${to}`)
-    const data = await res?.json().catch(() => null)
+    const [moveRes] = await Promise.all([
+      portalFetch(`/api/portal/admin/finance/movements?from=${from}&to=${to}`),
+      fetchRecurringPending(),
+    ])
+    const data = await moveRes?.json().catch(() => null)
     if (data?.ok && Array.isArray(data.movements)) {
       setMovements(data.movements)
     } else {
@@ -175,7 +210,35 @@ export function FinanceiroMovimentacaoClient() {
     }
     loadBalances()
     setLoading(false)
-  }, [from, to, loadBalances])
+  }, [from, to, loadBalances, fetchRecurringPending])
+
+  const applyNewManualTransaction = useCallback((tx: ApiFinancialTransactionRow) => {
+    const oc = String(tx.occurred_at ?? '').slice(0, 10)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(oc) || oc < from || oc > to) return
+    const contaName = contas.find((c) => c.id === tx.conta_id)?.name ?? ''
+    const m = movementFromApiTransaction(tx, contaName)
+    const delta = Number(tx.amount_cents) || 0
+    setMovements((prev) => {
+      const without = prev.filter((x) => x.id !== m.id)
+      const next = [...without, m]
+      next.sort((a, b) => {
+        const d = b.occurred_at.localeCompare(a.occurred_at)
+        if (d !== 0) return d
+        return (b.created_at || '').localeCompare(a.created_at || '')
+      })
+      return next
+    })
+    setBalances((prev) => {
+      const idx = prev.findIndex((b) => b.id === tx.conta_id)
+      if (idx < 0) return prev
+      const next = [...prev]
+      next[idx] = {
+        ...next[idx],
+        balance_cents: next[idx].balance_cents + delta,
+      }
+      return next
+    })
+  }, [from, to, contas])
 
   async function syncCurrentPeriodServiceOrders () {
     setIsSyncingServiceOrders(true)
@@ -195,6 +258,40 @@ export function FinanceiroMovimentacaoClient() {
       }
     } finally {
       setIsSyncingServiceOrders(false)
+    }
+  }
+
+  function openSettle (p: RecurringPendingDto) {
+    setSettleTarget(p)
+    setSettlePaidAt(new Date().toISOString().slice(0, 10))
+  }
+
+  async function submitSettle (e: React.FormEvent) {
+    e.preventDefault()
+    if (!settleTarget) return
+    const paidAt = settlePaidAt && /^\d{4}-\d{2}-\d{2}$/.test(settlePaidAt.trim())
+      ? settlePaidAt.trim()
+      : new Date().toISOString().slice(0, 10)
+    setSaving(true)
+    try {
+      const res = await portalFetch('/api/portal/admin/finance/recurring/settle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recurring_expense_id: settleTarget.id, paid_at: paidAt }),
+      })
+      const data = await res?.json().catch(() => null)
+      if (data?.ok) {
+        toast({ title: 'Pagamento registrado' })
+        setSettleTarget(null)
+        await loadMovements()
+      } else {
+        const msg = data?.error === 'concurrent_update'
+          ? 'Outra alteração ocorreu ao mesmo tempo. Atualize e tente novamente.'
+          : (data?.error || 'Erro ao registrar')
+        toast({ title: msg, variant: 'destructive' })
+      }
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -263,6 +360,7 @@ export function FinanceiroMovimentacaoClient() {
         toast({ title: 'Custo recorrente atualizado' })
         setEditingRecurring(null)
         await loadRecurringExpenses()
+        await fetchRecurringPending()
       } else {
         toast({ title: 'Não foi possível atualizar', variant: 'destructive' })
       }
@@ -307,6 +405,7 @@ export function FinanceiroMovimentacaoClient() {
         setNewRecurringAmount('')
         setNewRecurringBillingDay('1')
         await loadRecurringExpenses()
+        await fetchRecurringPending()
       } else {
         toast({ title: 'Não foi possível criar', variant: 'destructive' })
       }
@@ -325,6 +424,7 @@ export function FinanceiroMovimentacaoClient() {
       if (data?.ok) {
         toast({ title: 'Custo recorrente removido' })
         await loadRecurringExpenses()
+        await fetchRecurringPending()
       } else {
         toast({ title: 'Não foi possível remover', variant: 'destructive' })
       }
@@ -341,75 +441,8 @@ export function FinanceiroMovimentacaoClient() {
     loadMovements()
   }, [loadMovements])
 
-  function openNewRegistro() {
-    setFormDescription('')
-    setFormAmount('')
-    setFormType('entrada')
-    setFormOccurredAt(new Date().toISOString().slice(0, 10))
-    setFormContaId(contas[0]?.id ?? '')
-    setFormBillingDay(String(new Date().getDate()))
-    setIsRecurring(false)
+  function openNewRegistro () {
     setDialogOpen(true)
-  }
-
-  async function submitNewRegistro(e: React.FormEvent) {
-    e.preventDefault()
-    const cents = moneyToCentsFromMasked(formAmount)
-    if (!cents || cents <= 0) {
-      toast({ title: 'Informe o valor', variant: 'destructive' })
-      return
-    }
-    if (!formContaId) {
-      toast({ title: 'Selecione a conta', variant: 'destructive' })
-      return
-    }
-    const occurredAt = formOccurredAt && /^\d{4}-\d{2}-\d{2}$/.test(formOccurredAt) ? formOccurredAt : new Date().toISOString().slice(0, 10)
-    setSaving(true)
-    try {
-      if (isRecurring && formType === 'saida') {
-        const billingDay = Math.min(31, Math.max(1, parseInt(formBillingDay, 10) || 1))
-        const res = await portalFetch('/api/portal/admin/finance/recurring', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            description: formDescription.trim() || 'Gasto recorrente',
-            amount_cents: cents,
-            conta_id: formContaId,
-            billing_day: billingDay,
-          }),
-        })
-        const data = await res?.json().catch(() => null)
-        if (data?.ok) {
-          toast({ title: 'Gasto recorrente cadastrado' })
-          setDialogOpen(false)
-          loadMovements()
-        } else {
-          toast({ title: data?.error || 'Erro ao salvar', variant: 'destructive' })
-        }
-      } else {
-        const res = await portalFetch('/api/portal/admin/finance/transactions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type: formType,
-            amount_cents: cents,
-            conta_id: formContaId,
-            description: formDescription.trim() || null,
-            occurred_at: occurredAt,
-          }),
-        })
-        const data = await res?.json().catch(() => null)
-        if (data?.ok) {
-          toast({ title: formType === 'entrada' ? 'Entrada registrada' : 'Saída registrada' })
-          setDialogOpen(false)
-          loadMovements()
-        } else {
-          toast({ title: data?.error || 'Erro ao salvar', variant: 'destructive' })
-        }
-      }
-    } finally {
-      setSaving(false)
-    }
   }
 
   function openEdit(m: Movement) {
@@ -673,96 +706,61 @@ export function FinanceiroMovimentacaoClient() {
             )}
           </CardContent>
         </Card>
+
+        <Card className="mt-3">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Recorrentes</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {loading && recurringPending.length === 0 ? (
+              <div className="flex justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : recurringPending.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Nenhuma conta recorrente.</p>
+            ) : (
+              recurringPending.map((p) => (
+                <div
+                  key={p.id}
+                  className={`rounded-md border p-2.5 space-y-2 ${p.is_active ? '' : 'opacity-70'}`}
+                >
+                  <p className="text-sm font-medium leading-snug line-clamp-2" title={p.description}>
+                    {p.description}
+                    {!p.is_active ? (
+                      <span className="text-muted-foreground font-normal"> (inativo)</span>
+                    ) : null}
+                  </p>
+                  <div className="flex items-baseline justify-between gap-2 text-xs">
+                    <span className="text-muted-foreground tabular-nums">
+                      {format(new Date(`${p.due_date}T12:00:00`), 'dd/MM/yyyy', { locale: ptBR })}
+                    </span>
+                    <span className="font-medium tabular-nums text-red-600 dark:text-red-400 shrink-0">
+                      {maskedFromCents(-Math.abs(p.amount_cents))}
+                    </span>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="w-full h-8 text-xs"
+                    onClick={() => openSettle(p)}
+                  >
+                    Marcar como paga
+                  </Button>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
       </aside>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Novo registro</DialogTitle>
-            <DialogDescription>Registre uma entrada ou saída na conta.</DialogDescription>
-          </DialogHeader>
-          <form onSubmit={submitNewRegistro} className="space-y-4">
-            <div>
-              <Label>Tipo</Label>
-              <Select value={formType} onValueChange={(v) => { setFormType(v as 'entrada' | 'saida'); if (v === 'entrada') setIsRecurring(false) }}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="entrada">Entrada (positivo)</SelectItem>
-                  <SelectItem value="saida">Gasto (negativo)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Data da movimentação</Label>
-              <Input
-                type="date"
-                value={formOccurredAt}
-                onChange={(e) => setFormOccurredAt(e.target.value)}
-              />
-            </div>
-            <div>
-              <Label>Valor (R$)</Label>
-              <Input
-                value={formAmount}
-                onChange={(e) => setFormAmount(formatMoneyInput(e.target.value))}
-                placeholder="0,00"
-                inputMode="numeric"
-                autoComplete="off"
-                className="tabular-nums"
-              />
-            </div>
-            <div>
-              <Label>Conta</Label>
-              <Select value={formContaId} onValueChange={setFormContaId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione" />
-                </SelectTrigger>
-                <SelectContent>
-                  {contas.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Descrição</Label>
-              <Input
-                value={formDescription}
-                onChange={(e) => setFormDescription(e.target.value)}
-                placeholder="Ex.: Venda, aluguel, energia..."
-              />
-            </div>
-            {formType === 'saida' && (
-              <>
-                <div className="flex items-center gap-2">
-                  <Switch checked={isRecurring} onCheckedChange={setIsRecurring} />
-                  <Label>Gasto recorrente (dia da fatura)</Label>
-                </div>
-                {isRecurring && (
-                  <div>
-                    <Label>Dia da fatura (1-31)</Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={31}
-                      value={formBillingDay}
-                      onChange={(e) => setFormBillingDay(e.target.value)}
-                    />
-                  </div>
-                )}
-              </>
-            )}
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancelar</Button>
-              <Button type="submit" disabled={saving}>
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Salvar'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <FinanceiroNovoRegistroDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        contas={contas}
+        onManualTransactionCreated={applyNewManualTransaction}
+        onRecurringCreated={fetchRecurringPending}
+      />
 
       <Dialog open={editDialogOpen} onOpenChange={(open) => { if (!open) setEditingMovement(null); setEditDialogOpen(open) }}>
         <DialogContent>
@@ -942,6 +940,45 @@ export function FinanceiroMovimentacaoClient() {
               </TableBody>
             </Table>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(settleTarget)} onOpenChange={(open) => { if (!open) setSettleTarget(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Marcar como paga</DialogTitle>
+            <DialogDescription>
+              Será lançada uma saída na conta com o valor do custo recorrente. Informe a data em que o pagamento foi efetuado.
+            </DialogDescription>
+          </DialogHeader>
+          {settleTarget ? (
+            <form onSubmit={submitSettle} className="space-y-4">
+              <div className="text-sm space-y-1 rounded-md border p-3 bg-muted/40">
+                <p><span className="text-muted-foreground">Descrição:</span> {settleTarget.description}</p>
+                <p><span className="text-muted-foreground">Valor:</span> {maskedFromCents(-Math.abs(settleTarget.amount_cents))}</p>
+                <p><span className="text-muted-foreground">Competência:</span> {settleTarget.competency_month}</p>
+                <p><span className="text-muted-foreground">Vencimento:</span> {format(new Date(`${settleTarget.due_date}T12:00:00`), 'dd/MM/yyyy', { locale: ptBR })}</p>
+              </div>
+              <div>
+                <Label htmlFor="settle-paid-at">Data do pagamento</Label>
+                <Input
+                  id="settle-paid-at"
+                  type="date"
+                  value={settlePaidAt}
+                  onChange={(e) => setSettlePaidAt(e.target.value)}
+                  required
+                />
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setSettleTarget(null)}>
+                  Cancelar
+                </Button>
+                <Button type="submit" disabled={saving}>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Confirmar pagamento'}
+                </Button>
+              </DialogFooter>
+            </form>
+          ) : null}
         </DialogContent>
       </Dialog>
 

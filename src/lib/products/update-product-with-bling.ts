@@ -83,6 +83,8 @@ function normalizeText (value: string | null | undefined) {
 const PRODUCT_PATCH_FIELDS_EXCLUDED_FROM_BLING_PENDING = new Set<keyof UpdateProductInput>([
   'pricingTagId',
   'imageUrl',
+  'variationAttributeKeys',
+  'variationAttributeValues',
 ])
 
 function isOnlyBlingExcludedProductPatch (patch: UpdateProductInput): boolean {

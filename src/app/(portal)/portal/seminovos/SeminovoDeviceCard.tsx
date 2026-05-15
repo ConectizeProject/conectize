@@ -71,6 +71,7 @@ export function SeminovoDeviceCard({
 	].filter(Boolean).join(' | ')
 	const displayUrl = d.display_image_url
 	const imgOk = Boolean(displayUrl?.trim())
+	const showListingPhoto = variant === 'available' && imgOk
 
 	const cardClassName = variant === 'sold'
 		? 'group relative rounded-lg border bg-card overflow-hidden bg-muted/30 transition-shadow duration-200 hover:shadow-md hover:border-primary/25'
@@ -85,7 +86,7 @@ export function SeminovoDeviceCard({
 			/>
 			<div className="relative z-10 flex flex-col pointer-events-none [&_button]:pointer-events-auto">
 				<div className="relative aspect-square w-full shrink-0 overflow-hidden bg-muted">
-					{imgOk ? (
+					{showListingPhoto ? (
 						<img
 							src={displayUrl!}
 							alt=""

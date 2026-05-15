@@ -13,6 +13,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -927,7 +928,6 @@ export function SeminovosFormClient ({
           setSellCommissionPercent('')
           setSellCommissionFixed(maskedFromCents(3000))
         }
-        loadPaymentMethods()
         loadTeamUsers()
         setShowSellModal(true)
       }
@@ -1315,6 +1315,8 @@ export function SeminovosFormClient ({
         </Alert>
       ) : null}
 
+      {!showSellModal ? (
+        <>
       {!isNewLacradoFlow ? (
         <Card>
           <CardHeader>
@@ -1833,11 +1835,16 @@ export function SeminovosFormClient ({
           </Button>
         </div>
       </form>
+        </>
+      ) : null}
 
       <Dialog open={showSellModal} onOpenChange={(open) => !open && setShowSellModal(false)}>
         <DialogContent className="max-w-3xl sm:max-w-5xl w-[min(96vw,72rem)] max-h-[90vh] overflow-y-auto gap-0">
           <DialogHeader className="pb-2">
             <DialogTitle>Marcar como vendido</DialogTitle>
+            <DialogDescription>
+              Informe data, valor do aparelho, formas de pagamento e, se quiser, comissão, extras e termo de garantia.
+            </DialogDescription>
           </DialogHeader>
           <div className="grid gap-5 py-4 lg:grid-cols-2 lg:gap-6 lg:items-start">
             <div className="flex flex-col gap-4 min-w-0">

@@ -1,13 +1,17 @@
 import { createSupabaseServerClient, getAuthUser } from "@/lib/supabase/server";
 import { allocateCatalogSortKeyForInsert } from "@/lib/products/catalog-sort-key";
 import {
+	composePortalVariationDisplayName,
+	parseVariationAttributeKeys,
+	parseVariationAttributeValues,
+} from "@/lib/products/variation-display-name";
+import { createProductSyncSnapshot } from "@/lib/products/bling-sync";
+import {
 	ensurePortalOrganizationContext,
 	getPortalOrganizationId,
 } from "@/lib/organizations/portal-organization-context";
 
-type SupabaseServerClient = Awaited<
-	ReturnType<typeof createSupabaseServerClient>
->;
+type SupabaseServerClient = Awaited<ReturnType<typeof createSupabaseServerClient>>;
 
 const UUID_RE =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -25,6 +29,12 @@ export type Product = {
 	blingId: string | null;
 	/** ID do produto pai no Bling; null se não é variação. */
 	parentBlingId: string | null;
+	/** ID portal do pai (quando resolvido); útil para carregar definição de atributos. */
+	parentProductId: string | null;
+	/** No pai: nomes dos atributos de variação em ordem (ex.: ["Tamanho","Cor"]). */
+	variationAttributeKeys: string[];
+	/** Na variação: valores por atributo (chaves iguais às do pai). */
+	variationAttributeValues: Record<string, string>;
 	blingSyncPending: boolean;
 	blingSyncSnapshot: ProductSyncSnapshot | null;
 	kind?: "product" | "service" | null;
@@ -63,6 +73,10 @@ export type CreateProductInput = {
 	parentProductId?: string | null;
 	/** ID do produto pai no Bling; null = não é variação. */
 	parentBlingId?: string | null;
+	/** Valores dos atributos (só variação); o nome composto é derivado no servidor quando o pai tem chaves. */
+	variationAttributeValues?: Record<string, string> | null;
+	/** Chaves de atributo no produto pai (só raiz). */
+	variationAttributeKeys?: string[] | null;
 	kind?: "product" | "service" | null;
 	name: string;
 	sku?: string | null;
@@ -237,6 +251,11 @@ export async function createProduct(
 		return { ok: false as const, error: "name_required" as const };
 	}
 
+	const attrKeys = parseVariationAttributeKeys(input.variationAttributeKeys);
+	const attrVals = parseVariationAttributeValues(input.variationAttributeValues);
+
+	let finalName = name;
+
 	const parentKey =
 		input.parentBlingId != null ? String(input.parentBlingId).trim() : "";
 	const parentProductIdFromInput = normalizeOptionalUuid(input.parentProductId) ?? null;
@@ -254,6 +273,25 @@ export async function createProduct(
 		if (!resolvedParentBlingId && parentById?.bling_id != null) {
 			const k = String(parentById.bling_id).trim();
 			resolvedParentBlingId = k || null;
+		}
+		if (parentProductIdFromInput && Object.keys(attrVals).length > 0) {
+			const { data: parentRow } = await auth.supabase
+				.from("products")
+				.select("name, variation_attribute_keys")
+				.eq("id", parentProductIdFromInput)
+				.maybeSingle();
+			if (parentRow) {
+				const pKeys = parseVariationAttributeKeys(
+					(parentRow as { variation_attribute_keys?: unknown }).variation_attribute_keys,
+				);
+				if (pKeys.length > 0) {
+					finalName = composePortalVariationDisplayName(
+						String((parentRow as { name?: unknown }).name || "").trim(),
+						pKeys,
+						attrVals,
+					);
+				}
+			}
 		}
 	} else if (parentKey && parentKey !== "0") {
 		const { data: parentRow } = await auth.supabase
@@ -278,7 +316,7 @@ export async function createProduct(
 		bling_sync_snapshot: input.blingSyncSnapshot ?? null,
 		parent_bling_id: resolvedParentBlingId,
 		parent_product_id: parentProductId,
-		name,
+		name: finalName,
 		sku: input.sku ? String(input.sku).trim() : null,
 		barcode: input.barcode ? String(input.barcode).trim() : null,
 		description: input.description ? String(input.description).trim() : null,
@@ -294,6 +332,8 @@ export async function createProduct(
 		is_active: input.isActive ?? true,
 		created_by: auth.userId,
 		catalog_sort_key: catalogSortKey,
+		variation_attribute_keys: attrKeys,
+		variation_attribute_values: attrVals,
 	};
 
 	const { data, error } = await auth.supabase
@@ -540,6 +580,17 @@ export async function updateProduct(
 	}
 	if (input.isActive !== undefined) patch.is_active = Boolean(input.isActive);
 
+	if (input.variationAttributeKeys !== undefined) {
+		patch.variation_attribute_keys = parseVariationAttributeKeys(
+			input.variationAttributeKeys,
+		);
+	}
+	if (input.variationAttributeValues !== undefined) {
+		patch.variation_attribute_values = parseVariationAttributeValues(
+			input.variationAttributeValues,
+		);
+	}
+
 	if (input.parentBlingId !== undefined) {
 		const key =
 			input.parentBlingId != null ? String(input.parentBlingId).trim() : "";
@@ -576,6 +627,85 @@ export async function updateProduct(
 	}
 
 	return { ok: true as const, product: mapRowToProduct(data) };
+}
+
+export async function getParentProductForVariation(
+	child: Product,
+): Promise<
+	| { ok: true; parent: Product }
+	| { ok: false; error: "not_authenticated" | "not_found" }
+> {
+	const auth = await requireAuth();
+	if (!auth.ok) return { ok: false, error: "not_authenticated" };
+
+	let parentId: string | null = child.parentProductId;
+	if (!parentId && child.parentBlingId) {
+		const { data } = await auth.supabase
+			.from("products")
+			.select("id")
+			.eq("bling_id", child.parentBlingId)
+			.limit(1)
+			.maybeSingle();
+		parentId = data?.id ? String(data.id) : null;
+	}
+	if (!parentId) return { ok: false, error: "not_found" };
+
+	const res = await getProductById(parentId);
+	if (!res.ok || !("product" in res)) return { ok: false, error: "not_found" };
+	return { ok: true, parent: res.product };
+}
+
+export async function recomputeVariationDisplayNamesForParent(
+	parentProductId: string,
+): Promise<
+	| { ok: true; updated: number }
+	| { ok: false; error: "not_authenticated" | "not_found" | "db_error" }
+> {
+	const auth = await requireAuth();
+	if (!auth.ok) return { ok: false, error: "not_authenticated" };
+
+	const withVars = await getProductByIdWithVariations(parentProductId);
+	if (!withVars.ok) return { ok: false, error: "not_found" };
+
+	const parent = withVars.product;
+	const keys = parent.variationAttributeKeys;
+	if (keys.length === 0) return { ok: true, updated: 0 };
+
+	const parentName = parent.name.trim();
+	let updated = 0;
+
+	for (const v of withVars.variations) {
+		const newName = composePortalVariationDisplayName(
+			parentName,
+			keys,
+			v.variationAttributeValues,
+		);
+		if (!newName || newName === v.name) continue;
+
+		const snapshot = createProductSyncSnapshot({
+			name: newName,
+			sku: v.sku,
+			barcode: v.barcode,
+			description: v.description,
+			salePriceCents: v.salePriceCents,
+			costPriceCents: v.costPriceCents,
+			isActive: v.isActive,
+			kind: v.kind ?? null,
+		});
+
+		const { error } = await auth.supabase
+			.from("products")
+			.update({
+				name: newName,
+				bling_sync_snapshot: snapshot,
+				updated_at: new Date().toISOString(),
+			})
+			.eq("id", v.id);
+
+		if (!error) updated += 1;
+	}
+
+	return { ok: true, updated };
 }
 
 /** Quantidade de cadastros (ex.: variações) que apontam `parent_bling_id` para este ID do Bling. */
@@ -983,6 +1113,21 @@ function mapRowToProduct(row: Record<string, unknown>): Product {
 			? String(rawParentBling).trim()
 			: null;
 
+	const rawParentProductUuid = row.parent_product_id;
+	const parentProductId =
+		rawParentProductUuid != null &&
+		String(rawParentProductUuid).trim() !== "" &&
+		UUID_RE.test(String(rawParentProductUuid).trim().toLowerCase())
+			? String(rawParentProductUuid).trim().toLowerCase()
+			: null;
+
+	const variationAttributeKeys = parseVariationAttributeKeys(
+		row.variation_attribute_keys,
+	);
+	const variationAttributeValues = parseVariationAttributeValues(
+		row.variation_attribute_values,
+	);
+
 	const rawCatalogSort =
 		row.catalog_sort_key != null && String(row.catalog_sort_key).trim() !== ""
 			? String(row.catalog_sort_key).trim()
@@ -998,6 +1143,9 @@ function mapRowToProduct(row: Record<string, unknown>): Product {
 		id: String(row.id),
 		blingId: row.bling_id ? String(row.bling_id) : null,
 		parentBlingId,
+		parentProductId,
+		variationAttributeKeys,
+		variationAttributeValues,
 		blingSyncPending: Boolean(row.bling_sync_pending ?? false),
 		blingSyncSnapshot: mapRowToProductSyncSnapshot(row.bling_sync_snapshot),
 		kind: row.kind === "product" || row.kind === "service" ? row.kind : null,

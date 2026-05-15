@@ -494,12 +494,190 @@ function resolveParentBlingId(
 	return parentId;
 }
 
+export type MapBlingProductContext = {
+	/** Nomes de produtos raiz na mesma página de listagem (import em lote). */
+	parentNameByBlingId?: ReadonlyMap<string, string>;
+};
+
+function trimTxt(v: unknown): string {
+	if (v == null || v === "") return "";
+	return String(v).replace(/\s+/g, " ").trim();
+}
+
+function nomeFromParentObject(obj: unknown): string {
+	if (!obj || typeof obj !== "object" || Array.isArray(obj)) return "";
+	return trimTxt((obj as Record<string, unknown>).nome);
+}
+
+function resolveBlingParentNameForVariation(
+	rootFlat: Record<string, unknown>,
+	slice: Record<string, unknown>,
+	parentBlingId: string,
+	ctx?: MapBlingProductContext,
+): string {
+	const fromCtx = ctx?.parentNameByBlingId?.get(parentBlingId);
+	if (fromCtx) return fromCtx;
+
+	const fromSliceNested = [
+		nomeFromParentObject(slice.produtoPai),
+		nomeFromParentObject(slice.produto_pai),
+		nomeFromParentObject(slice.pai),
+	];
+	for (const n of fromSliceNested) {
+		if (n) return n;
+	}
+
+	const varWrap = slice.variacao ?? slice.variação;
+	if (varWrap && typeof varWrap === "object" && !Array.isArray(varWrap)) {
+		const rec = varWrap as Record<string, unknown>;
+		const nested =
+			nomeFromParentObject(rec.produtoPai) ||
+			nomeFromParentObject(rec.produto_pai);
+		if (nested) return nested;
+	}
+
+	const rootId = asTrimmedId(rootFlat.id);
+	if (rootId === parentBlingId) return trimTxt(rootFlat.nome);
+
+	return "";
+}
+
+type VariationPart = { tipo: string; valor: string };
+
+function readCaracteristicasParts(slice: Record<string, unknown>): VariationPart[] {
+	const raw = slice.caracteristicas ?? slice.características;
+	if (!Array.isArray(raw) || raw.length === 0) return [];
+	const out: VariationPart[] = [];
+	for (const item of raw) {
+		if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+		const row = item as Record<string, unknown>;
+		const tipo = trimTxt(row.nome ?? row.descricao);
+		const valor = trimTxt(
+			row.valor ?? row.valorNome ?? row.nomeValor ?? row.valorDaVariacao,
+		);
+		if (tipo || valor) out.push({ tipo, valor });
+	}
+	return out;
+}
+
+function readVariacaoWrapperParts(
+	slice: Record<string, unknown>,
+	parentName: string,
+	sliceNome: string,
+): VariationPart[] {
+	const v = slice.variacao ?? slice.variação;
+	if (!v || typeof v !== "object" || Array.isArray(v)) return [];
+	const rec = v as Record<string, unknown>;
+	let tipo = trimTxt(rec.nome ?? rec.tipo ?? rec.descricao);
+	let valor = trimTxt(
+		rec.valorNome ??
+			rec.valor ??
+			rec.valorDaVariacao ??
+			rec.nomeCompletoVariacao ??
+			rec.nomeVariacao,
+	);
+	if (tipo && !valor) {
+		const sn = sliceNome.trim();
+		const pn = parentName.trim();
+		if (sn && (!pn || sn.toLowerCase() !== pn.toLowerCase())) valor = sn;
+	}
+	if (!tipo && !valor) return [];
+	return [{ tipo, valor }];
+}
+
+function parseTailAfterParentName(
+	parentName: string,
+	sliceNome: string,
+): VariationPart | null {
+	const pn = parentName.trim();
+	const sn = sliceNome.trim();
+	if (!pn || !sn) return null;
+	if (sn.toLowerCase() === pn.toLowerCase()) return null;
+	if (!sn.toLowerCase().startsWith(pn.toLowerCase())) return null;
+	const tail = sn.slice(pn.length).trim();
+	if (!tail) return null;
+	const m = tail.match(/^([^:]+):\s*(.+)$/i);
+	if (m) return { tipo: m[1].trim(), valor: m[2].trim() };
+	return { tipo: "", valor: tail };
+}
+
+function mergeVariationParts(
+	slice: Record<string, unknown>,
+	parentName: string,
+	sliceNome: string,
+): VariationPart[] {
+	const fromChars = readCaracteristicasParts(slice);
+	if (fromChars.length > 0) return fromChars;
+
+	const fromVar = readVariacaoWrapperParts(slice, parentName, sliceNome);
+	if (fromVar.length > 0 && (fromVar[0].tipo || fromVar[0].valor)) return fromVar;
+
+	const parsed = parseTailAfterParentName(parentName, sliceNome);
+	if (parsed && (parsed.tipo || parsed.valor)) return [parsed];
+
+	const sn = sliceNome.trim();
+	const pn = parentName.trim();
+	if (sn && (!pn || sn.toLowerCase() !== pn.toLowerCase())) {
+		if (!pn || !sn.toLowerCase().startsWith(pn.toLowerCase())) {
+			return [{ tipo: "", valor: sn }];
+		}
+	}
+	return [];
+}
+
+function buildVariationDisplayName(
+	parentName: string,
+	parts: VariationPart[],
+	fallbackNome: string,
+): string {
+	const p = parentName.trim();
+	const fb = fallbackNome.trim();
+	if (parts.length === 0) return fb || p || "Produto";
+
+	const segments = parts
+		.filter((x) => x.valor || x.tipo)
+		.map(({ tipo, valor }) => {
+			const t = tipo.trim();
+			const v = valor.trim();
+			if (t && v) return `${t.toLowerCase()}:${v}`;
+			return v || t;
+		})
+		.filter(Boolean);
+
+	if (p && segments.length > 0) return `${p} ${segments.join(" ")}`.trim();
+	if (segments.length > 0) return segments.join(" ");
+	return fb || p || "Produto";
+}
+
+/**
+ * Monta mapa `id Bling do pai` → `nome` a partir de itens de uma página `/produtos`.
+ */
+export function buildParentNameByBlingIdFromPageItems(
+	items: Array<{ produto?: Record<string, unknown> } | Record<string, unknown>>,
+): Map<string, string> {
+	const map = new Map<string, string>();
+	for (const raw of items) {
+		const dto =
+			(raw as { produto?: Record<string, unknown> }).produto ??
+			(raw as Record<string, unknown>);
+		const flat = unwrapBlingProductDto(dto) as Record<string, unknown>;
+		const id = asTrimmedId(flat.id);
+		if (!id) continue;
+		const parentId = resolveParentBlingId(flat, id);
+		if (parentId) continue;
+		const nome = trimTxt(flat.nome);
+		if (nome) map.set(id, nome);
+	}
+	return map;
+}
+
 /**
  * @param knownBlingId — ID Bling do item já visto no portal (ex.: URL do GET); usado se o JSON não trouxer `id` na raiz após unwrap.
  */
 export function mapBlingProductToLocal(
 	rawDto: unknown,
 	knownBlingId?: string | null,
+	ctx?: MapBlingProductContext,
 ): LocalProduct {
 	const flat = unwrapBlingProductDto(rawDto) as Record<string, unknown>;
 	const slice = resolveProductDataSlice(flat, knownBlingId);
@@ -512,7 +690,22 @@ export function mapBlingProductToLocal(
 			: null);
 	const ownHint = String(idFromDto ?? knownBlingId ?? "").trim();
 	const parentId = resolveParentBlingId(slice, ownHint);
-	const name = String(dto.nome || "").trim();
+	const sliceNome = String(dto.nome || "").trim();
+	let name = sliceNome;
+	if (parentId) {
+		const parentName = resolveBlingParentNameForVariation(
+			flat,
+			slice as Record<string, unknown>,
+			parentId,
+			ctx,
+		);
+		const parts = mergeVariationParts(
+			slice as Record<string, unknown>,
+			parentName,
+			sliceNome,
+		);
+		name = buildVariationDisplayName(parentName, parts, sliceNome);
+	}
 	const barcode = getBarcode(dto);
 	const { saleCents, costCents } = resolveSaleAndCostCents(dto);
 	const estoqueAtual = getStock(dto);

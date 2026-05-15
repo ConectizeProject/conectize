@@ -31,6 +31,14 @@ type Props = {
   activeDragSourceStatus: string | null
   /** Chave estável (`id|id`) para memo — OS com salvamento de status em andamento */
   savingByOrderId: Record<string, true>
+  /** Com filtro ativo: mantém a coluna final aberta quando há OS na coluna. */
+  expandPinnedFromFilter?: boolean
+  /** Coluna final já buscou dados na API (false = lazy até clique). */
+  finalColumnHasLoaded?: boolean
+  /** Coluna final recolhida: primeira abertura dispara fetch no board. */
+  onFinalStripActivate?: (status: string) => void
+  /** Recolher coluna expandida por filtro (volta à faixa estreita). */
+  onDismissPinnedFilterExpand?: (status: string) => void
 }
 
 function areOrdensKanbanColumnPropsEqual (prev: Props, next: Props): boolean {
@@ -43,6 +51,12 @@ function areOrdensKanbanColumnPropsEqual (prev: Props, next: Props): boolean {
   if (prev.columnLoading !== next.columnLoading) return false
   if (prev.onRequestLoadMore !== next.onRequestLoadMore) return false
   if (prev.savingByOrderId !== next.savingByOrderId) return false
+  if (prev.expandPinnedFromFilter !== next.expandPinnedFromFilter) return false
+  if (prev.finalColumnHasLoaded !== next.finalColumnHasLoaded) return false
+  if (prev.onFinalStripActivate !== next.onFinalStripActivate) return false
+  if (prev.onDismissPinnedFilterExpand !== next.onDismissPinnedFilterExpand) {
+    return false
+  }
   if (
     kanbanColumnDragUiKey(
       prev.status,
@@ -77,6 +91,10 @@ export const OrdensKanbanColumn = memo(function OrdensKanbanColumn ({
   dragOverId,
   activeDragSourceStatus,
   savingByOrderId,
+  expandPinnedFromFilter = false,
+  finalColumnHasLoaded = true,
+  onFinalStripActivate,
+  onDismissPinnedFilterExpand,
 }: Props) {
   const droppableId = kanbanColumnDroppableId(status)
   const { setNodeRef } = useDroppable({ id: droppableId })
@@ -119,12 +137,12 @@ export const OrdensKanbanColumn = memo(function OrdensKanbanColumn ({
   }, [orders.length, isFinalColumn])
 
   /**
-   * Faixa estreita: colunas de pipeline vazias, ou colunas finais (sempre fechadas por padrão).
-   * Durante arraste todas abrem (`dragActiveId`); ao soltar volta o estado local.
+   * Faixa estreita: colunas de pipeline vazias, ou colunas finais (lazy até clique / filtro).
+   * `expandPinnedFromFilter` mantém abertas as finais com resultado quando há filtro ativo.
    */
   const showCollapsedStrip =
-    !dragActiveId &&
     !manuallyExpanded &&
+    !expandPinnedFromFilter &&
     !columnLoading &&
     (isFinalColumn || isEmptyContent)
 
@@ -171,16 +189,34 @@ export const OrdensKanbanColumn = memo(function OrdensKanbanColumn ({
     return (
       <div
         ref={setNodeRef}
-        className="flex h-full min-h-0 w-12 shrink-0 flex-col rounded-xl border bg-muted/40"
+        className={cn(
+          'flex h-full min-h-0 w-12 shrink-0 flex-col rounded-xl border bg-muted/40 transition-[box-shadow,border-color]',
+          showTargetDropSkeleton &&
+            'border-primary shadow-[0_0_0_2px_hsl(var(--primary)_/_0.35)]',
+        )}
         role="region"
         aria-label={`Coluna ${label} (recolhida)`}
       >
         <button
           type="button"
           className="flex min-h-[120px] flex-1 flex-col items-center justify-start gap-0 pt-3 pb-4 hover:bg-muted/50"
-          onClick={() => setManuallyExpanded(true)}
+          onClick={() => {
+            if (isFinalColumn && !finalColumnHasLoaded) {
+              onFinalStripActivate?.(status)
+            }
+            setManuallyExpanded(true)
+          }}
           aria-expanded={false}
-          aria-label={`Abrir coluna ${label}`}
+          aria-label={
+            isFinalColumn && !finalColumnHasLoaded
+              ? `Carregar e abrir coluna ${label}`
+              : `Abrir coluna ${label}`
+          }
+          title={
+            isFinalColumn && !finalColumnHasLoaded
+              ? 'Clique para carregar as ordens desta coluna'
+              : undefined
+          }
         >
           <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', dotClass)} aria-hidden />
           <span
@@ -206,7 +242,13 @@ export const OrdensKanbanColumn = memo(function OrdensKanbanColumn ({
           <button
             type="button"
             className="flex shrink-0 items-center justify-center rounded-md p-1 text-muted-foreground hover:bg-muted/80 hover:text-foreground"
-            onClick={() => setManuallyExpanded(false)}
+            onClick={() => {
+              if (expandPinnedFromFilter && onDismissPinnedFilterExpand) {
+                onDismissPinnedFilterExpand(status)
+                return
+              }
+              setManuallyExpanded(false)
+            }}
             aria-label={`Recolher coluna ${label}`}
             title="Recolher coluna"
           >

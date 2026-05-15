@@ -59,6 +59,7 @@ export async function PATCH (
     .from('pricing_tags')
     .update(patch)
     .eq('id', id)
+    .eq('organization_id', auth.organizationId)
     .select('id, name, margin_bps, min_suggested_sale_cents, created_at, updated_at')
     .maybeSingle()
 
@@ -84,7 +85,11 @@ export async function DELETE (
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 
-  const { error } = await auth.supabase.from('pricing_tags').delete().eq('id', id)
+  const { error } = await auth.supabase
+    .from('pricing_tags')
+    .delete()
+    .eq('id', id)
+    .eq('organization_id', auth.organizationId)
   if (error) {
     console.error('[staff/pricing-tags DELETE]', error)
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })

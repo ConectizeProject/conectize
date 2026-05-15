@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { GripVertical, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -56,6 +56,8 @@ function mapProductToForm (p: Product): ProductFormProduct {
     pricingTagId: p.pricingTagId,
     isActive: p.isActive !== false,
     kind: p.kind === 'service' ? 'service' : 'product',
+    variationAttributeKeys: p.variationAttributeKeys,
+    variationAttributeValues: p.variationAttributeValues,
   }
 }
 
@@ -92,6 +94,13 @@ export function ProductFormDialog ({
   const [syncingProduct, setSyncingProduct] = useState(false)
   const [syncingStock, setSyncingStock] = useState(false)
   const [applyImageChildrenBusy, setApplyImageChildrenBusy] = useState(false)
+  const [parentAttrKeysForVariation, setParentAttrKeysForVariation] = useState<string[]>([])
+  const [parentNameForVariationForm, setParentNameForVariationForm] = useState<string | null>(null)
+  const [createParentAttrKeys, setCreateParentAttrKeys] = useState<string[]>([])
+  const [createParentName, setCreateParentName] = useState<string | null>(null)
+  const [variationAttrPortalEl, setVariationAttrPortalEl] = useState<HTMLDivElement | null>(null)
+  const [parentVariationKeysPortalEl, setParentVariationKeysPortalEl] = useState<HTMLDivElement | null>(null)
+  const variationTabDefaultedRef = useRef(false)
 
   const loadEdit = useCallback(async () => {
     if (!productId || mode !== 'edit') return
@@ -155,7 +164,17 @@ export function ProductFormDialog ({
     setSavePhase('idle')
     setEditTab('dados')
     setApplyImageChildrenBusy(false)
+    setParentAttrKeysForVariation([])
+    setParentNameForVariationForm(null)
+    setCreateParentAttrKeys([])
+    setCreateParentName(null)
+    setVariationAttrPortalEl(null)
+    setParentVariationKeysPortalEl(null)
   }, [open])
+
+  useEffect(() => {
+    variationTabDefaultedRef.current = false
+  }, [open, productId])
 
   useEffect(() => {
     if (!open || mode !== 'edit') return
@@ -163,9 +182,84 @@ export function ProductFormDialog ({
   }, [open, mode, productId, initialEditTab])
 
   useEffect(() => {
+    if (!open || mode !== 'edit' || initialEditTab != null || !loadedProduct) return
+    const isVar = Boolean(loadedProduct.parentProductId || loadedProduct.parentBlingId)
+    if (!isVar) return
+    if (variationTabDefaultedRef.current) return
+    variationTabDefaultedRef.current = true
+    setEditTab('variacoes')
+  }, [
+    open,
+    mode,
+    initialEditTab,
+    loadedProduct?.id,
+    loadedProduct?.parentProductId,
+    loadedProduct?.parentBlingId,
+  ])
+
+  useEffect(() => {
     if (!loadedProduct || loadedProduct.kind !== 'service') return
     setEditTab('dados')
   }, [loadedProduct?.id, loadedProduct?.kind])
+
+  useEffect(() => {
+    const pid = loadedProduct?.parentProductId
+    if (!open || mode !== 'edit' || !pid) {
+      setParentAttrKeysForVariation([])
+      setParentNameForVariationForm(null)
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await fetch(`/api/portal/produtos/${pid}`)
+        const data = await res.json().catch(() => null)
+        if (cancelled || !res.ok || !data?.ok || !data?.product) return
+        const parent = data.product as Product
+        setParentAttrKeysForVariation(
+          Array.isArray(parent.variationAttributeKeys) ? parent.variationAttributeKeys : [],
+        )
+        setParentNameForVariationForm(parent.name?.trim() || null)
+      } catch {
+        if (!cancelled) {
+          setParentAttrKeysForVariation([])
+          setParentNameForVariationForm(null)
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open, mode, loadedProduct?.parentProductId])
+
+  useEffect(() => {
+    if (!open || mode !== 'create' || !initialParentProductId) {
+      setCreateParentAttrKeys([])
+      setCreateParentName(null)
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await fetch(`/api/portal/produtos/${initialParentProductId}`)
+        const data = await res.json().catch(() => null)
+        if (cancelled || !res.ok || !data?.ok || !data?.product) return
+        const p = data.product as Product
+        setCreateParentAttrKeys(
+          Array.isArray(p.variationAttributeKeys) ? p.variationAttributeKeys : [],
+        )
+        setCreateParentName(p.name?.trim() || null)
+      } catch {
+        if (!cancelled) {
+          setCreateParentAttrKeys([])
+          setCreateParentName(null)
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open, mode, initialParentProductId])
 
   async function handleSubmit (payload: ProductFormSubmitPayload) {
     if (savePhase !== 'idle') return
@@ -191,6 +285,12 @@ export function ProductFormDialog ({
             compatibleModelIds: payload.compatibleModelIds,
             parentProductId: initialParentProductId || null,
             parentBlingId: initialParentBlingId || null,
+            ...(payload.variationAttributeKeys !== undefined
+              ? { variationAttributeKeys: payload.variationAttributeKeys }
+              : {}),
+            ...(payload.variationAttributeValues !== undefined
+              ? { variationAttributeValues: payload.variationAttributeValues }
+              : {}),
           }),
         })
         const data = await res.json().catch(() => null)
@@ -237,6 +337,12 @@ export function ProductFormDialog ({
           isActive: payload.isActive,
           pricingTagId: payload.pricingTagId,
           compatibleModelIds: payload.compatibleModelIds,
+          ...(payload.variationAttributeKeys !== undefined
+            ? { variationAttributeKeys: payload.variationAttributeKeys }
+            : {}),
+          ...(payload.variationAttributeValues !== undefined
+            ? { variationAttributeValues: payload.variationAttributeValues }
+            : {}),
         }),
       })
       const data = await res.json().catch(() => null)
@@ -388,9 +494,19 @@ export function ProductFormDialog ({
   const isEditProductWithStock = Boolean(
     loadedProduct && loadedProduct.kind !== 'service',
   )
-  const isVariationChild = Boolean(loadedProduct?.parentBlingId)
+  const isVariationChild = Boolean(
+    loadedProduct?.parentBlingId || loadedProduct?.parentProductId,
+  )
   const canManageVariationsTab = Boolean(
     loadedProduct && !isVariationChild && onCreateVariationFromParent,
+  )
+  const mountProductEditTabPanels = isEditProductWithStock
+  const productEditTabMountProps = mountProductEditTabPanels
+    ? { forceMount: true as const }
+    : {}
+  const variationTabPanelClass = cn(
+    'mt-0 focus-visible:outline-none',
+    mountProductEditTabPanels && 'data-[state=inactive]:hidden',
   )
 
   const handleApplyImageToVariationChildren = useCallback(async (url: string | null) => {
@@ -449,21 +565,26 @@ export function ProductFormDialog ({
           mode === 'create' ? 'sm:max-w-2xl' : 'sm:max-w-5xl',
         )}
       >
+        <DialogDescription className="sr-only">
+          {mode === 'create'
+            ? 'Cadastro de produto ou serviço: preços, imagem, modelos compatíveis e variações quando aplicável.'
+            : 'Edição de produto ou serviço: dados, variações e estoque.'}
+        </DialogDescription>
         {mode === 'create' ? (
           <>
             <DialogHeader className="shrink-0 space-y-1 border-b px-6 py-4 text-left">
               <DialogTitle>{title}</DialogTitle>
-              <DialogDescription className="sr-only">
-                Cadastro completo: preços, tag de precificação e modelos compatíveis.
-              </DialogDescription>
             </DialogHeader>
             <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
               <ProductForm
-                key="create"
+                key={initialParentProductId ? `create-var-${initialParentProductId}` : 'create'}
                 mode="create"
                 defaultKind={defaultKind}
                 embed
                 initialCompatibleModels={[]}
+                creatingAsVariation={Boolean(initialParentProductId)}
+                parentProductNameForVariation={createParentName}
+                parentVariationAttributeKeys={createParentAttrKeys}
                 onCancel={() => onOpenChange(false)}
                 onSubmit={handleSubmit}
               />
@@ -525,7 +646,11 @@ export function ProductFormDialog ({
                 </DialogHeader>
 
                 <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
-                  <TabsContent value="dados" className="mt-0 focus-visible:outline-none">
+                  <TabsContent
+                    value="dados"
+                    {...productEditTabMountProps}
+                    className={variationTabPanelClass}
+                  >
                     <div className="mb-4 space-y-2">
                       <p className="text-[11px] leading-relaxed text-muted-foreground">
                         <span className="text-muted-foreground/90">ID portal</span>
@@ -598,6 +723,22 @@ export function ProductFormDialog ({
                       initialCompatibleModels={compatibleModels}
                       defaultKind={defaultKind}
                       embed
+                      isVariation={Boolean(
+                        loadedProduct.parentBlingId || loadedProduct.parentProductId,
+                      )}
+                      parentProductNameForVariation={parentNameForVariationForm}
+                      parentVariationAttributeKeys={parentAttrKeysForVariation}
+                      variationAttributesPortalEl={
+                        isVariationChild && parentAttrKeysForVariation.length > 0
+                          ? variationAttrPortalEl
+                          : null
+                      }
+                      variationAttributeKeysPortalEl={
+                        !isVariationChild && isEditProductWithStock
+                          ? parentVariationKeysPortalEl
+                          : null
+                      }
+                      embedVariationKeysInVariationsTab={!isVariationChild && isEditProductWithStock}
                       variationChildCount={isVariationChild ? 0 : variations.length}
                       applyImageToChildrenBusy={applyImageChildrenBusy}
                       onApplyImageToVariationChildren={
@@ -610,13 +751,37 @@ export function ProductFormDialog ({
 
                   {isEditProductWithStock ? (
                     <>
-                      <TabsContent value="variacoes" className="mt-0 focus-visible:outline-none">
+                      <TabsContent
+                        value="variacoes"
+                        {...productEditTabMountProps}
+                        className={variationTabPanelClass}
+                      >
                         {isVariationChild ? (
-                          <p className="text-sm text-muted-foreground">
-                            Este item é uma variação. Variações são criadas e ordenadas no produto pai.
-                          </p>
+                          parentAttrKeysForVariation.length > 0 ? (
+                            <div className="space-y-4">
+                              <p className="text-sm text-muted-foreground">
+                                Informe os valores dos atributos acordados no produto pai. O nome exibido no catálogo
+                                é montado automaticamente (ex.: «Cabo HDMI tamanho:1 metro»).
+                              </p>
+                              <div
+                                ref={setVariationAttrPortalEl}
+                                className="min-h-[4rem] rounded-md border border-border/60 bg-background p-4"
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                SKU, preços e demais dados continuam na aba Dados do produto. Pode salvar em qualquer
+                                uma das abas.
+                              </p>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">
+                              O produto pai ainda não tem atributos de variação (ex.: Tamanho, Cor). Abra a edição do
+                              produto pai, vá à aba <span className="font-medium text-foreground">Variações</span> e
+                              configure «Atributos das variações».
+                            </p>
+                          )
                         ) : (
                           <div className="space-y-4">
+                            <div ref={setParentVariationKeysPortalEl} className="min-h-0" />
                             {variations.length === 0 ? (
                               <div className="rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center">
                                 <p className="text-sm text-muted-foreground">
@@ -757,7 +922,11 @@ export function ProductFormDialog ({
                         )}
                       </TabsContent>
 
-                      <TabsContent value="estoque" className="mt-0 focus-visible:outline-none">
+                      <TabsContent
+                        value="estoque"
+                        {...productEditTabMountProps}
+                        className={variationTabPanelClass}
+                      >
                         {productId ? (
                           <ProductStockPanel
                             key={productId}

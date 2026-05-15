@@ -2,13 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { SlidersHorizontal } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { SlidersHorizontal, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { portalFetch } from '@/lib/portal/portal-fetch'
+import { getOrderStatusLabel } from '@/lib/orders/order-status'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
+import { formatDateBr } from '@/lib/utils/format-date'
 import { cn } from '@/lib/utils'
 
 type CustomerHit = {
@@ -73,10 +76,50 @@ function hasOrdensExtraFilters (iv: InitialValues): boolean {
   )
 }
 
+function ordensHrefFromInitial (
+  iv: InitialValues,
+  omitKeys: ReadonlySet<string> = new Set(),
+): string {
+  const p = new URLSearchParams()
+  if (!omitKeys.has('q') && iv.q.trim()) p.set('q', iv.q.trim())
+  if (!omitKeys.has('osNumber') && iv.osNumber.trim()) p.set('osNumber', iv.osNumber.trim())
+  if (!omitKeys.has('cpf') && iv.cpf.trim()) {
+    p.set('cpf', iv.cpf.replace(/\D/g, ''))
+  }
+  if (!omitKeys.has('status') && iv.status.trim()) p.set('status', iv.status.trim())
+  if (!omitKeys.has('customerId') && iv.customerId.trim()) {
+    p.set('customerId', iv.customerId.trim())
+  }
+  if (!omitKeys.has('customerName') && iv.customerName.trim()) {
+    p.set('customerName', iv.customerName.trim())
+  }
+  if (!omitKeys.has('deviceModelId') && iv.deviceModelId.trim()) {
+    p.set('deviceModelId', iv.deviceModelId.trim())
+  }
+  if (!omitKeys.has('createdFrom') && iv.createdFrom.trim()) {
+    p.set('createdFrom', iv.createdFrom.trim())
+  }
+  if (!omitKeys.has('createdTo') && iv.createdTo.trim()) {
+    p.set('createdTo', iv.createdTo.trim())
+  }
+  if (!omitKeys.has('readyFrom') && iv.readyFrom.trim()) {
+    p.set('readyFrom', iv.readyFrom.trim())
+  }
+  if (!omitKeys.has('readyTo') && iv.readyTo.trim()) {
+    p.set('readyTo', iv.readyTo.trim())
+  }
+  if (!omitKeys.has('noServices') && iv.noServices) p.set('noServices', '1')
+  if (!omitKeys.has('noCost') && iv.noCost) p.set('noCost', '1')
+  if (!omitKeys.has('noPayment') && iv.noPayment) p.set('noPayment', '1')
+  const qs = p.toString()
+  return qs ? `/portal/ordens?${qs}` : '/portal/ordens'
+}
+
 export function OrdensFilterCollapsible ({
   initialValues,
   deviceModels,
 }: Props) {
+  const router = useRouter()
   const urlExtra = hasOrdensExtraFilters(initialValues)
   const [extraOpen, setExtraOpen] = useState(urlExtra)
 
@@ -226,6 +269,81 @@ export function OrdensFilterCollapsible ({
     setDeviceSuggestions([])
   }
 
+  const [qInput, setQInput] = useState(initialValues.q)
+  useEffect(() => {
+    setQInput(initialValues.q)
+  }, [initialValues.q])
+
+  const appliedExtraFilterLabels = useMemo(() => {
+    const rows: { id: string; text: string }[] = []
+    if (initialValues.osNumber.trim()) {
+      rows.push({ id: 'os', text: `OS nº ${initialValues.osNumber.trim()}` })
+    }
+    if (initialValues.cpf.trim()) {
+      const d = initialValues.cpf.replace(/\D/g, '')
+      rows.push({
+        id: 'cpf',
+        text: `Documento: ${d ? formatCpfCnpj(d) : initialValues.cpf.trim()}`,
+      })
+    }
+    if (initialValues.customerId.trim() || initialValues.customerName.trim()) {
+      const name = initialValues.customerName.trim()
+      rows.push({
+        id: 'customer',
+        text: name ? `Cliente: ${name}` : 'Cliente selecionado',
+      })
+    }
+    if (initialValues.deviceModelId.trim()) {
+      const d = deviceModels.find((x) => x.id === initialValues.deviceModelId)
+      const label = d
+        ? [d.brand, d.device_type, d.model].filter(Boolean).join(' ') || d.id
+        : 'Modelo selecionado'
+      rows.push({ id: 'device', text: `Aparelho: ${label}` })
+    }
+    if (initialValues.status.trim()) {
+      rows.push({
+        id: 'status',
+        text: `Status: ${getOrderStatusLabel(initialValues.status.trim())}`,
+      })
+    }
+    if (initialValues.createdFrom.trim()) {
+      rows.push({
+        id: 'cf',
+        text: `Criação a partir de ${formatDateBr(`${initialValues.createdFrom.trim()}T12:00:00`)}`,
+      })
+    }
+    if (initialValues.createdTo.trim()) {
+      rows.push({
+        id: 'ct',
+        text: `Criação até ${formatDateBr(`${initialValues.createdTo.trim()}T12:00:00`)}`,
+      })
+    }
+    if (initialValues.readyFrom.trim()) {
+      rows.push({
+        id: 'rf',
+        text: `Previsão a partir de ${formatDateBr(`${initialValues.readyFrom.trim()}T12:00:00`)}`,
+      })
+    }
+    if (initialValues.readyTo.trim()) {
+      rows.push({
+        id: 'rt',
+        text: `Previsão até ${formatDateBr(`${initialValues.readyTo.trim()}T12:00:00`)}`,
+      })
+    }
+    if (initialValues.noServices) {
+      rows.push({ id: 'ns', text: 'Sem serviço a realizar' })
+    }
+    if (initialValues.noCost) {
+      rows.push({ id: 'nc', text: 'Sem preço de custo' })
+    }
+    if (initialValues.noPayment) {
+      rows.push({ id: 'np', text: 'Sem formas de pagamento' })
+    }
+    return rows
+  }, [initialValues, deviceModels])
+
+  const showAppliedExtrasRow = appliedExtraFilterLabels.length > 0
+
   return (
     <div className="rounded-md border bg-card p-3">
       <form action="/portal/ordens" method="get">
@@ -235,13 +353,30 @@ export function OrdensFilterCollapsible ({
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3">
           <div className="min-w-0 flex-1">
-            <Input
-              id="ordens-q"
-              name="q"
-              placeholder="Texto: mín. 2 caracteres · OS: só números · documento ou cliente…"
-              defaultValue={initialValues.q}
-              aria-label="Busca ampla"
-            />
+            <div className="relative">
+              <Input
+                id="ordens-q"
+                name="q"
+                placeholder="Texto: mín. 2 caracteres · OS: só números · documento ou cliente…"
+                value={qInput}
+                onChange={(e) => setQInput(e.target.value)}
+                aria-label="Busca ampla"
+                className={qInput.trim() ? 'pr-10' : undefined}
+              />
+              {qInput.trim() ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    router.push(ordensHrefFromInitial(initialValues, new Set(['q'])))
+                  }}
+                  className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                  aria-label="Limpar busca ampla"
+                  title="Limpar busca"
+                >
+                  <X className="h-4 w-4" aria-hidden />
+                </button>
+              ) : null}
+            </div>
           </div>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
             <Button type="submit" className="h-10 touch-manipulation px-4">
@@ -271,6 +406,29 @@ export function OrdensFilterCollapsible ({
             </Button>
           </div>
         </div>
+
+        {showAppliedExtrasRow ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-border/50 pt-2 text-[11px] leading-snug sm:text-xs">
+            <span className="mr-0.5 shrink-0 font-medium text-foreground/80">
+              Filtros extras:
+            </span>
+            {appliedExtraFilterLabels.map((chip) => (
+              <span
+                key={chip.id}
+                className="max-w-full truncate rounded-md bg-muted/70 px-2 py-0.5 text-muted-foreground"
+                title={chip.text}
+              >
+                {chip.text}
+              </span>
+            ))}
+            <Link
+              href="/portal/ordens"
+              className="ml-auto shrink-0 font-medium text-primary underline-offset-2 hover:underline"
+            >
+              Limpar todos
+            </Link>
+          </div>
+        ) : null}
 
         <Collapsible
           open={extraOpen}

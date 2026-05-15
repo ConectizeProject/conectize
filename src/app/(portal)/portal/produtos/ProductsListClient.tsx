@@ -1,9 +1,8 @@
 'use client'
 
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { AlertCircle, Barcode, CloudUpload, Link2, Loader2, PencilLine, RefreshCw } from 'lucide-react'
+import { AlertCircle, Barcode, CloudUpload, Loader2, PencilLine, RefreshCw } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -30,9 +29,12 @@ import {
 import { toast } from '@/hooks/use-toast'
 import { getLabelWindowFeatures } from '@/lib/ordem-print'
 import { buildProductLabelHtml } from '@/lib/products/product-label-print'
+import {
+	buildProdutosGestaoHref,
+} from '@/lib/products/portal-gestao-produtos-list'
 import { AssistenciaServicoLinkModal } from './AssistenciaServicoLinkModal'
 import { BulkEditProductsModal } from './BulkEditProductsModal'
-import { cn } from '@/lib/utils'
+import { useOptionalProdutosGestaoActionsRegistration } from './ProdutosGestaoActionsContext'
 import { ProductEditDialog } from './ProductEditDialog'
 import { ProductListCard } from './ProductListCard'
 import { ProductListTableRow } from './ProductListTableRow'
@@ -57,89 +59,20 @@ const PUSH_TO_BLING_FIELD_OPTIONS: { id: PortalFieldForBling; label: string }[] 
 	{ id: 'isActive', label: 'Situação (ativo/inativo)' },
 ]
 
-export type ProdutosFlatPagination = {
-	page: number
-	pageSize: number
-	totalCount: number
-	totalPages: number
-	prevHref: string | null
-	nextHref: string | null
-}
-
-function ProdutosPaginationBar({
-	paginationRangeLabel,
-	pagination,
-	className,
-}: {
-	paginationRangeLabel: string
-	pagination: ProdutosFlatPagination | null
-	className?: string
-}) {
-	return (
-		<div
-			className={cn(
-				'flex min-w-0 flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between',
-				className,
-			)}
-		>
-			<span className="text-muted-foreground">{paginationRangeLabel}</span>
-			{pagination
-				? (
-					<div className="flex flex-wrap items-center gap-2">
-						<span className="text-muted-foreground">
-							Página
-							{' '}
-							{pagination.page}
-							{' '}
-							de
-							{' '}
-							{pagination.totalPages}
-						</span>
-						{pagination.prevHref
-							? (
-								<Button variant="outline" size="sm" className="h-8" asChild>
-									<Link href={pagination.prevHref}>Anterior</Link>
-								</Button>
-							)
-							: (
-								<Button variant="outline" size="sm" className="h-8" disabled>
-									Anterior
-								</Button>
-							)}
-						{pagination.nextHref
-							? (
-								<Button variant="outline" size="sm" className="h-8" asChild>
-									<Link href={pagination.nextHref}>Próxima</Link>
-								</Button>
-							)
-							: (
-								<Button variant="outline" size="sm" className="h-8" disabled>
-									Próxima
-								</Button>
-							)}
-					</div>
-				)
-				: null}
-		</div>
-	)
-}
-
 type Props = {
 	products: ProductRow[]
-	pagination?: ProdutosFlatPagination | null
-	/** Ex.: "1–100 de 450" */
-	paginationRangeLabel?: string | null
+	totalCount: number
 	/** Falha ao carregar lista no servidor (evitar confundir com catálogo vazio). */
 	listLoadError?: boolean
 	/** Termo de busca atual (URL `q`), para mensagens de estado vazio. */
 	searchQuery?: string
+	/** Filtros dedicados na URL (`sku`, `barcode`). */
+	filterSku?: string
+	filterBarcode?: string
 	/** Busca com texto mas sem tokens válidos após sanitização. */
 	invalidSearchTokens?: boolean
-	initialFilterType?: 'product' | 'service'
-	tabHrefs?: {
-		products: string
-		services: string
-	}
+	/** Filtro na URL: todos, só produtos ou só serviços. */
+	filterKind?: 'product' | 'service' | 'all'
 	/** Query `?edit=` — abre a modal de edição e remove o parâmetro da URL. */
 	initialEditProductId?: string
 	/** Query `?newVariationOf=` — abre modal de criação de variação vinculada ao pai. */
@@ -148,18 +81,17 @@ type Props = {
 
 export function ProductsListClient({
 	products,
-	pagination,
-	paginationRangeLabel,
+	totalCount,
 	listLoadError = false,
 	searchQuery = '',
+	filterSku = '',
+	filterBarcode = '',
 	invalidSearchTokens = false,
-	initialFilterType = 'product',
+	filterKind = 'all',
 	initialEditProductId,
 	initialCreateVariationParentId,
-	tabHrefs,
 }: Props) {
 	const router = useRouter()
-	const [filterType, setFilterType] = useState<'product' | 'service'>(initialFilterType)
 	const [editingProduct, setEditingProduct] = useState<Pick<ProductRow, 'id' | 'name' | 'bling_id'> | null>(null)
 	const [productEditInitialTab, setProductEditInitialTab] = useState<'estoque' | undefined>(undefined)
 	const [syncingId, setSyncingId] = useState<string | null>(null)
@@ -198,17 +130,132 @@ export function ProductsListClient({
 	const [pushPortalFieldKeys, setPushPortalFieldKeys] = useState<Set<PortalFieldForBling>>(
 		() => new Set(PUSH_TO_BLING_FIELD_OPTIONS.map((o) => o.id)),
 	)
-	const isProductTab = filterType === 'product'
+	const isProductTab = filterKind === 'product' || filterKind === 'all'
 	const syncInFlightRef = useRef(false)
 	const barcodeInFlightRef = useRef(false)
 
-	useEffect(() => {
-		setSelectedIds(new Set())
-	}, [filterType])
+	const [extraRows, setExtraRows] = useState<ProductRow[]>([])
+	const [loadMoreBusy, setLoadMoreBusy] = useState(false)
+	const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null)
 
 	useEffect(() => {
-		setFilterType(initialFilterType)
-	}, [initialFilterType])
+		setExtraRows([])
+	}, [products])
+
+	const mergedProducts = useMemo(() => {
+		const ids = new Set(products.map((p) => p.id))
+		const tail = extraRows.filter((e) => !ids.has(e.id))
+		return [...products, ...tail]
+	}, [products, extraRows])
+
+	const canLoadMore =
+		!listLoadError && !invalidSearchTokens && mergedProducts.length < totalCount
+
+	const loadNextChunk = useCallback(async () => {
+		if (loadMoreBusy || listLoadError || mergedProducts.length >= totalCount || invalidSearchTokens) return
+		setLoadMoreBusy(true)
+		try {
+			const params = new URLSearchParams()
+			params.set('offset', String(mergedProducts.length))
+			params.set('limit', '20')
+			const q = searchQuery.trim()
+			if (q) params.set('q', q)
+			if (filterKind === 'service') params.set('kind', 'service')
+			else if (filterKind === 'product') params.set('kind', 'product')
+			const sk = filterSku.trim()
+			if (sk) params.set('sku', sk)
+			const bc = filterBarcode.trim()
+			if (bc) params.set('barcode', bc)
+			const res = await fetch(`/api/portal/produtos/gestao-list?${params.toString()}`)
+			const data = (await res.json().catch(() => null)) as {
+				ok?: boolean
+				items?: ProductRow[]
+				error?: string
+			} | null
+			if (!res.ok || !data?.ok) {
+				toast({
+					variant: 'destructive',
+					title: 'Erro ao carregar mais itens',
+					description: typeof data?.error === 'string' ? data.error : 'Tente novamente.',
+				})
+				return
+			}
+			const items = Array.isArray(data.items) ? data.items : []
+			if (items.length === 0) return
+			setExtraRows((prev) => [...prev, ...items])
+			const newTotalShown = mergedProducts.length + items.length
+			const href = buildProdutosGestaoHref({
+				q: searchQuery,
+				kind: filterKind,
+				loaded: newTotalShown > 20 ? newTotalShown : undefined,
+				sku: sk || undefined,
+				barcode: bc || undefined,
+			})
+			router.replace(href, { scroll: false })
+		} catch (err) {
+			const message = err instanceof Error ? err.message : ''
+			toast({
+				variant: 'destructive',
+				title: 'Erro ao carregar mais itens',
+				description: message || 'Falha de rede.',
+			})
+		} finally {
+			setLoadMoreBusy(false)
+		}
+	}, [
+		loadMoreBusy,
+		listLoadError,
+		invalidSearchTokens,
+		mergedProducts.length,
+		totalCount,
+		searchQuery,
+		filterSku,
+		filterBarcode,
+		filterKind,
+		router,
+	])
+
+	useEffect(() => {
+		const el = loadMoreSentinelRef.current
+		if (!el || !canLoadMore || loadMoreBusy) return
+
+		const obs = new IntersectionObserver(
+			(entries) => {
+				const [en] = entries
+				if (!en?.isIntersecting) return
+				void loadNextChunk()
+			},
+			{ root: null, rootMargin: '280px 0px', threshold: 0 },
+		)
+		obs.observe(el)
+		return () => obs.disconnect()
+	}, [canLoadMore, loadMoreBusy, loadNextChunk])
+
+	const openCreateDialog = useCallback(() => {
+		setEditingProduct(null)
+		setCreateVariationParent(null)
+		setCreateDialogOpen(true)
+	}, [])
+
+	const gestaoUi = useOptionalProdutosGestaoActionsRegistration()
+	const registerGestaoHeader = gestaoUi?.register
+	const unregisterGestaoHeader = gestaoUi?.unregister
+
+	useEffect(() => {
+		if (!registerGestaoHeader || !unregisterGestaoHeader) return
+		registerGestaoHeader({
+			openAssistenciaLinks: () => {
+				setAssistenciaLinkCatalogKind(filterKind === 'service' ? 'service' : 'product')
+				setAssistenciaLinkModalOpen(true)
+			},
+			openCreateProduct: openCreateDialog,
+		})
+		return () => unregisterGestaoHeader()
+	}, [registerGestaoHeader, unregisterGestaoHeader, filterKind, openCreateDialog])
+
+	useEffect(() => {
+		setSelectedIds(new Set())
+	}, [filterKind])
 
 	useEffect(() => {
 		const raw = initialEditProductId?.trim()
@@ -285,58 +332,63 @@ export function ProductsListClient({
 
 	useEffect(() => {
 		if (!barcodeOptimistic) return
-		const row = products.find((p) => p.id === barcodeOptimistic.productId)
+		const row = mergedProducts.find((p) => p.id === barcodeOptimistic.productId)
 		const fromServer = row?.barcode ? String(row.barcode).trim() : ''
 		if (fromServer && fromServer === barcodeOptimistic.barcode.trim()) {
 			setBarcodeOptimistic(null)
 		}
-	}, [products, barcodeOptimistic])
+	}, [mergedProducts, barcodeOptimistic])
 
 	const rows = useMemo(
 		() =>
-			products.map((p) => ({
+			mergedProducts.map((p) => ({
 				...p,
 				is_active: p.is_active !== false,
 			})),
-		[products]
+		[mergedProducts]
 	)
 
-	const filteredRows = useMemo(
-		() => {
-			if (rows.length === 0) return []
+	const filteredRows = useMemo(() => {
+		if (rows.length === 0) return []
 
-			if (filterType === 'service') {
-				return rows.filter((row) => !row.is_variation && row.kind === 'service')
+		const parents = rows.filter((r) => !r.is_variation)
+		const parentByBlingId = new Map<string, (typeof rows)[number]>()
+		const parentById = new Map<string, (typeof rows)[number]>()
+
+		for (const p of parents) {
+			parentById.set(p.id, p)
+			if (p.bling_id) parentByBlingId.set(p.bling_id, p)
+		}
+
+		function matchesProductCatalogView (row: (typeof rows)[number]): boolean {
+			const parent = row.is_variation && row.parent_bling_id
+				? parentByBlingId.get(row.parent_bling_id) || null
+				: !row.is_variation
+					? parentById.get(row.id) || null
+					: null
+
+			if (!parent) {
+				const k = row.kind
+				return k === 'product' || k == null
 			}
 
-			const parents = rows.filter((r) => !r.is_variation)
-			const parentByBlingId = new Map<string, (typeof rows)[number]>()
-			const parentById = new Map<string, (typeof rows)[number]>()
+			const k = parent.kind
+			return k === 'product' || k == null
+		}
 
-			for (const p of parents) {
-				parentById.set(p.id, p)
-				if (p.bling_id) parentByBlingId.set(p.bling_id, p)
-			}
+		if (filterKind === 'service') {
+			return rows.filter((row) => !row.is_variation && row.kind === 'service')
+		}
 
-			return rows.filter((row) => {
-				const parent = row.is_variation && row.parent_bling_id
-					? parentByBlingId.get(row.parent_bling_id) || null
-					: !row.is_variation
-						? parentById.get(row.id) || null
-						: null
+		if (filterKind === 'product') {
+			return rows.filter((row) => matchesProductCatalogView(row))
+		}
 
-				if (!parent) {
-					// sem pai conhecido: filtra por kind direto
-					const kind = row.kind
-					return kind === 'product' || kind == null
-				}
-
-				const kind = parent.kind
-				return kind === 'product' || kind == null
-			})
-		},
-		[rows, filterType]
-	)
+		return rows.filter((row) => {
+			if (!row.is_variation && row.kind === 'service') return true
+			return matchesProductCatalogView(row)
+		})
+	}, [rows, filterKind])
 
 	const handleSyncFromBling = useCallback(async (productId: string) => {
 		if (syncInFlightRef.current) return
@@ -821,98 +873,8 @@ export function ProductsListClient({
 		}
 	}
 
-	function openCreateDialog() {
-		setEditingProduct(null)
-		setCreateVariationParent(null)
-		setCreateDialogOpen(true)
-	}
-
 	return (
 		<div className="min-w-0 w-full max-w-full">
-			{paginationRangeLabel
-				? (
-					<ProdutosPaginationBar
-						paginationRangeLabel={paginationRangeLabel}
-						pagination={pagination ?? null}
-						className="mb-4"
-					/>
-				)
-				: null}
-			<nav className="mb-4 flex gap-1 border-b">
-				{tabHrefs
-					? (
-						<>
-							<Link
-								href={tabHrefs.products}
-								className={cn(
-									'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
-									filterType === 'product'
-										? 'text-foreground border-primary'
-										: 'text-muted-foreground border-transparent hover:text-foreground hover:border-muted'
-								)}
-							>
-								Produtos
-							</Link>
-							<Link
-								href={tabHrefs.services}
-								className={cn(
-									'px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors sm:px-4',
-									filterType === 'service'
-										? 'text-foreground border-primary'
-										: 'text-muted-foreground border-transparent hover:text-foreground hover:border-muted'
-								)}
-							>
-								Serviços
-							</Link>
-						</>
-					)
-					: (
-						<>
-							<button
-								type="button"
-								onClick={() => setFilterType('product')}
-								className={cn(
-									'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
-									filterType === 'product'
-										? 'text-foreground border-primary'
-										: 'text-muted-foreground border-transparent hover:text-foreground hover:border-muted'
-								)}
-							>
-								Produtos
-							</button>
-							<button
-								type="button"
-								onClick={() => setFilterType('service')}
-								className={cn(
-									'px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors sm:px-4',
-									filterType === 'service'
-										? 'text-foreground border-primary'
-										: 'text-muted-foreground border-transparent hover:text-foreground hover:border-muted'
-								)}
-							>
-								Serviços
-							</button>
-						</>
-					)}
-			</nav>
-
-			<div className="mb-4 flex flex-wrap justify-end gap-2">
-				<Button
-					type="button"
-					variant="secondary"
-					onClick={() => {
-						setAssistenciaLinkCatalogKind(isProductTab ? 'product' : 'service')
-						setAssistenciaLinkModalOpen(true)
-					}}
-				>
-					<Link2 className="mr-1.5 h-3.5 w-3.5" />
-					Sugestões de vínculo
-				</Button>
-				<Button type="button" variant="outline" onClick={openCreateDialog}>
-					Novo produto/serviço
-				</Button>
-			</div>
-
 			{selectedCount > 0 && (
 				<div
 					className="mb-4 flex min-w-0 max-w-full flex-col gap-3 rounded-lg border border-primary/20 bg-primary/5 p-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
@@ -1206,7 +1168,7 @@ export function ProductsListClient({
 										</p>
 									</div>
 								)
-								: searchQuery.trim() && products.length === 0
+								: searchQuery.trim() && mergedProducts.length === 0
 									? (
 										<div className="space-y-2 text-muted-foreground">
 											<p className="font-medium text-foreground">Nenhum resultado para a busca</p>
@@ -1216,38 +1178,49 @@ export function ProductsListClient({
 											</p>
 										</div>
 									)
-									: products.length === 0
+									: mergedProducts.length === 0
 										? (
 											<div className="space-y-2 text-muted-foreground">
 												<p className="font-medium text-foreground">
-													{filterType === 'product' ? 'Catálogo sem produtos' : 'Catálogo sem serviços'}
+													{filterKind === 'all'
+														? 'Catálogo vazio'
+														: filterKind === 'product'
+															? 'Catálogo sem produtos'
+															: 'Catálogo sem serviços'}
 												</p>
 												<p>
-													{filterType === 'product'
-														? 'Cadastre um produto ou importe do Bling para ver itens aqui.'
-														: 'Cadastre um serviço para ver itens aqui.'}
+													{filterKind === 'all'
+														? 'Cadastre produtos ou serviços, ou importe do Bling, para ver itens aqui.'
+														: filterKind === 'product'
+															? 'Cadastre um produto ou importe do Bling para ver itens aqui.'
+															: 'Cadastre um serviço para ver itens aqui.'}
 												</p>
 											</div>
 										)
 										: (
 											<div className="space-y-2 text-muted-foreground">
 												<p className="font-medium text-foreground">Nenhum item nesta visão</p>
-												<p>Altere a aba ou o filtro para ver outros itens da lista.</p>
+												<p>Ajuste os filtros acima para ver outros itens da lista.</p>
 											</div>
 										)}
 					</CardContent>
 				</Card>
 			)}
 
-			{paginationRangeLabel
-				? (
-					<ProdutosPaginationBar
-						paginationRangeLabel={paginationRangeLabel}
-						pagination={pagination ?? null}
-						className="mt-6 border-t border-border/60 pt-4"
-					/>
-				)
-				: null}
+			{canLoadMore && mergedProducts.length > 0 ? (
+				<div
+					className="mt-6 flex flex-col items-center gap-2 border-t border-border/60 pt-4"
+					aria-live="polite"
+				>
+					<div ref={loadMoreSentinelRef} className="h-2 w-full max-w-md shrink-0" aria-hidden />
+					{loadMoreBusy ? (
+						<div className="flex items-center gap-2 text-sm text-muted-foreground">
+							<Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+							Carregando mais…
+						</div>
+					) : null}
+				</div>
+			) : null}
 
 			<ProductEditDialog
 				open={createDialogOpen || Boolean(editingProduct)}
@@ -1258,7 +1231,7 @@ export function ProductsListClient({
 				initialParentProductId={!editingProduct ? (createVariationParent?.id ?? null) : null}
 				initialParentBlingId={!editingProduct ? (createVariationParent?.blingId ?? null) : null}
 				initialParentName={!editingProduct ? (createVariationParent?.name ?? null) : null}
-				defaultKind={isProductTab ? 'product' : 'service'}
+				defaultKind={filterKind === 'service' ? 'service' : 'product'}
 				initialEditTab={productEditInitialTab}
 				onOpenChange={(open) => {
 					if (!open) {
@@ -1361,7 +1334,7 @@ export function ProductsListClient({
 				open={bulkEditOpen}
 				onOpenChange={setBulkEditOpen}
 				productIds={bulkEditProductIds}
-				allowDeviceModel={isProductTab}
+				allowDeviceModel={filterKind !== 'service'}
 				onSuccess={() => {
 					setSelectedIds(new Set())
 					router.refresh()
