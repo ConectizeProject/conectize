@@ -21,7 +21,8 @@ export default async function WhatsappInboxPage () {
       <div>
         <h1 className="text-2xl font-bold">WhatsApp</h1>
         <p className="text-sm text-muted-foreground">
-          Conversas recebidas pela Cloud API. Mensagens da IA ficam como pendentes até você marcar como atendidas.
+          Conversas vindas da Cloud API e da Evolution API (mensagens só com texto). Mensagens da IA ficam como
+          pendentes até você marcar como atendidas.
         </p>
       </div>
       <WhatsappInboxClient />

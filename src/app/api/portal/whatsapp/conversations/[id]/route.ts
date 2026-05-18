@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 
-export async function GET (
+/** Remove conversa e mensagens do portal (cascade). Não apaga no WhatsApp. */
+export async function DELETE (
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -15,27 +16,27 @@ export async function GET (
     return NextResponse.json({ ok: false, error: 'id_required' }, { status: 400 })
   }
 
-  const { data: conv } = await auth.supabase
+  const { data: row, error: findErr } = await auth.supabase
     .from('whatsapp_conversations')
     .select('id')
     .eq('id', id)
     .maybeSingle()
-  if (!conv) {
+
+  if (findErr) {
+    return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+  }
+  if (!row) {
     return NextResponse.json({ ok: false, error: 'not_found' }, { status: 404 })
   }
 
-  const { data: messages, error } = await auth.supabase
-    .from('whatsapp_messages')
-    .select(
-      'id, direction, body, status, resolved_by, needs_human, wa_message_id, created_at, deleted_at, payload',
-    )
-    .eq('conversation_id', id)
-    .order('created_at', { ascending: true })
-    .limit(500)
+  const { error: delErr } = await auth.supabase
+    .from('whatsapp_conversations')
+    .delete()
+    .eq('id', id)
 
-  if (error) {
+  if (delErr) {
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
   }
 
-  return NextResponse.json({ ok: true, messages: messages || [] })
+  return NextResponse.json({ ok: true })
 }

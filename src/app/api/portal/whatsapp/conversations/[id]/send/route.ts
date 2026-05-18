@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
-import { sendWhatsAppTextMessage } from '@/lib/whatsapp/whatsapp-cloud-client'
+import { hintForWhatsappSendError } from '@/lib/whatsapp/evolution-send-errors'
+import { isGroupWaKey, toEvolutionSendTarget } from '@/lib/whatsapp/wa-conversation-key'
+import { resolveWhatsappOutboundForConversation } from '@/lib/whatsapp/whatsapp-outbound'
 
 export async function POST (
   request: Request,
@@ -20,43 +22,80 @@ export async function POST (
 
   const { data: conv } = await auth.supabase
     .from('whatsapp_conversations')
-    .select('wa_from')
+    .select('wa_from, organization_id')
     .eq('id', id)
     .maybeSingle()
-  if (!conv?.wa_from) {
+  if (!conv?.wa_from || !conv.organization_id) {
     return NextResponse.json({ ok: false, error: 'not_found' }, { status: 404 })
   }
 
-  const { data: hub } = await auth.supabase
-    .from('hub_connections')
-    .select('access_token, metadata')
-    .eq('platform_id', 'whatsapp_business')
-    .maybeSingle()
+  const resolved = await resolveWhatsappOutboundForConversation(auth.supabase, id)
 
-  const token = hub?.access_token as string | null
-  const meta = (hub?.metadata as { phone_number_id?: string }) || {}
-  const phoneNumberId = String(meta.phone_number_id || '').trim()
-  if (!token || !phoneNumberId) {
-    return NextResponse.json({ ok: false, error: 'whatsapp_not_configured' }, { status: 400 })
+  if (!resolved) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: 'whatsapp_not_configured',
+        hint: 'Configure WhatsApp Evolution ou Cloud API no Hub.',
+      },
+      { status: 400 },
+    )
   }
 
-  const send = await sendWhatsAppTextMessage({
-    phoneNumberId,
-    accessToken: token,
-    toE164Digits: String(conv.wa_from).replace(/\D/g, ''),
+  const waFrom = String(conv.wa_from)
+  const sendTarget = toEvolutionSendTarget(waFrom)
+  if (!sendTarget) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: 'invalid_recipient',
+        hint: 'Este contato não tem número ou JID válido para envio. Tente sincronizar as conversas de novo.',
+      },
+      { status: 400 },
+    )
+  }
+  if (!isGroupWaKey(waFrom) && sendTarget.replace(/\D/g, '').length < 10) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: 'invalid_recipient',
+        hint: 'Número de telefone inválido nesta conversa.',
+      },
+      { status: 400 },
+    )
+  }
+
+  const send = await resolved.send({
+    toTarget: waFrom,
     body: text,
   })
 
   if (send.ok === false) {
-    return NextResponse.json({ ok: false, error: send.error }, { status: 502 })
+    const err = String(send.error || 'send_failed')
+    console.error('[whatsapp/send]', resolved.provider, waFrom, err)
+    return NextResponse.json(
+      {
+        ok: false,
+        error: err,
+        hint: hintForWhatsappSendError(err, resolved.provider),
+      },
+      { status: send.status === 401 ? 401 : 502 },
+    )
   }
+
+  const waMessageId =
+    resolved.provider === 'evolution' &&
+    send.messageId &&
+    'evolutionInstanceName' in resolved
+      ? `${resolved.evolutionInstanceName}:${send.messageId}`
+      : send.messageId ?? null
 
   await auth.supabase.from('whatsapp_messages').insert({
     conversation_id: id,
     direction: 'out',
-    wa_message_id: send.messageId ?? null,
+    wa_message_id: waMessageId,
     body: text,
-    payload: { source: 'staff' },
+    payload: { source: 'staff', channel: resolved.provider },
     status: 'attended',
     resolved_by: 'human',
     needs_human: false,

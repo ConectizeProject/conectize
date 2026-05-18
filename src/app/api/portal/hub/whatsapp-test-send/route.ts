@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth/portal-api'
-import { sendWhatsAppTextMessage } from '@/lib/whatsapp/whatsapp-cloud-client'
+import { resolveOrganizationWhatsappOutbound } from '@/lib/whatsapp/whatsapp-outbound'
 
 /**
- * Envia uma mensagem de teste (admin) — número em E.164 sem + ou com +.
+ * Envia mensagem de teste seguindo a mesma prioridade do inbox (Official vs Evolution).
  */
 export async function POST (request: Request) {
   const auth = await requireAdmin()
@@ -27,33 +27,30 @@ export async function POST (request: Request) {
     return NextResponse.json({ ok: false, error: 'to_required' }, { status: 400 })
   }
 
-  const { data: row } = await auth.supabase
-    .from('hub_connections')
-    .select('access_token, metadata')
-    .eq('platform_id', 'whatsapp_business')
-    .maybeSingle()
+  const outbound = await resolveOrganizationWhatsappOutbound(
+    auth.supabase,
+    auth.organizationId,
+  )
 
-  const token = row?.access_token as string | null
-  const meta = (row?.metadata as { phone_number_id?: string }) || {}
-  const phoneNumberId = String(meta.phone_number_id || '').trim()
-
-  if (!token || !phoneNumberId) {
+  if (!outbound) {
     return NextResponse.json({ ok: false, error: 'whatsapp_not_configured' }, { status: 400 })
   }
 
-  const result = await sendWhatsAppTextMessage({
-    phoneNumberId,
-    accessToken: token,
+  const result = await outbound.send({
     toE164Digits: to,
     body: text,
   })
 
   if (result.ok === false) {
     return NextResponse.json(
-      { ok: false, error: 'send_failed', detail: result.error },
+      { ok: false, error: 'send_failed', detail: result.error, channel: outbound.provider },
       { status: 502 },
     )
   }
 
-  return NextResponse.json({ ok: true, message_id: result.messageId ?? null })
+  return NextResponse.json({
+    ok: true,
+    message_id: result.messageId ?? null,
+    channel: outbound.provider,
+  })
 }
