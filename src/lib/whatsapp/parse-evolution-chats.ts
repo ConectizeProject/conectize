@@ -1,6 +1,7 @@
 import {
 	isGroupWaKey,
 	normalizeWaConversationKey,
+	resolveInboundConversationKey,
 } from '@/lib/whatsapp/wa-conversation-key'
 
 export type ParsedEvolutionChat = {
@@ -36,23 +37,31 @@ export function parseEvolutionChatList(raw: unknown[]): ParsedEvolutionChat[] {
 	for (const item of raw) {
 		if (!item || typeof item !== 'object') continue
 		const o = item as Record<string, unknown>
-		const jidRaw =
-			o.remoteJid ??
-			o.id ??
-			o.jid ??
-			(o.key && typeof o.key === 'object'
-				? (o.key as Record<string, unknown>).remoteJid
-				: null)
-		const waKey = normalizeWaConversationKey(String(jidRaw || ''))
-		if (!waKey || seen.has(waKey)) continue
-		seen.add(waKey)
-
-		const isGroup = isGroupWaKey(waKey)
 		const lastMsg = o.lastMessage as Record<string, unknown> | undefined
 		const lastKey =
 			lastMsg?.key && typeof lastMsg.key === 'object'
 				? (lastMsg.key as Record<string, unknown>)
 				: undefined
+		const jidPrimary = String(
+			o.remoteJid ??
+				o.id ??
+				o.jid ??
+				lastKey?.remoteJid ??
+				'',
+		).trim()
+		const jidAlt = String(
+			o.remoteJidAlt ??
+				lastKey?.remoteJidAlt ??
+				lastKey?.participantAlt ??
+				'',
+		).trim()
+		const waKey = jidPrimary.includes('@g.us')
+			? normalizeWaConversationKey(jidPrimary)
+			: resolveInboundConversationKey(jidPrimary, jidAlt)
+		if (!waKey || seen.has(waKey)) continue
+		seen.add(waKey)
+
+		const isGroup = isGroupWaKey(waKey)
 		const lastFromMe =
 			lastKey?.fromMe === true || lastKey?.fromMe === 'true'
 		const lastSenderName =

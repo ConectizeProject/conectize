@@ -34,6 +34,10 @@ import {
   Zap,
 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
+import {
+  HubInboxViewersPicker,
+  type InboxAccessState,
+} from './HubInboxViewersPicker'
 import { usePortalOrganizationName } from '@/lib/portal/portal-branding-context'
 
 type SetupStep = { text: string; link?: { url: string; label: string } }
@@ -149,6 +153,8 @@ type BlingConnection = {
 
 type WhatsappConfig = {
   connected: boolean
+  connection_id?: string | null
+  inbox_restricted?: boolean
   phone_number_id: string
   waba_id: string
   automation_enabled: boolean
@@ -510,6 +516,14 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
   const [evolutionStatusChecking, setEvolutionStatusChecking] = useState(false)
   const [evolutionStatusHints, setEvolutionStatusHints] = useState<string[] | null>(null)
   const [evolutionSyncing, setEvolutionSyncing] = useState(false)
+  const [evolutionInboxAccess, setEvolutionInboxAccess] = useState<InboxAccessState>({
+    unrestricted: true,
+    userIds: [],
+  })
+  const [whatsappInboxAccess, setWhatsappInboxAccess] = useState<InboxAccessState>({
+    unrestricted: true,
+    userIds: [],
+  })
   const [blingLookupMode, setBlingLookupMode] = useState<'sku' | 'barcode'>('sku')
   const [blingLookupQuery, setBlingLookupQuery] = useState('')
   const [blingLookupLoading, setBlingLookupLoading] = useState(false)
@@ -733,13 +747,17 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
           access_token: accessToken.trim() || undefined,
           verify_token: verifyToken.trim() || undefined,
           automation_enabled: automationEnabled,
+          inbox_access: {
+            unrestricted: whatsappInboxAccess.unrestricted,
+            viewer_user_ids: whatsappInboxAccess.userIds,
+          },
         }),
       })
       const data = await res.json().catch(() => null)
       if (!res.ok || !data?.ok) {
         toast({
           title: 'Erro ao salvar',
-          description: String(data?.error || 'Tente novamente.'),
+          description: String((data as { hint?: string })?.hint || data?.error || 'Tente novamente.'),
           variant: 'destructive',
         })
         return
@@ -873,6 +891,7 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
     setEvolutionAutomation(false)
     setEvolutionBaseOverride('')
     setEvolutionApiKey('')
+    setEvolutionInboxAccess({ unrestricted: true, userIds: [] })
   }
 
   async function handleOpenEvolutionConfig () {
@@ -899,6 +918,10 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
           api_base_url_override: evolutionBaseOverride.trim() || undefined,
           preferred_for_messages: evolutionPreferred,
           automation_enabled: evolutionAutomation,
+          inbox_access: {
+            unrestricted: evolutionInboxAccess.unrestricted,
+            viewer_user_ids: evolutionInboxAccess.userIds,
+          },
         }),
       })
       const data = await res.json().catch(() => null)
@@ -1419,6 +1442,15 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
                 <Switch checked={automationEnabled} onCheckedChange={setAutomationEnabled} />
               </div>
 
+              {isAdmin ? (
+                <HubInboxViewersPicker
+                  connectionId={whatsappConfig?.connection_id ?? null}
+                  disabled={whatsappSaving || whatsappLoading}
+                  value={whatsappInboxAccess}
+                  onChange={setWhatsappInboxAccess}
+                />
+              ) : null}
+
               <div className="rounded-md border border-dashed p-3 space-y-2">
                 <p className="text-sm font-medium">Enviar mensagem de teste</p>
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
@@ -1663,6 +1695,15 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
                 </div>
                 <Switch checked={evolutionAutomation} onCheckedChange={setEvolutionAutomation} />
               </div>
+
+              {isAdmin ? (
+                <HubInboxViewersPicker
+                  connectionId={evolutionEditingConnectionId}
+                  disabled={evolutionSaving || evolutionLoading}
+                  value={evolutionInboxAccess}
+                  onChange={setEvolutionInboxAccess}
+                />
+              ) : null}
 
               <div className="rounded-md border border-dashed p-3 space-y-2">
                 <p className="text-sm font-medium">Teste direto via Evolution API</p>

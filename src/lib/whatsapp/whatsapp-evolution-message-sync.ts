@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { normalizeWaConversationKey } from '@/lib/whatsapp/wa-conversation-key'
 import type { EvolutionMessageDelete, EvolutionMessageUpsert } from '@/lib/whatsapp/parse-evolution-webhook-messages'
 import { upsertWhatsappConversation } from '@/lib/whatsapp/whatsapp-conversation-upsert'
+import { mergePayloadDeliveryStatus } from '@/lib/whatsapp/whatsapp-message-delivery-status'
 
 export async function recordEvolutionOutboundMirror (opts: {
 	supabase: SupabaseClient
@@ -44,14 +45,32 @@ export async function recordEvolutionOutboundMirror (opts: {
 		.maybeSingle()
 
 	if (existing?.id) {
+		const basePayload = { source: 'whatsapp_device', channel: 'evolution' }
+		const nextPayload = message.deliveryStatus
+			? mergePayloadDeliveryStatus(basePayload, message.deliveryStatus)
+			: basePayload
 		if (existing.deleted_at) {
 			await supabase
 				.from('whatsapp_messages')
 				.update({
 					deleted_at: null,
 					body: message.text,
-					payload: { source: 'whatsapp_device', channel: 'evolution' },
+					payload: nextPayload,
 				})
+				.eq('id', existing.id)
+		} else if (message.deliveryStatus) {
+			const { data: row } = await supabase
+				.from('whatsapp_messages')
+				.select('payload')
+				.eq('id', existing.id)
+				.maybeSingle()
+			const merged = mergePayloadDeliveryStatus(
+				(row?.payload as Record<string, unknown> | null) || nextPayload,
+				message.deliveryStatus,
+			)
+			await supabase
+				.from('whatsapp_messages')
+				.update({ payload: merged })
 				.eq('id', existing.id)
 		}
 		return
@@ -72,12 +91,19 @@ export async function recordEvolutionOutboundMirror (opts: {
 		return
 	}
 
+	const insertPayload = message.deliveryStatus
+		? mergePayloadDeliveryStatus(
+			{ source: 'whatsapp_device', channel: 'evolution' },
+			message.deliveryStatus,
+		)
+		: { source: 'whatsapp_device', channel: 'evolution', delivery_status: 'sent' }
+
 	await supabase.from('whatsapp_messages').insert({
 		conversation_id: conversationId,
 		direction: 'out',
 		wa_message_id: message.stableWaMessageId,
 		body: message.text,
-		payload: { source: 'whatsapp_device', channel: 'evolution' },
+		payload: insertPayload,
 		status: 'attended',
 		resolved_by: 'human',
 		needs_human: false,

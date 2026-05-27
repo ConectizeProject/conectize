@@ -39,6 +39,7 @@ import {
   type SeminovoActionDevice,
 } from '@/lib/seminovos/seminovos-device-actions'
 import { ArrowLeft, DollarSign, Eye, FileInput, Loader2, MoreHorizontal, Plus, Search, Smartphone, Store, Tag, Trash2, Undo2, UserRound } from 'lucide-react'
+import { SellPaymentPricingHint } from './SellPaymentPricingHint'
 import { ResaleDeviceTermsDialog } from './ResaleDeviceTermsDialog'
 import { ResaleSellAdminProfitCard } from './ResaleSellCommissionPanel'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
@@ -2152,7 +2153,19 @@ export function SeminovosFormClient ({
               </div>
               <div className="space-y-3">
                 <div className="hidden md:grid md:grid-cols-12 md:gap-3 text-xs font-medium text-muted-foreground px-1">
-                  <div className="md:col-span-6">Forma de pagamento</div>
+                  <div className="md:col-span-6 flex items-center gap-0.5">
+                  <span>Forma de pagamento</span>
+                  <SellPaymentPricingHint
+                    purchaseValueCents={moneyToCentsFromMasked(formPurchaseValue)}
+                    wholesaleValueCents={moneyToCentsFromMasked(formWholesaleValue)}
+                    saleValueCents={moneyToCentsFromMasked(formSaleValue)}
+                    costs={formCosts.map((c) => ({
+                      description: c.description || null,
+                      value_cents: c.value_cents ?? 0,
+                    }))}
+                    canViewPurchaseValue={isAdmin}
+                  />
+                </div>
                   <div className="md:col-span-3">Valor</div>
                   <div className="md:col-span-2">Parcelas</div>
                   <div className="md:col-span-1 text-right">Ações</div>
@@ -2160,7 +2173,19 @@ export function SeminovosFormClient ({
                 {sellPaymentMethods.map((entry, i) => (
                   <div key={entry.rowKey} className="grid gap-3 md:grid-cols-12 items-end">
                     <div className="md:col-span-6 space-y-1">
-                      <Label className="md:hidden">Forma de pagamento</Label>
+                      <div className="flex items-center gap-0.5 md:hidden">
+                      <Label>Forma de pagamento</Label>
+                      <SellPaymentPricingHint
+                        purchaseValueCents={moneyToCentsFromMasked(formPurchaseValue)}
+                        wholesaleValueCents={moneyToCentsFromMasked(formWholesaleValue)}
+                        saleValueCents={moneyToCentsFromMasked(formSaleValue)}
+                        costs={formCosts.map((c) => ({
+                          description: c.description || null,
+                          value_cents: c.value_cents ?? 0,
+                        }))}
+                        canViewPurchaseValue={isAdmin}
+                      />
+                    </div>
                       <select
                         className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
                         value={entry.payment_method_id || ''}

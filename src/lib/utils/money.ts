@@ -29,9 +29,14 @@ export function maskedFromCents(cents: number | null | undefined): string {
   return `${sign}${whole},${frac}`
 }
 
+function isNegativeMoneyMask (value: string): boolean {
+  const trimmed = value.trim()
+  return trimmed.startsWith('-') || trimmed.startsWith('−')
+}
+
 /** Formata input monetário permitindo valor negativo (ex.: -100,50) */
 export function formatMoneyInputSigned(raw: string): string {
-  const isNegative = raw.trimStart().startsWith('-')
+  const isNegative = isNegativeMoneyMask(raw)
   const digits = raw.replace(/\D/g, '')
   if (!digits) return isNegative ? '-' : ''
   let int = digits
@@ -45,8 +50,7 @@ export function formatMoneyInputSigned(raw: string): string {
 
 /** Converte string mascarada (ex.: -100,50) em centavos; aceita negativo */
 export function moneyToCentsFromMaskedSigned(value: string): number | null {
-  const trimmed = value.trim()
-  const isNegative = trimmed.startsWith('-')
+  const isNegative = isNegativeMoneyMask(value)
   const digits = value.replace(/\D/g, '')
   if (!digits) return null
   const cents = Number.parseInt(digits, 10)

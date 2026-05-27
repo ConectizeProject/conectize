@@ -23,12 +23,41 @@ create table if not exists public.device_models (
   created_at timestamptz not null default now()
 );
 
-create unique index if not exists device_models_unique
-  on public.device_models(brand, device_type, model);
+-- Índices só se as colunas existirem (cloud já passou por drop brand/device_type).
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'device_models' and column_name = 'brand'
+  ) and exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'device_models' and column_name = 'device_type'
+  ) then
+    create unique index if not exists device_models_unique
+      on public.device_models(brand, device_type, model);
+  end if;
 
-create index if not exists device_models_brand_idx on public.device_models(brand);
-create index if not exists device_models_device_type_idx on public.device_models(device_type);
-create index if not exists device_models_model_idx on public.device_models(model);
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'device_models' and column_name = 'brand'
+  ) then
+    create index if not exists device_models_brand_idx on public.device_models(brand);
+  end if;
+
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'device_models' and column_name = 'device_type'
+  ) then
+    create index if not exists device_models_device_type_idx on public.device_models(device_type);
+  end if;
+
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'device_models' and column_name = 'model'
+  ) then
+    create index if not exists device_models_model_idx on public.device_models(model);
+  end if;
+end $$;
 
 create or replace function public.is_admin ()
 returns boolean

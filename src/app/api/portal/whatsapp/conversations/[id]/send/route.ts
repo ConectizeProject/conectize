@@ -71,12 +71,26 @@ export async function POST (
   })
 
   if (send.ok === false) {
-    const err = String(send.error || 'send_failed')
-    console.error('[whatsapp/send]', resolved.provider, waFrom, err)
+    const err =
+      typeof send.error === 'string'
+        ? send.error
+        : JSON.stringify(send.error ?? 'send_failed')
+    const instanceHint =
+      resolved.provider === 'evolution' && 'evolutionInstanceName' in resolved
+        ? resolved.evolutionInstanceName
+        : null
+    console.error(
+      '[whatsapp/send]',
+      resolved.provider,
+      instanceHint,
+      waFrom,
+      err,
+    )
     return NextResponse.json(
       {
         ok: false,
         error: err,
+        evolution_instance: instanceHint,
         hint: hintForWhatsappSendError(err, resolved.provider),
       },
       { status: send.status === 401 ? 401 : 502 },
@@ -95,7 +109,11 @@ export async function POST (
     direction: 'out',
     wa_message_id: waMessageId,
     body: text,
-    payload: { source: 'staff', channel: resolved.provider },
+    payload: {
+      source: 'staff',
+      channel: resolved.provider,
+      delivery_status: 'sent',
+    },
     status: 'attended',
     resolved_by: 'human',
     needs_human: false,

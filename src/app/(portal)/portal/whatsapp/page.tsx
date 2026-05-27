@@ -17,14 +17,7 @@ export default async function WhatsappInboxPage () {
   if (role === 'retailer') redirect('/portal/tabela-de-precos')
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
-      <div>
-        <h1 className="text-2xl font-bold">WhatsApp</h1>
-        <p className="text-sm text-muted-foreground">
-          Conversas vindas da Cloud API e da Evolution API (mensagens só com texto). Mensagens da IA ficam como
-          pendentes até você marcar como atendidas.
-        </p>
-      </div>
+    <div className="flex min-h-0 flex-1 flex-col">
       <WhatsappInboxClient />
     </div>
   )

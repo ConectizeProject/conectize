@@ -259,6 +259,7 @@ type ProfitCardProps = {
   isAdmin: boolean
   transactionTotalCents: number | null
   deviceSaleCents: number | null
+  tradeInTotalCents?: number
   addonLines: AddonLine[]
   addonCostTotalCents: number
   commission: SellCommissionSnapshot
@@ -272,6 +273,7 @@ export function ResaleSellAdminProfitCard ({
   isAdmin,
   transactionTotalCents,
   deviceSaleCents,
+  tradeInTotalCents = 0,
   addonLines,
   addonCostTotalCents,
   commission,
@@ -430,6 +432,14 @@ export function ResaleSellAdminProfitCard ({
                   </span>
                 </div>
               ))}
+            </div>
+          ) : null}
+          {tradeInTotalCents > 0 ? (
+            <div className="flex justify-between gap-4">
+              <span className="text-muted-foreground">+ Troca(s)</span>
+              <span className="tabular-nums font-medium text-green-700 dark:text-green-400">
+                {formatCentsBr(tradeInTotalCents)}
+              </span>
             </div>
           ) : null}
           <div className="flex justify-between gap-4">

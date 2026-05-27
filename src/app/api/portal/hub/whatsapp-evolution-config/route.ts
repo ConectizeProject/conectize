@@ -6,6 +6,11 @@ import {
   type WhatsappEvolutionHubMetadata,
   WHATSAPP_EVOLUTION_PLATFORM_ID,
 } from '@/lib/whatsapp/evolution-hub-config'
+import { getSupabaseHubWriter } from '@/lib/supabase/hub-writes'
+import {
+  loadHubInboxAccessMeta,
+  replaceHubInboxViewers,
+} from '@/lib/whatsapp/hub-connection-inbox-access'
 
 const PLATFORM = WHATSAPP_EVOLUTION_PLATFORM_ID
 
@@ -29,7 +34,7 @@ export async function GET () {
     .eq('organization_id', auth.organizationId)
     .order('created_at', { ascending: true })
 
-  const instances = (rows || [])
+  const mapped = (rows || [])
     .map((r) => {
       const meta = (r.metadata as WhatsappEvolutionHubMetadata) || {}
       const instanceName = String(meta.instance_name || '').trim()
@@ -50,6 +55,18 @@ export async function GET () {
       }
     })
     .filter((x): x is NonNullable<typeof x> => x != null)
+
+  const instances = await Promise.all(
+    mapped.map(async (inst) => {
+      const inbox = await loadHubInboxAccessMeta(auth.supabase, inst.connection_id)
+      return {
+        ...inst,
+        inbox_restricted: inbox.restricted,
+        inbox_viewer_user_ids: inbox.viewer_user_ids,
+        inbox_viewers: inbox.viewers,
+      }
+    }),
+  )
 
   const base = publicBaseUrl()
   const webhookUrl = base ? `${base}/api/webhooks/whatsapp-evolution` : ''
@@ -86,6 +103,10 @@ export async function POST (request: Request) {
     body.automation_enabled === true || body.automationEnabled === true
   const apiKey = String(body.api_key || body.apiKey || '').trim()
   const apiBaseOverride = String(body.api_base_url_override || body.apiBaseUrlOverride || '').trim()
+  const inboxAccess = body.inbox_access as {
+    unrestricted?: unknown
+    viewer_user_ids?: unknown
+  } | undefined
 
   if (!instanceName) {
     return NextResponse.json({ ok: false, error: 'instance_name_required' }, { status: 400 })
@@ -143,8 +164,10 @@ export async function POST (request: Request) {
   if (apiBaseOverride) metadata.api_base_url_override = apiBaseOverride
   else delete (metadata as { api_base_url_override?: unknown }).api_base_url_override
 
+  const hubWriter = await getSupabaseHubWriter(auth.supabase)
+
   if (preferredForMessages) {
-    const { data: others } = await auth.supabase
+    const { data: others } = await hubWriter
       .from('hub_connections')
       .select('id, metadata')
       .eq('platform_id', PLATFORM)
@@ -154,7 +177,7 @@ export async function POST (request: Request) {
       if (o.id === existing?.id) continue
       const om = (o.metadata as WhatsappEvolutionHubMetadata) || {}
       if (om.preferred_for_messages !== true) continue
-      await auth.supabase
+      await hubWriter
         .from('hub_connections')
         .update({
           metadata: { ...om, preferred_for_messages: false },
@@ -183,19 +206,20 @@ export async function POST (request: Request) {
   }
 
   let data: { id: string } | null = null
-  let error: { message?: string } | null = null
+  let error: { message?: string; code?: string } | null = null
 
   if (existing) {
-    const res = await auth.supabase
+    const res = await hubWriter
       .from('hub_connections')
       .update(row)
       .eq('id', existing.id)
+      .eq('organization_id', auth.organizationId)
       .select('id')
       .single()
     data = res.data
-    error = res.error as { message?: string } | null
+    error = res.error
   } else {
-    const res = await auth.supabase
+    const res = await hubWriter
       .from('hub_connections')
       .insert({
         ...row,
@@ -207,18 +231,75 @@ export async function POST (request: Request) {
       .select('id')
       .single()
     data = res.data
-    error = res.error as { message?: string } | null
+    error = res.error
   }
 
   if (error) {
     const msg = String(error.message || '')
-    if (msg.includes('hub_connections_org_evolution_instance_uidx')) {
+    if (
+      msg.includes('hub_connections_org_evolution_instance_uidx')
+      || msg.includes('duplicate key') && msg.includes('instance_name')
+    ) {
       return NextResponse.json(
         { ok: false, error: 'instance_name_already_used' },
         { status: 409 },
       )
     }
-    return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+    if (msg.includes('hub_connections_platform_user_uniq')) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'migration_required',
+          hint:
+            'O banco ainda limita uma conexão Evolution por organização. Rode: npx supabase@2.20.12 db push (migration 20260521150000).',
+        },
+        { status: 409 },
+      )
+    }
+    const rlsHint = msg.includes('policy') || msg.includes('permission')
+      ? ' Sem permissão RLS: confirme admin da organização ou configure SUPABASE_SERVICE_ROLE_KEY no .env.'
+      : ''
+    return NextResponse.json(
+      {
+        ok: false,
+        error: 'db_error',
+        hint: (msg || 'Falha ao salvar no banco. Rode as migrations pendentes (db push).') + rlsHint,
+      },
+      { status: 500 },
+    )
+  }
+
+  const savedId = data?.id
+  if (savedId && inboxAccess) {
+    let viewerIds: string[] = []
+    if (inboxAccess.unrestricted === true) {
+      viewerIds = []
+    } else if (Array.isArray(inboxAccess.viewer_user_ids)) {
+      viewerIds = inboxAccess.viewer_user_ids.map((x) => String(x)).filter(Boolean)
+    }
+
+    const { data: members } = await hubWriter
+      .from('organization_members')
+      .select('user_id')
+      .eq('organization_id', auth.organizationId)
+      .in('role_in_org', ['admin', 'staff'])
+
+    const allowed = new Set((members || []).map((m) => String(m.user_id)))
+    const filtered = viewerIds.filter((id) => allowed.has(id))
+
+    const savedViewers = await replaceHubInboxViewers(
+      hubWriter,
+      auth.organizationId,
+      savedId,
+      filtered,
+    )
+    if (!savedViewers.ok) {
+      return NextResponse.json({
+        ok: true,
+        connection: data,
+        inbox_access_warning: 'instance_saved_viewers_failed',
+      })
+    }
   }
 
   return NextResponse.json({ ok: true, connection: data })

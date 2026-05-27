@@ -6,7 +6,10 @@ import {
 	resolveEvolutionApiKey,
 	type WhatsappEvolutionHubMetadata,
 } from '@/lib/whatsapp/evolution-hub-config'
-import { parseEvolutionContactNameMap } from '@/lib/whatsapp/parse-evolution-contacts'
+import {
+	lookupEvolutionContactDisplayName,
+	parseEvolutionContactNameMap,
+} from '@/lib/whatsapp/parse-evolution-contacts'
 import { parseEvolutionChatList } from '@/lib/whatsapp/parse-evolution-chats'
 import {
 	upsertWhatsappConversation,
@@ -112,7 +115,9 @@ export async function syncEvolutionChatsForOrganization(opts: {
 
 		const resolvedName =
 			chat.displayName ??
-			(!chat.isGroup ? contactNames.get(chat.waKey) : null) ??
+			(!chat.isGroup
+				? lookupEvolutionContactDisplayName(contactNames, chat.waKey)
+				: null) ??
 			null
 
 		const state = {

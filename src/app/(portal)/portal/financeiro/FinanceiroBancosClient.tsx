@@ -96,7 +96,7 @@ export function FinanceiroBancosClient() {
   async function submitAdjust(e: React.FormEvent) {
     e.preventDefault()
     if (!editingBank) return
-    const cents = moneyToCentsFromMasked(newBalanceValue)
+    const cents = moneyToCentsFromMaskedSigned(newBalanceValue)
     if (cents === null) {
       toast({ title: 'Informe o novo saldo', variant: 'destructive' })
       return
@@ -172,7 +172,7 @@ export function FinanceiroBancosClient() {
   async function submitBalanceBaseUpdate(e: React.FormEvent) {
     e.preventDefault()
     if (!editingBank) return
-    const cents = moneyToCentsFromMasked(balanceBaseValue)
+    const cents = moneyToCentsFromMaskedSigned(balanceBaseValue)
     if (cents === null) {
       toast({ title: 'Informe o novo balanço', variant: 'destructive' })
       return
@@ -356,12 +356,14 @@ export function FinanceiroBancosClient() {
                 <Label>Novo saldo (R$)</Label>
                 <Input
                   value={newBalanceValue}
-                  onChange={(e) => setNewBalanceValue(formatMoneyInput(e.target.value))}
-                  placeholder="0,00"
-                  inputMode="numeric"
+                  onChange={(e) => setNewBalanceValue(formatMoneyInputSigned(e.target.value))}
+                  placeholder="-0,00"
+                  type="text"
+                  inputMode="text"
                   autoComplete="off"
                   className="tabular-nums"
                 />
+                <p className="text-xs text-muted-foreground mt-1">Use o sinal de menos no início para saldo negativo (ex.: -150,00).</p>
               </div>
               <div>
                 <Label>Descrição do ajuste (opcional)</Label>
@@ -397,12 +399,14 @@ export function FinanceiroBancosClient() {
                 <Label>Novo balanço atual (R$)</Label>
                 <Input
                   value={balanceBaseValue}
-                  onChange={(e) => setBalanceBaseValue(formatMoneyInput(e.target.value))}
-                  placeholder="0,00"
-                  inputMode="numeric"
+                  onChange={(e) => setBalanceBaseValue(formatMoneyInputSigned(e.target.value))}
+                  placeholder="-0,00"
+                  type="text"
+                  inputMode="text"
                   autoComplete="off"
                   className="tabular-nums"
                 />
+                <p className="text-xs text-muted-foreground mt-1">Digite o sinal de menos no início para valor negativo (ex.: -100,00).</p>
               </div>
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setBalanceBaseDialogOpen(false)}>Cancelar</Button>

@@ -11,6 +11,12 @@ import {
   validateAddonStockAvailable,
 } from '@/lib/resale/resale-addon-stock'
 import { syncResaleDeviceFinancialTransactions } from '@/lib/finance/service-order-financial-sync'
+import {
+  insertTradeInDevicesOnSale,
+  loadTradeInsForSaleDevice,
+  parseTradeInDevices,
+} from '@/lib/resale/resale-trade-in'
+import { createSupabaseServiceClient } from '@/lib/supabase/service'
 
 type PortalSupabase = Awaited<ReturnType<typeof createSupabaseServerClient>>
 
@@ -237,7 +243,8 @@ async function loadDeviceWithCosts (supabase: PortalSupabase, deviceId: string) 
     .select('id, description, value_cents')
     .eq('resale_device_id', deviceId)
 
-  const merged = { ...device, costs: costsData || [] }
+  const tradeIns = await loadTradeInsForSaleDevice(supabase, deviceId)
+  const merged = { ...device, costs: costsData || [], trade_ins: tradeIns }
   const enriched = await attachResaleDeviceDisplayImage(supabase, merged)
 
   return {
@@ -332,6 +339,11 @@ export async function PATCH (
 
   const existing = existingRow as Record<string, unknown>
   const wasSold = Boolean(existing.sold)
+  const tradeInParsed = parseTradeInDevices(b)
+  if (tradeInParsed.ok === false) {
+    return NextResponse.json({ ok: false, error: tradeInParsed.error }, { status: 400 })
+  }
+  const tradeInLines = !wasSold && b.sold === true ? tradeInParsed.lines : []
   const addonStockLines = parseAddonInventoryLines(b)
   if (!wasSold && b.sold === true && addonStockLines.length > 0) {
     const stockCheck = await validateAddonStockAvailable(auth.supabase, addonStockLines)
@@ -456,6 +468,62 @@ export async function PATCH (
     })
     if (!ins.ok) {
       return NextResponse.json({ ok: false, error: 'stock_movement_failed' }, { status: 500 })
+    }
+  }
+
+  if (!wasSold && b.sold === true && tradeInLines.length > 0) {
+    const saleDateRaw = row.sale_date ?? existing.sale_date
+    const saleDate =
+      saleDateRaw != null && String(saleDateRaw).trim()
+        ? String(saleDateRaw).trim().slice(0, 10)
+        : null
+    let tradeSupabase = auth.supabase
+    try {
+      tradeSupabase = createSupabaseServiceClient()
+    } catch (svcErr) {
+      console.warn('[resale-trade-in] service client unavailable, using session client', svcErr)
+    }
+
+    const tradeResult = await insertTradeInDevicesOnSale({
+      supabase: tradeSupabase,
+      organizationId: auth.organizationId,
+      saleDeviceId: deviceId,
+      saleDate,
+      lines: tradeInLines,
+    })
+    if (!tradeResult.ok) {
+      await auth.supabase
+        .from('resale_devices')
+        .update({
+          sold: false,
+          sold_for_cents: null,
+          sale_date: null,
+          sale_payment_methods: [],
+          payment_method_id: null,
+          payment_installments: null,
+          buyer_name: null,
+          buyer_cpf: null,
+          sale_details: null,
+          sale_commission_user_id: null,
+          actual_profit_cents: null,
+        })
+        .eq('id', deviceId)
+      await rewriteResaleCostsKeepingBaseOnly(auth.supabase, deviceId, auth.organizationId)
+      const tradeError =
+        tradeResult.error === 'trade_in_table_missing'
+          ? 'trade_in_table_missing'
+          : 'trade_in_failed'
+      return NextResponse.json(
+        {
+          ok: false,
+          error: tradeError,
+          step: tradeResult.step,
+          ...(process.env.NODE_ENV === 'development' && tradeResult.detail
+            ? { detail: tradeResult.detail }
+            : {}),
+        },
+        { status: tradeError === 'trade_in_table_missing' ? 503 : 500 },
+      )
     }
   }
 

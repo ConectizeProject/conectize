@@ -80,7 +80,7 @@ export default async function RevendaVitrinePage ({ params }: Props) {
     image_url?: string | null
     image_gallery_paths?: string[] | null
   })
-  const imageOk = Boolean(displayImageUrl)
+  const imageOk = Boolean(displayImageUrl) && !device.sold
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-3 py-6 sm:px-4">

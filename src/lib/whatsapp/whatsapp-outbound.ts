@@ -4,9 +4,12 @@ import { sendEvolutionTextMessage } from '@/lib/whatsapp/evolution-send-client'
 import { sendWhatsAppTextMessage } from '@/lib/whatsapp/whatsapp-cloud-client'
 import {
   evolutionHubDisplayLabel,
+  findEvolutionHubByConnectionId,
+  findEvolutionHubByInstance,
   listEvolutionHubsForOrganization,
   resolveEvolutionApiBaseUrl,
   resolveEvolutionApiKey,
+  type EvolutionHubRow,
   type WhatsappEvolutionHubMetadata,
   WHATSAPP_EVOLUTION_PLATFORM_ID,
 } from '@/lib/whatsapp/evolution-hub-config'
@@ -49,6 +52,56 @@ function evolutionOutboundFromHub (
   }
 }
 
+function hubInstanceName (hub: EvolutionHubRow): string {
+  return String(hub.metadata.instance_name || '').trim().toLowerCase()
+}
+
+function outboundFromEvolutionHub (hub: EvolutionHubRow): ResolvedWhatsappOutbound | null {
+  return evolutionOutboundFromHub(hub.metadata, hub.access_token)
+}
+
+/**
+ * Instância que recebeu a conversa (webhook/sync) tem prioridade sobre hub_connection_id
+ * desatualizado — evita enviar grupo pela instância errada (ex. Conectize fechada).
+ */
+async function resolveEvolutionOutboundForConversation (
+  supabase: SupabaseClient,
+  conv: {
+    organization_id: string
+    hub_connection_id: string | null
+    state: unknown
+  },
+): Promise<ResolvedWhatsappOutbound | null> {
+  const state = (conv.state as Record<string, unknown> | null) || {}
+  const instanceFromState = String(state.evolution_instance || '').trim()
+
+  let hubFromLink: EvolutionHubRow | null = null
+  if (conv.hub_connection_id) {
+    hubFromLink = await findEvolutionHubByConnectionId(
+      supabase,
+      conv.hub_connection_id,
+      conv.organization_id,
+    )
+  }
+
+  if (instanceFromState) {
+    const hubFromState = await findEvolutionHubByInstance(supabase, instanceFromState)
+    if (
+      hubFromState &&
+      hubFromState.organization_id === conv.organization_id
+    ) {
+      const linkName = hubFromLink ? hubInstanceName(hubFromLink) : ''
+      const stateName = instanceFromState.toLowerCase()
+      if (!hubFromLink || (linkName && linkName !== stateName)) {
+        return outboundFromEvolutionHub(hubFromState)
+      }
+    }
+  }
+
+  if (hubFromLink) return outboundFromEvolutionHub(hubFromLink)
+  return null
+}
+
 /** Envio alinhado à conversa (instância Evolution / Cloud da conexão hub). */
 export async function resolveWhatsappOutboundForConversation (
   supabase: SupabaseClient,
@@ -56,11 +109,18 @@ export async function resolveWhatsappOutboundForConversation (
 ): Promise<ResolvedWhatsappOutbound | null> {
   const { data: conv } = await supabase
     .from('whatsapp_conversations')
-    .select('organization_id, hub_connection_id')
+    .select('organization_id, hub_connection_id, state')
     .eq('id', conversationId)
     .maybeSingle()
 
   if (!conv?.organization_id) return null
+
+  const evoResolved = await resolveEvolutionOutboundForConversation(supabase, {
+    organization_id: conv.organization_id,
+    hub_connection_id: conv.hub_connection_id,
+    state: conv.state,
+  })
+  if (evoResolved) return evoResolved
 
   if (conv.hub_connection_id) {
     const { data: hub } = await supabase
@@ -70,10 +130,12 @@ export async function resolveWhatsappOutboundForConversation (
       .maybeSingle()
 
     if (hub?.platform_id === WHATSAPP_EVOLUTION_PLATFORM_ID) {
-      return evolutionOutboundFromHub(
-        (hub.metadata as WhatsappEvolutionHubMetadata) || {},
-        hub.access_token as string | null,
-      )
+      return outboundFromEvolutionHub({
+        id: conv.hub_connection_id,
+        access_token: hub.access_token as string | null,
+        metadata: (hub.metadata as WhatsappEvolutionHubMetadata) || {},
+        organization_id: conv.organization_id,
+      })
     }
 
     if (hub?.platform_id === 'whatsapp_business') {

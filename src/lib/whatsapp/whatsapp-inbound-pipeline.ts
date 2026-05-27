@@ -219,7 +219,7 @@ export async function processWhatsappInboundTurn(opts: {
 		direction: 'out',
 		wa_message_id: send.messageId ?? null,
 		body: ai.replyText,
-		payload: { source: 'ai' },
+		payload: { source: 'ai', delivery_status: 'sent' },
 		status: 'pending',
 		resolved_by: 'ai',
 		needs_human: true,

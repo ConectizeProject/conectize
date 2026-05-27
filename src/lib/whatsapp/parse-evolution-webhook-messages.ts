@@ -1,8 +1,19 @@
 import { resolveInboundConversationKey } from '@/lib/whatsapp/wa-conversation-key'
+import type { EvolutionMediaDownloadRequest } from '@/lib/whatsapp/evolution-media-download-request'
+import { buildEvolutionMediaDownloadRequest } from '@/lib/whatsapp/evolution-media-download-request'
+import {
+	buildEvolutionMediaDownloadKey,
+	detectEvolutionMedia,
+	type EvolutionMediaDescriptor,
+} from '@/lib/whatsapp/parse-evolution-webhook-media'
 import {
 	extractTextFromMessagePayload,
 	flattenMessages,
 } from '@/lib/whatsapp/parse-evolution-webhook-text'
+import {
+	normalizeWaDeliveryStatus,
+	type WaDeliveryStatus,
+} from '@/lib/whatsapp/whatsapp-message-delivery-status'
 
 export type EvolutionMessageUpsert = {
 	instance: string
@@ -14,6 +25,11 @@ export type EvolutionMessageUpsert = {
 	direction: 'in' | 'out'
 	senderDisplayName: string | null
 	messageTimestamp: string | null
+	media: EvolutionMediaDescriptor | null
+	mediaMessageKey: Record<string, unknown> | null
+	mediaDownloadRequest: EvolutionMediaDownloadRequest | null
+	/** Só em mensagens enviadas (fromMe). */
+	deliveryStatus: WaDeliveryStatus | null
 }
 
 export type EvolutionMessageDelete = {
@@ -76,10 +92,15 @@ export function parseEvolutionMessageUpserts (
 		)
 		if (!conversationKey) continue
 
+		const media = detectEvolutionMedia(item)
 		const text = extractTextFromMessagePayload(item)
-		if (!text) continue
+		const body = text || (media ? media.label : null)
+		if (!body) continue
 
 		const fromMe = isFromMe(key)
+		const deliveryStatus = fromMe
+			? normalizeWaDeliveryStatus(item.status) ?? 'sent'
+			: null
 		const rawPush = String(item.pushName || '').trim()
 		const senderDisplayName =
 			!fromMe && rawPush && rawPush !== 'Você' ? rawPush : null
@@ -89,11 +110,15 @@ export function parseEvolutionMessageUpserts (
 			waMessageId: id,
 			stableWaMessageId: buildStableWaMessageId(instance, id),
 			conversationKey,
-			text,
+			text: body,
 			isGroup: conversationKey.includes('@g.us'),
 			direction: fromMe ? 'out' : 'in',
 			senderDisplayName,
 			messageTimestamp: parseMessageTimestamp(item),
+			media,
+			mediaMessageKey: media ? buildEvolutionMediaDownloadKey(item) : null,
+			mediaDownloadRequest: media ? buildEvolutionMediaDownloadRequest(item, media) : null,
+			deliveryStatus,
 		})
 	}
 
