@@ -26,7 +26,7 @@ export async function GET (
     auth.organizationId,
     connectionId,
   )
-  if (!hubCheck.ok) {
+  if (hubCheck.ok === false) {
     return NextResponse.json({ ok: false, error: hubCheck.error }, { status: 404 })
   }
 
@@ -61,7 +61,7 @@ export async function PUT (
     auth.organizationId,
     connectionId,
   )
-  if (!hubCheck.ok) {
+  if (hubCheck.ok === false) {
     return NextResponse.json({ ok: false, error: hubCheck.error }, { status: 404 })
   }
 
@@ -95,7 +95,7 @@ export async function PUT (
     filtered,
   )
 
-  if (!saved.ok) {
+  if (saved.ok === false) {
     return NextResponse.json(
       {
         ok: false,

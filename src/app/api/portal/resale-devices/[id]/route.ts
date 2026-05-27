@@ -491,7 +491,7 @@ export async function PATCH (
       saleDate,
       lines: tradeInLines,
     })
-    if (!tradeResult.ok) {
+    if (tradeResult.ok === false) {
       await auth.supabase
         .from('resale_devices')
         .update({

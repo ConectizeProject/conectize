@@ -31,6 +31,7 @@ const PENDING_MAX_AGE_MS = 15 * 60 * 1000
 type PixRelayConn = {
   organization_id: string
   id: string
+  access_token: string | null
   metadata: { instance_name?: string; automation_enabled?: boolean }
 }
 
@@ -154,7 +155,7 @@ async function handlePixCommand (opts: {
     pix_group_jid: opts.config.pixGroupJid,
   })
 
-  if (!pending.ok) {
+  if (pending.ok === false) {
     console.error('[whatsapp-pix-relay] insert pending', pending.reason)
     await opts.outboundSend({
       toTarget: requester,

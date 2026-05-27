@@ -37,7 +37,7 @@ export async function POST (request: Request) {
   }
 
   const result = await outbound.send({
-    toE164Digits: to,
+    toTarget: to,
     body: text,
   })
 

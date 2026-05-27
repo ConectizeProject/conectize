@@ -75,7 +75,7 @@ export async function syncEvolutionChatsForOrganization(opts: {
 		for (const [k, v] of parseEvolutionContactNameMap(contactsFetched.contacts)) {
 			contactNames.set(k, v)
 		}
-	} else {
+	} else if (contactsFetched.ok === false) {
 		console.warn(
 			'[sync-evolution-chats] findContacts failed',
 			contactsFetched.error,

@@ -49,6 +49,8 @@ yarn-error.log*
 .env.production
 .env.production.local
 .env*.local
+.env.bak*
+.env-bak*
 
 # Editor directories and files
 .vscode/*

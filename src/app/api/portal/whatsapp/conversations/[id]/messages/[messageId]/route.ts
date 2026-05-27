@@ -33,7 +33,7 @@ export async function DELETE (
     messageId,
   )
 
-  if (!result.ok) {
+  if (result.ok === false) {
     const status = result.error === 'not_found' ? 404 : 500
     return NextResponse.json({ ok: false, error: result.error }, { status })
   }

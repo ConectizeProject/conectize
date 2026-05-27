@@ -29,7 +29,7 @@ export async function POST (request: Request) {
     conversationIds,
   )
 
-  if (!result.ok) {
+  if (result.ok === false) {
     const status = result.error === 'invalid_ids' ? 400 : 500
     return NextResponse.json({ ok: false, error: result.error }, { status })
   }

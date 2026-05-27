@@ -23,7 +23,6 @@ export function WhatsappMessageReceipt ({ status }: Props) {
         className="h-[15px] w-[15px] shrink-0 animate-spin text-[#667781] dark:text-[#8696a0]"
         strokeWidth={2.25}
         aria-label={LABELS.sending}
-        title={LABELS.sending}
       />
     )
   }
@@ -40,7 +39,6 @@ export function WhatsappMessageReceipt ({ status }: Props) {
         className={cn('h-[15px] w-[15px] shrink-0', color)}
         strokeWidth={2.25}
         aria-label={LABELS[status]}
-        title={LABELS[status]}
       />
     )
   }
@@ -50,7 +48,6 @@ export function WhatsappMessageReceipt ({ status }: Props) {
       className={cn('h-[15px] w-[15px] shrink-0', color)}
       strokeWidth={2.25}
       aria-label={LABELS[status]}
-      title={LABELS[status]}
     />
   )
 }
