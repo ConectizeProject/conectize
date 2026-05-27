@@ -2,6 +2,8 @@
  * Parseia o texto exportado pelo 3utools (iDevice details).
  * Formato: linhas "Chave    Valor" (vários espaços ou tab entre chave e valor).
  */
+import { resolveIphoneMarketingName } from '@/lib/resale/apple-iphone-identifiers'
+
 export type Parsed3utools = {
   model?: string
   color?: string
@@ -14,70 +16,102 @@ export type Parsed3utools = {
   productType?: string
 }
 
-/**
- * Formato padrão da primeira linha: "Modelo XXXGB Cor" (ex: iPhone 15 Pro Max 256GB Blue Titanium).
- * Retorna { model, storage_gb, color } ou null se não bater.
- */
-function parseFirstLineFormat(line: string): { model: string; storage_gb: string; color: string } | null {
-  const trimmed = line.trim()
-  const match = trimmed.match(/^(.+)\s+(\d+)\s*[gG][bB]\s+(.+)$/)
-  if (!match) return null
-  return {
-    model: match[1].trim(),
-    storage_gb: match[2].trim(),
-    color: match[3].trim(),
+/** Linha de título costuma ter capacidade (64GB); linhas de chave têm vários espaços após o nome. */
+function looksLikeTitleLine (line: string): boolean {
+  if (!/\d+\s*[gG][bB]\b/.test(line)) return false
+  if (/^[A-Za-z][A-Za-z0-9]*\s{2,}\S/.test(line)) return false
+  return true
+}
+
+/** Variantes de modelo após o número (ordem: sequências mais longas primeiro no regex). */
+const APPLE_DEVICE_MODEL_PREFIX =
+  /^(iPhone|iPad)\s+(\d+(?:\s+(?:Pro\s+Max|Pro|Plus|mini|Max|Air|SE))*)\s+(.+)$/i
+
+/** Cores compostas comuns no título do 3utools (mais longas primeiro). */
+const MULTI_WORD_TITLE_COLORS = [
+  'Pacific Blue',
+  'Sierra Blue',
+  'Alpine Green',
+  'Midnight Green',
+  'Space Gray',
+  'Space Grey',
+  'Space Black',
+  'Blue Titanium',
+  'Black Titanium',
+  'White Titanium',
+  'Natural Titanium',
+  'Desert Titanium',
+  'Rose Gold',
+  'Product Red',
+  'Deep Purple',
+  'Graphite',
+  'Starlight',
+  'Ultramarine',
+  'Titanium Gray',
+  'Titanium Grey',
+  'Cloud White',
+  'Light Gold',
+  'Sky Blue',
+  'Mint Green',
+  'Cosmic Orange',
+].sort((a, b) => b.length - a.length)
+
+function splitModelAndColorBeforeStorage (before: string): { model: string; color: string } {
+  const appleMatch = before.match(APPLE_DEVICE_MODEL_PREFIX)
+  if (appleMatch) {
+    const model = `${appleMatch[1]} ${appleMatch[2]}`.replace(/\s+/g, ' ').trim()
+    const color = appleMatch[3].trim()
+    return { model, color }
   }
+
+  const lower = before.toLowerCase()
+  for (const colorName of MULTI_WORD_TITLE_COLORS) {
+    const suffix = colorName.toLowerCase()
+    if (!lower.endsWith(suffix)) continue
+    const model = before.slice(0, before.length - colorName.length).trim()
+    const color = before.slice(before.length - colorName.length).trim()
+    if (model) return { model, color }
+  }
+
+  const parts = before.split(/\s+/)
+  if (parts.length >= 2) {
+    return {
+      model: parts.slice(0, -1).join(' '),
+      color: parts[parts.length - 1],
+    }
+  }
+
+  return { model: before, color: '' }
 }
 
 /**
- * Limpa o ProductType do 3utools (ex: "iPhone14,5" -> "iPhone 14").
- * Troca vírgula por ponto, insere espaço entre nome e número e remove o sufixo decimal (.5, .1, etc).
+ * Aceita:
+ * - "iPhone 15 Pro Max 256GB Blue Titanium" (GB antes da cor)
+ * - "iPhone 12 Black 64GB" (GB no final)
+ * - "iPhone 12 Pro Max Pacific Blue 128GB" (cor composta + GB no final)
  */
-function cleanProductType(value: string): string {
-  const trimmed = value.trim()
-  if (!trimmed) return trimmed
-  const withDot = trimmed.replace(/,/g, '.')
-  const withSpace = withDot.replace(/([a-zA-Z]+)(\d)/g, '$1 $2').trim()
-  return withSpace.replace(/\.\d+$/, '').trim()
+export function parseFirstLineFormat (line: string): { model: string; storage_gb: string; color: string } | null {
+  const trimmed = line.trim()
+  const storageMatch = trimmed.match(/\b(\d+)\s*[gG][bB]\b/)
+  if (!storageMatch || storageMatch.index == null) return null
+
+  const storage_gb = storageMatch[1]
+  const before = trimmed.slice(0, storageMatch.index).trim()
+  const after = trimmed.slice(storageMatch.index + storageMatch[0].length).trim()
+
+  if (after) {
+    return { model: before, storage_gb, color: after }
+  }
+
+  if (!before) return null
+
+  const { model, color } = splitModelAndColorBeforeStorage(before)
+  return { model, storage_gb, color }
 }
 
-const DEVICE_COLOR_MAP: Record<string, string> = {
-  '0': 'Desconhecido',
-  '1': 'Preto',
-  '2': 'Branco',
-  '3': 'Dourado',
-  '4': 'Rosa dourado',
-  '5': 'Prata',
-  '6': 'Space Gray',
-  '7': 'Rosa',
-  '8': 'Azul',
-  '9': 'Amarelo',
-  '10': 'Verde',
-  '11': 'Vermelho',
-  '12': 'Roxo',
-  '13': 'Azul meia-noite',
-  '14': 'Estelar',
-  '15': 'Verde alpino',
-  '16': 'Rosa',
-  '17': 'Preto',
-}
-
-export function parse3utoolsText(text: string): Parsed3utools {
+function parseKeyValueLines (text: string): Record<string, string> {
   const map: Record<string, string> = {}
-  const lines = text.split(/\r?\n/)
-
-  const firstLineParsed = (() => {
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (!trimmed) continue
-      const parsed = parseFirstLineFormat(trimmed)
-      if (parsed) return parsed
-      break
-    }
-    return null
-  })()
-
-  for (const line of lines) {
+  for (const line of text.split(/\r?\n/)) {
     const trimmed = line.trim()
     if (!trimmed) continue
     const match =
@@ -85,32 +119,49 @@ export function parse3utoolsText(text: string): Parsed3utools {
       trimmed.match(/^([^\t]+)\t+(.+)$/) ||
       trimmed.match(/^(.+?):\s*(.+)$/)
     if (match) {
-      const key = match[1].trim()
-      const value = match[2].trim()
-      map[key] = value
+      map[match[1].trim()] = match[2].trim()
     }
   }
+  return map
+}
 
-  const deviceClass = map['DeviceClass'] || ''
-  const productTypeRaw = map['ProductType'] || ''
-  const productType = productTypeRaw ? cleanProductType(productTypeRaw) : ''
-  const modelFromProductType = productType || deviceClass || undefined
-  const colorCode = map['DeviceColor'] || map['DeviceEnclosureColor'] || ''
-  const colorFromMap = DEVICE_COLOR_MAP[colorCode] || (colorCode ? colorCode : undefined)
-  const modelNumberRaw = map['ModelNumber'] || '';
-  const regionInfo = map['RegionInfo'] || '';
+function parseTitleLine (lines: string[]): { model: string; storage_gb: string; color: string } | null {
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed || !looksLikeTitleLine(trimmed)) continue
+    const parsed = parseFirstLineFormat(trimmed)
+    if (parsed) return parsed
+  }
+  return null
+}
 
-  const modelNumber = modelNumberRaw.trim() + ' ' + regionInfo.trim();
+export function parse3utoolsText (text: string): Parsed3utools {
+  const lines = text.split(/\r?\n/)
+  const map = parseKeyValueLines(text)
+  const firstLineParsed = parseTitleLine(lines)
+
+  const deviceClass = map.DeviceClass || ''
+  const productTypeRaw = map.ProductType || ''
+  const hardwareModel = map.HardwareModel || ''
+  const modelFromIdentifier =
+    resolveIphoneMarketingName(productTypeRaw, hardwareModel) ||
+    (productTypeRaw.trim() || undefined)
+  const colorFromFields = (map.DeviceColor || map.DeviceEnclosureColor || '').trim() || undefined
+  const modelNumberRaw = map.ModelNumber || ''
+  const regionInfo = map.RegionInfo || ''
+  const modelNumber = [modelNumberRaw, regionInfo].filter(Boolean).join(' ').trim()
+
+  const titleColor = firstLineParsed?.color?.trim() || undefined
 
   return {
-    model: firstLineParsed ? firstLineParsed.model : modelFromProductType,
-    color: firstLineParsed ? firstLineParsed.color : colorFromMap,
-    storage_gb: firstLineParsed ? firstLineParsed.storage_gb : undefined,
-    imei: map['InternationalMobileEquipmentIdentity'] || undefined,
-    imei2: map['InternationalMobileEquipmentIdentity2'] || undefined,
-    serial: map['SerialNumber'] || undefined,
+    model: firstLineParsed?.model || modelFromIdentifier || deviceClass || undefined,
+    color: titleColor || colorFromFields,
+    storage_gb: firstLineParsed?.storage_gb,
+    imei: map.InternationalMobileEquipmentIdentity || undefined,
+    imei2: map.InternationalMobileEquipmentIdentity2 || undefined,
+    serial: map.SerialNumber || undefined,
     modelNumber: modelNumber || undefined,
     deviceClass: deviceClass || undefined,
-    productType: productTypeRaw ? productType : undefined,
+    productType: productTypeRaw || undefined,
   }
 }
