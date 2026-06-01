@@ -30,7 +30,7 @@ import { toast } from '@/hooks/use-toast'
 import { getLabelWindowFeatures } from '@/lib/ordem-print'
 import { buildProductLabelHtml } from '@/lib/products/product-label-print'
 import {
-	buildProdutosGestaoHref,
+	GESTAO_LIST_CHUNK,
 } from '@/lib/products/portal-gestao-produtos-list'
 import { AssistenciaServicoLinkModal } from './AssistenciaServicoLinkModal'
 import { BulkEditProductsModal } from './BulkEditProductsModal'
@@ -137,10 +137,13 @@ export function ProductsListClient({
 	const [extraRows, setExtraRows] = useState<ProductRow[]>([])
 	const [loadMoreBusy, setLoadMoreBusy] = useState(false)
 	const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null)
+	const loadMoreInFlightRef = useRef(false)
+	const loadMoreCooldownUntilRef = useRef(0)
+	const listFilterKey = `${filterKind}::${searchQuery}::${filterSku}::${filterBarcode}`
 
 	useEffect(() => {
 		setExtraRows([])
-	}, [products])
+	}, [listFilterKey])
 
 	const mergedProducts = useMemo(() => {
 		const ids = new Set(products.map((p) => p.id))
@@ -152,12 +155,14 @@ export function ProductsListClient({
 		!listLoadError && !invalidSearchTokens && mergedProducts.length < totalCount
 
 	const loadNextChunk = useCallback(async () => {
-		if (loadMoreBusy || listLoadError || mergedProducts.length >= totalCount || invalidSearchTokens) return
+		if (loadMoreInFlightRef.current || loadMoreBusy || listLoadError || mergedProducts.length >= totalCount || invalidSearchTokens) return
+		if (Date.now() < loadMoreCooldownUntilRef.current) return
+		loadMoreInFlightRef.current = true
 		setLoadMoreBusy(true)
 		try {
 			const params = new URLSearchParams()
 			params.set('offset', String(mergedProducts.length))
-			params.set('limit', '20')
+			params.set('limit', String(GESTAO_LIST_CHUNK))
 			const q = searchQuery.trim()
 			if (q) params.set('q', q)
 			if (filterKind === 'service') params.set('kind', 'service')
@@ -183,15 +188,7 @@ export function ProductsListClient({
 			const items = Array.isArray(data.items) ? data.items : []
 			if (items.length === 0) return
 			setExtraRows((prev) => [...prev, ...items])
-			const newTotalShown = mergedProducts.length + items.length
-			const href = buildProdutosGestaoHref({
-				q: searchQuery,
-				kind: filterKind,
-				loaded: newTotalShown > 20 ? newTotalShown : undefined,
-				sku: sk || undefined,
-				barcode: bc || undefined,
-			})
-			router.replace(href, { scroll: false })
+			loadMoreCooldownUntilRef.current = Date.now() + 400
 		} catch (err) {
 			const message = err instanceof Error ? err.message : ''
 			toast({
@@ -200,6 +197,7 @@ export function ProductsListClient({
 				description: message || 'Falha de rede.',
 			})
 		} finally {
+			loadMoreInFlightRef.current = false
 			setLoadMoreBusy(false)
 		}
 	}, [
@@ -212,24 +210,28 @@ export function ProductsListClient({
 		filterSku,
 		filterBarcode,
 		filterKind,
-		router,
 	])
 
 	useEffect(() => {
 		const el = loadMoreSentinelRef.current
 		if (!el || !canLoadMore || loadMoreBusy) return
 
+		let cancelled = false
 		const obs = new IntersectionObserver(
 			(entries) => {
 				const [en] = entries
-				if (!en?.isIntersecting) return
+				if (!en?.isIntersecting || cancelled) return
+				if (Date.now() < loadMoreCooldownUntilRef.current) return
 				void loadNextChunk()
 			},
-			{ root: null, rootMargin: '280px 0px', threshold: 0 },
+			{ root: null, rootMargin: '120px 0px', threshold: 0 },
 		)
 		obs.observe(el)
-		return () => obs.disconnect()
-	}, [canLoadMore, loadMoreBusy, loadNextChunk])
+		return () => {
+			cancelled = true
+			obs.disconnect()
+		}
+	}, [canLoadMore, loadMoreBusy, loadNextChunk, mergedProducts.length])
 
 	const openCreateDialog = useCallback(() => {
 		setEditingProduct(null)

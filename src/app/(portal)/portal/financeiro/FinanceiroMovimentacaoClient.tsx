@@ -251,7 +251,7 @@ export function FinanceiroMovimentacaoClient() {
         const syncedOrders = Number(data.syncedOrders) || 0
         const syncedResaleDevices = Number(data.syncedResaleDevices) || 0
         const syncedPdvSales = Number(data.syncedPdvSales) || 0
-        toast({ title: `Dados atualizados (${syncedOrders} OS, ${syncedResaleDevices} aparelhos e ${syncedPdvSales} vendas PDV)` })
+        toast({ title: `Dados atualizados (${syncedOrders} OS, ${syncedResaleDevices} aparelhos e ${syncedPdvSales} pedidos Frente de Caixa)` })
         await loadMovements()
       } else {
         toast({ title: 'Não foi possível atualizar os dados', variant: 'destructive' })
@@ -642,7 +642,7 @@ export function FinanceiroMovimentacaoClient() {
                           m.description || '—'
                         )}
                         {m.source === 'pdv' && (
-                          <span className="ml-1 text-xs text-muted-foreground">(somente editável no PDV)</span>
+                          <span className="ml-1 text-xs text-muted-foreground">(somente editável na Frente de Caixa)</span>
                         )}
                       </TableCell>
                       <TableCell>{m.conta_name || '—'}</TableCell>

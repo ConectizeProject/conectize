@@ -23,7 +23,7 @@ export default function PdvReportPage () {
   return (
     <div className='space-y-4 py-4'>
       <div className='flex items-center justify-between'>
-        <h1 className='text-2xl font-semibold'>Resumo diário PDV</h1>
+        <h1 className='text-2xl font-semibold'>Resumo diário — Frente de Caixa</h1>
         <Link href='/portal/pdv'><Button variant='outline'>Voltar</Button></Link>
       </div>
       <Card>

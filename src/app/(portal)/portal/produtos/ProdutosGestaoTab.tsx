@@ -1,7 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { ProductsListClient } from './ProductsListClient'
-import { ProdutosFilterForm } from './ProdutosFilterForm'
+import { ProdutosGestaoClient } from './ProdutosGestaoClient'
 import { effectiveSearchTokens } from '@/lib/products/product-search'
 import {
   buildProdutosGestaoHref,
@@ -93,29 +92,17 @@ export async function ProdutosGestaoTab ({
     : await enrichGestaoRawRowsToProductRows(supabase, slice.flatRows)
 
   return (
-    <div className="min-w-0 max-w-full space-y-4 sm:space-y-6">
-      <ProdutosFilterForm
-        key={`${kindFilter}:${query}:${skuRaw}:${barcodeRaw}`}
-        initialQ={query}
-        initialSku={skuRaw}
-        initialBarcode={barcodeRaw}
-        kind={kindFilter}
-        withGestaoTab
-      />
-
-      <ProductsListClient
-        key={`${kindFilter}::${query}::${loaded}::${skuRaw}::${barcodeRaw}`}
-        products={productsWithStock}
-        totalCount={slice.totalCount}
-        listLoadError={slice.listLoadError}
-        searchQuery={query}
-        filterSku={skuRaw}
-        filterBarcode={barcodeRaw}
-        invalidSearchTokens={slice.hasSearchButNoValidTokens}
-        filterKind={kindFilter}
-        initialEditProductId={initialEditProductId}
-        initialCreateVariationParentId={initialCreateVariationParentId}
-      />
-    </div>
+    <ProdutosGestaoClient
+      initialProducts={productsWithStock}
+      totalCount={slice.totalCount}
+      listLoadError={slice.listLoadError}
+      query={query}
+      sku={skuRaw}
+      barcode={barcodeRaw}
+      kindFilter={kindFilter}
+      invalidSearchTokens={slice.hasSearchButNoValidTokens}
+      initialEditProductId={initialEditProductId}
+      initialCreateVariationParentId={initialCreateVariationParentId}
+    />
   )
 }

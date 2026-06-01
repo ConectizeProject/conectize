@@ -208,7 +208,8 @@ export function PortalShell(props: PortalShellProps) {
 							label: "Produtos e serviços",
 							icon: Package,
 						},
-						{ href: "/portal/pdv", label: "PDV", icon: DollarSign },
+						{ href: '/portal/pdv', label: 'Frente de Caixa', icon: DollarSign },
+						{ href: '/portal/pedidos-venda', label: 'Pedidos de venda', icon: ClipboardList },
 						{ href: "/portal/clientes", label: "Clientes", icon: Users },
 						{
 							href: "/portal/revendaaparelhos",
@@ -241,7 +242,8 @@ export function PortalShell(props: PortalShellProps) {
 							label: "Produtos e serviços",
 							icon: Package,
 						},
-						{ href: "/portal/pdv", label: "PDV", icon: DollarSign },
+						{ href: '/portal/pdv', label: 'Frente de Caixa', icon: DollarSign },
+						{ href: '/portal/pedidos-venda', label: 'Pedidos de venda', icon: ClipboardList },
 						{ href: "/portal/clientes", label: "Clientes", icon: Users },
 						{
 							href: "/portal/admin/usuarios",

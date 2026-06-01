@@ -1,7 +1,7 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { ThemeProvider } from 'next-themes'
+import { ThemeProvider } from './theme-provider'
 import { QueryProvider } from './query-provider'
 import { AppTooltipProvider } from './tooltip-provider'
 import { Toaster } from '@/components/ui/toaster'
