@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -26,6 +26,7 @@ import {
   Loader2,
   MessageCircle,
   Package,
+  QrCode,
   RefreshCw,
   Settings,
   ShoppingCart,
@@ -516,6 +517,14 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
   const [evolutionStatusChecking, setEvolutionStatusChecking] = useState(false)
   const [evolutionStatusHints, setEvolutionStatusHints] = useState<string[] | null>(null)
   const [evolutionSyncing, setEvolutionSyncing] = useState(false)
+  const [evolutionConnectionState, setEvolutionConnectionState] = useState<
+    'unknown' | 'open' | 'close' | 'connecting'
+  >('unknown')
+  const [evolutionQrBase64, setEvolutionQrBase64] = useState<string | null>(null)
+  const [evolutionPairingCode, setEvolutionPairingCode] = useState<string | null>(null)
+  const [evolutionQrLoading, setEvolutionQrLoading] = useState(false)
+  const [evolutionQrPolling, setEvolutionQrPolling] = useState(false)
+  const evolutionQrPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [evolutionInboxAccess, setEvolutionInboxAccess] = useState<InboxAccessState>({
     unrestricted: true,
     userIds: [],
@@ -524,6 +533,130 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
     unrestricted: true,
     userIds: [],
   })
+
+  function resetEvolutionQrState () {
+    setEvolutionQrPolling(false)
+    setEvolutionQrBase64(null)
+    setEvolutionPairingCode(null)
+    setEvolutionConnectionState('unknown')
+    if (evolutionQrPollRef.current) {
+      clearInterval(evolutionQrPollRef.current)
+      evolutionQrPollRef.current = null
+    }
+  }
+
+  const evolutionConnectRequestBody = useCallback(() => ({
+    connection_id: evolutionEditingConnectionId || undefined,
+    instance_name: evolutionInstanceName.trim() || undefined,
+    api_key: evolutionApiKey.trim() || undefined,
+    api_base_url_override: evolutionBaseOverride.trim() || undefined,
+  }), [
+    evolutionEditingConnectionId,
+    evolutionInstanceName,
+    evolutionApiKey,
+    evolutionBaseOverride,
+  ])
+
+  const pollEvolutionConnectionState = useCallback(async () => {
+    if (!evolutionInstanceName.trim()) return
+    const res = await fetch('/api/portal/hub/whatsapp-evolution-connect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...evolutionConnectRequestBody(),
+        check_only: true,
+      }),
+    })
+    const data = await res.json().catch(() => null)
+    if (!res.ok || !data?.ok) return
+    const state = String(data.state || 'unknown') as typeof evolutionConnectionState
+    setEvolutionConnectionState(state)
+    if (state === 'open') {
+      setEvolutionQrPolling(false)
+      setEvolutionQrBase64(null)
+      toast({ variant: 'success', title: 'WhatsApp conectado', description: 'Instância Evolution pronta para uso.' })
+    }
+  }, [evolutionInstanceName, evolutionConnectRequestBody])
+
+  useEffect(() => {
+    if (!evolutionDialogOpen || !evolutionQrPolling) {
+      if (evolutionQrPollRef.current) {
+        clearInterval(evolutionQrPollRef.current)
+        evolutionQrPollRef.current = null
+      }
+      return
+    }
+    void pollEvolutionConnectionState()
+    evolutionQrPollRef.current = setInterval(() => {
+      void pollEvolutionConnectionState()
+    }, 3000)
+    return () => {
+      if (evolutionQrPollRef.current) {
+        clearInterval(evolutionQrPollRef.current)
+        evolutionQrPollRef.current = null
+      }
+    }
+  }, [evolutionDialogOpen, evolutionQrPolling, pollEvolutionConnectionState])
+
+  useEffect(() => {
+    if (!evolutionDialogOpen || !evolutionInstanceName.trim()) return
+    void pollEvolutionConnectionState()
+  }, [evolutionDialogOpen, evolutionEditingConnectionId, pollEvolutionConnectionState])
+
+  async function handleEvolutionStartQrConnect () {
+    if (!evolutionInstanceName.trim()) {
+      toast({ title: 'Informe o nome da instância', variant: 'destructive' })
+      return
+    }
+    setEvolutionQrLoading(true)
+    try {
+      const res = await fetch('/api/portal/hub/whatsapp-evolution-connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(evolutionConnectRequestBody()),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        toast({
+          title: 'Não foi possível gerar o QR Code',
+          description: String((data as { hint?: string })?.hint || data?.error || 'Verifique URL e API key da Evolution.'),
+          variant: 'destructive',
+        })
+        return
+      }
+      const state = String(data.state || 'unknown') as typeof evolutionConnectionState
+      setEvolutionConnectionState(state)
+      setEvolutionQrBase64(typeof data.qr_base64 === 'string' ? data.qr_base64 : null)
+      setEvolutionPairingCode(typeof data.pairing_code === 'string' ? data.pairing_code : null)
+      if (state === 'open') {
+        setEvolutionQrPolling(false)
+        toast({ variant: 'success', title: 'WhatsApp já conectado' })
+        return
+      }
+      if (!data.qr_base64) {
+        toast({
+          title: 'QR Code indisponível',
+          description: 'A Evolution não retornou imagem. Confira se a instância existe e se a API está acessível.',
+          variant: 'destructive',
+        })
+        return
+      }
+      setEvolutionQrPolling(true)
+    } finally {
+      setEvolutionQrLoading(false)
+    }
+  }
+
+  async function refreshEvolutionConnectionState () {
+    if (!evolutionInstanceName.trim()) return
+    setEvolutionQrLoading(true)
+    try {
+      await pollEvolutionConnectionState()
+    } finally {
+      setEvolutionQrLoading(false)
+    }
+  }
+
   const [blingLookupMode, setBlingLookupMode] = useState<'sku' | 'barcode'>('sku')
   const [blingLookupQuery, setBlingLookupQuery] = useState('')
   const [blingLookupLoading, setBlingLookupLoading] = useState(false)
@@ -874,6 +1007,7 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
   }
 
   function selectEvolutionInstanceForEdit (inst: WhatsappEvolutionInstance) {
+    resetEvolutionQrState()
     setEvolutionEditingConnectionId(inst.connection_id)
     setEvolutionInstanceName(inst.instance_name)
     setEvolutionLabel(String(inst.label || ''))
@@ -884,6 +1018,7 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
   }
 
   function startNewEvolutionInstance () {
+    resetEvolutionQrState()
     setEvolutionEditingConnectionId(null)
     setEvolutionInstanceName('')
     setEvolutionLabel('')
@@ -896,6 +1031,7 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
 
   async function handleOpenEvolutionConfig () {
     setEvolutionDialogOpen(true)
+    resetEvolutionQrState()
     await loadEvolutionConfig()
   }
 
@@ -1522,6 +1658,7 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
         onOpenChange={(open) => {
           setEvolutionDialogOpen(open)
           if (!open) {
+            resetEvolutionQrState()
             setEvolutionApiKey('')
             setEvolutionTestTo('')
           }
@@ -1531,8 +1668,7 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
           <DialogHeader>
             <DialogTitle>Configurar WhatsApp Evolution API</DialogTitle>
             <DialogDescription>
-              Instância criada na Evolution (nome), webhook apontando para a URL abaixo e variáveis
-              WHATSAPP_EVOLUTION_API_URL / WHATSAPP_EVOLUTION_WEBHOOK_SECRET no servidor Next.js quando aplicável.
+              Configure a instância Evolution, conecte o WhatsApp pelo QR Code abaixo e aponte o webhook para a URL indicada.
             </DialogDescription>
           </DialogHeader>
 
@@ -1641,6 +1777,85 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
                   placeholder="ex: conectize-prod"
                   autoComplete="off"
                 />
+              </div>
+
+              <div className="rounded-lg border bg-muted/20 p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-medium">Conexão WhatsApp (QR Code)</p>
+                    <p className="text-xs text-muted-foreground">
+                      Gera o QR na Evolution API e aguarda o pareamento no celular.
+                    </p>
+                  </div>
+                  <Badge
+                    variant={
+                      evolutionConnectionState === 'open'
+                        ? 'default'
+                        : evolutionConnectionState === 'connecting'
+                          ? 'secondary'
+                          : 'outline'
+                    }
+                  >
+                    {evolutionConnectionState === 'open'
+                      ? 'Conectado'
+                      : evolutionConnectionState === 'connecting'
+                        ? 'Aguardando leitura'
+                        : evolutionConnectionState === 'close'
+                          ? 'Desconectado'
+                          : 'Status desconhecido'}
+                  </Badge>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="default"
+                    size="sm"
+                    disabled={evolutionQrLoading || !evolutionInstanceName.trim()}
+                    onClick={() => void handleEvolutionStartQrConnect()}
+                  >
+                    {evolutionQrLoading ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <QrCode className="mr-2 h-4 w-4" />
+                    )}
+                    {evolutionQrBase64 ? 'Atualizar QR Code' : 'Conectar via QR Code'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={evolutionQrLoading || !evolutionInstanceName.trim()}
+                    onClick={() => void refreshEvolutionConnectionState()}
+                  >
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Verificar status
+                  </Button>
+                </div>
+
+                {evolutionPairingCode ? (
+                  <p className="text-xs text-muted-foreground">
+                    Código de pareamento: <span className="font-mono font-medium text-foreground">{evolutionPairingCode}</span>
+                  </p>
+                ) : null}
+
+                {evolutionQrBase64 ? (
+                  <div className="flex flex-col items-center gap-2 rounded-md border bg-background p-4">
+                    <img
+                      src={evolutionQrBase64}
+                      alt="QR Code WhatsApp Evolution"
+                      className="h-52 w-52 max-w-full object-contain"
+                    />
+                    <p className="text-center text-xs text-muted-foreground max-w-sm">
+                      No WhatsApp: Menu → Aparelhos conectados → Conectar aparelho → escaneie o QR Code.
+                      {evolutionQrPolling ? ' Aguardando confirmação…' : ''}
+                    </p>
+                  </div>
+                ) : evolutionConnectionState === 'open' ? (
+                  <p className="text-sm text-green-700 dark:text-green-400">
+                    Instância conectada. Salve as configurações e sincronize as conversas se necessário.
+                  </p>
+                ) : null}
               </div>
 
               <div className="space-y-2">

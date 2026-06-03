@@ -70,6 +70,7 @@ type CommissionFieldsProps = {
   teamUsers: TeamUser[]
   initial: SellCommissionInitial
   addonCostTotalCents: number
+  tradeInTotalCents?: number
   onSnapshotChange?: (s: SellCommissionSnapshot) => void
 }
 
@@ -85,6 +86,7 @@ CommissionFieldsProps
       teamUsers,
       initial,
       addonCostTotalCents,
+      tradeInTotalCents = 0,
       onSnapshotChange,
     },
     ref,
@@ -136,7 +138,7 @@ CommissionFieldsProps
         if (v == null || v <= 0) return null
         sum += v
       }
-      if (sum <= 0) return null
+      if (sum + tradeInTotalCents <= 0) return null
       const purchaseCents = device.purchase_value_cents ?? 0
       const fee = paymentFeeCentsForSaleEntries(valid, paymentMethods)
       const gross = grossProfitBeforeCommissionCents(
@@ -144,6 +146,7 @@ CommissionFieldsProps
         purchaseCents,
         baseOperationalWithAddonsCents,
         fee,
+        tradeInTotalCents,
       )
       const commissionCents = commissionFromPercentOfGrossCents(gross, p)
       return { commissionCents, grossCents: gross }
@@ -154,6 +157,7 @@ CommissionFieldsProps
       device.purchase_value_cents,
       paymentMethods,
       baseOperationalWithAddonsCents,
+      tradeInTotalCents,
     ])
 
     return (
@@ -237,7 +241,7 @@ CommissionFieldsProps
                       </p>
                       {percentHint.grossCents <= 0 ? (
                         <p className="text-xs text-muted-foreground">
-                          Lucro bruto (venda − compra − custos − taxa) não é positivo; comissão percentual = R$ 0,00.
+                          Lucro bruto (venda + troca − compra − custos − taxa) não é positivo; comissão percentual = R$ 0,00.
                         </p>
                       ) : null}
                     </div>
@@ -350,6 +354,7 @@ export function ResaleSellAdminProfitCard ({
           purchaseCents,
           baseOperationalWithAddonsCents,
           paymentFeePreviewCents,
+          tradeInTotalCents,
         )
         commPreview = Number.isFinite(p) && p > 0 ? commissionFromPercentOfGrossCents(gross, p) : 0
       } else {
@@ -400,6 +405,7 @@ export function ResaleSellAdminProfitCard ({
     deviceOperationalCents,
     addonCostTotalCents,
     transactionTotalCents,
+    tradeInTotalCents,
   ])
 
   if (!isAdmin || !adminBreakdown) return null

@@ -1180,6 +1180,7 @@ export function SeminovosListClient({
 					purchaseCents,
 					baseOperationalTotal,
 					paymentFeeCents,
+					tradeInTotal,
 				);
 				commissionCents = commissionFromPercentOfGrossCents(gross, p);
 			} else {
@@ -2675,6 +2676,7 @@ export function SeminovosListClient({
 										teamUsers={teamUsers}
 										initial={commissionBoot.initial}
 										addonCostTotalCents={getSellAddonCostTotalCents()}
+										tradeInTotalCents={getSellTradeInTotalCents()}
 										onSnapshotChange={setSellCommissionSnapshot}
 									/>
 									<SellTradeInSection
