@@ -26,6 +26,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'invalid_amount' }, { status: 400 })
   }
 
+  const { data: activeContas, error: contasError } = await auth.supabase
+    .from('contas')
+    .select('id')
+    .eq('organization_id', auth.organizationId)
+    .is('deleted_at', null)
+    .in('id', [fromContaId, toContaId])
+
+  if (contasError) {
+    return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+  }
+  if ((activeContas ?? []).length !== 2) {
+    return NextResponse.json({ ok: false, error: 'invalid_conta' }, { status: 400 })
+  }
+
   const transferId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`
   const today = new Date().toISOString().slice(0, 10)
 

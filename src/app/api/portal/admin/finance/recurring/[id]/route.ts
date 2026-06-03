@@ -1,30 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
+import { requireAdmin } from '@/lib/auth/portal-api'
 
-async function requireAdmin() {
-  const supabase = await createSupabaseServerClient()
-  const { user } = await getAuthUser()
-  if (!user) return { ok: false as const, status: 401, error: 'not_authenticated' }
-
-  const { data: appUser } = await supabase
-    .from('users')
-    .select('role')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  if (appUser?.role !== 'admin') {
-    return { ok: false as const, status: 403, error: 'forbidden' }
-  }
-
-  return { ok: true as const, supabase }
-}
-
-export async function PATCH(
+export async function PATCH (
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const auth = await requireAdmin()
-  if (!auth.ok) {
+  if (auth.ok === false) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 
@@ -49,6 +31,7 @@ export async function PATCH(
     .from('recurring_expenses')
     .update(update)
     .eq('id', id)
+    .eq('organization_id', auth.organizationId)
     .select()
     .single()
 
@@ -59,12 +42,12 @@ export async function PATCH(
   return NextResponse.json({ ok: true, recurring: data })
 }
 
-export async function DELETE(
+export async function DELETE (
   _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const auth = await requireAdmin()
-  if (!auth.ok) {
+  if (auth.ok === false) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 
@@ -75,6 +58,7 @@ export async function DELETE(
     .from('recurring_expenses')
     .delete()
     .eq('id', id)
+    .eq('organization_id', auth.organizationId)
 
   if (error) {
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })

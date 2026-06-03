@@ -11,6 +11,7 @@ export async function GET() {
     .from('contas')
     .select('id, name, saldo_inicial_cents')
     .eq('organization_id', auth.organizationId)
+    .is('deleted_at', null)
     .order('name', { ascending: true })
 
   const { data: txRows } = await auth.supabase

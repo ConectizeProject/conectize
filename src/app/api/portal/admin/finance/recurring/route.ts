@@ -44,6 +44,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'invalid_billing_day' }, { status: 400 })
   }
 
+  const { data: contaRow } = await auth.supabase
+    .from('contas')
+    .select('id')
+    .eq('id', contaId)
+    .eq('organization_id', auth.organizationId)
+    .is('deleted_at', null)
+    .maybeSingle()
+  if (!contaRow) {
+    return NextResponse.json({ ok: false, error: 'invalid_conta' }, { status: 400 })
+  }
+
   const { data, error } = await auth.supabase
     .from('recurring_expenses')
     .insert({

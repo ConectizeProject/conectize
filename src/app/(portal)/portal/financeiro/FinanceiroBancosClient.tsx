@@ -1,9 +1,19 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Pencil, ArrowRightLeft, Plus, Loader2, Settings, Scale } from 'lucide-react'
+import { Pencil, ArrowRightLeft, Plus, Loader2, Settings, Scale, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import {
   Dialog,
   DialogContent,
@@ -56,6 +66,7 @@ export function FinanceiroBancosClient() {
   const [editContaName, setEditContaName] = useState('')
   const [editSaldoInicial, setEditSaldoInicial] = useState('')
   const [saving, setSaving] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<BankBalance | null>(null)
 
   const loadBanks = useCallback(async () => {
     setLoading(true)
@@ -267,6 +278,32 @@ export function FinanceiroBancosClient() {
     }
   }
 
+  async function confirmDeleteConta () {
+    if (!deleteTarget) return
+    setSaving(true)
+    try {
+      const res = await portalFetch(`/api/portal/admin/banks/${deleteTarget.id}`, {
+        method: 'DELETE',
+      })
+      const data = await res?.json().catch(() => null)
+      if (data?.ok) {
+        toast({
+          title: 'Carteira removida',
+          description: 'O histórico de movimentações foi mantido.',
+        })
+        setDeleteTarget(null)
+        loadBanks()
+      } else {
+        toast({
+          title: data?.error === 'not_found' ? 'Carteira não encontrada' : 'Não foi possível remover',
+          variant: 'destructive',
+        })
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const totalCents = banks.reduce((s, b) => s + b.balance_cents, 0)
 
   return (
@@ -330,6 +367,15 @@ export function FinanceiroBancosClient() {
                         </Button>
                         <Button variant="ghost" size="icon" onClick={() => openAdjust(b)} aria-label="Ajustar saldo">
                           <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setDeleteTarget(b)}
+                          aria-label="Excluir carteira"
+                          className="text-destructive hover:text-destructive"
+                        >
+                          <Trash2 className="h-4 w-4" />
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -550,6 +596,32 @@ export function FinanceiroBancosClient() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir carteira?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A carteira <strong>{deleteTarget?.name}</strong> será removida das listas e não poderá receber novos lançamentos.
+              O histórico de movimentações permanece visível em Movimentação.
+              Formas de pagamento vinculadas serão desassociadas e custos recorrentes desta carteira serão desativados.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={saving}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => {
+                e.preventDefault()
+                void confirmDeleteConta()
+              }}
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Excluir carteira'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }

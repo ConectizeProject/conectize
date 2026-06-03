@@ -31,7 +31,12 @@ export async function POST(request: NextRequest) {
     .from('contas')
     .select('saldo_inicial_cents')
     .eq('id', contaId)
+    .eq('organization_id', auth.organizationId)
+    .is('deleted_at', null)
     .maybeSingle()
+  if (!contaRow) {
+    return NextResponse.json({ ok: false, error: 'invalid_conta' }, { status: 400 })
+  }
   const saldoInicial = Number((contaRow as { saldo_inicial_cents?: number } | null)?.saldo_inicial_cents ?? 0)
 
   const currentBalance = saldoInicial + txSum

@@ -212,6 +212,7 @@ export function SeminovosFormClient ({
 
   const [isLoadingDevice, setIsLoadingDevice] = useState(Boolean(deviceId) && !hasInitial)
   const [isSaving, setIsSaving] = useState(false)
+  const [postCreateLabelOfferOpen, setPostCreateLabelOfferOpen] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [threeUtoolsRaw, setThreeUtoolsRaw] = useState('')
 
@@ -688,7 +689,8 @@ export function SeminovosFormClient ({
         })
         const data = await res?.json().catch(() => null)
         if (data?.ok) {
-          router.push(backHref)
+          toast({ title: 'Aparelho cadastrado', variant: 'success' })
+          setPostCreateLabelOfferOpen(true)
         } else {
           setErrorMessage(data?.message || 'Não foi possível cadastrar.')
         }
@@ -1242,11 +1244,23 @@ export function SeminovosFormClient ({
   function handleHeaderPrintLabel () {
     if (typeof window === 'undefined') return
     const win = window.open('', '_blank', getLabelWindowFeatures())
-    if (!win) return
+    if (!win) {
+      toast({
+        variant: 'destructive',
+        title: 'Não foi possível abrir a impressão',
+        description: 'Permita pop-ups para imprimir a etiqueta.',
+      })
+      return
+    }
     const html = buildSeminovoLabelHtml(getDeviceSnapshotForActions())
     win.document.open()
     win.document.write(html)
     win.document.close()
+  }
+
+  function closePostCreateLabelOffer () {
+    setPostCreateLabelOfferOpen(false)
+    router.push(backHref)
   }
 
   if (isLoadingDevice) {
@@ -2374,6 +2388,31 @@ export function SeminovosFormClient ({
             : null
         }
       />
+
+      <Dialog
+        open={postCreateLabelOfferOpen}
+        onOpenChange={(open) => {
+          if (!open) closePostCreateLabelOffer()
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Aparelho cadastrado</DialogTitle>
+            <DialogDescription>
+              Deseja imprimir a etiqueta deste aparelho agora? Os dados do formulário serão usados na impressão.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" onClick={closePostCreateLabelOffer}>
+              Ir para a lista
+            </Button>
+            <Button type="button" onClick={handleHeaderPrintLabel}>
+              <Tag className="mr-2 h-4 w-4" />
+              Imprimir etiqueta
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
