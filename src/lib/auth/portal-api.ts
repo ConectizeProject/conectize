@@ -259,3 +259,47 @@ export async function requireAdminPage () {
   }
   return auth.supabase
 }
+
+function isRealIntegrationAdminRole (role: string | null | undefined) {
+  const normalized = role === 'customer' ? 'user' : String(role || '')
+  return normalized === 'admin' || normalized === 'platform_admin'
+}
+
+/**
+ * Admin real (ignora simulação de papel). Usado em telas de integração exibidas com base no papel real.
+ */
+export async function requireRealAdmin (): Promise<PortalAuthFailure | PortalAuthAdminSuccess> {
+  const supabase = await createSupabaseServerClient()
+  const { user } = await getAuthUser()
+  if (!user) {
+    return { ok: false as const, status: 401, error: 'not_authenticated' }
+  }
+
+  const { data: appUser } = await supabase
+    .from('users')
+    .select('role')
+    .eq('id', user.id)
+    .maybeSingle()
+
+  const realRole = String(appUser?.role || '')
+  if (!isRealIntegrationAdminRole(realRole)) {
+    return { ok: false as const, status: 403, error: 'forbidden' }
+  }
+
+  await ensurePortalOrganizationContext(supabase, user.id)
+  const organizationId = await getPortalOrganizationId(supabase, user.id)
+  if (!organizationId) {
+    return { ok: false as const, status: 403, error: 'no_organization_context' }
+  }
+
+  return { ok: true as const, supabase, userId: user.id, organizationId }
+}
+
+export async function requireRealAdminPage () {
+  const auth = await requireRealAdmin()
+  if (auth.ok === false) {
+    if (auth.status === 401) await redirectToPortalLogin()
+    redirect('/portal/ordens')
+  }
+  return auth
+}

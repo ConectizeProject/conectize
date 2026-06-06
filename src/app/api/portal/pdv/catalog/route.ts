@@ -13,11 +13,11 @@ export async function GET (request: NextRequest) {
 
   let query = auth.supabase
     .from('products')
-    .select('id, name, sku, barcode, sale_price_cents, cost_price_cents')
+    .select('id, name, sku, barcode, sale_price_cents, cost_price_cents, image_url')
     .eq('organization_id', auth.organizationId)
     .eq('is_active', true)
     .eq('kind', 'product')
-    .limit(40)
+    .limit(barcode || q ? 10 : 40)
     .order('name', { ascending: true })
 
   if (barcode) {

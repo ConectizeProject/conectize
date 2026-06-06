@@ -52,6 +52,9 @@ create index if not exists device_models_org_idx on public.device_models (organi
 drop policy if exists device_models_select_authenticated on public.device_models;
 drop policy if exists device_models_write_host_staff on public.device_models;
 drop policy if exists device_models_retailer_select on public.device_models;
+drop policy if exists device_models_staff_select_org on public.device_models;
+drop policy if exists device_models_staff_write_org on public.device_models;
+drop policy if exists device_models_retailer_select_org on public.device_models;
 
 create policy device_models_staff_select_org
   on public.device_models for select
@@ -90,6 +93,9 @@ create policy device_models_retailer_select_org
 drop policy if exists device_brands_select_authenticated on public.device_brands;
 drop policy if exists device_brands_write_host_staff on public.device_brands;
 drop policy if exists device_brands_retailer_select on public.device_brands;
+drop policy if exists device_brands_staff_select_org on public.device_brands;
+drop policy if exists device_brands_staff_write_org on public.device_brands;
+drop policy if exists device_brands_retailer_select_org on public.device_brands;
 
 create policy device_brands_staff_select_org
   on public.device_brands for select
@@ -128,6 +134,9 @@ create policy device_brands_retailer_select_org
 drop policy if exists device_types_select_authenticated on public.device_types;
 drop policy if exists device_types_write_host_staff on public.device_types;
 drop policy if exists device_types_retailer_select on public.device_types;
+drop policy if exists device_types_staff_select_org on public.device_types;
+drop policy if exists device_types_staff_write_org on public.device_types;
+drop policy if exists device_types_retailer_select_org on public.device_types;
 
 create policy device_types_staff_select_org
   on public.device_types for select

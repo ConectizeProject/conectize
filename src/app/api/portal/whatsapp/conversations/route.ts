@@ -1,55 +1,68 @@
 import { NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import {
+  assertInboxChannelAccess,
+  fetchInboxConversationsPage,
+  loadInboxChannelMetas,
+} from '@/lib/whatsapp/whatsapp-inbox-channels'
 
-export async function GET () {
+const DEFAULT_LIMIT = 20
+const MAX_LIMIT = 50
+
+export async function GET (request: Request) {
   const auth = await requireStaffOrAdmin()
   if (auth.ok === false) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 
-  const { data: rows, error } = await auth.supabase
-    .from('whatsapp_conversations')
-    .select(
-      `
-      id,
-      wa_from,
-      customer_id,
-      last_message_at,
-      needs_staff_attention,
-      draft_os,
-      service_order_id,
-      created_at,
-      service_orders ( display_number )
-    `,
-    )
-    .order('last_message_at', { ascending: false })
-    .limit(200)
+  const { searchParams } = new URL(request.url)
+  const scope = searchParams.get('scope')?.trim() || ''
+  const channelId = searchParams.get('channel_id')?.trim() || ''
+  const kindRaw = searchParams.get('kind')?.trim() || 'contacts'
+  const kind = kindRaw === 'groups' ? 'groups' : 'contacts'
+  const q = searchParams.get('q')?.trim() || ''
+  const cursor = searchParams.get('cursor')?.trim() || null
+  const limitRaw = Number.parseInt(searchParams.get('limit') || '', 10)
+  const limit = Number.isFinite(limitRaw)
+    ? Math.min(MAX_LIMIT, Math.max(1, limitRaw))
+    : DEFAULT_LIMIT
 
-  if (error) {
-    return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+  if (scope === 'channels' || !channelId) {
+    const channels = await loadInboxChannelMetas({
+      supabase: auth.supabase,
+      organizationId: auth.organizationId,
+      userId: auth.userId,
+      isAdmin: auth.isAdmin,
+    })
+    return NextResponse.json({ ok: true, channels })
   }
 
-  const ids = (rows || []).map((r) => r.id)
-  let lastBodies: Record<string, string> = {}
-  if (ids.length > 0) {
-    const { data: msgs } = await auth.supabase
-      .from('whatsapp_messages')
-      .select('conversation_id, body, created_at')
-      .in('conversation_id', ids)
-      .order('created_at', { ascending: false })
-    const seen = new Set<string>()
-    for (const m of msgs || []) {
-      const cid = m.conversation_id as string
-      if (seen.has(cid)) continue
-      seen.add(cid)
-      lastBodies[cid] = String(m.body || '').slice(0, 280)
-    }
+  const access = await assertInboxChannelAccess({
+    supabase: auth.supabase,
+    organizationId: auth.organizationId,
+    userId: auth.userId,
+    isAdmin: auth.isAdmin,
+    channelId,
+  })
+
+  if (access.ok === false) {
+    return NextResponse.json({ ok: false, error: access.error }, { status: 404 })
   }
 
-  const conversations = (rows || []).map((r) => ({
-    ...r,
-    last_preview: lastBodies[r.id as string] || null,
-  }))
+  const page = await fetchInboxConversationsPage({
+    supabase: auth.supabase,
+    organizationId: auth.organizationId,
+    channelId,
+    kind,
+    limit,
+    cursor,
+    q,
+  })
 
-  return NextResponse.json({ ok: true, conversations })
+  return NextResponse.json({
+    ok: true,
+    channel: access.meta,
+    kind,
+    ...page,
+  })
 }

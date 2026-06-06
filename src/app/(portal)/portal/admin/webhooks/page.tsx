@@ -1,6 +1,4 @@
-import { redirect } from 'next/navigation'
-import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
-import { getPortalAuth, createSupabaseServerClient } from '@/lib/supabase/server'
+import { requireRealAdminPage } from '@/lib/auth/portal-api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { WebhooksListClient, type WebhookRow } from './WebhooksListClient'
 
@@ -9,10 +7,8 @@ export const dynamic = 'force-dynamic'
 type SearchParams = Promise<{ status?: string; event_type?: string; platform?: string; page?: string }>
 
 export default async function AdminWebhooksPage ({ searchParams }: { searchParams: SearchParams }) {
-  const { user, role } = await getPortalAuth()
-  if (!user) await redirectToPortalLogin()
-  const normalizedRole = role === 'customer' ? 'user' : role
-  if (normalizedRole !== 'admin' && normalizedRole !== 'platform_admin') redirect('/portal/ordens')
+  const auth = await requireRealAdminPage()
+  const { supabase, organizationId } = auth
 
   const { status, event_type, platform, page } = await searchParams
   const statusFilter = String(status || '').trim()
@@ -22,10 +18,10 @@ export default async function AdminWebhooksPage ({ searchParams }: { searchParam
   const pageRaw = Number.parseInt(String(page || '1'), 10)
   const requestedPage = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1
 
-  const supabase = await createSupabaseServerClient()
   let countQuery = supabase
     .from('integration_webhooks')
     .select('id', { count: 'exact', head: true })
+    .eq('organization_id', organizationId)
 
   if (platformFilter) {
     countQuery = countQuery.eq('platform_id', platformFilter)
@@ -47,6 +43,7 @@ export default async function AdminWebhooksPage ({ searchParams }: { searchParam
   let listQuery = supabase
     .from('integration_webhooks')
     .select('id, platform_id, event_type, external_id, status, error_message, retry_count, processed_at, created_at, payload')
+    .eq('organization_id', organizationId)
     .order('created_at', { ascending: false })
     .range(from, to)
 

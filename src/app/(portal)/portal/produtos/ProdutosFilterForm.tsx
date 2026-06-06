@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { SlidersHorizontal, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible'
@@ -12,6 +11,13 @@ import { buildProdutosGestaoHref } from '@/lib/products/portal-gestao-produtos-l
 
 type GestaoKind = 'product' | 'service' | 'all'
 
+export type ProdutosGestaoFilterValues = {
+  q: string
+  kind: GestaoKind
+  sku: string
+  barcode: string
+}
+
 type ProdutosFilterFormProps = {
   initialQ: string
   initialSku: string
@@ -19,6 +25,9 @@ type ProdutosFilterFormProps = {
   kind: GestaoKind
   /** Mantém `?tab=gestao` ao filtrar na área staff (abas de produtos). */
   withGestaoTab?: boolean
+  /** Busca via API no cliente (sem refetch RSC da página). */
+  onApply?: (filters: ProdutosGestaoFilterValues) => void | Promise<void>
+  isSubmitting?: boolean
 }
 
 function hasProdutosExtraFilters (sku: string, barcode: string): boolean {
@@ -31,11 +40,14 @@ export function ProdutosFilterForm ({
   initialBarcode,
   kind,
   withGestaoTab,
+  onApply,
+  isSubmitting: isSubmittingExternal = false,
 }: ProdutosFilterFormProps) {
-  const router = useRouter()
   const urlExtras = hasProdutosExtraFilters(initialSku, initialBarcode)
   const showDetailFiltersIndicator = urlExtras || kind !== 'all'
   const [extraOpen, setExtraOpen] = useState(showDetailFiltersIndicator)
+  const [isSubmittingLocal, setIsSubmittingLocal] = useState(false)
+  const isSubmitting = isSubmittingExternal || isSubmittingLocal
 
   const [qInput, setQInput] = useState(initialQ)
   const [skuDraft, setSkuDraft] = useState(initialSku)
@@ -80,33 +92,58 @@ export function ProdutosFilterForm ({
 
   const showExtrasRow = appliedExtraLabels.length > 0
 
+  async function applyGestaoFilters (values: ProdutosGestaoFilterValues) {
+    if (onApply) {
+      setIsSubmittingLocal(true)
+      try {
+        await onApply(values)
+      } finally {
+        setIsSubmittingLocal(false)
+      }
+      return
+    }
+
+    const href = buildProdutosGestaoHref({
+      q: values.q,
+      kind: values.kind,
+      sku: values.sku.trim() || undefined,
+      barcode: values.barcode.trim() || undefined,
+    })
+    if (typeof window !== 'undefined') {
+      const current = window.location.pathname + window.location.search
+      if (current !== href) {
+        window.history.replaceState(null, '', href)
+      }
+    }
+  }
+
   function handleSubmit (e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    const href = buildProdutosGestaoHref({
+    if (isSubmitting) return
+    void applyGestaoFilters({
       q: qInput,
       kind: kindDraft,
-      sku: skuDraft.trim() || undefined,
-      barcode: barcodeDraft.trim() || undefined,
+      sku: skuDraft,
+      barcode: barcodeDraft,
     })
-    router.replace(href)
-    router.refresh()
   }
 
   function clearBroadQ () {
-    const href = buildProdutosGestaoHref({
+    void applyGestaoFilters({
       q: '',
       kind,
-      sku: initialSku.trim() || undefined,
-      barcode: initialBarcode.trim() || undefined,
+      sku: initialSku,
+      barcode: initialBarcode,
     })
-    router.replace(href)
-    router.refresh()
   }
 
   function clearAllFilters () {
-    const href = withGestaoTab ? '/portal/produtos?tab=gestao' : '/portal/produtos'
-    router.replace(href)
-    router.refresh()
+    void applyGestaoFilters({
+      q: '',
+      kind: 'all',
+      sku: '',
+      barcode: '',
+    })
   }
 
   const hasQ = qInput.trim().length > 0
@@ -140,7 +177,7 @@ export function ProdutosFilterForm ({
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-            <Button type="submit" className="h-10 touch-manipulation px-4">
+            <Button type="submit" className="h-10 touch-manipulation px-4" disabled={isSubmitting}>
               Filtrar
             </Button>
             <Button

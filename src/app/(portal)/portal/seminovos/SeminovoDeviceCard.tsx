@@ -69,9 +69,10 @@ export function SeminovoDeviceCard({
 		d.color,
 		...(isNovo ? [] : [d.battery, d.condition]),
 	].filter(Boolean).join(' | ')
+	const isSold = variant === 'sold' || Boolean(d.sold)
 	const displayUrl = d.display_image_url
 	const imgOk = Boolean(displayUrl?.trim())
-	const showListingPhoto = variant === 'available' && imgOk
+	const showListingPhoto = !isSold && imgOk
 
 	const cardClassName = variant === 'sold'
 		? 'group relative rounded-lg border bg-card overflow-hidden bg-muted/30 transition-shadow duration-200 hover:shadow-md hover:border-primary/25'
@@ -85,19 +86,21 @@ export function SeminovoDeviceCard({
 				aria-label={`Abrir aparelho ${aparelhoTitle || d.device_name || d.id}`}
 			/>
 			<div className="relative z-10 flex flex-col pointer-events-none [&_button]:pointer-events-auto">
-				<div className="relative aspect-square w-full shrink-0 overflow-hidden bg-muted">
-					{showListingPhoto ? (
-						<img
-							src={displayUrl!}
-							alt=""
-							className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
-						/>
-					) : (
-						<div className="flex h-full w-full items-center justify-center text-muted-foreground">
-							<Smartphone className="h-14 w-14 opacity-35" aria-hidden />
-						</div>
-					)}
-				</div>
+				{!isSold ? (
+					<div className="relative aspect-square w-full shrink-0 overflow-hidden bg-muted">
+						{showListingPhoto ? (
+							<img
+								src={displayUrl!}
+								alt=""
+								className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
+							/>
+						) : (
+							<div className="flex h-full w-full items-center justify-center text-muted-foreground">
+								<Smartphone className="h-14 w-14 opacity-35" aria-hidden />
+							</div>
+						)}
+					</div>
+				) : null}
 				<div className="p-4">
 					<div className="flex items-start justify-between gap-1.5 mb-2">
 						<div className="min-w-0">

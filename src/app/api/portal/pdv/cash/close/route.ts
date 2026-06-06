@@ -1,5 +1,10 @@
-﻿import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import {
+  buildCashCloseSummary,
+  buildClosingNotes,
+  parseCountedByMethod,
+} from '@/lib/pdv/cash-close-summary'
 import { getOpenCashSession } from '@/lib/pdv/service'
 
 export async function POST (request: NextRequest) {
@@ -15,21 +20,16 @@ export async function POST (request: NextRequest) {
 
   const body = await request.json().catch(() => null)
   const countedCashCents = Math.max(0, Number(body?.counted_cash_cents) || 0)
+  const countedByMethod = parseCountedByMethod(body?.counted_by_method)
 
-  const { data: paidSales } = await auth.supabase
-    .from('pos_sales')
-    .select('paid_amount_cents, change_cents')
-    .eq('organization_id', auth.organizationId)
-    .eq('cash_session_id', current.session.id)
-    .eq('status', 'paid')
+  const summaryResult = await buildCashCloseSummary(auth, current.session)
+  if (!summaryResult.ok) {
+    return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+  }
 
-  const expectedCashCents = (paidSales ?? []).reduce((acc, row) => {
-    const paid = Number(row.paid_amount_cents) || 0
-    const change = Number(row.change_cents) || 0
-    return acc + Math.max(0, paid - change)
-  }, current.session.opening_amount_cents || 0)
-
-  const differenceCents = countedCashCents - expectedCashCents
+  const { summary } = summaryResult
+  const differenceCents = countedCashCents - summary.expected_cash_cents
+  const notes = buildClosingNotes(summary, countedCashCents, countedByMethod)
 
   const { data, error } = await auth.supabase
     .from('pos_cash_sessions')
@@ -37,8 +37,9 @@ export async function POST (request: NextRequest) {
       closed_by: auth.userId,
       closed_at: new Date().toISOString(),
       counted_cash_cents: countedCashCents,
-      expected_cash_cents: expectedCashCents,
+      expected_cash_cents: summary.expected_cash_cents,
       difference_cents: differenceCents,
+      notes,
       updated_at: new Date().toISOString(),
     })
     .eq('organization_id', auth.organizationId)
@@ -47,6 +48,5 @@ export async function POST (request: NextRequest) {
     .single()
 
   if (error) return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
-  return NextResponse.json({ ok: true, session: data })
+  return NextResponse.json({ ok: true, session: data, summary })
 }
-

@@ -1,0 +1,33 @@
+# Postgres local só para a Evolution (menos latência que Supabase remoto).
+# Uso: docker compose -f docker-compose.yml -f docker-compose.postgres.yml --env-file .env up -d
+#
+# No .env da Evolution, aponte para o container:
+# DATABASE_PROVIDER=postgresql
+# DATABASE_CONNECTION_URI=postgresql://evolution:evolution@postgres-evolution:5432/evolution?schema=evolution_api
+# (remova ou comente DATABASE_BOUNCER_* e psql_bouncer)
+
+services:
+  postgres-evolution:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: evolution
+      POSTGRES_DB: evolution
+    volumes:
+      - evolution_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U evolution -d evolution']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  evolution-api:
+    depends_on:
+      redis-evolution:
+        condition: service_started
+      postgres-evolution:
+        condition: service_healthy
+
+volumes:
+  evolution_pg_data:

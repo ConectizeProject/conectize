@@ -136,6 +136,12 @@ import {
 } from "./ResaleSellCommissionPanel";
 import { SeminovoDeviceCard } from "./SeminovoDeviceCard";
 import { SeminovosFilterCollapsible } from "./SeminovosFilterCollapsible";
+import { SellPaymentPricingHint } from "./SellPaymentPricingHint";
+import {
+	SellTradeInSection,
+	newEmptySellTradeInLine,
+	type SellTradeInLine,
+} from "./SellTradeInSection";
 import { WhatsAppTextModalButton } from "@/components/whatsapp-text-modal";
 
 const DEFAULT_SELL_COMMISSION_INITIAL: SellCommissionInitial = {
@@ -215,6 +221,15 @@ type ResaleDevice = {
 	stock_type?: string | null;
 	sale_commission_user_id?: string | null;
 	display_image_url?: string | null;
+	trade_ins?: Array<{
+		id?: string;
+		device_name: string | null;
+		imei: string | null;
+		info: string | null;
+		condition: string | null;
+		value_cents: number;
+		received_device_id?: string | null;
+	}>;
 };
 
 type TeamUser = {
@@ -267,9 +282,24 @@ type OperacionalSeminovosFilters = Omit<
 	stockType: "seminovo" | "lacrado";
 };
 
+const SOLD_SEARCH_PAGE_SIZE = 20
+
+function hasActiveDeviceSearch(filters: OperacionalSeminovosFilters): boolean {
+	return Boolean(
+		filters.q?.trim() ||
+		filters.deviceName?.trim() ||
+		filters.condition?.trim() ||
+		filters.storageGb?.trim() ||
+		filters.color?.trim() ||
+		filters.purchaseDateFrom ||
+		filters.purchaseDateTo,
+	)
+}
+
 function buildResaleDevicesListQuery(
 	filters: OperacionalSeminovosFilters,
 	sold: boolean,
+	opts?: { limit?: number; offset?: number },
 ): string {
 	const p = new URLSearchParams();
 	p.set("sold", sold ? "true" : "false");
@@ -282,6 +312,10 @@ function buildResaleDevicesListQuery(
 	if (filters.purchaseDateTo) p.set("purchaseDateTo", filters.purchaseDateTo);
 	const dn = (filters.deviceName || "").trim();
 	if (dn) p.set("deviceName", dn);
+	if (opts?.limit != null) {
+		p.set("limit", String(opts.limit));
+		p.set("offset", String(opts.offset ?? 0));
+	}
 	return p.toString();
 }
 
@@ -332,7 +366,6 @@ export function SeminovosListClient({
 	});
 	const [sellDate, setSellDate] = useState("");
 	const [isSavingSell, setIsSavingSell] = useState(false);
-	const [sellDeviceAmountMasked, setSellDeviceAmountMasked] = useState("");
 	const [sellAddonQuery, setSellAddonQuery] = useState("");
 	const [sellAddonBusy, setSellAddonBusy] = useState(false);
 	const [sellAddonResults, setSellAddonResults] = useState<SellAddonCatalogRow[]>(
@@ -350,6 +383,10 @@ export function SeminovosListClient({
 	const [sellBuyerName, setSellBuyerName] = useState("");
 	const [sellBuyerCpf, setSellBuyerCpf] = useState("");
 	const [sellSaleDetails, setSellSaleDetails] = useState("");
+	const [sellTradeInEnabled, setSellTradeInEnabled] = useState(false);
+	const [sellTradeInLines, setSellTradeInLines] = useState<SellTradeInLine[]>(
+		[],
+	);
 	const [costModalTarget, setCostModalTarget] = useState<ResaleDevice | null>(
 		null,
 	);
@@ -364,6 +401,8 @@ export function SeminovosListClient({
 	const [soldDevices, setSoldDevices] = useState<ResaleDevice[]>([]);
 	const [soldCollapsibleOpen, setSoldCollapsibleOpen] = useState(false);
 	const [isLoadingSold, setIsLoadingSold] = useState(false);
+	const [soldHasMore, setSoldHasMore] = useState(false);
+	const [soldTotal, setSoldTotal] = useState<number | null>(null);
 	const [stats, setStats] = useState<SeminovosStats | null>(initialStats);
 	const [termsDevice, setTermsDevice] = useState<ResaleDevice | null>(null);
 	const [showTermsDialog, setShowTermsDialog] = useState(false);
@@ -429,21 +468,52 @@ export function SeminovosListClient({
 		};
 	}, [sellModalTarget, sellAddonQuery]);
 
-	const loadSoldDevices = useCallback(async () => {
-		setIsLoadingSold(true);
-		try {
-			const qs = buildResaleDevicesListQuery(filterInitialValues, true);
-			const res = await portalFetch(`/api/portal/resale-devices?${qs}`);
-			const data = await res?.json().catch(() => null);
-			if (data?.ok && Array.isArray(data.devices)) {
-				setSoldDevices(data.devices);
+	const hasDeviceSearch = useMemo(
+		() => hasActiveDeviceSearch(filterInitialValues),
+		[filterInitialValues],
+	);
+
+	const loadSoldDevices = useCallback(
+		async (opts?: { append?: boolean; offset?: number }) => {
+			const append = opts?.append ?? false;
+			const offset = opts?.offset ?? 0;
+			const paginate = hasDeviceSearch;
+			setIsLoadingSold(true);
+			try {
+				const qs = buildResaleDevicesListQuery(
+					filterInitialValues,
+					true,
+					paginate
+						? { limit: SOLD_SEARCH_PAGE_SIZE, offset }
+						: undefined,
+				);
+				const res = await portalFetch(`/api/portal/resale-devices?${qs}`);
+				const data = await res?.json().catch(() => null);
+				if (data?.ok && Array.isArray(data.devices)) {
+					setSoldDevices((prev) =>
+						append ? [...prev, ...data.devices] : data.devices,
+					);
+					setSoldHasMore(Boolean(data.hasMore));
+					setSoldTotal(
+						typeof data.total === "number" ? data.total : null,
+					);
+				} else if (!append) {
+					setSoldDevices([]);
+					setSoldHasMore(false);
+					setSoldTotal(null);
+				}
+			} catch {
+				if (!append) {
+					setSoldDevices([]);
+					setSoldHasMore(false);
+					setSoldTotal(null);
+				}
+			} finally {
+				setIsLoadingSold(false);
 			}
-		} catch {
-			setSoldDevices([]);
-		} finally {
-			setIsLoadingSold(false);
-		}
-	}, [filterInitialValues]);
+		},
+		[filterInitialValues, hasDeviceSearch],
+	);
 
 	const filterInitialKey = useMemo(
 		() => JSON.stringify(filterInitialValues),
@@ -452,13 +522,20 @@ export function SeminovosListClient({
 
 	useEffect(() => {
 		setSoldDevices([]);
+		setSoldHasMore(false);
+		setSoldTotal(null);
 	}, [filterInitialKey]);
 
 	useEffect(() => {
-		if (soldCollapsibleOpen && soldDevices.length === 0 && !isLoadingSold) {
-			loadSoldDevices();
-		}
-	}, [soldCollapsibleOpen, soldDevices.length, isLoadingSold, loadSoldDevices]);
+		if (!hasDeviceSearch) return;
+		setSoldCollapsibleOpen(true);
+		void loadSoldDevices({ append: false, offset: 0 });
+	}, [hasDeviceSearch, filterInitialKey, loadSoldDevices]);
+
+	function handleLoadMoreSold() {
+		if (!soldHasMore || isLoadingSold) return;
+		void loadSoldDevices({ append: true, offset: soldDevices.length });
+	}
 
 	useEffect(() => {
 		if (isBulkEdit) {
@@ -677,9 +754,8 @@ export function SeminovosListClient({
 		setSellBuyerName("");
 		setSellBuyerCpf("");
 		setSellSaleDetails("");
-		setSellDeviceAmountMasked(
-			d.sale_value_cents != null ? maskedFromCents(d.sale_value_cents) : "",
-		);
+		setSellTradeInEnabled(false);
+		setSellTradeInLines([]);
 		setSellAddonQuery("");
 		setSellAddonItems([]);
 		setCommissionBoot((b) => ({
@@ -737,19 +813,28 @@ export function SeminovosListClient({
 						fixedMasked: maskedFromCents(commLine.value_cents ?? 0),
 					}
 				: DEFAULT_SELL_COMMISSION_INITIAL;
-		setSellDeviceAmountMasked(
-			d.sold_for_cents != null
-				? maskedFromCents(d.sold_for_cents)
-				: d.sale_value_cents != null
-					? maskedFromCents(d.sale_value_cents)
-					: "",
-		);
+		setSellTradeInEnabled(false);
+		setSellTradeInLines([]);
 		setSellAddonQuery("");
 		setSellAddonItems([]);
 		setCommissionBoot((b) => ({ seq: b.seq + 1, initial: commissionInitial }));
 		loadPaymentMethods();
 		loadTeamUsers();
 		setSellModalTarget(d);
+	}
+
+	function getValidSellTradeInLines(): SellTradeInLine[] {
+		if (!sellTradeInEnabled) return [];
+		return sellTradeInLines.filter(
+			(l) => l.deviceName.trim() && l.valueCents != null && l.valueCents > 0,
+		);
+	}
+
+	function getSellTradeInTotalCents(): number {
+		return getValidSellTradeInLines().reduce(
+			(acc, l) => acc + (l.valueCents ?? 0),
+			0,
+		);
 	}
 
 	function setSellPaymentMethodAt(i: number, upd: Partial<SalePaymentEntry>) {
@@ -795,24 +880,34 @@ export function SeminovosListClient({
 		);
 	}
 
-	function getSellDeviceSaleCents(): number | null {
-		return moneyToCentsFromMasked(sellDeviceAmountMasked);
-	}
-
-	function getSellTransactionTotalCents(): number | null {
-		const device = getSellDeviceSaleCents();
-		if (device === null || device < 0) return null;
-		return device + getSellAddonRevenueCents();
-	}
-
-	function getSellNetFromPaymentsCents(): number | null {
+	function getSellCashNetFromPaymentsCents(): number | null {
 		const valid = sellPaymentMethods.filter((e) => e.payment_method_id?.trim());
+		if (valid.length === 0) return 0;
 		const sum = getSellPaymentsTotalCents();
 		if (sum == null) return null;
 		const fee = paymentFeeCentsForSaleEntries(valid, paymentMethods);
-		const net = sum - fee;
-		if (net <= 0) return null;
-		return net;
+		return sum - fee;
+	}
+
+	function getSellNetFromPaymentsCents(): number | null {
+		const cashNet = getSellCashNetFromPaymentsCents();
+		if (cashNet === null) return null;
+		const tradeIn = getSellTradeInTotalCents();
+		const total = cashNet + tradeIn;
+		if (total <= 0) return null;
+		return total;
+	}
+
+	/** Líquido das formas de pagamento menos receita dos extras (para exibição no painel admin). */
+	function getSellDeviceSaleCents(): number | null {
+		const net = getSellNetFromPaymentsCents();
+		if (net === null) return null;
+		const device = net - getSellAddonRevenueCents();
+		return device > 0 ? device : null;
+	}
+
+	function getSellTransactionTotalCents(): number | null {
+		return getSellNetFromPaymentsCents();
 	}
 
 	function addSellAddonProduct(p: SellAddonCatalogRow) {
@@ -939,54 +1034,57 @@ export function SeminovosListClient({
 	async function handleConfirmSell() {
 		const d = sellModalTarget;
 		if (!d || isSavingSell) return;
-		const transactionTotal = getSellTransactionTotalCents();
-		if (transactionTotal === null || transactionTotal <= 0) {
-			toast({
-				title: "Valor da venda",
-				description:
-					"Informe o valor do aparelho. Com itens extras, o total da operação deve ser maior que zero.",
-				variant: "destructive",
-			});
-			return;
-		}
-		const paymentsSum = getSellPaymentsTotalCents();
-		if (paymentsSum === null) {
-			toast({
-				title: "Valores de pagamento",
-				description:
-					"Informe o valor (R$) em cada forma de pagamento usada.",
-				variant: "destructive",
-			});
-			return;
-		}
-		const validMethodsForFee = sellPaymentMethods.filter((e) =>
+
+		const validMethods = sellPaymentMethods.filter((e) =>
 			e.payment_method_id?.trim(),
 		);
-		const paymentFeePreview = paymentFeeCentsForSaleEntries(
-			validMethodsForFee,
-			paymentMethods,
-		);
-		const netFromPayments = paymentsSum - paymentFeePreview;
-		if (netFromPayments !== transactionTotal) {
+		const tradeInLines = getValidSellTradeInLines();
+		const tradeInTotal = getSellTradeInTotalCents();
+
+		if (sellTradeInEnabled && tradeInLines.length === 0) {
 			toast({
-				title: "Pagamentos",
-				description: `Com as taxas da maquininha, o valor líquido (${formatCentsBr(netFromPayments)}) deve ser igual ao total líquido da venda (${formatCentsBr(transactionTotal)}). Ajuste os valores cobrados.`,
+				title: "Aparelho na troca",
+				description:
+					"Informe ao menos um aparelho com nome e valor para a troca.",
 				variant: "destructive",
 			});
 			return;
 		}
 
-		const validMethods = sellPaymentMethods.filter((e) =>
-			e.payment_method_id?.trim(),
-		);
-		if (validMethods.length === 0) {
+		if (validMethods.length > 0) {
+			const paymentsSumCheck = getSellPaymentsTotalCents();
+			if (paymentsSumCheck === null) {
+				toast({
+					title: "Valores de pagamento",
+					description:
+						"Informe o valor (R$) em cada forma de pagamento usada.",
+					variant: "destructive",
+				});
+				return;
+			}
+		}
+
+		if (validMethods.length === 0 && tradeInTotal <= 0) {
 			toast({
-				title: "Forma de pagamento",
-				description: "Selecione ao menos uma forma de pagamento.",
+				title: "Pagamento",
+				description:
+					"Informe ao menos uma forma de pagamento ou aparelho(s) na troca.",
 				variant: "destructive",
 			});
 			return;
 		}
+
+		const transactionTotal = getSellNetFromPaymentsCents();
+		if (transactionTotal === null || transactionTotal <= 0) {
+			toast({
+				title: "Valor da venda",
+				description:
+					"O total da venda (pagamentos líquidos + troca) deve ser maior que zero.",
+				variant: "destructive",
+			});
+			return;
+		}
+
 		if (sellPaymentMethods.length > 1) {
 			const anyEmpty = sellPaymentMethods.some(
 				(e) => !e.payment_method_id?.trim(),
@@ -1000,6 +1098,8 @@ export function SeminovosListClient({
 				return;
 			}
 		}
+
+		const paymentsSum = getSellPaymentsTotalCents() ?? 0;
 
 		const paymentFeeCents = paymentFeeCentsForSaleEntries(
 			validMethods,
@@ -1080,6 +1180,7 @@ export function SeminovosListClient({
 					purchaseCents,
 					baseOperationalTotal,
 					paymentFeeCents,
+					tradeInTotal,
 				);
 				commissionCents = commissionFromPercentOfGrossCents(gross, p);
 			} else {
@@ -1149,6 +1250,17 @@ export function SeminovosListClient({
 						})),
 					}
 				: {}),
+			...(tradeInLines.length > 0
+				? {
+						trade_in_devices: tradeInLines.map((l) => ({
+							device_name: l.deviceName.trim(),
+							imei: l.imei.trim() || null,
+							info: l.info.trim() || null,
+							condition: l.condition.trim() || null,
+							value_cents: l.valueCents,
+						})),
+					}
+				: {}),
 		};
 
 		setIsSavingSell(true);
@@ -1174,6 +1286,22 @@ export function SeminovosListClient({
 					title: "Estoque insuficiente",
 					description:
 						"Um dos produtos extras não tem quantidade suficiente em estoque para esta venda.",
+					variant: "destructive",
+				});
+			} else if (data?.error === "trade_in_table_missing") {
+				toast({
+					title: "Banco de dados",
+					description:
+						"A tabela de troca na venda ainda não existe no Supabase. Execute a migration 20260519120000_resale_device_trade_ins (SQL em supabase/scripts/apply-resale-device-trade-ins.sql).",
+					variant: "destructive",
+				});
+			} else if (data?.error === "trade_in_failed") {
+				toast({
+					title: "Troca",
+					description:
+						data?.detail
+							? `Não foi possível cadastrar os aparelhos em troca: ${data.detail}`
+							: "Não foi possível cadastrar os aparelhos recebidos em troca. A venda foi revertida.",
 					variant: "destructive",
 				});
 			}
@@ -1236,7 +1364,6 @@ export function SeminovosListClient({
 
 	return (
 		<>
-			{!sellModalTarget ? (
 			<div className="space-y-4">
 				{isBulkEdit ? (
 					<div className="flex flex-wrap items-center gap-2">
@@ -2238,16 +2365,32 @@ export function SeminovosListClient({
 				<Card>
 					<Collapsible
 						open={soldCollapsibleOpen}
-						onOpenChange={setSoldCollapsibleOpen}
+						onOpenChange={(open) => {
+							setSoldCollapsibleOpen(open);
+							if (
+								open &&
+								!hasDeviceSearch &&
+								soldDevices.length === 0 &&
+								!isLoadingSold
+							) {
+								void loadSoldDevices({ append: false, offset: 0 });
+							}
+						}}
 					>
 						<CardHeader className="pb-3 sm:pb-6">
 							<CollapsibleTrigger className="flex w-full items-center justify-between gap-3 text-left py-2 min-h-[3rem] touch-manipulation">
 								<div className="min-w-0">
 									<CardTitle className="text-base sm:text-lg">
-										Aparelhos vendidos
+										{hasDeviceSearch
+											? "Vendidos na busca"
+											: "Aparelhos vendidos"}
 									</CardTitle>
 									<CardDescription className="text-xs sm:text-sm">
-										Clique para expandir e carregar a lista.
+										{hasDeviceSearch
+											? soldTotal != null
+												? `${soldTotal} aparelho${soldTotal === 1 ? "" : "s"} vendido${soldTotal === 1 ? "" : "s"} encontrado${soldTotal === 1 ? "" : "s"} com os filtros atuais.`
+												: "Resultados vendidos que correspondem à busca."
+											: "Clique para expandir e carregar a lista."}
 									</CardDescription>
 								</div>
 								<span className="flex items-center gap-2 shrink-0">
@@ -2366,6 +2509,20 @@ export function SeminovosListClient({
 												))}
 											</div>
 										)}
+										{hasDeviceSearch && soldHasMore ? (
+											<div className="flex justify-center pt-2">
+												<Button
+													type="button"
+													variant="outline"
+													onClick={handleLoadMoreSold}
+													disabled={isLoadingSold}
+												>
+													{isLoadingSold
+														? "Carregando…"
+														: "Carregar mais vendidos"}
+												</Button>
+											</div>
+										) : null}
 									</>
 								)}
 							</CardContent>
@@ -2373,7 +2530,6 @@ export function SeminovosListClient({
 					</Collapsible>
 				</Card>
 			</div>
-			) : null}
 
 			<ResaleSimulatePaymentDialog
 				device={
@@ -2473,7 +2629,7 @@ export function SeminovosListClient({
 					<DialogHeader className="pb-2">
 						<DialogTitle>Marcar como vendido</DialogTitle>
 						<DialogDescription>
-							Informe data, valor do aparelho, formas de pagamento e, se quiser, comissão, extras e termo de garantia.
+							Informe data, formas de pagamento, troca, comissão, extras e termo de garantia.
 						</DialogDescription>
 					</DialogHeader>
 					<div className="grid gap-5 py-4 lg:grid-cols-2 lg:gap-6 lg:items-start">
@@ -2520,7 +2676,14 @@ export function SeminovosListClient({
 										teamUsers={teamUsers}
 										initial={commissionBoot.initial}
 										addonCostTotalCents={getSellAddonCostTotalCents()}
+										tradeInTotalCents={getSellTradeInTotalCents()}
 										onSnapshotChange={setSellCommissionSnapshot}
+									/>
+									<SellTradeInSection
+										enabled={sellTradeInEnabled}
+										onEnabledChange={setSellTradeInEnabled}
+										lines={sellTradeInLines}
+										onLinesChange={setSellTradeInLines}
 									/>
 									<div className="space-y-3 rounded-md border p-3">
 										<div className="flex items-start space-x-2">
@@ -2596,23 +2759,6 @@ export function SeminovosListClient({
 						<div className="flex flex-col gap-4 min-w-0">
 							{sellModalTarget ? (
 								<>
-									<div className="space-y-2">
-										<Label htmlFor="sell-device-amount">
-											Valor do aparelho (R$)
-										</Label>
-										<Input
-											id="sell-device-amount"
-											value={sellDeviceAmountMasked}
-											onChange={(e) =>
-												setSellDeviceAmountMasked(
-													formatMoneyInput(e.target.value),
-												)
-											}
-											placeholder="0,00"
-											className="h-10"
-										/>
-									</div>
-
 						<div className="space-y-3">
 							<div className="flex flex-col gap-2 sm:flex-row sm:items-end">
 								<div className="flex-1 space-y-1.5">
@@ -2756,7 +2902,18 @@ export function SeminovosListClient({
 							</div>
 							<div className="space-y-3">
 								<div className="hidden md:grid md:grid-cols-12 md:gap-3 text-xs font-medium text-muted-foreground px-1">
-									<div className="md:col-span-6">Forma de pagamento</div>
+									<div className="md:col-span-6 flex items-center gap-0.5">
+										<span>Forma de pagamento</span>
+										{sellModalTarget ? (
+											<SellPaymentPricingHint
+												purchaseValueCents={sellModalTarget.purchase_value_cents}
+												wholesaleValueCents={sellModalTarget.wholesale_value_cents}
+												saleValueCents={sellModalTarget.sale_value_cents}
+												costs={sellModalTarget.costs}
+												canViewPurchaseValue={isAdmin && showPurchaseValue}
+											/>
+										) : null}
+									</div>
 									<div className="md:col-span-3">Valor</div>
 									<div className="md:col-span-2">Parcelas</div>
 									<div className="md:col-span-1 text-right">Ações</div>
@@ -2767,7 +2924,18 @@ export function SeminovosListClient({
 										className="grid gap-3 md:grid-cols-12 items-end"
 									>
 										<div className="md:col-span-6 space-y-1">
-											<Label className="md:hidden">Forma de pagamento</Label>
+											<div className="flex items-center gap-0.5 md:hidden">
+											<Label>Forma de pagamento</Label>
+											{sellModalTarget ? (
+												<SellPaymentPricingHint
+													purchaseValueCents={sellModalTarget.purchase_value_cents}
+													wholesaleValueCents={sellModalTarget.wholesale_value_cents}
+													saleValueCents={sellModalTarget.sale_value_cents}
+													costs={sellModalTarget.costs}
+													canViewPurchaseValue={isAdmin && showPurchaseValue}
+												/>
+											) : null}
+										</div>
 											<Select
 												value={entry.payment_method_id || "__none__"}
 												onValueChange={(v) => {
@@ -2888,33 +3056,43 @@ export function SeminovosListClient({
 								Incluir forma de pagamento
 							</Button>
 							{(() => {
-								const tx = getSellTransactionTotalCents();
 								const sum = getSellPaymentsTotalCents();
+								const cashNet = getSellCashNetFromPaymentsCents();
+								const tradeIn = getSellTradeInTotalCents();
 								const net = getSellNetFromPaymentsCents();
-								if (tx == null || tx <= 0) return null;
+								if (net == null || net <= 0) return null;
+								const tradeLines = getValidSellTradeInLines();
 								return (
-									<div className="text-sm text-muted-foreground pt-1">
-										Total líquido da venda: {formatCentsBr(tx)}
-										{sum != null && sum > 0 ? (
-											<>
-												{" — "}
-												Total a cobrar: {formatCentsBr(sum)}
-												{net != null ? (
-													<span
-														className={
-															net !== tx
-																? tx - net > 0
-																	? "text-amber-600"
-																	: "text-destructive"
-																: "text-green-600"
-														}
-													>
-														{" "}
-														(Líquido: {formatCentsBr(net)})
-													</span>
-												) : null}
-											</>
+									<div className="text-sm text-muted-foreground pt-1 space-y-1">
+										{tradeLines.length > 0 ? (
+											<ul className="text-xs space-y-0.5">
+												{tradeLines.map((l) => (
+													<li key={l.rowKey}>
+														Troca: {l.deviceName.trim()} —{" "}
+														{formatCentsBr(l.valueCents ?? 0)}
+													</li>
+												))}
+											</ul>
 										) : null}
+										<p>
+											Total líquido da venda:{" "}
+											<span className="text-green-600 font-medium">
+												{formatCentsBr(net)}
+											</span>
+											{sum != null &&
+											cashNet != null &&
+											sum > cashNet ? (
+												<>
+													{" — "}
+													Total a cobrar: {formatCentsBr(sum)}
+												</>
+											) : null}
+											{tradeIn > 0 && cashNet != null && cashNet > 0 ? (
+												<span className="text-xs block text-muted-foreground">
+													(inclui {formatCentsBr(tradeIn)} em troca)
+												</span>
+											) : null}
+										</p>
 									</div>
 								);
 							})()}
@@ -2926,6 +3104,7 @@ export function SeminovosListClient({
 										isAdmin={isAdmin}
 										transactionTotalCents={getSellTransactionTotalCents()}
 										deviceSaleCents={getSellDeviceSaleCents()}
+										tradeInTotalCents={getSellTradeInTotalCents()}
 										addonLines={sellAddonItems}
 										addonCostTotalCents={getSellAddonCostTotalCents()}
 										commissionUserName={
@@ -2956,17 +3135,15 @@ export function SeminovosListClient({
 							type="button"
 							onClick={handleConfirmSell}
 							disabled={(() => {
-								const tx = getSellTransactionTotalCents();
-								const pay = getSellPaymentsTotalCents();
 								const net = getSellNetFromPaymentsCents();
-								return (
-									isSavingSell ||
-									tx === null ||
-									tx <= 0 ||
-									pay === null ||
-									net === null ||
-									net !== tx
-								);
+								const cashNet = getSellCashNetFromPaymentsCents();
+								if (sellPaymentMethods.some((e) => e.payment_method_id?.trim())) {
+									if (cashNet === null) return true;
+								}
+								if (sellTradeInEnabled && getValidSellTradeInLines().length === 0) {
+									return true;
+								}
+								return isSavingSell || net === null || net <= 0;
 							})()}
 						>
 							{isSavingSell ? "Salvando…" : "Confirmar venda"}
@@ -3226,16 +3403,19 @@ function ResumoFinanceiro({
 	};
 
 	const disponiveisBlock = blocks.find((b) => b.title === "Disponíveis");
+	const valorEmEstoqueBlock = blocks.find((b) => b.title === "Valor em estoque");
 	const tempoEstoqueBlock = blocks.find((b) => b.title === "Tempo de estoque");
 	const vendasMesBlock = blocks.find((b) => b.title === "Vendas esse mês");
 
 	const blocksToRender =
 		variant === "overview-only" &&
 		disponiveisBlock &&
+		valorEmEstoqueBlock &&
 		tempoEstoqueBlock &&
 		vendasMesBlock
 			? [
 					disponiveisBlock,
+					valorEmEstoqueBlock,
 					ticketMedioCompraEVendaBlock,
 					tempoEstoqueBlock,
 					vendasMesBlock,
@@ -3244,7 +3424,7 @@ function ResumoFinanceiro({
 
 	const gridClassName =
 		variant === "overview-only"
-			? "grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3"
+			? "grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3"
 			: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-2 sm:gap-3";
 
 	const grid = (

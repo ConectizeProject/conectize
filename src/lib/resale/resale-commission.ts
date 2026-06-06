@@ -39,16 +39,17 @@ export function paymentFeeCentsForSaleEntries (
 }
 
 /**
- * Lucro bruto antes da comissão: total da venda − compra − custos operacionais
- * (sem linhas derivadas de venda) − taxa de pagamento.
+ * Lucro bruto antes da comissão: total da venda (+ troca, se houver) − compra
+ * − custos operacionais (sem linhas derivadas de venda) − taxa de pagamento.
  */
 export function grossProfitBeforeCommissionCents (
   totalSalesCents: number,
   purchaseCents: number,
   baseOperationalCents: number,
-  paymentFeeCents: number
+  paymentFeeCents: number,
+  tradeInTotalCents = 0
 ): number {
-  return totalSalesCents - purchaseCents - baseOperationalCents - paymentFeeCents
+  return totalSalesCents + tradeInTotalCents - purchaseCents - baseOperationalCents - paymentFeeCents
 }
 
 export function commissionFromPercentOfGrossCents (

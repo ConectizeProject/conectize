@@ -1424,7 +1424,9 @@ create trigger product_stock_movements_set_organization_id
 -- 25) RPC: catálogo lojista filtrado por organização da loja
 -- ---------------------------------------------------------------------------
 
-create or replace function public.portal_retailer_catalog_prices (
+drop function if exists public.portal_retailer_catalog_prices (uuid, uuid, uuid);
+
+create function public.portal_retailer_catalog_prices (
   p_brand_id uuid default null,
   p_device_type_id uuid default null,
   p_device_model_id uuid default null
@@ -1437,7 +1439,6 @@ returns table (
   suggested_sale_cents integer,
   pricing_tag_id uuid,
   pricing_tag_name text,
-  parts_family text,
   device_model_id uuid,
   device_model_label text,
   device_type_id uuid,
@@ -1464,7 +1465,6 @@ as $$
       p.sale_price_cents,
       p.pricing_tag_id,
       pt.name as pricing_tag_name,
-      coalesce(p.parts_family, pt.parts_family)::text as parts_family,
       dm.id as device_model_id,
       dm.model as device_model_label,
       dt.id as device_type_id,
@@ -1528,7 +1528,6 @@ as $$
     end as suggested_sale_cents,
     c.pricing_tag_id,
     c.pricing_tag_name,
-    c.parts_family,
     c.device_model_id,
     c.device_model_label,
     c.device_type_id,

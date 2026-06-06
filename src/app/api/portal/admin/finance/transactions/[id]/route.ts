@@ -49,6 +49,8 @@ export async function PATCH (
 
   const body = await request.json().catch(() => null) as Record<string, unknown> | null
   const amountCents = body?.amount_cents != null ? Number(body.amount_cents) : null
+  const typeRaw = String(body?.type ?? '').trim()
+  const nextType = typeRaw === 'entrada' || typeRaw === 'saida' ? typeRaw : null
   const contaId = typeof body?.conta_id === 'string' ? body.conta_id : null
   const description = body?.description != null ? String(body.description).trim() : ''
   const occurredAt = body?.occurred_at
@@ -60,19 +62,27 @@ export async function PATCH (
     return NextResponse.json({ ok: false, error: 'conta_id_required' }, { status: 400 })
   }
 
-  const nextSigned = current.row.amount_cents >= 0 ? amountCents : -amountCents
+  const absAmount = Math.abs(Math.round(amountCents))
+  const nextSigned = nextType === 'saida'
+    ? -absAmount
+    : nextType === 'entrada'
+      ? absAmount
+      : (current.row.amount_cents >= 0 ? absAmount : -absAmount)
   const dateStr = occurredAt && /^\d{4}-\d{2}-\d{2}$/.test(String(occurredAt))
     ? String(occurredAt)
     : new Date().toISOString().slice(0, 10)
 
+  const patch: Record<string, unknown> = {
+    conta_id: contaId,
+    amount_cents: nextSigned,
+    description: description || null,
+    occurred_at: dateStr,
+  }
+  if (nextType) patch.type = nextType
+
   const { data, error } = await auth.supabase
     .from('financial_transactions')
-    .update({
-      conta_id: contaId,
-      amount_cents: nextSigned,
-      description: description || null,
-      occurred_at: dateStr,
-    })
+    .update(patch)
     .eq('id', id)
     .eq('organization_id', auth.organizationId)
     .select()

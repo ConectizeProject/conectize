@@ -1,5 +1,6 @@
 "use client";
 
+import { RadixAfterHydration } from "@/components/radix-after-hydration";
 import { SupabaseStatusBanner } from "@/components/SupabaseStatusBanner";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -207,7 +208,8 @@ export function PortalShell(props: PortalShellProps) {
 							label: "Produtos e serviços",
 							icon: Package,
 						},
-						{ href: "/portal/pdv", label: "PDV", icon: DollarSign },
+						{ href: '/portal/pdv', label: 'Frente de Caixa', icon: DollarSign },
+						{ href: '/portal/pedidos-venda', label: 'Pedidos de venda', icon: ClipboardList },
 						{ href: "/portal/clientes", label: "Clientes", icon: Users },
 						{
 							href: "/portal/revendaaparelhos",
@@ -240,7 +242,8 @@ export function PortalShell(props: PortalShellProps) {
 							label: "Produtos e serviços",
 							icon: Package,
 						},
-						{ href: "/portal/pdv", label: "PDV", icon: DollarSign },
+						{ href: '/portal/pdv', label: 'Frente de Caixa', icon: DollarSign },
+						{ href: '/portal/pedidos-venda', label: 'Pedidos de venda', icon: ClipboardList },
 						{ href: "/portal/clientes", label: "Clientes", icon: Users },
 						{
 							href: "/portal/admin/usuarios",
@@ -318,18 +321,41 @@ export function PortalShell(props: PortalShellProps) {
 						</div>
 
 						<div className="flex items-center gap-3 min-w-0">
-							{isPlatformMaster ? (
-								<PortalRoleSwitcher
-									role={props.realRole || props.role}
-									simulatedRole={props.simulatedRole ?? null}
-								/>
-							) : null}
-							{isPlatformMaster && props.platformOrganizations?.length ? (
-								<PlatformOrgSwitcher
-									organizations={props.platformOrganizations}
-									activeOrganizationId={props.activeOrganizationId ?? null}
-								/>
-							) : null}
+							<RadixAfterHydration
+								fallback={
+									<>
+										{isPlatformMaster ? (
+											<div
+												className="h-9 w-[180px] sm:w-[220px] shrink-0 rounded-md bg-muted/50 animate-pulse"
+												aria-hidden
+											/>
+										) : null}
+										{isPlatformMaster && props.platformOrganizations?.length ? (
+											<div
+												className="h-9 w-[220px] sm:w-48 shrink-0 rounded-md bg-muted/50 animate-pulse"
+												aria-hidden
+											/>
+										) : null}
+										<div
+											className="hidden sm:block h-8 w-28 shrink-0 rounded-md bg-muted/50 animate-pulse"
+											aria-hidden
+										/>
+									</>
+								}
+							>
+								{isPlatformMaster ? (
+									<PortalRoleSwitcher
+										role={props.realRole || props.role}
+										simulatedRole={props.simulatedRole ?? null}
+									/>
+								) : null}
+								{isPlatformMaster && props.platformOrganizations?.length ? (
+									<PlatformOrgSwitcher
+										organizations={props.platformOrganizations}
+										activeOrganizationId={props.activeOrganizationId ?? null}
+									/>
+								) : null}
+							</RadixAfterHydration>
 							<Link
 								href="/"
 								className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -348,65 +374,80 @@ export function PortalShell(props: PortalShellProps) {
 								<span className="sr-only">Alternar tema</span>
 							</button>
 
-							<DropdownMenu>
-								<DropdownMenuTrigger asChild>
-									<button
-										type="button"
-										className={cn(
-											"flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent",
-											"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-										)}
+							<RadixAfterHydration
+								fallback={
+									<div
+										className="flex items-center gap-2 rounded-md px-2 py-1.5"
+										aria-hidden
 									>
-										<Avatar className="h-8 w-8">
-											<AvatarFallback className="text-xs">
-												{getInitials(displayName)}
-											</AvatarFallback>
-										</Avatar>
-										<div className="hidden sm:block text-left leading-tight">
-											<div className="text-sm font-medium">
-												{props.userName || "Usuário"}
-											</div>
-											<div className="text-xs text-muted-foreground">
-												{props.userEmail}
-											</div>
+										<div className="h-8 w-8 shrink-0 rounded-full bg-muted/50 animate-pulse" />
+										<div className="hidden sm:flex flex-col gap-1">
+											<div className="h-3.5 w-24 rounded bg-muted/50 animate-pulse" />
+											<div className="h-3 w-32 rounded bg-muted/50 animate-pulse" />
 										</div>
-										<ChevronDown className="h-4 w-4 text-muted-foreground" />
-									</button>
-								</DropdownMenuTrigger>
-
-								<DropdownMenuContent align="end" className="min-w-56">
-									<DropdownMenuItem asChild>
-										<Link
-											href="/portal/complete-profile"
-											className="flex items-center gap-2"
+									</div>
+								}
+							>
+								<DropdownMenu>
+									<DropdownMenuTrigger asChild>
+										<button
+											type="button"
+											className={cn(
+												"flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent",
+												"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+											)}
 										>
-											<Settings className="h-4 w-4" />
-											<span>Alterar dados</span>
-										</Link>
-									</DropdownMenuItem>
-									{isAdmin && (
+											<Avatar className="h-8 w-8">
+												<AvatarFallback className="text-xs">
+													{getInitials(displayName)}
+												</AvatarFallback>
+											</Avatar>
+											<div className="hidden sm:block text-left leading-tight">
+												<div className="text-sm font-medium">
+													{props.userName || "Usuário"}
+												</div>
+												<div className="text-xs text-muted-foreground">
+													{props.userEmail}
+												</div>
+											</div>
+											<ChevronDown className="h-4 w-4 text-muted-foreground" />
+										</button>
+									</DropdownMenuTrigger>
+
+									<DropdownMenuContent align="end" className="min-w-56">
 										<DropdownMenuItem asChild>
 											<Link
-												href="/portal/admin/dados-empresa"
+												href="/portal/complete-profile"
 												className="flex items-center gap-2"
 											>
-												<Building2 className="h-4 w-4" />
-												<span>Configurações gerais</span>
+												<Settings className="h-4 w-4" />
+												<span>Alterar dados</span>
 											</Link>
 										</DropdownMenuItem>
-									)}
-									<DropdownMenuSeparator />
-									<DropdownMenuItem asChild>
-										<Link
-											href="/portal/logout"
-											className="flex items-center gap-2"
-										>
-											<LogOut className="h-4 w-4" />
-											<span>Sair</span>
-										</Link>
-									</DropdownMenuItem>
-								</DropdownMenuContent>
-							</DropdownMenu>
+										{isAdmin && (
+											<DropdownMenuItem asChild>
+												<Link
+													href="/portal/admin/dados-empresa"
+													className="flex items-center gap-2"
+												>
+													<Building2 className="h-4 w-4" />
+													<span>Configurações gerais</span>
+												</Link>
+											</DropdownMenuItem>
+										)}
+										<DropdownMenuSeparator />
+										<DropdownMenuItem asChild>
+											<Link
+												href="/portal/logout"
+												className="flex items-center gap-2"
+											>
+												<LogOut className="h-4 w-4" />
+												<span>Sair</span>
+											</Link>
+										</DropdownMenuItem>
+									</DropdownMenuContent>
+								</DropdownMenu>
+							</RadixAfterHydration>
 						</div>
 					</header>
 

@@ -38,31 +38,44 @@ alter table public.device_models
   add column if not exists brand_id uuid null references public.device_brands(id) on delete set null,
   add column if not exists device_type_id uuid null references public.device_types(id) on delete set null;
 
--- Popular device_brands a partir dos valores distintos em device_models
-insert into public.device_brands (name)
-select distinct trim(brand)
-from public.device_models
-where trim(coalesce(brand, '')) <> ''
-on conflict (name) do nothing;
+-- Backfill só se brand/device_type ainda existirem (cloud já removeu essas colunas).
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'device_models' and column_name = 'brand'
+  ) then
+    return;
+  end if;
 
--- Popular device_types (brand_id + name) a partir de device_models
-insert into public.device_types (brand_id, name)
-select distinct b.id, trim(dm.device_type)
-from public.device_models dm
-join public.device_brands b on b.name = trim(dm.brand)
-where trim(coalesce(dm.device_type, '')) <> ''
-on conflict (brand_id, name) do nothing;
+  insert into public.device_brands (name)
+  select distinct trim(brand)
+  from public.device_models
+  where trim(coalesce(brand, '')) <> ''
+  on conflict (name) do nothing;
 
--- Atualizar device_models com brand_id e device_type_id
-update public.device_models dm
-set brand_id = b.id
-from public.device_brands b
-where dm.brand is not null and trim(dm.brand) = b.name and dm.brand_id is null;
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'device_models' and column_name = 'device_type'
+  ) then
+    insert into public.device_types (brand_id, name)
+    select distinct b.id, trim(dm.device_type)
+    from public.device_models dm
+    join public.device_brands b on b.name = trim(dm.brand)
+    where trim(coalesce(dm.device_type, '')) <> ''
+    on conflict (brand_id, name) do nothing;
 
-update public.device_models dm
-set device_type_id = t.id
-from public.device_types t
-join public.device_brands b on t.brand_id = b.id
-where dm.brand is not null and dm.device_type is not null
-  and trim(dm.brand) = b.name and trim(dm.device_type) = t.name
-  and dm.device_type_id is null;
+    update public.device_models dm
+    set brand_id = b.id
+    from public.device_brands b
+    where dm.brand is not null and trim(dm.brand) = b.name and dm.brand_id is null;
+
+    update public.device_models dm
+    set device_type_id = t.id
+    from public.device_types t
+    join public.device_brands b on t.brand_id = b.id
+    where dm.brand is not null and dm.device_type is not null
+      and trim(dm.brand) = b.name and trim(dm.device_type) = t.name
+      and dm.device_type_id is null;
+  end if;
+end $$;

@@ -41,8 +41,8 @@ export default function PdvSalesPage () {
   return (
     <div className='space-y-4 py-4'>
       <div className='flex items-center justify-between'>
-        <h1 className='text-2xl font-semibold'>Histórico de vendas PDV</h1>
-        <Link href='/portal/pdv'><Button variant='outline'>Voltar ao PDV</Button></Link>
+        <h1 className='text-2xl font-semibold'>Histórico de vendas — Frente de Caixa</h1>
+        <Link href='/portal/pdv'><Button variant='outline'>Voltar à Frente de Caixa</Button></Link>
       </div>
       <Card>
         <CardHeader><CardTitle>Filtros</CardTitle></CardHeader>

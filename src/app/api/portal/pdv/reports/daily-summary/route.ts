@@ -10,8 +10,8 @@ export async function GET (request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const date = String(searchParams.get('date') || new Date().toISOString().slice(0, 10))
 
-  const { data: sales, error } = await auth.supabase
-    .from('pos_sales')
+  const { data: orders, error } = await auth.supabase
+    .from('sales_orders')
     .select('id, status, total_cents, paid_amount_cents, change_cents')
     .eq('organization_id', auth.organizationId)
     .gte('created_at', `${date}T00:00:00`)
@@ -19,30 +19,35 @@ export async function GET (request: NextRequest) {
 
   if (error) return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
 
-  const paidSales = (sales ?? []).filter((sale) => sale.status === 'paid')
-  const totalSalesCents = paidSales.reduce((acc, sale) => acc + (Number(sale.total_cents) || 0), 0)
-  const totalReceivedCents = paidSales.reduce((acc, sale) => acc + (Number(sale.paid_amount_cents) || 0), 0)
-  const totalChangeCents = paidSales.reduce((acc, sale) => acc + (Number(sale.change_cents) || 0), 0)
+  const paidOrders = (orders ?? []).filter((order) => order.status === 'paid')
+  const totalSalesCents = paidOrders.reduce((acc, order) => acc + (Number(order.total_cents) || 0), 0)
+  const totalReceivedCents = paidOrders.reduce((acc, order) => acc + (Number(order.paid_amount_cents) || 0), 0)
+  const totalChangeCents = paidOrders.reduce((acc, order) => acc + (Number(order.change_cents) || 0), 0)
 
-  const { data: payments } = await auth.supabase
-    .from('pos_sale_payments')
-    .select('sale_id, payment_method_type, amount_cents')
-    .eq('organization_id', auth.organizationId)
-
-  const paidIds = new Set(paidSales.map((sale) => String(sale.id)))
+  const paidIds = paidOrders.map((order) => String(order.id))
   const byMethod: Record<string, number> = { dinheiro: 0, pix: 0, credito: 0, debito: 0, outro: 0 }
-  for (const row of payments ?? []) {
-    if (!paidIds.has(String(row.sale_id))) continue
-    const type = String(row.payment_method_type || 'outro')
-    byMethod[type] = (byMethod[type] || 0) + (Number(row.amount_cents) || 0)
+
+  if (paidIds.length > 0) {
+    const { data: payments } = await auth.supabase
+      .from('sales_order_payments')
+      .select('sales_order_id, payment_method_type, amount_cents, status')
+      .eq('organization_id', auth.organizationId)
+      .in('sales_order_id', paidIds)
+
+    for (const row of payments ?? []) {
+      if ((row.status ?? 'paid') === 'canceled') continue
+      const type = String(row.payment_method_type || 'outro')
+      byMethod[type] = (byMethod[type] || 0) + (Number(row.amount_cents) || 0)
+    }
   }
 
   return NextResponse.json({
     ok: true,
     summary: {
       date,
-      paidSalesCount: paidSales.length,
-      canceledSalesCount: (sales ?? []).filter((sale) => sale.status === 'canceled').length,
+      paidSalesCount: paidOrders.length,
+      canceledSalesCount: (orders ?? []).filter((order) => order.status === 'canceled').length,
+      inProgressCount: (orders ?? []).filter((order) => order.status === 'in_progress').length,
       totalSalesCents,
       totalReceivedCents,
       totalChangeCents,
@@ -50,4 +55,3 @@ export async function GET (request: NextRequest) {
     },
   })
 }
-
