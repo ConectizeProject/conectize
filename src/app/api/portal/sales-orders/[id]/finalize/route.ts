@@ -16,8 +16,8 @@ export async function POST (request: Request, { params }: { params: Params }) {
   const result = await finalizeSalesOrder(auth, id, {
     change_cents: Number.isFinite(changeCents) ? changeCents : undefined,
   })
-  if (!result.ok) {
-    const status = result.error === 'stock_unavailable' || result.error === 'payment_insufficient' || result.error === 'order_canceled' || result.error === 'empty_order' || result.error === 'finance_sync_failed' ? 400 : result.error === 'not_found' ? 404 : 500
+  if (result.ok === false) {
+    const status = result.error === 'payment_insufficient' || result.error === 'order_canceled' || result.error === 'empty_order' || result.error === 'finance_sync_failed' ? 400 : result.error === 'not_found' ? 404 : 500
     return NextResponse.json({ ok: false, error: result.error, details: result }, { status })
   }
 

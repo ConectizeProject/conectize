@@ -120,13 +120,13 @@ export async function GET (request: Request) {
   const url = new URL(request.url)
   const params = Object.fromEntries(url.searchParams.entries())
   const resolved = await resolveCredentials(auth, params)
-  if (!resolved.ok) {
+  if (resolved.ok === false) {
     return errorResponse(resolved.error, resolved.status, resolved.hint)
   }
 
   const { creds } = resolved
   const stateRes = await fetchEvolutionConnectionState(creds)
-  if (!stateRes.ok) {
+  if (stateRes.ok === false) {
     return errorResponse(stateRes.error, stateRes.status || 502)
   }
 
@@ -148,7 +148,7 @@ export async function POST (request: Request) {
   const body = await request.json().catch(() => null) as Record<string, unknown> | null
   const checkOnly = body?.check_only === true || body?.checkOnly === true
   const resolved = await resolveCredentials(auth, body)
-  if (!resolved.ok) {
+  if (resolved.ok === false) {
     return errorResponse(resolved.error, resolved.status, resolved.hint)
   }
 
@@ -156,7 +156,7 @@ export async function POST (request: Request) {
 
   if (checkOnly) {
     const stateRes = await fetchEvolutionConnectionState(creds)
-    if (!stateRes.ok) {
+    if (stateRes.ok === false) {
       return errorResponse(stateRes.error, stateRes.status || 502)
     }
     return NextResponse.json({
@@ -175,7 +175,7 @@ export async function POST (request: Request) {
     createIfMissing: true,
   })
 
-  if (!result.ok) {
+  if (result.ok === false) {
     return errorResponse(result.error, result.status || 502)
   }
 

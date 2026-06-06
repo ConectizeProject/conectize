@@ -15,7 +15,7 @@ export async function GET () {
   }
 
   const result = await buildCashCloseSummary(auth, current.session)
-  if (!result.ok) {
+  if (result.ok === false) {
     return NextResponse.json({ ok: false, error: result.error }, { status: 500 })
   }
 

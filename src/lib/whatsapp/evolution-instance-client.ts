@@ -96,7 +96,9 @@ export async function fetchEvolutionConnectionState (opts: {
     `/instance/connectionState/${encoded}`,
     { method: 'GET' },
   )
-  if (!res.ok) return res
+  if (res.ok === false) {
+    return { ok: false, error: res.error, status: res.status }
+  }
   return { ok: true, state: parseEvolutionConnectionState(res.data) }
 }
 
@@ -150,7 +152,7 @@ export async function createEvolutionInstance (opts: {
     body: JSON.stringify(body),
   })
 
-  if (res.ok) return { ok: true }
+  if (res.ok === true) return { ok: true }
 
   const low = res.error.toLowerCase()
   if (
@@ -197,7 +199,7 @@ export async function fetchEvolutionConnectQr (opts: {
         instanceName,
         webhookUrl: opts.webhookUrl,
       })
-      if (!created.ok) return { ok: false, error: created.error, status: created.status }
+      if (created.ok === false) return { ok: false, error: created.error, status: created.status }
     }
   }
 
@@ -209,7 +211,7 @@ export async function fetchEvolutionConnectQr (opts: {
     { method: 'GET' },
   )
 
-  if (!connectRes.ok) {
+  if (connectRes.ok === false) {
     return { ok: false, error: connectRes.error, status: connectRes.status }
   }
 

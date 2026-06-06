@@ -12,8 +12,8 @@ export async function POST (_request: Request, { params }: { params: Params }) {
 
   const { id } = await params
   const result = await finalizeSale(auth, id)
-  if (!result.ok) {
-    const status = result.error === 'stock_unavailable' || result.error === 'payment_insufficient' || result.error === 'sale_canceled' ? 400 : 500
+  if (result.ok === false) {
+    const status = result.error === 'payment_insufficient' || result.error === 'sale_canceled' ? 400 : 500
     return NextResponse.json({ ok: false, error: result.error, details: result }, { status })
   }
 
