@@ -8,8 +8,17 @@ import {
 
 type PaymentMethodRow = {
   id: string
+  type?: string | null
   conta_id: string | null
   description?: string | null
+}
+
+const SALES_ORDER_PAYMENT_TYPE_TO_METHOD_TYPES: Record<string, string[]> = {
+  dinheiro: ['dinheiro'],
+  pix: ['pix_direto', 'pix_maquina'],
+  credito: ['credito'],
+  debito: ['debito'],
+  outro: ['dinheiro', 'pix_direto', 'pix_maquina', 'credito', 'debito'],
 }
 
 type ServiceOrderFinanceRow = {
@@ -61,6 +70,17 @@ type SalesOrderFinanceRow = {
   order_number: number | null
   status: string
   updated_at: string | null
+  change_cents?: number | null
+  total_cents?: number | null
+}
+
+type SalesOrderPaymentFinanceRow = {
+  id: string
+  payment_method_id: string | null
+  payment_method_type: string
+  amount_cents: number
+  status: string | null
+  created_at: string | null
 }
 
 function parsePaymentMethodsForFinance (raw: unknown): ParsedPaymentMethodItem[] {
@@ -109,6 +129,100 @@ function toSaoPauloIsoStart (dateOnly: string) {
 
 function toSaoPauloIsoEnd (dateOnly: string) {
   return new Date(`${dateOnly}T23:59:59.999-03:00`).toISOString()
+}
+
+async function loadOrganizationPaymentMethods (
+  supabase: SupabaseClient,
+  organizationId: string,
+) {
+  const { data, error } = await supabase
+    .from('payment_methods')
+    .select('id, type, conta_id, description')
+    .eq('organization_id', organizationId)
+    .order('sort_order', { ascending: true })
+  if (error) {
+    throw new Error(`Erro ao buscar formas de pagamento: ${error.message}`)
+  }
+  return (data ?? []) as PaymentMethodRow[]
+}
+
+async function loadDefaultContaId (
+  supabase: SupabaseClient,
+  organizationId: string,
+) {
+  const { data, error } = await supabase
+    .from('contas')
+    .select('id')
+    .eq('organization_id', organizationId)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+  if (error) {
+    throw new Error(`Erro ao buscar carteira padrão: ${error.message}`)
+  }
+  return data?.id ? String(data.id) : null
+}
+
+function resolveContaForSalesOrderPayment (
+  payment: Pick<SalesOrderPaymentFinanceRow, 'payment_method_id' | 'payment_method_type'>,
+  methods: PaymentMethodRow[],
+  defaultContaId: string | null,
+) {
+  const methodsWithConta = methods.filter((method) => Boolean(method.conta_id))
+  const methodId = parseOptionalUuid(payment.payment_method_id)
+
+  if (methodId) {
+    const selected = methods.find((method) => method.id === methodId)
+    if (selected?.conta_id) {
+      return {
+        contaId: String(selected.conta_id),
+        label: String(selected.description || '').trim() || 'Forma de pagamento',
+      }
+    }
+  }
+
+  const preferredTypes = SALES_ORDER_PAYMENT_TYPE_TO_METHOD_TYPES[payment.payment_method_type]
+    ?? SALES_ORDER_PAYMENT_TYPE_TO_METHOD_TYPES.outro
+  for (const type of preferredTypes) {
+    const matched = methodsWithConta.find((method) => method.type === type)
+    if (matched?.conta_id) {
+      return {
+        contaId: String(matched.conta_id),
+        label: String(matched.description || '').trim() || 'Forma de pagamento',
+      }
+    }
+  }
+
+  const fallbackMethod = methodsWithConta[0]
+  if (fallbackMethod?.conta_id) {
+    return {
+      contaId: String(fallbackMethod.conta_id),
+      label: String(fallbackMethod.description || '').trim() || 'Forma de pagamento',
+    }
+  }
+
+  if (defaultContaId) {
+    return { contaId: defaultContaId, label: 'Carteira padrão' }
+  }
+
+  return { contaId: null, label: '' }
+}
+
+function netSalesOrderPaymentAmounts (
+  payments: SalesOrderPaymentFinanceRow[],
+  changeCents: number,
+) {
+  let changeRemaining = Math.max(0, changeCents)
+  return payments.map((payment) => {
+    let amount = Math.max(0, Number(payment.amount_cents) || 0)
+    if (payment.payment_method_type === 'dinheiro' && changeRemaining > 0 && amount > 0) {
+      const deduct = Math.min(amount, changeRemaining)
+      amount -= deduct
+      changeRemaining -= deduct
+    }
+    return { ...payment, amount_cents: amount }
+  }).filter((payment) => payment.amount_cents > 0)
 }
 
 export async function syncServiceOrderFinancialTransactions ({
@@ -210,7 +324,7 @@ export async function backfillServiceOrderFinancialTransactionsByOrganization ({
   const toIso = toSaoPauloIsoEnd(hasToDate ? String(toDate) : '2999-12-31')
 
   if (hasFromDate || hasToDate) {
-    const [ordersResult, resaleResult, pdvResult] = await Promise.all([
+    const [ordersResult, resaleResult, pdvResult, salesOrdersResult] = await Promise.all([
       syncOrdersByPeriodSignals({
         supabase,
         organizationId,
@@ -232,15 +346,23 @@ export async function backfillServiceOrderFinancialTransactionsByOrganization ({
         toIso,
         pageSize: safePageSize,
       }),
+      syncSalesOrdersByPeriod({
+        supabase,
+        organizationId,
+        fromIso,
+        toIso,
+        pageSize: safePageSize,
+      }),
     ])
     return {
       syncedOrders: ordersResult.syncedOrders,
       syncedResaleDevices: resaleResult.syncedResaleDevices,
       syncedPdvSales: pdvResult.syncedPdvSales,
+      syncedSalesOrders: salesOrdersResult.syncedSalesOrders,
     }
   }
 
-  const [allOrdersResult, allResaleResult, allPdvResult] = await Promise.all([
+  const [allOrdersResult, allResaleResult, allPdvResult, allSalesOrdersResult] = await Promise.all([
     syncAllOrdersByOrganization({
       supabase,
       organizationId,
@@ -256,12 +378,18 @@ export async function backfillServiceOrderFinancialTransactionsByOrganization ({
       organizationId,
       pageSize: safePageSize,
     }),
+    syncAllSalesOrdersByOrganization({
+      supabase,
+      organizationId,
+      pageSize: safePageSize,
+    }),
   ])
 
   return {
     syncedOrders: allOrdersResult.syncedOrders,
     syncedResaleDevices: allResaleResult.syncedResaleDevices,
     syncedPdvSales: allPdvResult.syncedPdvSales,
+    syncedSalesOrders: allSalesOrdersResult.syncedSalesOrders,
   }
 }
 
@@ -711,7 +839,7 @@ export async function syncSalesOrderFinancialTransactions ({
 
   const { data: payments, error: paymentsError } = await supabase
     .from('sales_order_payments')
-    .select('id, payment_method_id, amount_cents, status, created_at')
+    .select('id, payment_method_id, payment_method_type, amount_cents, status, created_at')
     .eq('organization_id', organizationId)
     .eq('sales_order_id', order.id)
   if (paymentsError) {
@@ -721,44 +849,22 @@ export async function syncSalesOrderFinancialTransactions ({
   const paidPayments = (payments ?? []).filter((p) => {
     const row = p as { status?: string | null, amount_cents?: number | null }
     return (row.status ?? 'paid') !== 'canceled' && Math.max(0, Number(row.amount_cents) || 0) > 0
-  }) as Array<{
-    id: string
-    payment_method_id: string | null
-    amount_cents: number
-    status: string | null
-    created_at: string | null
-  }>
+  }) as SalesOrderPaymentFinanceRow[]
   if (paidPayments.length === 0) return
 
-  const paymentMethodIds = paidPayments
-    .map((p) => parseOptionalUuid(p.payment_method_id))
-    .filter((id): id is string => Boolean(id))
-  if (paymentMethodIds.length === 0) return
+  const changeCents = Math.max(0, Number(order.change_cents) || 0)
+  const netPayments = netSalesOrderPaymentAmounts(paidPayments, changeCents)
+  if (netPayments.length === 0) return
 
-  const { data: methods, error: methodsError } = await supabase
-    .from('payment_methods')
-    .select('id, conta_id, description')
-    .eq('organization_id', organizationId)
-    .in('id', paymentMethodIds)
-  if (methodsError) {
-    throw new Error(`Erro ao buscar contas das formas de pagamento do pedido: ${methodsError.message}`)
-  }
+  const [methods, defaultContaId] = await Promise.all([
+    loadOrganizationPaymentMethods(supabase, organizationId),
+    loadDefaultContaId(supabase, organizationId),
+  ])
 
-  const contaByMethod = new Map<string, string>()
-  const descriptionByMethod = new Map<string, string>()
-  for (const method of (methods ?? []) as PaymentMethodRow[]) {
-    if (!method.conta_id) continue
-    contaByMethod.set(method.id, method.conta_id)
-    descriptionByMethod.set(method.id, String(method.description || '').trim())
-  }
-
-  const rows = paidPayments
+  const rows = netPayments
     .map((payment) => {
-      const methodId = parseOptionalUuid(payment.payment_method_id)
-      if (!methodId) return null
-      const contaId = contaByMethod.get(methodId)
+      const { contaId, label } = resolveContaForSalesOrderPayment(payment, methods, defaultContaId)
       if (!contaId) return null
-      const paymentMethodLabel = descriptionByMethod.get(methodId) || 'Metodo de pagamento'
       const occurredAt = toSaoPauloDate(payment.created_at || order.updated_at || new Date().toISOString())
       return {
         organization_id: organizationId,
@@ -767,12 +873,16 @@ export async function syncSalesOrderFinancialTransactions ({
         type: 'entrada',
         occurred_at: occurredAt,
         sales_order_id: order.id,
-        description: `Pedido #${order.order_number ?? order.id.slice(0, 8)} - ${paymentMethodLabel}`,
+        description: `Pedido #${order.order_number ?? order.id.slice(0, 8)} - ${label}`,
       }
     })
     .filter(Boolean)
 
-  if (rows.length === 0) return
+  if (rows.length === 0) {
+    throw new Error(
+      'Nenhuma carteira vinculada às formas de pagamento. Configure em Financeiro > Formas de pagamento ou crie uma carteira.',
+    )
+  }
 
   const { error: insertError } = await financeSupabase
     .from('financial_transactions')
@@ -798,7 +908,7 @@ async function fetchSalesOrderForSync ({
 }) {
   const { data, error } = await supabase
     .from('sales_orders')
-    .select('id, organization_id, order_number, status, updated_at')
+    .select('id, organization_id, order_number, status, updated_at, change_cents, total_cents')
     .eq('organization_id', organizationId)
     .eq('id', orderId)
     .maybeSingle()
@@ -806,6 +916,107 @@ async function fetchSalesOrderForSync ({
     throw new Error(`Erro ao carregar pedido para sincronização financeira: ${error.message}`)
   }
   return (data ?? null) as SalesOrderFinanceRow | null
+}
+
+async function syncAllSalesOrdersByOrganization ({
+  supabase,
+  organizationId,
+  pageSize,
+}: {
+  supabase: SupabaseClient
+  organizationId: string
+  pageSize: number
+}) {
+  let from = 0
+  let syncedSalesOrders = 0
+
+  while (true) {
+    const to = from + pageSize - 1
+    const { data, error } = await supabase
+      .from('sales_orders')
+      .select('id, organization_id, order_number, status, updated_at, change_cents, total_cents')
+      .eq('organization_id', organizationId)
+      .eq('status', 'paid')
+      .range(from, to)
+      .order('updated_at', { ascending: false })
+    if (error) {
+      throw new Error(`Erro ao carregar pedidos de venda para backfill financeiro: ${error.message}`)
+    }
+    const rows = (data ?? []) as SalesOrderFinanceRow[]
+    if (rows.length === 0) break
+
+    for (const row of rows) {
+      await syncSalesOrderFinancialTransactions({
+        supabase,
+        organizationId,
+        orderId: row.id,
+        orderRow: row,
+      })
+      syncedSalesOrders += 1
+    }
+    if (rows.length < pageSize) break
+    from += pageSize
+  }
+
+  return { syncedSalesOrders }
+}
+
+async function syncSalesOrdersByPeriod ({
+  supabase,
+  organizationId,
+  fromIso,
+  toIso,
+  pageSize,
+}: {
+  supabase: SupabaseClient
+  organizationId: string
+  fromIso: string
+  toIso: string
+  pageSize: number
+}) {
+  const orderIds = new Set<string>()
+
+  const { data: paymentRows, error: paymentsError } = await supabase
+    .from('sales_order_payments')
+    .select('sales_order_id')
+    .eq('organization_id', organizationId)
+    .gte('created_at', fromIso)
+    .lte('created_at', toIso)
+  if (paymentsError) {
+    throw new Error(`Erro ao buscar pagamentos de pedidos no período: ${paymentsError.message}`)
+  }
+  for (const row of paymentRows ?? []) {
+    const id = String((row as { sales_order_id?: string }).sales_order_id || '')
+    if (id) orderIds.add(id)
+  }
+
+  const ids = Array.from(orderIds)
+  if (ids.length === 0) return { syncedSalesOrders: 0 }
+
+  let syncedSalesOrders = 0
+  for (let i = 0; i < ids.length; i += pageSize) {
+    const chunk = ids.slice(i, i + pageSize)
+    const { data, error } = await supabase
+      .from('sales_orders')
+      .select('id, organization_id, order_number, status, updated_at, change_cents, total_cents')
+      .eq('organization_id', organizationId)
+      .eq('status', 'paid')
+      .in('id', chunk)
+    if (error) {
+      throw new Error(`Erro ao carregar pedidos de venda no período: ${error.message}`)
+    }
+    for (const row of (data ?? []) as SalesOrderFinanceRow[]) {
+      await syncSalesOrderFinancialTransactions({
+        supabase,
+        organizationId,
+        orderId: row.id,
+        orderRow: row,
+      })
+      syncedSalesOrders += 1
+    }
+  }
+
+  return { syncedSalesOrders }
 }
 
 async function dedupeSalesOrderFinancialTransactions ({

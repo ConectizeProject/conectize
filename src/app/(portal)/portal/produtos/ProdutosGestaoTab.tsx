@@ -75,12 +75,15 @@ export async function ProdutosGestaoTab ({
   }
 
   if (slice.totalCount > 0 && loaded > slice.totalCount) {
-    redirect(
-      buildProdutosGestaoHref({
-        ...hrefOpts,
-        loaded: slice.totalCount,
-      }),
-    )
+    const normalizedLoaded = Math.max(slice.totalCount, GESTAO_LIST_CHUNK)
+    if (loaded > normalizedLoaded) {
+      redirect(
+        buildProdutosGestaoHref({
+          ...hrefOpts,
+          loaded: normalizedLoaded > GESTAO_LIST_CHUNK ? normalizedLoaded : undefined,
+        }),
+      )
+    }
   }
 
   if (slice.totalCount === 0 && loaded > GESTAO_LIST_CHUNK && !slice.hasSearchButNoValidTokens) {

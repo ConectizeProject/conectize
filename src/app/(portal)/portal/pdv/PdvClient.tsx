@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import Image from 'next/image'
 import {
   Barcode,
   Hash,
@@ -10,6 +9,7 @@ import {
   Minus,
   MoreVertical,
   Package,
+  Pencil,
   Plus,
   Search,
   Trash2,
@@ -31,13 +31,18 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Badge } from '@/components/ui/badge'
 import { isSafeProductListImageUrl } from '@/app/(portal)/portal/produtos/product-list-shared'
 import { portalFetch } from '@/lib/portal/portal-fetch'
 import { maskedFromCents, moneyToCentsFromMasked, formatMoneyInput } from '@/lib/utils/money'
 import { formatCpf, formatCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { toast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
+import {
+  PAYMENT_METHOD_LABELS,
+  type CashCloseSummary,
+  type PaymentMethodType,
+} from '@/lib/pdv/cash-close-summary'
+import { fromDbCustomerType } from '@/lib/sales-orders/customer-type'
 
 type CatalogProduct = {
   id: string
@@ -51,12 +56,36 @@ type CatalogProduct = {
 }
 
 type CartItem = {
+  lineId: string
   productId: string
   name: string
   quantity: number
   unitPriceCents: number
   unitCostCents: number
   discountCents: number
+}
+
+function createCartLineId () {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `line-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+}
+
+function cartLineDiscountPerUnit (item: CartItem) {
+  const qty = Math.max(1, item.quantity)
+  return Math.round(item.discountCents / qty)
+}
+
+function cartLinesMatch (a: CartItem, b: CartItem) {
+  return a.productId === b.productId
+    && a.unitPriceCents === b.unitPriceCents
+    && a.unitCostCents === b.unitCostCents
+    && cartLineDiscountPerUnit(a) === cartLineDiscountPerUnit(b)
+}
+
+function cartLineSubtotalCents (item: CartItem) {
+  return Math.max(0, item.quantity * item.unitPriceCents - item.discountCents)
 }
 
 type PaymentLine = {
@@ -92,16 +121,31 @@ function normalizePaymentType (type: PaymentMethod['type']): PaymentLine['paymen
   return 'outro'
 }
 
-function statusLabel (status: OrderSummary['status']) {
-  if (status === 'in_progress') return 'Ativo'
-  if (status === 'paid') return 'Finalizado'
-  return 'Cancelado'
+function pickDefaultPaymentMethod (methods: PaymentMethod[]) {
+  return methods.find((m) => m.type === 'dinheiro') ?? methods[0] ?? null
 }
 
-function statusVariant (status: OrderSummary['status']): 'default' | 'secondary' | 'destructive' {
-  if (status === 'in_progress') return 'default'
-  if (status === 'paid') return 'secondary'
-  return 'destructive'
+function buildDefaultPaymentLine (totalCents: number, methods: PaymentMethod[]): PaymentLine {
+  const method = pickDefaultPaymentMethod(methods)
+  return {
+    payment_method_id: method?.id ?? null,
+    payment_method_type: method ? normalizePaymentType(method.type) : 'dinheiro',
+    amountMasked: maskedFromCents(totalCents),
+  }
+}
+
+function mergeCartItem (prev: CartItem[], newItem: CartItem) {
+  const idx = prev.findIndex((item) => cartLinesMatch(item, newItem))
+  if (idx < 0) {
+    return [...prev, { ...newItem, lineId: newItem.lineId || createCartLineId() }]
+  }
+  const next = [...prev]
+  next[idx] = {
+    ...next[idx],
+    quantity: next[idx].quantity + newItem.quantity,
+    discountCents: next[idx].discountCents + newItem.discountCents,
+  }
+  return next
 }
 
 function sortOrders (orders: OrderSummary[]) {
@@ -125,7 +169,10 @@ function mapCatalogProduct (raw: Record<string, unknown>): CatalogProduct {
   }
 }
 
-const inputGroupShell = 'flex h-9 overflow-hidden rounded-md border border-input bg-background ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2'
+const inputGroupShell = 'flex h-9 w-full overflow-hidden rounded-md border border-input bg-background ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2'
+const insertFormFieldClass = 'min-w-0 md:flex-[1_1_5rem]'
+const pdvColumnHeaderClass = 'flex h-10 shrink-0 items-center border-b px-4'
+const pdvColumnTitleClass = 'text-sm font-medium leading-none'
 
 function QuantityStepper ({
   value,
@@ -150,7 +197,7 @@ function QuantityStepper ({
       <button
         type='button'
         disabled={disabled || value <= 1}
-        className='flex w-9 shrink-0 items-center justify-center border-r border-input text-muted-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50'
+        className='flex w-6 shrink-0 items-center justify-center border-r border-input text-muted-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50'
         onClick={() => onChange(Math.max(1, value - 1))}
       >
         <Minus className='h-3.5 w-3.5' />
@@ -166,7 +213,7 @@ function QuantityStepper ({
       <button
         type='button'
         disabled={disabled}
-        className='flex w-9 shrink-0 items-center justify-center border-l border-input text-muted-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50'
+        className='flex w-6 shrink-0 items-center justify-center border-l border-input text-muted-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50'
         onClick={() => onChange(value + 1)}
       >
         <Plus className='h-3.5 w-3.5' />
@@ -213,7 +260,37 @@ function DiscountField ({
   )
 }
 
+function ProductThumbImage ({ src, alt, eager }: { src: string, alt: string, eager?: boolean }) {
+  const [hasError, setHasError] = useState(false)
+
+  if (hasError) {
+    return (
+      <div className='flex h-full w-full items-center justify-center bg-muted'>
+        <Package className='h-5 w-5 text-muted-foreground/50' />
+      </div>
+    )
+  }
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className='absolute inset-0 h-full w-full object-cover'
+      loading={eager ? 'eager' : 'lazy'}
+      decoding='async'
+      referrerPolicy='no-referrer'
+      onError={() => setHasError(true)}
+    />
+  )
+}
+
 function ProductPreview ({ product }: { product: CatalogProduct | null }) {
+  const [previewImageError, setPreviewImageError] = useState(false)
+
+  useEffect(() => {
+    setPreviewImageError(false)
+  }, [product?.id])
+
   if (!product) {
     return (
       <div className='flex h-full min-h-0 flex-1 items-center justify-center rounded-xl border border-dashed border-border bg-muted/30 p-4 text-sm text-muted-foreground'>
@@ -226,18 +303,20 @@ function ProductPreview ({ product }: { product: CatalogProduct | null }) {
     ? product.image_url
     : null
   const stockLow = product.stock <= 0
+  const showPreviewImage = Boolean(imageUrl) && !previewImageError
 
   return (
     <div className='flex h-full min-h-0 flex-1 gap-2 overflow-hidden'>
       <div className='relative flex h-full min-h-0 w-2/3 shrink-0 items-center justify-center rounded-xl border border-border'>
-        {imageUrl ? (
+        {showPreviewImage && imageUrl ? (
           <img
             src={imageUrl}
             alt={product.name}
             className='h-full w-full object-contain p-3'
-            loading='lazy'
+            loading='eager'
             decoding='async'
             referrerPolicy='no-referrer'
+            onError={() => setPreviewImageError(true)}
           />
         ) : (
           <div className='flex h-full w-full flex-col items-center justify-center gap-2 p-4 text-center text-muted-foreground'>
@@ -289,8 +368,10 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
   const [selectedProduct, setSelectedProduct] = useState<CatalogProduct | null>(null)
 
   const [insertQty, setInsertQty] = useState(1)
+  const [insertUnitPriceMasked, setInsertUnitPriceMasked] = useState('')
   const [itemDiscountMasked, setItemDiscountMasked] = useState('')
   const [itemDiscountMode, setItemDiscountMode] = useState<'fixed' | 'percent'>('fixed')
+  const [editingCartLineId, setEditingCartLineId] = useState<string | null>(null)
 
   const [cart, setCart] = useState<CartItem[]>([])
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null)
@@ -311,7 +392,10 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
   const [closeCashOpen, setCloseCashOpen] = useState(false)
   const [movementAmount, setMovementAmount] = useState('')
   const [movementReason, setMovementReason] = useState('')
-  const [countedAmount, setCountedAmount] = useState('')
+  const [closeSummary, setCloseSummary] = useState<CashCloseSummary | null>(null)
+  const [loadingCloseSummary, setLoadingCloseSummary] = useState(false)
+  const [closeCountedCash, setCloseCountedCash] = useState('')
+  const [closeCountedByMethod, setCloseCountedByMethod] = useState<Partial<Record<PaymentMethodType, string>>>({})
 
   const searchRef = useRef<HTMLDivElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -327,9 +411,22 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
   const totalCents = Math.max(0, subtotalCents - discountTotalCents)
   const paidCents = useMemo(() => payments.reduce((acc, p) => acc + (moneyToCentsFromMasked(p.amountMasked) || 0), 0), [payments])
   const hasCashPayment = payments.some((p) => p.payment_method_type === 'dinheiro')
-  const changeCents = hasCashPayment ? Math.max(0, paidCents - totalCents) : 0
+  const cashPaidCents = useMemo(() => payments
+    .filter((p) => p.payment_method_type === 'dinheiro')
+    .reduce((acc, p) => acc + (moneyToCentsFromMasked(p.amountMasked) || 0), 0), [payments])
+  const changeCents = useMemo(() => {
+    if (!hasCashPayment || cashPaidCents <= 0) return 0
+    const received = moneyToCentsFromMasked(cashReceivedMasked)
+    if (received == null || received <= 0) return 0
+    return Math.max(0, received - cashPaidCents)
+  }, [hasCashPayment, cashPaidCents, cashReceivedMasked])
 
-  const insertUnitCents = selectedProduct ? (Number(selectedProduct.sale_price_cents) || 0) : 0
+  const insertUnitCents = useMemo(() => {
+    if (!selectedProduct) return 0
+    const fromMask = moneyToCentsFromMasked(insertUnitPriceMasked)
+    if (fromMask != null && fromMask > 0) return fromMask
+    return Number(selectedProduct.sale_price_cents) || 0
+  }, [selectedProduct, insertUnitPriceMasked])
   const insertDiscountCents = useMemo(() => {
     if (itemDiscountMode === 'percent') {
       const pct = Math.min(100, Math.max(0, Number(itemDiscountMasked.replace(',', '.')) || 0))
@@ -407,6 +504,24 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
   }, [cashOpen, loadSessionOrders])
 
   useEffect(() => {
+    if (totalCents <= 0) {
+      setPayments([])
+      setCashReceivedMasked('')
+      return
+    }
+    setPayments((prev) => {
+      if (prev.length === 0) {
+        if (paymentMethods.length === 0) return prev
+        return [buildDefaultPaymentLine(totalCents, paymentMethods)]
+      }
+      if (prev.length === 1) {
+        return [{ ...prev[0], amountMasked: maskedFromCents(totalCents) }]
+      }
+      return prev
+    })
+  }, [totalCents, paymentMethods])
+
+  useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => {
       if (query.trim()) void searchProducts(query)
@@ -430,25 +545,35 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
     return () => document.removeEventListener('mousedown', onClickOutside)
   }, [])
 
-  const buildOrderPayload = useCallback(() => ({
-    customer_name: customerName,
-    customer_type: customerType,
-    customer_document: customerDocument.replace(/\D/g, '') || null,
-    discount_total_cents: discountTotalCents,
-    items: cart.map((item) => ({
-      product_id: item.productId,
-      quantity: item.quantity,
-      unit_price_cents: item.unitPriceCents,
-      unit_cost_cents: item.unitCostCents,
-      discount_cents: item.discountCents,
-    })),
-  }), [cart, customerName, customerType, customerDocument, discountTotalCents])
+  const buildOrderPayload = useCallback((cartItems?: CartItem[]) => {
+    const source = cartItems ?? cart
+    return {
+      customer_name: customerName,
+      customer_type: customerType,
+      customer_document: customerDocument.replace(/\D/g, '') || null,
+      discount_total_cents: discountTotalCents,
+      items: source.map((item) => ({
+        product_id: item.productId,
+        quantity: item.quantity,
+        unit_price_cents: item.unitPriceCents,
+        unit_cost_cents: item.unitCostCents,
+        discount_cents: item.discountCents,
+      })),
+    }
+  }, [cart, customerName, customerType, customerDocument, discountTotalCents])
 
-  const syncCurrentOrder = useCallback(async (silent = false) => {
-    if (!cashOpen || cart.length === 0) return
-    const payload = buildOrderPayload()
+  const syncCurrentOrder = useCallback(async (
+    silent = false,
+    cartItems?: CartItem[],
+    orderIdOverride?: string | null,
+  ) => {
+    const source = cartItems ?? cart
+    if (!cashOpen || source.length === 0) return
 
-    if (!currentOrderId) {
+    const payload = buildOrderPayload(source)
+    const orderId = orderIdOverride !== undefined ? orderIdOverride : currentOrderId
+
+    if (!orderId) {
       const res = await portalFetch('/api/portal/sales-orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -465,7 +590,7 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
       return
     }
 
-    const res = await portalFetch(`/api/portal/sales-orders/${currentOrderId}`, {
+    const res = await portalFetch(`/api/portal/sales-orders/${orderId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -476,16 +601,17 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
     } else if (!silent) {
       toast({ title: data?.error || 'Erro ao atualizar pedido', variant: 'destructive' })
     }
-  }, [buildOrderPayload, cart.length, cashOpen, currentOrderId, loadSessionOrders])
+  }, [buildOrderPayload, cart, cashOpen, currentOrderId, loadSessionOrders])
 
   useEffect(() => {
-    if (!currentOrderId || cart.length === 0) return
+    if (!cashOpen || cart.length === 0) return
+    if (!currentOrderId) return
     if (syncRef.current) clearTimeout(syncRef.current)
     syncRef.current = setTimeout(() => { void syncCurrentOrder(true) }, 400)
     return () => {
       if (syncRef.current) clearTimeout(syncRef.current)
     }
-  }, [cart, currentOrderId, customerName, customerType, customerDocument, discountTotalCents, syncCurrentOrder])
+  }, [cart, currentOrderId, customerName, customerType, customerDocument, discountTotalCents, syncCurrentOrder, cashOpen])
 
   function resetDraft () {
     setCart([])
@@ -499,15 +625,51 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
     setCustomerDocument('')
     setSelectedProduct(null)
     setInsertQty(1)
+    setInsertUnitPriceMasked('')
+    setItemDiscountMasked('')
+    setEditingCartLineId(null)
+  }
+
+  function cancelCartLineEdit () {
+    setEditingCartLineId(null)
+    setSelectedProduct(null)
+    setInsertQty(1)
+    setInsertUnitPriceMasked('')
     setItemDiscountMasked('')
   }
 
   function selectProduct (product: CatalogProduct) {
+    setEditingCartLineId(null)
     setSelectedProduct(product)
     setQuery('')
     setShowSearchDropdown(false)
     setInsertQty(1)
+    setInsertUnitPriceMasked(maskedFromCents(product.sale_price_cents || 0))
     setItemDiscountMasked('')
+  }
+
+  function beginEditCartItem (lineId: string) {
+    const item = cart.find((row) => row.lineId === lineId)
+    if (!item) return
+
+    setEditingCartLineId(lineId)
+    setSelectedProduct({
+      id: item.productId,
+      name: item.name,
+      sku: null,
+      barcode: null,
+      sale_price_cents: item.unitPriceCents,
+      cost_price_cents: item.unitCostCents,
+      image_url: null,
+      stock: 0,
+    })
+    setInsertQty(item.quantity)
+    setInsertUnitPriceMasked(maskedFromCents(item.unitPriceCents))
+    setItemDiscountMode('fixed')
+    setItemDiscountMasked(maskedFromCents(item.discountCents))
+    setQuery('')
+    setShowSearchDropdown(false)
+    setActiveTab('produto')
   }
 
   async function insertItem () {
@@ -520,7 +682,25 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
       return
     }
 
+    if (editingCartLineId) {
+      const nextCart = cart.map((item) => (
+        item.lineId === editingCartLineId
+          ? {
+              ...item,
+              quantity: insertQty,
+              unitPriceCents: insertUnitCents,
+              discountCents: insertDiscountCents,
+            }
+          : item
+      ))
+      setCart(nextCart)
+      cancelCartLineEdit()
+      await syncCurrentOrder(Boolean(currentOrderId), nextCart)
+      return
+    }
+
     const newItem: CartItem = {
+      lineId: createCartLineId(),
       productId: selectedProduct.id,
       name: selectedProduct.name,
       quantity: insertQty,
@@ -529,30 +709,20 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
       discountCents: insertDiscountCents,
     }
 
-    setCart((prev) => {
-      const idx = prev.findIndex((item) => item.productId === selectedProduct.id)
-      if (idx < 0) return [...prev, newItem]
-      const next = [...prev]
-      next[idx] = {
-        ...next[idx],
-        quantity: next[idx].quantity + insertQty,
-        discountCents: next[idx].discountCents + insertDiscountCents,
-      }
-      return next
-    })
-
+    const nextCart = mergeCartItem(cart, newItem)
+    setCart(nextCart)
     setItemDiscountMasked('')
     setInsertQty(1)
 
-    setTimeout(() => { void syncCurrentOrder() }, 50)
+    await syncCurrentOrder(Boolean(currentOrderId), nextCart)
   }
 
-  function updateCartItem (productId: string, patch: Partial<CartItem>) {
-    setCart((prev) => prev.map((item) => item.productId === productId ? { ...item, ...patch } : item))
+  function updateCartItem (lineId: string, patch: Partial<CartItem>) {
+    setCart((prev) => prev.map((item) => item.lineId === lineId ? { ...item, ...patch } : item))
   }
 
-  function removeCartItem (productId: string) {
-    setCart((prev) => prev.filter((item) => item.productId !== productId))
+  function removeCartItem (lineId: string) {
+    setCart((prev) => prev.filter((item) => item.lineId !== lineId))
   }
 
   async function loadOrderIntoCart (orderId: string) {
@@ -567,11 +737,12 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
     setCurrentOrderId(data.order.id)
     setCurrentOrderNumber(data.order.order_number)
     setCustomerName(data.order.customer_name || 'Consumidor Final')
-    setCustomerType(data.order.customer_type === 'pj' ? 'pj' : 'pf')
+    setCustomerType(fromDbCustomerType(data.order.customer_type))
     setCustomerDocument(data.order.customer_document || '')
     setDiscountTotalMasked(maskedFromCents(data.order.discount_total_cents || 0))
 
     const items: CartItem[] = (data.items ?? []).map((row: {
+      id: string
       product_id: string
       quantity: number
       unit_price_cents: number
@@ -579,6 +750,7 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
       discount_cents: number
       products?: { name?: string } | null
     }) => ({
+      lineId: String(row.id),
       productId: String(row.product_id),
       name: row.products?.name || 'Produto',
       quantity: row.quantity,
@@ -587,6 +759,11 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
       discountCents: row.discount_cents || 0,
     }))
     setCart(items)
+    setEditingCartLineId(null)
+    setSelectedProduct(null)
+    setInsertQty(1)
+    setInsertUnitPriceMasked('')
+    setItemDiscountMasked('')
 
     const payLines: PaymentLine[] = (data.payments ?? []).map((p: {
       payment_method_id?: string | null
@@ -646,20 +823,91 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
     toast({ title: data?.error || 'Erro ao registrar movimento', variant: 'destructive' })
   }
 
+  const loadCloseSummary = useCallback(async () => {
+    setLoadingCloseSummary(true)
+    const res = await portalFetch('/api/portal/pdv/cash/close-summary')
+    const data = await res?.json().catch(() => null)
+    if (data?.ok && data.summary) {
+      setCloseSummary(data.summary)
+    } else {
+      setCloseSummary(null)
+      if (data?.error === 'cash_not_open') {
+        setCloseCashOpen(false)
+      } else {
+        toast({ title: 'Erro ao carregar resumo do caixa', variant: 'destructive' })
+      }
+    }
+    setLoadingCloseSummary(false)
+  }, [])
+
+  useEffect(() => {
+    if (!closeCashOpen) return
+    setCloseCountedCash('')
+    setCloseCountedByMethod({})
+    void loadCloseSummary()
+  }, [closeCashOpen, loadCloseSummary])
+
+  function setCloseCountedMethod (type: PaymentMethodType, masked: string) {
+    setCloseCountedByMethod((prev) => ({ ...prev, [type]: masked }))
+  }
+
+  function getCloseMethodDifferenceCents (type: PaymentMethodType) {
+    if (!closeSummary) return null
+    const counted = moneyToCentsFromMasked(closeCountedByMethod[type] || '') ?? 0
+    if (!closeCountedByMethod[type]?.trim()) return null
+    return counted - closeSummary.by_method[type]
+  }
+
+  const closeCashDifferenceCents = useMemo(() => {
+    if (!closeSummary) return null
+    if (!closeCountedCash.trim()) return null
+    const counted = moneyToCentsFromMasked(closeCountedCash) ?? 0
+    return counted - closeSummary.expected_cash_cents
+  }, [closeSummary, closeCountedCash])
+
   async function closeCash () {
-    const cents = moneyToCentsFromMasked(countedAmount) || 0
+    if (!closeSummary) {
+      toast({ title: 'Aguarde o resumo do caixa', variant: 'destructive' })
+      return
+    }
+
+    if (!closeCountedCash.trim()) {
+      toast({ title: 'Informe o valor atual do caixa', variant: 'destructive' })
+      return
+    }
+
+    const nonCashMethods = closeSummary.methods_used.filter((type) => type !== 'dinheiro')
+    for (const type of nonCashMethods) {
+      if (!closeCountedByMethod[type]?.trim()) {
+        toast({
+          title: `Informe o valor conferido em ${PAYMENT_METHOD_LABELS[type]}`,
+          variant: 'destructive',
+        })
+        return
+      }
+    }
+
+    const countedCashCents = moneyToCentsFromMasked(closeCountedCash) ?? 0
+    const countedByMethod: Partial<Record<PaymentMethodType, number>> = {}
+    for (const type of closeSummary.methods_used) {
+      if (type === 'dinheiro') continue
+      countedByMethod[type] = moneyToCentsFromMasked(closeCountedByMethod[type] || '') ?? 0
+    }
+
     setBusy(true)
     const res = await portalFetch('/api/portal/pdv/cash/close', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ counted_cash_cents: cents }),
+      body: JSON.stringify({ counted_cash_cents: countedCashCents, counted_by_method: countedByMethod }),
     })
     const data = await res?.json().catch(() => null)
     setBusy(false)
     if (data?.ok) {
       setCashOpen(false)
       setCloseCashOpen(false)
-      setCountedAmount('')
+      setCloseSummary(null)
+      setCloseCountedCash('')
+      setCloseCountedByMethod({})
       resetDraft()
       setSessionOrders([])
       toast({ title: 'Caixa fechado com sucesso' })
@@ -681,7 +929,13 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
   }
 
   function removePaymentLine (idx: number) {
-    setPayments((prev) => prev.filter((_, index) => index !== idx))
+    setPayments((prev) => {
+      const next = prev.filter((_, index) => index !== idx)
+      if (next.length === 0 && totalCents > 0 && paymentMethods.length > 0) {
+        return [buildDefaultPaymentLine(totalCents, paymentMethods)]
+      }
+      return next
+    })
   }
 
   async function saveOrder () {
@@ -735,6 +989,19 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
       return
     }
 
+    const hasPaymentWithoutMethod = payments.some((line) => {
+      const amount = moneyToCentsFromMasked(line.amountMasked) || 0
+      return amount > 0 && !line.payment_method_id
+    })
+    if (hasPaymentWithoutMethod) {
+      toast({
+        title: 'Selecione a forma de pagamento em cada linha',
+        description: 'É necessário vincular a carteira no financeiro para lançar a movimentação.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     setBusy(true)
     await syncCurrentOrder(true)
 
@@ -781,12 +1048,24 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
       return
     }
 
-    const finalizeRes = await portalFetch(`/api/portal/sales-orders/${finalOrderId}/finalize`, { method: 'POST' })
+    const finalizeRes = await portalFetch(`/api/portal/sales-orders/${finalOrderId}/finalize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ change_cents: changeCents }),
+    })
     const finalizeData = await finalizeRes?.json().catch(() => null)
     setBusy(false)
 
     if (!finalizeData?.ok) {
-      toast({ title: finalizeData?.error || 'Erro ao finalizar', variant: 'destructive' })
+      const errorTitle = finalizeData?.error === 'finance_sync_failed'
+        ? 'Venda paga, mas não foi possível lançar no financeiro'
+        : finalizeData?.error === 'db_error'
+          ? 'Erro ao finalizar'
+          : (finalizeData?.error || 'Erro ao finalizar')
+      const errorDescription = finalizeData?.error === 'finance_sync_failed'
+        ? 'Vincule cada forma de pagamento a uma carteira em Financeiro > Formas de pagamento.'
+        : undefined
+      toast({ title: errorTitle, description: errorDescription, variant: 'destructive' })
       return
     }
 
@@ -869,9 +1148,12 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
         </div>
       </header>
 
-      <div className='grid min-h-0 flex-1 grid-cols-12 gap-0'>
-        {/* Coluna esquerda — abas */}
-        <div className='col-span-3 flex flex-col overflow-hidden border-r'>
+      <div className='grid min-h-0 flex-1 grid-cols-12 gap-0 overflow-hidden rounded-b-xl'>
+        {/* Produto + carrinho + ações da venda */}
+        <div className='col-span-10 flex min-h-0 flex-col overflow-hidden border-r'>
+          <div className='grid min-h-0 flex-1 grid-cols-2'>
+            {/* Coluna esquerda — abas */}
+            <div className='flex flex-col overflow-hidden border-r'>
           <Tabs value={activeTab} onValueChange={setActiveTab} className='flex flex-1 flex-col overflow-hidden'>
             <TabsList className='mx-3 mt-3 grid w-auto grid-cols-3'>
               <TabsTrigger value='produto'>Produto</TabsTrigger>
@@ -890,7 +1172,7 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
                   <p className='mt-1 text-xs text-muted-foreground'>Nenhum produto cadastrado</p>
                 ) : (
                   <div className='mt-1 grid grid-cols-5 gap-1'>
-                    {topProducts.map((product) => (
+                    {topProducts.map((product, index) => (
                       <button
                         key={product.id}
                         type='button'
@@ -902,13 +1184,10 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
                         )}
                       >
                         {product.image_url && isSafeProductListImageUrl(product.image_url) ? (
-                          <Image
+                          <ProductThumbImage
                             src={product.image_url}
                             alt={product.name}
-                            fill
-                            className='object-cover'
-                            sizes='80px'
-                            unoptimized
+                            eager={index < 5}
                           />
                         ) : (
                           <div className='flex h-full items-center justify-center bg-muted'>
@@ -968,10 +1247,10 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
                 <ProductPreview product={selectedProduct} />
               </div>
 
-              <div className='flex shrink-0 items-end gap-2'>
-                <div className='w-[7.25rem] shrink-0'>
+              <div className='grid shrink-0 grid-cols-2 items-end gap-2 md:flex md:flex-wrap'>
+                <div className={insertFormFieldClass}>
                   <Label className='text-xs'>Quantidade</Label>
-                  <div className='mt-1'>
+                  <div className='mt-1 w-full'>
                     <QuantityStepper
                       value={insertQty}
                       onChange={setInsertQty}
@@ -979,9 +1258,9 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
                     />
                   </div>
                 </div>
-                <div className='min-w-0 flex-[1.15]'>
+                <div className={insertFormFieldClass}>
                   <Label className='text-xs'>Desconto</Label>
-                  <div className='mt-1'>
+                  <div className='mt-1 w-full'>
                     <DiscountField
                       value={itemDiscountMasked}
                       onChange={setItemDiscountMasked}
@@ -994,20 +1273,39 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
                     />
                   </div>
                 </div>
-                <div className='w-[4.5rem] shrink-0'>
+                <div className={insertFormFieldClass}>
                   <Label className='text-xs'>Valor</Label>
-                  <Input readOnly value={maskedFromCents(insertUnitCents)} className='mt-1 h-9 bg-muted px-2 text-xs' tabIndex={-1} />
+                  <Input
+                    value={insertUnitPriceMasked}
+                    onChange={(e) => setInsertUnitPriceMasked(formatMoneyInput(e.target.value))}
+                    disabled={!selectedProduct}
+                    className='mt-1 h-9 w-full min-w-0 px-2 text-xs'
+                    placeholder='0,00'
+                  />
                 </div>
-                <div className='w-[4.5rem] shrink-0'>
+                <div className={insertFormFieldClass}>
                   <Label className='text-xs'>Subtotal</Label>
-                  <Input readOnly value={maskedFromCents(insertSubtotalCents)} className='mt-1 h-9 bg-muted px-2 text-xs' tabIndex={-1} />
+                  <Input readOnly value={maskedFromCents(insertSubtotalCents)} className='mt-1 h-9 w-full min-w-0 bg-muted px-2 text-xs' tabIndex={-1} />
                 </div>
+                {editingCartLineId ? (
+                  <Button
+                    type='button'
+                    variant='outline'
+                    className='col-span-2 h-9 w-full px-3 md:col-auto md:w-auto md:flex-[0_0_auto]'
+                    onClick={cancelCartLineEdit}
+                  >
+                    Cancelar
+                  </Button>
+                ) : null}
                 <Button
-                  className='h-9 shrink-0 px-3'
+                  className={cn(
+                    'h-9 w-full px-3 md:w-auto md:flex-[0_0_auto]',
+                    editingCartLineId ? 'col-span-2 md:col-auto' : 'col-span-2 md:col-auto',
+                  )}
                   onClick={() => void insertItem()}
                   disabled={!selectedProduct || !cashOpen}
                 >
-                  Inserir
+                  {editingCartLineId ? 'Salvar' : 'Inserir'}
                 </Button>
               </div>
             </TabsContent>
@@ -1047,6 +1345,11 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
 
             <TabsContent value='pagamento' className='flex-1 overflow-auto p-4 data-[state=inactive]:hidden'>
               <div className='space-y-3'>
+                <div className='flex justify-end'>
+                  <Button variant='outline' size='sm' onClick={() => void saveOrder()} disabled={busy || !cashOpen || cart.length === 0}>
+                    Salvar pedido
+                  </Button>
+                </div>
                 <div className='space-y-1 rounded border p-3 text-sm'>
                   <div className='flex justify-between'><span>Subtotal</span><strong>{maskedFromCents(subtotalCents)}</strong></div>
                   <div className='flex justify-between'><span>Desconto na compra</span><strong>- {maskedFromCents(discountTotalCents)}</strong></div>
@@ -1060,34 +1363,17 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
                     placeholder='0,00'
                   />
                 </div>
-                <div>
-                  <Label>Recebido em dinheiro</Label>
-                  <Input
-                    value={cashReceivedMasked}
-                    onChange={(e) => {
-                      const masked = formatMoneyInput(e.target.value)
-                      setCashReceivedMasked(masked)
-                      const cents = moneyToCentsFromMasked(masked) || 0
-                      if (cents > 0) {
-                        const cashMethod = paymentMethods.find((m) => m.type === 'dinheiro')
-                        setPayments((prev) => {
-                          const idx = prev.findIndex((p) => p.payment_method_type === 'dinheiro')
-                          if (idx >= 0) {
-                            const next = [...prev]
-                            next[idx] = { ...next[idx], amountMasked: masked, payment_method_id: cashMethod?.id ?? null }
-                            return next
-                          }
-                          return [...prev, {
-                            payment_method_id: cashMethod?.id ?? null,
-                            payment_method_type: 'dinheiro',
-                            amountMasked: masked,
-                          }]
-                        })
-                      }
-                    }}
-                    placeholder='0,00'
-                  />
-                </div>
+                {hasCashPayment ? (
+                  <div>
+                    <Label>Recebido em dinheiro</Label>
+                    <Input
+                      className='mt-1'
+                      value={cashReceivedMasked}
+                      onChange={(e) => setCashReceivedMasked(formatMoneyInput(e.target.value))}
+                      placeholder='0,00'
+                    />
+                  </div>
+                ) : null}
                 <div className='space-y-2'>
                   <Button variant='outline' size='sm' onClick={() => addPaymentLine()}>Adicionar pagamento</Button>
                   {payments.map((line, idx) => (
@@ -1098,13 +1384,21 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
                         onChange={(e) => {
                           const id = e.target.value || null
                           const method = paymentMethods.find((m) => m.id === id)
-                          setPaymentLine(idx, {
-                            payment_method_id: id,
-                            payment_method_type: method ? normalizePaymentType(method.type) : line.payment_method_type,
+                          const nextType = method ? normalizePaymentType(method.type) : line.payment_method_type
+                          setPayments((prev) => {
+                            const next = prev.map((row, index) => (
+                              index === idx
+                                ? { ...row, payment_method_id: id, payment_method_type: nextType }
+                                : row
+                            ))
+                            if (!next.some((p) => p.payment_method_type === 'dinheiro')) {
+                              setCashReceivedMasked('')
+                            }
+                            return next
                           })
                         }}
                       >
-                        <option value=''>Sem método</option>
+                        <option value='' disabled>Selecione…</option>
                         {paymentMethods.map((method) => (
                           <option key={method.id} value={method.id}>{method.description}</option>
                         ))}
@@ -1129,113 +1423,166 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
               </div>
             </TabsContent>
           </Tabs>
-        </div>
+            </div>
 
-        {/* Coluna centro — carrinho */}
-        <div className='col-span-6 flex flex-col overflow-hidden border-r'>
-          <div className='flex shrink-0 items-center justify-between border-b px-4 py-2'>
-            <h2 className='font-medium'>
+            {/* Coluna centro — carrinho */}
+            <div className='flex min-h-0 flex-col overflow-hidden'>
+          <div className={cn(pdvColumnHeaderClass, 'justify-between')}>
+            <h2 className={pdvColumnTitleClass}>
               Carrinho
               {currentOrderNumber ? ` · Pedido #${currentOrderNumber}` : ''}
             </h2>
           </div>
-          <div className='flex-1 overflow-auto p-3'>
+
+          <div className='min-h-0 flex-1 overflow-auto'>
             {cart.length === 0 ? (
-              <p className='py-8 text-center text-sm text-muted-foreground'>Nenhum item no carrinho</p>
+              <p className='py-12 text-center text-sm text-muted-foreground'>Nenhum item no carrinho</p>
             ) : (
-              <div className='space-y-2'>
-                {cart.map((item) => (
-                  <div key={item.productId} className='rounded border p-2'>
-                    <div className='text-sm font-medium'>{item.name}</div>
-                    <div className='mt-1 grid grid-cols-[auto,1fr,1fr,auto] items-center gap-2'>
-                      <Input
-                        type='number'
-                        min={1}
-                        value={item.quantity}
-                        onChange={(e) => updateCartItem(item.productId, { quantity: Math.max(1, Math.round(Number(e.target.value) || 1)) })}
-                        className='h-8 w-16'
-                      />
-                      <Input
-                        value={maskedFromCents(item.unitPriceCents)}
-                        onChange={(e) => {
-                          const cents = moneyToCentsFromMasked(formatMoneyInput(e.target.value)) || 0
-                          updateCartItem(item.productId, { unitPriceCents: cents })
-                        }}
-                        className='h-8'
-                        placeholder='Unit.'
-                      />
-                      <Input
-                        value={maskedFromCents(item.discountCents)}
-                        onChange={(e) => {
-                          const cents = moneyToCentsFromMasked(formatMoneyInput(e.target.value)) || 0
-                          updateCartItem(item.productId, { discountCents: cents })
-                        }}
-                        className='h-8'
-                        placeholder='Desc.'
-                      />
-                      <Button variant='ghost' size='icon' onClick={() => removeCartItem(item.productId)}>
-                        <Trash2 className='h-4 w-4' />
-                      </Button>
-                    </div>
-                    <div className='mt-1 text-right text-xs text-muted-foreground'>
-                      Subtotal: {maskedFromCents(Math.max(0, item.quantity * item.unitPriceCents - item.discountCents))}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <table className='w-full table-fixed text-sm'>
+                <thead className='sticky top-0 z-10 border-b bg-muted/70'>
+                  <tr className='text-left text-xs font-medium text-muted-foreground'>
+                    <th className='px-3 py-2.5'>Produto</th>
+                    <th className='w-11 px-1 py-2.5 text-center'>Qtde.</th>
+                    <th className='w-[5.5rem] px-2 py-2.5 text-right'>Preço</th>
+                    <th className='w-[6rem] px-2 py-2.5 text-right'>Sub Total</th>
+                    <th className='w-[4.5rem] px-2 py-2.5 text-center'>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cart.map((item) => (
+                    <tr
+                      key={item.lineId}
+                      className={cn(
+                        'border-b border-border/80 align-middle hover:bg-muted/30',
+                        item.lineId === editingCartLineId && 'bg-primary/5 ring-1 ring-inset ring-primary/25',
+                      )}
+                    >
+                      <td className='px-3 py-2.5 align-middle'>
+                        <div className='text-xs font-medium leading-snug break-words whitespace-normal'>
+                          {item.name}
+                        </div>
+                        {item.discountCents > 0 ? (
+                          <div className='mt-0.5 text-[11px] leading-snug text-muted-foreground'>
+                            Desc. − {maskedFromCents(item.discountCents)}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td className='px-1 py-2 text-center'>
+                        <Input
+                          type='number'
+                          min={1}
+                          value={item.quantity}
+                          onChange={(e) => updateCartItem(item.lineId, { quantity: Math.max(1, Math.round(Number(e.target.value) || 1)) })}
+                          className='mx-auto h-8 w-10 min-w-0 border-transparent bg-transparent px-0.5 text-center text-xs shadow-none focus-visible:border-input focus-visible:bg-background'
+                        />
+                      </td>
+                      <td className='px-2 py-2.5 text-right tabular-nums'>
+                        {maskedFromCents(item.unitPriceCents)}
+                      </td>
+                      <td className='px-2 py-2.5 text-right font-medium tabular-nums'>
+                        {maskedFromCents(cartLineSubtotalCents(item))}
+                      </td>
+                      <td className='px-1 py-2 text-center'>
+                        <div className='flex items-center justify-center gap-0'>
+                          <Button
+                            type='button'
+                            variant='ghost'
+                            size='icon'
+                            className='h-8 w-8'
+                            onClick={() => beginEditCartItem(item.lineId)}
+                            aria-label='Editar item'
+                          >
+                            <Pencil className='h-4 w-4' />
+                          </Button>
+                          <Button
+                            type='button'
+                            variant='ghost'
+                            size='icon'
+                            className='h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive'
+                            onClick={() => {
+                              if (editingCartLineId === item.lineId) cancelCartLineEdit()
+                              removeCartItem(item.lineId)
+                            }}
+                            aria-label='Remover item'
+                          >
+                            <Trash2 className='h-4 w-4' />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             )}
+          </div>
+
+          <div className='shrink-0 border-t'>
+            <div className='flex items-center justify-between bg-primary/10 px-4 py-3'>
+              <span className='text-sm font-medium text-foreground'>Total</span>
+              <span className='text-2xl font-bold tabular-nums text-primary'>
+                {maskedFromCents(totalCents)}
+              </span>
+            </div>
+          </div>
+            </div>
+          </div>
+
+          <div className='flex shrink-0 justify-end gap-2 border-t bg-muted/40 px-4 py-2.5'>
+            <Button
+              variant='outline'
+              onClick={() => void cancelCurrentOrder()}
+              disabled={busy || (!currentOrderId && cart.length === 0)}
+            >
+              Excluir venda
+            </Button>
+            <Button onClick={() => void finalizeOrder()} disabled={busy || !cashOpen || cart.length === 0}>
+              {busy ? <Loader2 className='mr-2 h-4 w-4 animate-spin' /> : null}
+              Finalizar venda (F6)
+            </Button>
           </div>
         </div>
 
-        {/* Coluna direita — pedidos da sessão */}
-        <div className='col-span-3 flex flex-col overflow-hidden bg-muted/20'>
-          <div className='shrink-0 border-b px-3 py-2'>
-            <h2 className='text-sm font-medium'>Pedidos da sessão</h2>
+        {/* Coluna direita — últimos pedidos */}
+        <div className='col-span-2 flex min-w-0 flex-col overflow-hidden bg-muted/20'>
+          <div className={pdvColumnHeaderClass}>
+            <h2 className={pdvColumnTitleClass}>Últimos pedidos</h2>
           </div>
-          <div className='flex-1 overflow-auto p-2'>
+          <div className='flex-1 overflow-auto px-4 py-1.5'>
             {sortedOrders.length === 0 ? (
-              <p className='py-6 text-center text-xs text-muted-foreground'>Nenhum pedido nesta sessão</p>
+              <p className='py-6 text-center text-[10px] text-muted-foreground'>Nenhum pedido</p>
             ) : (
-              <div className='space-y-1.5'>
-                {sortedOrders.map((order) => (
-                  <button
-                    key={order.id}
-                    type='button'
-                    disabled={order.status !== 'in_progress'}
-                    onClick={() => void loadOrderIntoCart(order.id)}
-                    className={cn(
-                      'w-full rounded-lg border bg-background p-2 text-left transition-colors',
-                      order.status === 'in_progress' && 'cursor-pointer hover:bg-accent',
-                      order.status !== 'in_progress' && 'cursor-default opacity-80',
-                      currentOrderId === order.id && 'border-primary ring-2 ring-primary/30',
-                    )}
-                  >
-                    <div className='flex items-center justify-between gap-1'>
-                      <span className='text-sm font-medium'>#{order.order_number}</span>
-                      <Badge variant={statusVariant(order.status)} className='text-[10px] px-1.5 py-0'>{statusLabel(order.status)}</Badge>
-                    </div>
-                    <div className='mt-0.5 truncate text-xs text-muted-foreground'>{order.customer_name || 'Consumidor Final'}</div>
-                    <div className='mt-0.5 text-xs font-semibold'>{maskedFromCents(order.total_cents)}</div>
-                  </button>
-                ))}
+              <div className='space-y-1'>
+                {sortedOrders.map((order) => {
+                  const isActive = order.status === 'in_progress'
+                  return (
+                    <button
+                      key={order.id}
+                      type='button'
+                      disabled={!isActive}
+                      onClick={() => void loadOrderIntoCart(order.id)}
+                      className={cn(
+                        'w-full rounded-md border px-4 py-1.5 text-left transition-colors',
+                        isActive && 'cursor-pointer border-border bg-background hover:bg-accent',
+                        !isActive && 'cursor-default border-transparent bg-muted/40 text-muted-foreground',
+                        isActive && currentOrderId === order.id && 'border-primary ring-2 ring-primary/30',
+                      )}
+                    >
+                      <div className='flex flex-col gap-0.5'>
+                        <span className={cn('font-semibold leading-none', isActive ? 'text-sm' : 'text-xs')}>
+                          Pedido {order.order_number}
+                        </span>
+                        <span className={cn('text-[11px] tabular-nums leading-none', isActive ? 'font-medium' : 'opacity-80')}>
+                          {maskedFromCents(order.total_cents)}
+                        </span>
+                      </div>
+                    </button>
+                  )
+                })}
               </div>
             )}
           </div>
         </div>
       </div>
-
-      {/* Footer */}
-      <footer className='flex shrink-0 items-center justify-between rounded-b-xl border-t bg-muted/30 px-4 py-3'>
-        <div className='flex gap-2'>
-          <Button variant='outline' onClick={() => void saveOrder()} disabled={busy || !cashOpen}>Salvar</Button>
-          <Button variant='outline' onClick={() => void cancelCurrentOrder()} disabled={busy}>Cancelar</Button>
-          <Button onClick={() => void finalizeOrder()} disabled={busy || !cashOpen}>
-            {busy ? <Loader2 className='mr-2 h-4 w-4 animate-spin' /> : null}
-            Finalizar (F6)
-          </Button>
-        </div>
-        <div className='text-2xl font-bold'>{maskedFromCents(totalCents)}</div>
-      </footer>
 
       {/* Modal abrir caixa — não dismissable */}
       <Dialog open={showOpenCashModal && !loadingCash} onOpenChange={() => {}}>
@@ -1245,7 +1592,7 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
           </DialogHeader>
           <div className='space-y-3 py-2'>
             <div>
-              <Label>Valor inicial</Label>
+              <Label>Valor em dinheiro no caixa</Label>
               <Input
                 value={openingAmount}
                 onChange={(e) => setOpeningAmount(formatMoneyInput(e.target.value))}
@@ -1305,14 +1652,130 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
 
       {/* Fechar caixa */}
       <Dialog open={closeCashOpen} onOpenChange={setCloseCashOpen}>
-        <DialogContent aria-describedby={undefined}>
-          <DialogHeader><DialogTitle>Fechar caixa</DialogTitle></DialogHeader>
-          <div>
-            <Label>Valor contado</Label>
-            <Input value={countedAmount} onChange={(e) => setCountedAmount(formatMoneyInput(e.target.value))} placeholder='0,00' />
-          </div>
+        <DialogContent aria-describedby={undefined} className='max-h-[90vh] overflow-y-auto sm:max-w-lg'>
+          <DialogHeader>
+            <DialogTitle>Fechar caixa</DialogTitle>
+          </DialogHeader>
+
+          {loadingCloseSummary ? (
+            <div className='flex items-center justify-center py-10'>
+              <Loader2 className='h-6 w-6 animate-spin text-muted-foreground' />
+            </div>
+          ) : closeSummary ? (
+            <div className='space-y-4 py-1'>
+              <div className='space-y-2 rounded-lg border bg-muted/30 p-3 text-sm'>
+                <p className='text-xs font-medium uppercase tracking-wide text-muted-foreground'>Resumo da sessão</p>
+                <div className='flex justify-between gap-2'>
+                  <span className='text-muted-foreground'>Caixa aberto com</span>
+                  <strong>{maskedFromCents(closeSummary.opening_amount_cents)}</strong>
+                </div>
+                <div className='flex justify-between gap-2'>
+                  <span className='text-muted-foreground'>Sangrias</span>
+                  <strong className='text-destructive'>− {maskedFromCents(closeSummary.sangrias_cents)}</strong>
+                </div>
+                {closeSummary.suprimentos_cents > 0 ? (
+                  <div className='flex justify-between gap-2'>
+                    <span className='text-muted-foreground'>Suprimentos</span>
+                    <strong>+ {maskedFromCents(closeSummary.suprimentos_cents)}</strong>
+                  </div>
+                ) : null}
+                {closeSummary.total_change_cents > 0 ? (
+                  <div className='flex justify-between gap-2'>
+                    <span className='text-muted-foreground'>Troco concedido</span>
+                    <strong className='text-destructive'>− {maskedFromCents(closeSummary.total_change_cents)}</strong>
+                  </div>
+                ) : null}
+                <div className='border-t pt-2'>
+                  <p className='mb-1.5 text-xs text-muted-foreground'>Recebido no sistema por forma de pagamento</p>
+                  {closeSummary.methods_used.length === 0 ? (
+                    <p className='text-xs text-muted-foreground'>Nenhuma venda finalizada nesta sessão</p>
+                  ) : (
+                    <ul className='space-y-1'>
+                      {closeSummary.methods_used.map((type) => (
+                        <li key={type} className='flex justify-between gap-2'>
+                          <span>{PAYMENT_METHOD_LABELS[type]}</span>
+                          <strong>{maskedFromCents(closeSummary.by_method[type])}</strong>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div className='flex justify-between gap-2 border-t pt-2'>
+                  <span className='font-medium'>Dinheiro esperado no caixa</span>
+                  <strong>{maskedFromCents(closeSummary.expected_cash_cents)}</strong>
+                </div>
+                <p className='text-xs text-muted-foreground'>
+                  {closeSummary.paid_orders_count} venda(s) finalizada(s) nesta sessão
+                </p>
+              </div>
+
+              <div className='space-y-3'>
+                <p className='text-xs font-medium uppercase tracking-wide text-muted-foreground'>Conferência</p>
+                <div>
+                  <Label>Valor atual do caixa</Label>
+                  <Input
+                    value={closeCountedCash}
+                    onChange={(e) => setCloseCountedCash(formatMoneyInput(e.target.value))}
+                    placeholder='0,00'
+                    className='mt-1'
+                  />
+                  {closeCashDifferenceCents != null ? (
+                    <p className={cn(
+                      'mt-1 text-xs',
+                      closeCashDifferenceCents === 0 ? 'text-muted-foreground' : closeCashDifferenceCents > 0 ? 'text-green-700' : 'text-destructive',
+                    )}
+                    >
+                      Diferença no caixa: {closeCashDifferenceCents >= 0 ? '+' : '−'} {maskedFromCents(Math.abs(closeCashDifferenceCents))}
+                    </p>
+                  ) : null}
+                </div>
+
+                {closeSummary.methods_used
+                  .filter((type) => type !== 'dinheiro')
+                  .map((type) => {
+                    const diff = getCloseMethodDifferenceCents(type)
+                    return (
+                      <div key={type}>
+                        <Label>Valor conferido em {PAYMENT_METHOD_LABELS[type]}</Label>
+                        <p className='text-xs text-muted-foreground'>
+                          Sistema: {maskedFromCents(closeSummary.by_method[type])}
+                        </p>
+                        <Input
+                          value={closeCountedByMethod[type] || ''}
+                          onChange={(e) => setCloseCountedMethod(type, formatMoneyInput(e.target.value))}
+                          placeholder='0,00'
+                          className='mt-1'
+                        />
+                        {diff != null ? (
+                          <p className={cn(
+                            'mt-1 text-xs',
+                            diff === 0 ? 'text-muted-foreground' : diff > 0 ? 'text-green-700' : 'text-destructive',
+                          )}
+                          >
+                            Diferença: {diff >= 0 ? '+' : '−'} {maskedFromCents(Math.abs(diff))}
+                          </p>
+                        ) : null}
+                      </div>
+                    )
+                  })}
+              </div>
+            </div>
+          ) : (
+            <p className='py-6 text-center text-sm text-muted-foreground'>Não foi possível carregar o resumo</p>
+          )}
+
           <DialogFooter>
-            <Button variant='destructive' onClick={() => void closeCash()} disabled={busy}>Fechar caixa</Button>
+            <Button variant='outline' onClick={() => setCloseCashOpen(false)} disabled={busy}>
+              Cancelar
+            </Button>
+            <Button
+              variant='destructive'
+              onClick={() => void closeCash()}
+              disabled={busy || loadingCloseSummary || !closeSummary}
+            >
+              {busy ? <Loader2 className='mr-2 h-4 w-4 animate-spin' /> : null}
+              Fechar caixa
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -213,33 +213,10 @@ export async function loadSale (auth: AuthCtx, saleId: string) {
   }
 }
 
-export async function ensureStockAvailable (auth: AuthCtx, saleId: string) {
+async function loadSaleItemsForFinalize (auth: AuthCtx, saleId: string) {
   const itemsRes = await listSaleItems(auth, saleId)
   if (!itemsRes.ok) return itemsRes
   if (itemsRes.items.length === 0) return { ok: false as const, error: 'empty_sale' as const }
-
-  const productIds = itemsRes.items.map((item) => String(item.product_id))
-  const { data, error } = await auth.supabase.rpc('portal_products_list_stock_summary', {
-    p_product_ids: productIds,
-  })
-  if (error) return { ok: false as const, error: 'db_error' as const }
-
-  const stockById = new Map<string, number>()
-  for (const row of (data ?? []) as Array<{ product_id: string, current_stock: number | string }>) {
-    const raw = row.current_stock
-    const stock = typeof raw === 'number' ? raw : Number(raw)
-    stockById.set(String(row.product_id), Number.isFinite(stock) ? stock : 0)
-  }
-
-  for (const item of itemsRes.items) {
-    const pid = String(item.product_id)
-    const qty = toInt(item.quantity, 0)
-    const stock = stockById.get(pid) ?? 0
-    if (stock < qty) {
-      return { ok: false as const, error: 'stock_unavailable' as const, productId: pid, requested: qty, available: stock }
-    }
-  }
-
   return { ok: true as const, items: itemsRes.items }
 }
 
@@ -249,8 +226,8 @@ export async function finalizeSale (auth: AuthCtx, saleId: string) {
   if (saleData.sale.status === 'paid') return { ok: true as const, sale: saleData.sale }
   if (saleData.sale.status === 'canceled') return { ok: false as const, error: 'sale_canceled' as const }
 
-  const stock = await ensureStockAvailable(auth, saleId)
-  if (!stock.ok) return stock
+  const itemsResult = await loadSaleItemsForFinalize(auth, saleId)
+  if (!itemsResult.ok) return itemsResult
 
   const paidAmount = saleData.payments.reduce((acc, p) => acc + toInt(p.amount_cents, 0), 0)
   const total = toInt(saleData.sale.total_cents, 0)
@@ -259,7 +236,7 @@ export async function finalizeSale (auth: AuthCtx, saleId: string) {
   const hasCash = saleData.payments.some((p) => p.payment_method_type === 'dinheiro')
   const change = hasCash ? Math.max(0, paidAmount - total) : 0
 
-  for (const item of stock.items) {
+  for (const item of itemsResult.items) {
     const quantity = toInt(item.quantity, 1)
     const unitCost = toInt(item.unit_cost_cents ?? 0, 0)
     const ref = `pdv_sale:${saleId}:item:${item.id}`

@@ -98,7 +98,7 @@ export default function PedidoVendaDetailPage () {
           <CardHeader><CardTitle>Cliente</CardTitle></CardHeader>
           <CardContent className='space-y-1 text-sm'>
             <p><strong>Nome:</strong> {order.customer_name || 'Consumidor Final'}</p>
-            <p><strong>Tipo:</strong> {order.customer_type === 'pj' ? 'Pessoa Jurídica' : 'Pessoa Física'}</p>
+            <p><strong>Tipo:</strong> {(order.customer_type === 'pj' || order.customer_type === 'pessoa_juridica') ? 'Pessoa Jurídica' : 'Pessoa Física'}</p>
             <p><strong>Documento:</strong> {docFormatted}</p>
             <p><strong>Criado em:</strong> {new Date(order.created_at).toLocaleString('pt-BR')}</p>
           </CardContent>

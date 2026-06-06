@@ -4,11 +4,11 @@ create table if not exists public.sales_orders (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
   cash_session_id uuid not null references public.pos_cash_sessions(id) on delete restrict,
-  order_number bigint generated always as identity,
+  order_number bigint not null,
   status text not null check (status in ('in_progress', 'paid', 'canceled')),
   seller_user_id uuid not null references auth.users(id) on delete restrict,
   customer_name text null,
-  customer_type text null check (customer_type is null or customer_type in ('pf', 'pj')),
+  customer_type text not null default 'pessoa_fisica' check (customer_type in ('pessoa_fisica', 'pessoa_juridica')),
   customer_document text null,
   subtotal_cents integer not null default 0,
   discount_total_cents integer not null default 0,
@@ -33,6 +33,36 @@ create index if not exists sales_orders_org_seller_idx
 
 create index if not exists sales_orders_org_cash_session_idx
   on public.sales_orders (organization_id, cash_session_id, created_at desc);
+
+-- Numeração de pedido por organização (1, 2, 3… em cada empresa).
+create or replace function public.sales_orders_assign_order_number ()
+returns trigger
+language plpgsql
+as $$
+declare
+  next_num bigint;
+begin
+  if new.order_number is not null then
+    return new;
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext(new.organization_id::text));
+
+  select coalesce(max(s.order_number), 0) + 1
+  into next_num
+  from public.sales_orders s
+  where s.organization_id = new.organization_id;
+
+  new.order_number := next_num;
+  return new;
+end;
+$$;
+
+drop trigger if exists sales_orders_assign_order_number_trg on public.sales_orders;
+create trigger sales_orders_assign_order_number_trg
+  before insert on public.sales_orders
+  for each row
+  execute function public.sales_orders_assign_order_number();
 
 create table if not exists public.sales_order_items (
   id uuid primary key default gen_random_uuid(),

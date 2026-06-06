@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
-import { requireAdmin } from '@/lib/auth/portal-api'
+import { requireRealAdmin } from '@/lib/auth/portal-api'
 import { processBlingWebhook } from '@/lib/integrations/bling/webhook-service'
 
 export async function POST () {
-  const auth = await requireAdmin()
+  const auth = await requireRealAdmin()
   if (auth.ok === false) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
@@ -11,6 +11,7 @@ export async function POST () {
   const { data: rows, error } = await auth.supabase
     .from('integration_webhooks')
     .select('id')
+    .eq('organization_id', auth.organizationId)
     .eq('platform_id', 'bling')
     .eq('status', 'error')
     .order('created_at', { ascending: true })

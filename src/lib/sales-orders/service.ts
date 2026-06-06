@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getOpenCashSession } from '@/lib/pdv/service'
 import { syncSalesOrderFinancialTransactions } from '@/lib/finance/service-order-financial-sync'
+import { toDbCustomerType } from '@/lib/sales-orders/customer-type'
 
 export type SalesOrderItemInput = {
   product_id: string
@@ -97,7 +98,7 @@ export async function createSalesOrder (
       status: 'in_progress',
       seller_user_id: auth.userId,
       customer_name: draft.customer_name ?? 'Consumidor Final',
-      customer_type: draft.customer_type ?? 'pf',
+      customer_type: toDbCustomerType(draft.customer_type ?? 'pf'),
       customer_document: draft.customer_document ?? null,
       subtotal_cents: totals.subtotalCents,
       discount_total_cents: totals.discountTotalCents,
@@ -108,11 +109,17 @@ export async function createSalesOrder (
     .select('id')
     .single()
 
-  if (orderError || !order) return { ok: false as const, error: 'db_error' as const }
+  if (orderError || !order) {
+    console.error('[createSalesOrder] insert sales_orders failed', orderError)
+    return { ok: false as const, error: 'db_error' as const }
+  }
 
   if (items.length > 0) {
     const replace = await replaceSalesOrderItems(auth, order.id, items)
-    if (!replace.ok) return { ok: false as const, error: 'db_error' as const }
+    if (!replace.ok) {
+      await auth.supabase.from('sales_orders').delete().eq('id', order.id)
+      return { ok: false as const, error: 'db_error' as const }
+    }
   }
 
   return { ok: true as const, orderId: order.id }
@@ -137,7 +144,7 @@ export async function updateSalesOrderDraft (
 
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
   if (draft.customer_name !== undefined) patch.customer_name = draft.customer_name
-  if (draft.customer_type !== undefined) patch.customer_type = draft.customer_type
+  if (draft.customer_type !== undefined) patch.customer_type = toDbCustomerType(draft.customer_type)
   if (draft.customer_document !== undefined) patch.customer_document = draft.customer_document
 
   const discountTotalCents = draft.discount_total_cents !== undefined
@@ -204,7 +211,7 @@ export async function replaceSalesOrderItems (auth: AuthCtx, orderId: string, it
       organization_id: auth.organizationId,
       sales_order_id: orderId,
       product_id: item.product_id,
-      quantity: toInt(item.quantity, 1),
+      quantity: Math.max(1, toInt(item.quantity, 1)),
       unit_price_cents: toInt(item.unit_price_cents, 0),
       unit_cost_cents: toInt(item.unit_cost_cents ?? 0, 0),
       discount_cents: toInt(item.discount_cents ?? 0, 0),
@@ -279,53 +286,41 @@ export async function loadSalesOrder (auth: AuthCtx, orderId: string) {
   }
 }
 
-async function ensureStockAvailable (auth: AuthCtx, orderId: string) {
+async function loadSalesOrderItemsForFinalize (auth: AuthCtx, orderId: string) {
   const itemsRes = await listSalesOrderItems(auth, orderId)
   if (!itemsRes.ok) return itemsRes
   if (itemsRes.items.length === 0) return { ok: false as const, error: 'empty_order' as const }
-
-  const productIds = itemsRes.items.map((item) => String(item.product_id))
-  const { data, error } = await auth.supabase.rpc('portal_products_list_stock_summary', {
-    p_product_ids: productIds,
-  })
-  if (error) return { ok: false as const, error: 'db_error' as const }
-
-  const stockById = new Map<string, number>()
-  for (const row of (data ?? []) as Array<{ product_id: string, current_stock: number | string }>) {
-    const raw = row.current_stock
-    const stock = typeof raw === 'number' ? raw : Number(raw)
-    stockById.set(String(row.product_id), Number.isFinite(stock) ? stock : 0)
-  }
-
-  for (const item of itemsRes.items) {
-    const pid = String(item.product_id)
-    const qty = toInt(item.quantity, 0)
-    const stock = stockById.get(pid) ?? 0
-    if (stock < qty) {
-      return { ok: false as const, error: 'stock_unavailable' as const, productId: pid, requested: qty, available: stock }
-    }
-  }
-
   return { ok: true as const, items: itemsRes.items }
 }
 
-export async function finalizeSalesOrder (auth: AuthCtx, orderId: string) {
+export async function finalizeSalesOrder (
+  auth: AuthCtx,
+  orderId: string,
+  options?: { change_cents?: number | null },
+) {
   const orderData = await loadSalesOrder(auth, orderId)
   if (!orderData.ok) return orderData
   if (orderData.order.status === 'paid') return { ok: true as const, order: orderData.order }
   if (orderData.order.status === 'canceled') return { ok: false as const, error: 'order_canceled' as const }
 
-  const stock = await ensureStockAvailable(auth, orderId)
-  if (!stock.ok) return stock
+  const itemsResult = await loadSalesOrderItemsForFinalize(auth, orderId)
+  if (!itemsResult.ok) return itemsResult
 
   const paidAmount = orderData.payments.reduce((acc, p) => acc + toInt(p.amount_cents, 0), 0)
   const total = toInt(orderData.order.total_cents, 0)
   if (paidAmount < total) return { ok: false as const, error: 'payment_insufficient' as const }
 
   const hasCash = orderData.payments.some((p) => p.payment_method_type === 'dinheiro')
-  const change = hasCash ? Math.max(0, paidAmount - total) : 0
+  let change = 0
+  if (hasCash) {
+    if (options?.change_cents != null && Number.isFinite(Number(options.change_cents))) {
+      change = Math.max(0, Math.round(Number(options.change_cents)))
+    } else {
+      change = Math.max(0, paidAmount - total)
+    }
+  }
 
-  for (const item of stock.items) {
+  for (const item of itemsResult.items) {
     const quantity = toInt(item.quantity, 1)
     const unitCost = toInt(item.unit_cost_cents ?? 0, 0)
     const ref = `sales_order:${orderId}:item:${item.id}`
@@ -363,9 +358,19 @@ export async function finalizeSalesOrder (auth: AuthCtx, orderId: string) {
       supabase: auth.supabase,
       organizationId: auth.organizationId,
       orderId,
+      orderRow: {
+        id: orderData.order.id,
+        organization_id: auth.organizationId,
+        order_number: orderData.order.order_number ?? null,
+        status: 'paid',
+        updated_at: new Date().toISOString(),
+        change_cents: change,
+        total_cents: total,
+      },
     })
-  } catch {
-    return { ok: false as const, error: 'db_error' as const }
+  } catch (err) {
+    console.error('[finalizeSalesOrder] finance sync failed', err)
+    return { ok: false as const, error: 'finance_sync_failed' as const }
   }
 
   return {

@@ -464,7 +464,7 @@ function IntegrationCard({
           )}
           {isBling && isAdmin && (
             <Button size="sm" variant="ghost" asChild>
-              <Link href="/portal/admin/webhooks" className="inline-flex items-center gap-1.5">
+              <Link href="/portal/admin/webhooks?platform=bling" prefetch={false} className="inline-flex items-center gap-1.5">
                 <History className="h-4 w-4" />
                 Histórico de webhooks
               </Link>

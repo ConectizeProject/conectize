@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -59,6 +59,8 @@ type Movement = {
   /** URL da OS no portal (número de exibição quando existir). */
   service_order_href: string | null
   resale_device_id: string | null
+  sales_order_id: string | null
+  sales_order_href: string | null
   pos_sale_id: string | null
   editable: boolean
 }
@@ -80,6 +82,8 @@ function movementFromApiTransaction (tx: ApiFinancialTransactionRow, contaName: 
     service_order_id: null,
     service_order_href: null,
     resale_device_id: null,
+    sales_order_id: null,
+    sales_order_href: null,
     pos_sale_id: null,
     editable: true,
   }
@@ -138,6 +142,7 @@ export function FinanceiroMovimentacaoClient() {
   const [editingMovement, setEditingMovement] = useState<Movement | null>(null)
   const [deletingMovement, setDeletingMovement] = useState<Movement | null>(null)
   const [editAmount, setEditAmount] = useState('')
+  const [editType, setEditType] = useState<'entrada' | 'saida'>('entrada')
   const [editDescription, setEditDescription] = useState('')
   const [editOccurredAt, setEditOccurredAt] = useState('')
   const [editContaId, setEditContaId] = useState('')
@@ -251,7 +256,10 @@ export function FinanceiroMovimentacaoClient() {
         const syncedOrders = Number(data.syncedOrders) || 0
         const syncedResaleDevices = Number(data.syncedResaleDevices) || 0
         const syncedPdvSales = Number(data.syncedPdvSales) || 0
-        toast({ title: `Dados atualizados (${syncedOrders} OS, ${syncedResaleDevices} aparelhos e ${syncedPdvSales} pedidos Frente de Caixa)` })
+        const syncedSalesOrders = Number(data.syncedSalesOrders) || 0
+        toast({
+          title: `Dados atualizados (${syncedOrders} OS, ${syncedResaleDevices} aparelhos, ${syncedSalesOrders} pedidos de venda e ${syncedPdvSales} vendas PDV legado)`,
+        })
         await loadMovements()
       } else {
         toast({ title: 'Não foi possível atualizar os dados', variant: 'destructive' })
@@ -328,6 +336,21 @@ export function FinanceiroMovimentacaoClient() {
     setEditingRecurringActive(Boolean(expense.is_active))
   }
 
+  function openEditRecurringFromPending (pending: RecurringPendingDto) {
+    openEditRecurring({
+      id: pending.id,
+      description: pending.description,
+      amount_cents: pending.amount_cents,
+      conta_id: pending.conta_id,
+      billing_day: pending.billing_day,
+      is_active: pending.is_active,
+    })
+  }
+
+  const sortedRecurringPending = useMemo(() => (
+    [...recurringPending].sort((a, b) => a.due_date.localeCompare(b.due_date))
+  ), [recurringPending])
+
   async function submitEditRecurring (e: React.FormEvent) {
     e.preventDefault()
     if (!editingRecurring) return
@@ -359,8 +382,7 @@ export function FinanceiroMovimentacaoClient() {
       if (data?.ok) {
         toast({ title: 'Custo recorrente atualizado' })
         setEditingRecurring(null)
-        await loadRecurringExpenses()
-        await fetchRecurringPending()
+        await Promise.all([loadRecurringExpenses(), fetchRecurringPending()])
       } else {
         toast({ title: 'Não foi possível atualizar', variant: 'destructive' })
       }
@@ -449,6 +471,7 @@ export function FinanceiroMovimentacaoClient() {
     if (!m.editable || m.source !== 'transaction') return
     setEditingMovement(m)
     setEditAmount(maskedFromCents(Math.abs(m.amount_cents)))
+    setEditType(m.type === 'saida' || m.amount_cents < 0 ? 'saida' : 'entrada')
     setEditDescription(m.description)
     setEditOccurredAt(m.occurred_at)
     setEditContaId(m.conta_id ?? '')
@@ -470,6 +493,7 @@ export function FinanceiroMovimentacaoClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           amount_cents: cents,
+          type: editType,
           description: editDescription.trim() || null,
           occurred_at: editOccurredAt || undefined,
           conta_id: editContaId || undefined,
@@ -630,6 +654,10 @@ export function FinanceiroMovimentacaoClient() {
                           <Link href={m.service_order_href} className="text-primary hover:underline">
                             {m.description}
                           </Link>
+                        ) : m.sales_order_href ? (
+                          <Link href={m.sales_order_href} className="text-primary hover:underline">
+                            {m.description}
+                          </Link>
                         ) : m.resale_device_id ? (
                           <Link href={`/portal/revendaaparelhos/${m.resale_device_id}`} className="text-primary hover:underline">
                             {m.description}
@@ -708,47 +736,64 @@ export function FinanceiroMovimentacaoClient() {
         </Card>
 
         <Card className="mt-3">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Recorrentes</CardTitle>
+          <CardHeader className="px-3 py-2">
+            <CardTitle className="text-sm">Recorrentes</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="px-0 pb-2 pt-0">
             {loading && recurringPending.length === 0 ? (
-              <div className="flex justify-center py-4">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              <div className="flex justify-center py-3">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
               </div>
-            ) : recurringPending.length === 0 ? (
-              <p className="text-xs text-muted-foreground">Nenhuma conta recorrente.</p>
+            ) : sortedRecurringPending.length === 0 ? (
+              <p className="px-3 text-xs text-muted-foreground">Nenhuma conta recorrente.</p>
             ) : (
-              recurringPending.map((p) => (
-                <div
-                  key={p.id}
-                  className={`rounded-md border p-2.5 space-y-2 ${p.is_active ? '' : 'opacity-70'}`}
-                >
-                  <p className="text-sm font-medium leading-snug line-clamp-2" title={p.description}>
-                    {p.description}
-                    {!p.is_active ? (
-                      <span className="text-muted-foreground font-normal"> (inativo)</span>
-                    ) : null}
-                  </p>
-                  <div className="flex items-baseline justify-between gap-2 text-xs">
-                    <span className="text-muted-foreground tabular-nums">
-                      {format(new Date(`${p.due_date}T12:00:00`), 'dd/MM/yyyy', { locale: ptBR })}
-                    </span>
-                    <span className="font-medium tabular-nums text-red-600 dark:text-red-400 shrink-0">
-                      {maskedFromCents(-Math.abs(p.amount_cents))}
-                    </span>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    className="w-full h-8 text-xs"
-                    onClick={() => openSettle(p)}
+              <div className="divide-y border-t">
+                {sortedRecurringPending.map((p) => (
+                  <div
+                    key={`${p.id}-${p.due_date}`}
+                    className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1 gap-y-0.5 px-2 py-1.5 ${p.is_active ? '' : 'opacity-70'}`}
                   >
-                    Marcar como paga
-                  </Button>
-                </div>
-              ))
+                    <div className="col-span-2 min-w-0">
+                      <p className="truncate text-xs font-medium leading-tight" title={p.description}>
+                        {p.description}
+                        {!p.is_active ? (
+                          <span className="font-normal text-muted-foreground"> (inativo)</span>
+                        ) : null}
+                      </p>
+                    </div>
+                    <div className="flex min-w-0 items-center gap-2 text-[11px] leading-none text-muted-foreground">
+                      <span className="tabular-nums shrink-0">
+                        {format(new Date(`${p.due_date}T12:00:00`), 'dd/MM/yy', { locale: ptBR })}
+                      </span>
+                      <span className="truncate">{p.status_label}</span>
+                    </div>
+                    <span className="text-right text-xs font-medium tabular-nums text-red-600 dark:text-red-400">
+                      {maskedFromCents(Math.abs(p.amount_cents))}
+                    </span>
+                    <div className="col-span-2 flex items-center justify-end gap-0.5">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => openSettle(p)}
+                      >
+                        Pagar
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => openEditRecurringFromPending(p)}
+                        aria-label="Editar custo recorrente"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </CardContent>
         </Card>
@@ -766,9 +811,21 @@ export function FinanceiroMovimentacaoClient() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Editar pagamento</DialogTitle>
-            <DialogDescription>Ajuste valor, descrição, data ou conta.</DialogDescription>
+            <DialogDescription>Ajuste tipo, valor, descrição, data ou conta.</DialogDescription>
           </DialogHeader>
           <form onSubmit={submitEdit} className="space-y-4">
+            <div>
+              <Label>Tipo</Label>
+              <Select value={editType} onValueChange={(v) => setEditType(v as 'entrada' | 'saida')}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="entrada">Entrada (positivo)</SelectItem>
+                  <SelectItem value="saida">Gasto (negativo)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div>
               <Label>Descrição</Label>
               <Input value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
