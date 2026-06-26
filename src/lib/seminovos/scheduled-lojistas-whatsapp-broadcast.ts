@@ -71,7 +71,7 @@ export async function runSeminovosLojistasWhatsappBroadcast (
       SEMINOVOS_LOJISTAS_BROADCAST_JOB_KEY,
       runDay,
     )
-    if (!slot.acquired) {
+    if (slot.acquired === false) {
       if (slot.status === 'completed') {
         return {
           ok: true,
