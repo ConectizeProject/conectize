@@ -898,16 +898,22 @@ export function SeminovosListClient({
 		return total;
 	}
 
-	/** Líquido das formas de pagamento menos receita dos extras (para exibição no painel admin). */
+	/** Valor bruto do aparelho (total cobrado nas formas de pagamento − extras). */
 	function getSellDeviceSaleCents(): number | null {
-		const net = getSellNetFromPaymentsCents();
-		if (net === null) return null;
-		const device = net - getSellAddonRevenueCents();
+		const gross = getSellPaymentsTotalCents();
+		if (gross === null) return null;
+		const device = gross - getSellAddonRevenueCents();
 		return device > 0 ? device : null;
 	}
 
+	/** Receita bruta da operação: pagamentos + troca (taxas são deduzidas no painel). */
 	function getSellTransactionTotalCents(): number | null {
-		return getSellNetFromPaymentsCents();
+		const gross = getSellPaymentsTotalCents();
+		const tradeIn = getSellTradeInTotalCents();
+		if (gross === null && tradeIn <= 0) return null;
+		const total = (gross ?? 0) + tradeIn;
+		if (total <= 0) return null;
+		return total;
 	}
 
 	function addSellAddonProduct(p: SellAddonCatalogRow) {
@@ -1074,12 +1080,12 @@ export function SeminovosListClient({
 			return;
 		}
 
-		const transactionTotal = getSellNetFromPaymentsCents();
+		const transactionTotal = getSellTransactionTotalCents();
 		if (transactionTotal === null || transactionTotal <= 0) {
 			toast({
 				title: "Valor da venda",
 				description:
-					"O total da venda (pagamentos líquidos + troca) deve ser maior que zero.",
+					"O total da venda (pagamentos + troca) deve ser maior que zero.",
 				variant: "destructive",
 			});
 			return;

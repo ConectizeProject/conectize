@@ -778,10 +778,23 @@ export function SeminovosFormClient ({
     return moneyToCentsFromMasked(sellDeviceAmountMasked)
   }
 
+  /** Total líquido esperado (valor do aparelho + extras), para validar pagamentos. */
   function getSellTransactionTotalCents (): number | null {
     const device = getSellDeviceSaleCents()
     if (device === null || device < 0) return null
     return device + getSellAddonRevenueCents()
+  }
+
+  /** Valor bruto cobrado nas formas de pagamento (menos extras), para o painel de lucro. */
+  function getSellProfitPanelDeviceSaleCents (): number | null {
+    const gross = getSellPaymentsTotalCents()
+    if (gross === null) return null
+    const device = gross - getSellAddonRevenueCents()
+    return device > 0 ? device : null
+  }
+
+  function getSellProfitPanelTransactionTotalCents (): number | null {
+    return getSellPaymentsTotalCents()
   }
 
   function getSellNetFromPaymentsCents (): number | null {
@@ -1079,7 +1092,7 @@ export function SeminovosFormClient ({
 
     const payload: Record<string, unknown> = {
       sold: true,
-      sold_for_cents: transactionTotal,
+      sold_for_cents: paymentsSum,
       sale_date: sellModalDate || null,
       sale_payment_methods: salePaymentMethodsPayload,
       sale_commission_user_id: sellCommissionEnabled ? commissionUserIdForDb : null,
@@ -2317,8 +2330,8 @@ export function SeminovosFormClient ({
               sellPaymentMethods={sellPaymentMethods}
               paymentMethods={paymentMethods}
               isAdmin={isAdmin}
-              transactionTotalCents={getSellTransactionTotalCents()}
-              deviceSaleCents={getSellDeviceSaleCents()}
+              transactionTotalCents={getSellProfitPanelTransactionTotalCents()}
+              deviceSaleCents={getSellProfitPanelDeviceSaleCents()}
               addonLines={sellAddonItems}
               addonCostTotalCents={getSellAddonCostTotalCents()}
               commissionUserName={
