@@ -8,7 +8,7 @@ import { shouldSkipDuplicateLoginSessionProbe } from '@/lib/auth/login-session-p
 import { assertSafePortalPath } from '@/lib/auth/safe-redirect'
 import { getAuthSiteOrigin } from '@/lib/auth/site-origin'
 import { useSupabaseBrowserClient } from '@/lib/supabase/use-supabase-browser-client'
-import { getAuthErrorMessage } from '@/lib/utils/error-messages'
+import { getAuthErrorMessage, isAuthNetworkError } from '@/lib/utils/error-messages'
 import { AuthCardLayout } from '@/components/auth/AuthCardLayout'
 import { AuthDivider } from '@/components/auth/AuthDivider'
 import { AuthFormMessages } from '@/components/auth/AuthFormMessages'
@@ -50,6 +50,17 @@ export function LoginClient ({ fallbackReturnPath = '/portal' }: LoginClientProp
 
   const redirectIfValidSessionRan = useRef(false)
 
+  useEffect(() => {
+    const oauthError = searchParams.get('error')
+    if (!oauthError?.trim()) return
+    setErrorMessage(
+      getAuthErrorMessage(
+        { message: oauthError },
+        'Não foi possível concluir o login. Tente novamente.',
+      ),
+    )
+  }, [searchParams])
+
   /**
    * 1) Para o auto-refresh do GoTrue antes de qualquer outra chamada — evita ticks / recover
    *    em loop quando o host do Supabase não resolve (DNS).
@@ -69,6 +80,9 @@ export function LoginClient ({ fallbackReturnPath = '/portal' }: LoginClientProp
       const { data: sessionData, error: sessionErr } = await supabase.auth.getSession()
       if (!alive) return
       if (sessionErr) {
+        if (isAuthNetworkError(sessionErr)) {
+          setErrorMessage(getAuthErrorMessage(sessionErr, ''))
+        }
         await supabase.auth.signOut({ scope: 'local' }).catch(() => {})
         return
       }
@@ -130,8 +144,8 @@ export function LoginClient ({ fallbackReturnPath = '/portal' }: LoginClientProp
       }
 
       setMessage('Se existir uma conta com este e-mail, enviaremos um link para redefinir sua senha. Pode levar alguns minutos — verifique também o spam/lixo eletrônico.')
-    } catch {
-      setErrorMessage('Não foi possível solicitar a redefinição agora. Tente novamente.')
+    } catch (err) {
+      setErrorMessage(getAuthErrorMessage(err, 'Não foi possível solicitar a redefinição agora. Tente novamente.'))
     } finally {
       setIsSendingRecovery(false)
     }
@@ -169,8 +183,8 @@ export function LoginClient ({ fallbackReturnPath = '/portal' }: LoginClientProp
       }
 
       setMessage('Enviamos um link de acesso para seu e-mail. Abra o link para entrar no portal.')
-    } catch {
-      setErrorMessage('Não foi possível enviar o link agora. Tente novamente.')
+    } catch (err) {
+      setErrorMessage(getAuthErrorMessage(err, 'Não foi possível enviar o link agora. Tente novamente.'))
     } finally {
       setIsMagicLinkLoading(false)
     }
@@ -198,8 +212,8 @@ export function LoginClient ({ fallbackReturnPath = '/portal' }: LoginClientProp
       if (data?.url) {
         window.location.href = data.url
       }
-    } catch {
-      setErrorMessage('Não foi possível entrar com Google. Tente novamente.')
+    } catch (err) {
+      setErrorMessage(getAuthErrorMessage(err, 'Não foi possível entrar com Google. Tente novamente.'))
     } finally {
       setIsGoogleLoading(false)
     }
@@ -242,8 +256,8 @@ export function LoginClient ({ fallbackReturnPath = '/portal' }: LoginClientProp
       }
 
       setIsRedirecting(true)
-    } catch {
-      setErrorMessage('Não foi possível entrar agora. Tente novamente.')
+    } catch (err) {
+      setErrorMessage(getAuthErrorMessage(err, 'Não foi possível entrar agora. Tente novamente.'))
       setIsSubmitting(false)
     }
   }

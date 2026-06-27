@@ -8,6 +8,63 @@ export const AUTH_ERROR_CODES: Record<string, string> = {
     'Por segurança, há um limite de envio de e-mails. Aguarde alguns segundos antes de solicitar novamente.',
 }
 
+/** Mensagem quando o Supabase/rede não responde (DNS, timeout, offline). */
+export const AUTH_NETWORK_UNAVAILABLE_MESSAGE =
+  'Servidor de autenticação indisponível ou sem conexão com a internet. Verifique sua rede e tente novamente em instantes.'
+
+const AUTH_NETWORK_ERROR_PATTERNS = [
+  'failed to fetch',
+  'fetch failed',
+  'networkerror',
+  'network request failed',
+  'load failed',
+  'connect timeout',
+  'connect_timeouterror',
+  'eai_again',
+  'enotfound',
+  'econnrefused',
+  'econnreset',
+  'etimedout',
+  'und_err_connect_timeout',
+  'und_err_socket',
+  'getaddrinfo',
+]
+
+function collectAuthErrorText (error: unknown, maxDepth = 4): string {
+  const parts: string[] = []
+  let current: unknown = error
+  let depth = 0
+
+  while (current != null && depth < maxDepth) {
+    if (typeof current === 'string') {
+      parts.push(current)
+      break
+    }
+    if (current instanceof Error) {
+      parts.push(current.message)
+      const code = (current as Error & { code?: string }).code
+      if (code) parts.push(String(code))
+      current = current.cause
+    } else if (typeof current === 'object') {
+      const obj = current as { message?: string; code?: string; cause?: unknown }
+      if (obj.message) parts.push(String(obj.message))
+      if (obj.code) parts.push(String(obj.code))
+      current = obj.cause
+    } else {
+      break
+    }
+    depth++
+  }
+
+  return parts.join(' ').toLowerCase()
+}
+
+/** Indica falha de rede/DNS/timeout ao falar com o Supabase (não é credencial inválida). */
+export function isAuthNetworkError (error: unknown): boolean {
+  const blob = collectAuthErrorText(error)
+  return AUTH_NETWORK_ERROR_PATTERNS.some((pattern) => blob.includes(pattern))
+}
+
 /** Padrões de erro de autenticação (substring na mensagem) -> mensagem em português */
 export const AUTH_ERROR_PATTERNS: Array<[string, string]> = [
   ['invalid login credentials', 'E-mail ou senha inválidos.'],
@@ -104,15 +161,14 @@ export function getAuthErrorMessage(
   error: unknown,
   fallback = 'Não foi possível concluir a operação. Tente novamente.'
 ): string {
+  if (isAuthNetworkError(error)) return AUTH_NETWORK_UNAVAILABLE_MESSAGE
+
   if (typeof error === 'object' && error && 'code' in error) {
     const code = String((error as { code?: string }).code ?? '')
     const msg = AUTH_ERROR_CODES[code]
     if (msg) return msg
   }
-  const message =
-    typeof error === 'object' && error && 'message' in error
-      ? String((error as { message?: string }).message ?? '')
-      : ''
+  const message = collectAuthErrorText(error)
   const normalized = message.toLowerCase()
 
   for (const [pattern, msg] of AUTH_ERROR_PATTERNS) {

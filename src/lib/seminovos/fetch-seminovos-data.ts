@@ -62,6 +62,8 @@ export type SeminovosFilters = {
   /** Catálogo revenda: faixa sobre o menor preço cadastrado (varejo/atacado), em centavos. */
   valueMinCents?: number | null
   valueMaxCents?: number | null
+  /** Cron / service role: filtra por organização (RLS bypass). */
+  organizationId?: string
 }
 
 export async function fetchSeminovosDevices(
@@ -116,7 +118,13 @@ export async function fetchSeminovosDevices(
     deviceName,
     valueMinCents,
     valueMaxCents,
+    organizationId,
   } = filters
+
+  const orgId = (organizationId || '').trim()
+  if (orgId) {
+    query = query.eq('organization_id', orgId)
+  }
 
   if (!includeSold) {
     query = query.eq('sold', false)
