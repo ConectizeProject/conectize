@@ -20,12 +20,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import Link from 'next/link'
 import {
   Bot,
+  CalendarClock,
   Check,
   ExternalLink,
   History,
   Loader2,
   MessageCircle,
   Package,
+  Play,
   QrCode,
   RefreshCw,
   Settings,
@@ -184,6 +186,44 @@ type WhatsappEvolutionConfig = {
   webhook_secret_configured: boolean
 }
 
+type LojistasRoutineRun = {
+  run_day: string
+  status: 'running' | 'completed' | 'failed'
+  created_at: string
+  completed_at: string | null
+  result: Record<string, unknown> | null
+}
+
+type LojistasRoutineStatus = {
+  available: boolean
+  today?: string
+  last_run?: LojistasRoutineRun | null
+}
+
+function formatRunDayBr (runDay: string): string {
+  const [y, m, d] = runDay.split('-')
+  if (!y || !m || !d) return runDay
+  return `${d}/${m}/${y}`
+}
+
+function lojistasRoutineBadge (routine: LojistasRoutineStatus): {
+  label: string
+  variant: 'default' | 'secondary' | 'destructive' | 'outline'
+  className?: string
+} {
+  const last = routine.last_run
+  if (last && routine.today && last.run_day === routine.today) {
+    if (last.status === 'completed') {
+      return { label: 'Enviada hoje', variant: 'default', className: 'bg-green-600 hover:bg-green-600' }
+    }
+    if (last.status === 'running') {
+      return { label: 'Executando…', variant: 'secondary' }
+    }
+    return { label: 'Falhou hoje', variant: 'destructive' }
+  }
+  return { label: 'Agendada · 10h', variant: 'outline' }
+}
+
 function isBlingTokenExpired (expiresAt: string | null | undefined) {
   if (!expiresAt) return true
   const expiry = Date.parse(expiresAt)
@@ -248,6 +288,71 @@ function getBlingReconnectStatus (connection: BlingConnection) {
   }
 }
 
+function LojistasRoutinePanel ({
+  routine,
+  onRun,
+  isRunning,
+}: {
+  routine: LojistasRoutineStatus
+  onRun?: () => void
+  isRunning: boolean
+}) {
+  const badge = lojistasRoutineBadge(routine)
+  const last = routine.last_run
+  const devicesCount =
+    last?.result && typeof last.result.devicesCount === 'number'
+      ? last.result.devicesCount
+      : null
+  const lastError =
+    last?.status === 'failed' && typeof last.result?.error === 'string'
+      ? String(last.result.error)
+      : null
+
+  return (
+    <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <CalendarClock className="h-3.5 w-3.5" aria-hidden="true" />
+          Rotina: lista de seminovos p/ lojistas
+        </p>
+        <Badge variant={badge.variant} className={`shrink-0 text-[10px] ${badge.className || ''}`}>
+          {badge.label}
+        </Badge>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Envia diariamente às 10h (via GitHub Actions) a lista de atacado no grupo do WhatsApp.
+      </p>
+      {last ? (
+        <p className="text-xs text-muted-foreground">
+          Última execução: {formatRunDayBr(last.run_day)}
+          {devicesCount !== null ? ` · ${devicesCount} aparelhos` : ''}
+        </p>
+      ) : (
+        <p className="text-xs text-muted-foreground">Nenhuma execução registrada ainda.</p>
+      )}
+      {lastError ? (
+        <p className="text-xs text-destructive break-words">Erro: {lastError}</p>
+      ) : null}
+      {onRun ? (
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7"
+          disabled={isRunning}
+          onClick={onRun}
+        >
+          {isRunning ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Play className="h-3.5 w-3.5" />
+          )}
+          <span className="ml-1">{isRunning ? 'Enviando…' : 'Rodar agora'}</span>
+        </Button>
+      ) : null}
+    </div>
+  )
+}
+
 function IntegrationCard({
   integration,
   isConnected,
@@ -263,6 +368,9 @@ function IntegrationCard({
   whatsappConfig,
   onConfigureWhatsappEvolution,
   whatsappEvolutionConfig,
+  lojistasRoutine,
+  onRunLojistasRoutine,
+  lojistasRoutineRunning,
 }: {
   integration: Integration
   isConnected: boolean
@@ -278,6 +386,9 @@ function IntegrationCard({
   whatsappConfig?: WhatsappConfig | null
   onConfigureWhatsappEvolution?: () => void
   whatsappEvolutionConfig?: WhatsappEvolutionConfig | null
+  lojistasRoutine?: LojistasRoutineStatus | null
+  onRunLojistasRoutine?: () => void
+  lojistasRoutineRunning?: boolean
 }) {
   const Icon = integration.icon
   const isComingSoon = integration.status === 'coming_soon'
@@ -411,6 +522,13 @@ function IntegrationCard({
             ))}
           </div>
         ) : null}
+        {isWhatsappEvolution && lojistasRoutine?.available ? (
+          <LojistasRoutinePanel
+            routine={lojistasRoutine}
+            onRun={onRunLojistasRoutine}
+            isRunning={lojistasRoutineRunning === true}
+          />
+        ) : null}
         <div className="flex items-center gap-2 flex-wrap">
           {isWhatsapp && isAdmin && onConfigureWhatsapp ? (
             <Button size="sm" onClick={onConfigureWhatsapp}>
@@ -533,6 +651,47 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
     unrestricted: true,
     userIds: [],
   })
+  const [lojistasRoutine, setLojistasRoutine] = useState<LojistasRoutineStatus | null>(null)
+  const [lojistasRoutineRunning, setLojistasRoutineRunning] = useState(false)
+
+  const loadLojistasRoutineStatus = useCallback(async () => {
+    const res = await fetch('/api/portal/hub/whatsapp-lojistas-broadcast')
+    const data = await res.json().catch(() => null)
+    if (!res.ok || !data?.ok) return
+    setLojistasRoutine(data as LojistasRoutineStatus)
+  }, [])
+
+  useEffect(() => {
+    if (!isAdmin) return
+    void loadLojistasRoutineStatus()
+  }, [isAdmin, loadLojistasRoutineStatus])
+
+  async function handleRunLojistasRoutine () {
+    if (!confirm('Enviar agora a lista de seminovos no grupo de lojistas do WhatsApp?')) return
+
+    setLojistasRoutineRunning(true)
+    try {
+      const res = await fetch('/api/portal/hub/whatsapp-lojistas-broadcast', { method: 'POST' })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        toast({
+          title: 'Falha ao enviar a lista',
+          description: String((data as { hint?: string })?.hint || data?.error || 'Tente novamente.'),
+          variant: 'destructive',
+        })
+        return
+      }
+      const devicesCount = typeof data.devicesCount === 'number' ? data.devicesCount : null
+      toast({
+        variant: 'success',
+        title: 'Lista enviada ao grupo',
+        description: devicesCount !== null ? `${devicesCount} aparelhos na lista.` : undefined,
+      })
+    } finally {
+      setLojistasRoutineRunning(false)
+      void loadLojistasRoutineStatus()
+    }
+  }
 
   function resetEvolutionQrState () {
     setEvolutionQrPolling(false)
@@ -1330,6 +1489,13 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
               whatsappConfig={integration.id === 'whatsapp_business' ? whatsappConfig : undefined}
               onConfigureWhatsappEvolution={integration.id === 'whatsapp_evolution' ? handleOpenEvolutionConfig : undefined}
               whatsappEvolutionConfig={integration.id === 'whatsapp_evolution' ? evolutionConfig : undefined}
+              lojistasRoutine={integration.id === 'whatsapp_evolution' && isAdmin ? lojistasRoutine : undefined}
+              onRunLojistasRoutine={
+                integration.id === 'whatsapp_evolution' && isAdmin
+                  ? () => void handleRunLojistasRoutine()
+                  : undefined
+              }
+              lojistasRoutineRunning={integration.id === 'whatsapp_evolution' ? lojistasRoutineRunning : undefined}
             />
           ))}
         </div>

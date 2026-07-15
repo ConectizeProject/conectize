@@ -66,8 +66,14 @@ export function hintForWhatsappSendError (
 		}
 	}
 
-	if (low.includes('fetch_failed') || low.includes('econnrefused')) {
-		return 'O servidor Next não alcançou a Evolution API. Confira WHATSAPP_EVOLUTION_API_URL e se o Docker está rodando.'
+	if (
+		low.includes('fetch_failed')
+		|| low.includes('fetch failed')
+		|| low.includes('econnrefused')
+		|| low.includes('enotfound')
+		|| low.includes('etimedout')
+	) {
+		return 'O servidor Next não alcançou a Evolution API. Em produção (Vercel), WHATSAPP_EVOLUTION_API_URL deve ser uma URL pública (não localhost). Confira também WHATSAPP_EVOLUTION_API_KEY e se o Docker/servidor Evolution está no ar.'
 	}
 
 	return undefined
