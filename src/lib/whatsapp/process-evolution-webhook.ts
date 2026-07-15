@@ -25,10 +25,6 @@ import { attachEvolutionMediaToStoredMessage } from '@/lib/whatsapp/whatsapp-med
 import { applyWhatsappMessageDeliveryStatus } from '@/lib/whatsapp/apply-whatsapp-message-delivery-status'
 import { parseEvolutionMessageStatusUpdates } from '@/lib/whatsapp/parse-evolution-message-status'
 import { processWhatsappInboundTurn } from '@/lib/whatsapp/whatsapp-inbound-pipeline'
-import {
-	tryWhatsappPixRelayInbound,
-	tryWhatsappPixRelayOutbound,
-} from '@/lib/whatsapp/whatsapp-pix-relay'
 
 async function tryAttachEvolutionMedia (
 	supabase: SupabaseClient,
@@ -88,16 +84,13 @@ export async function processEvolutionWebhookPayload (
 			} else {
 				const conn = await findEvolutionHubByInstance(supabase, m.instance)
 				if (!conn) continue
-				const pixHandled = await tryWhatsappPixRelayOutbound(supabase, m, conn)
-				if (!pixHandled) {
-					await recordEvolutionOutboundMirror({
-						supabase,
-						organizationId: conn.organization_id,
-						hubConnectionId: conn.id,
-						instanceName: String(conn.metadata.instance_name || m.instance),
-						message: m,
-					})
-				}
+				await recordEvolutionOutboundMirror({
+					supabase,
+					organizationId: conn.organization_id,
+					hubConnectionId: conn.id,
+					instanceName: String(conn.metadata.instance_name || m.instance),
+					message: m,
+				})
 				await tryAttachEvolutionMedia(supabase, m, conn)
 				stats.ingested_out += 1
 			}
@@ -172,16 +165,6 @@ async function processOneEvolutionInbound (
 			toTarget,
 			body,
 		})
-	}
-
-	if (item.direction === 'in') {
-		const pixHandled = await tryWhatsappPixRelayInbound({
-			supabase,
-			conn,
-			item,
-			outboundSend,
-		})
-		if (pixHandled) return
 	}
 
 	await processWhatsappInboundTurn({

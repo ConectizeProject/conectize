@@ -8,6 +8,7 @@ import {
 import { CONECTIZE_HOST_ORGANIZATION_ID } from '@/lib/organizations/constants'
 import { fetchSeminovosDevices } from '@/lib/seminovos/fetch-seminovos-data'
 import { buildConectizeStockWhatsAppTexts } from '@/lib/seminovos/whatsapp-stock-broadcast-text'
+import { hintForWhatsappSendError } from '@/lib/whatsapp/evolution-send-errors'
 import { isGroupWaKey } from '@/lib/whatsapp/wa-conversation-key'
 import { resolveOrganizationWhatsappOutbound } from '@/lib/whatsapp/whatsapp-outbound'
 
@@ -41,6 +42,7 @@ export type SeminovosLojistasBroadcastResult =
   | {
       ok: false
       error: string
+      hint?: string
       devicesCount?: number
       groupJid?: string
     }
@@ -144,9 +146,11 @@ export async function runSeminovosLojistasWhatsappBroadcast (
   })
 
   if (send.ok === false) {
+    const err = typeof send.error === 'string' ? send.error : 'send_failed'
     const failure = {
       ok: false as const,
-      error: typeof send.error === 'string' ? send.error : 'send_failed',
+      error: err,
+      hint: hintForWhatsappSendError(err, 'evolution'),
       devicesCount: available.length,
       groupJid,
     }

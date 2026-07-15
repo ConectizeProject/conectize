@@ -1,4 +1,4 @@
-# Ativa recebimento de mensagens de GRUPO na Evolution (obrigatório para relay /pix).
+# Ativa recebimento de mensagens de GRUPO na Evolution.
 # Uso: .\scripts\enable-group-messages.ps1 -InstanceName Victor
 
 param(

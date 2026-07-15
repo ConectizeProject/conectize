@@ -39,13 +39,13 @@ where table_schema = 'public'
   and table_name = 'whatsapp_conversations'
   and column_name = 'last_message_preview';
 
--- 6) Relay /pix (20260521140000)
-select exists (
+-- 6) Relay /pix removido (20260715211500) — tabela não deve existir
+select not exists (
   select 1
   from information_schema.tables
   where table_schema = 'public'
     and table_name = 'whatsapp_pix_relay_pending'
-) as whatsapp_pix_relay_pending_table;
+) as whatsapp_pix_relay_pending_dropped;
 
 -- 7) Múltiplas instâncias Evolution (20260521150000)
 select indexname
