@@ -21,37 +21,9 @@ import {
 	markEvolutionMessageDeleted,
 	recordEvolutionOutboundMirror,
 } from '@/lib/whatsapp/whatsapp-evolution-message-sync'
-import { attachEvolutionMediaToStoredMessage } from '@/lib/whatsapp/whatsapp-media-storage'
 import { applyWhatsappMessageDeliveryStatus } from '@/lib/whatsapp/apply-whatsapp-message-delivery-status'
 import { parseEvolutionMessageStatusUpdates } from '@/lib/whatsapp/parse-evolution-message-status'
 import { processWhatsappInboundTurn } from '@/lib/whatsapp/whatsapp-inbound-pipeline'
-
-async function tryAttachEvolutionMedia (
-	supabase: SupabaseClient,
-	item: EvolutionMessageUpsert,
-	conn: Awaited<ReturnType<typeof findEvolutionHubByInstance>>,
-): Promise<void> {
-	if (!item.media || !item.mediaDownloadRequest || !conn) return
-	const baseUrl = resolveEvolutionApiBaseUrl(conn.metadata)
-	const apiKey = resolveEvolutionApiKey(conn.access_token)
-	const instanceName = String(conn.metadata.instance_name || item.instance).trim()
-	if (!baseUrl || !apiKey || !instanceName) return
-
-	try {
-		await attachEvolutionMediaToStoredMessage({
-			supabase,
-			organizationId: conn.organization_id,
-			stableWaMessageId: item.stableWaMessageId,
-			baseUrl,
-			apiKey,
-			instanceName,
-			downloadRequest: item.mediaDownloadRequest,
-			media: item.media,
-		})
-	} catch (e) {
-		console.warn('[whatsapp-evolution] media attach', item.stableWaMessageId, e)
-	}
-}
 
 export async function processEvolutionWebhookPayload (
 	supabase: SupabaseClient,
@@ -77,9 +49,7 @@ export async function processEvolutionWebhookPayload (
 		const upserts = parseEvolutionMessageUpserts(body)
 		for (const m of upserts) {
 			if (m.direction === 'in') {
-				const conn = await findEvolutionHubByInstance(supabase, m.instance)
 				await processOneEvolutionInbound(supabase, m)
-				await tryAttachEvolutionMedia(supabase, m, conn)
 				stats.ingested_in += 1
 			} else {
 				const conn = await findEvolutionHubByInstance(supabase, m.instance)
@@ -91,7 +61,6 @@ export async function processEvolutionWebhookPayload (
 					instanceName: String(conn.metadata.instance_name || m.instance),
 					message: m,
 				})
-				await tryAttachEvolutionMedia(supabase, m, conn)
 				stats.ingested_out += 1
 			}
 		}

@@ -1068,7 +1068,7 @@ export function WhatsappInboxClient () {
   return (
     <div className="flex min-h-[min(720px,calc(100vh-10rem))] flex-1 flex-col">
       <div className="grid min-h-0 flex-1 overflow-hidden rounded-lg border border-[#d1d7db] dark:border-[#2a3942] lg:grid-cols-[minmax(280px,360px)_1fr]">
-        <div className="flex max-h-[min(720px,calc(100vh-10rem))] flex-col overflow-hidden border-r border-[#d1d7db] bg-white dark:border-[#2a3942] dark:bg-[#111b21]">
+        <div className="flex flex-col overflow-hidden border-r border-[#d1d7db] bg-white dark:border-[#2a3942] dark:bg-[#111b21]">
           <div className="space-y-2 border-b border-[#d1d7db] bg-[#f0f2f5] px-3 py-3 dark:border-[#2a3942] dark:bg-[#202c33]">
             {hasMultipleChannels ? (
               <div className="flex gap-1 overflow-x-auto rounded-lg bg-[#e9edef]/80 p-0.5 dark:bg-[#111b21]/60">
