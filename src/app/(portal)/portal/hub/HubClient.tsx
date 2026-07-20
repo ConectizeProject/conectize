@@ -221,7 +221,7 @@ function lojistasRoutineBadge (routine: LojistasRoutineStatus): {
     }
     return { label: 'Falhou hoje', variant: 'destructive' }
   }
-  return { label: 'Agendada · 10h', variant: 'outline' }
+  return { label: 'Agendada · ~9h', variant: 'outline' }
 }
 
 function isBlingTokenExpired (expiresAt: string | null | undefined) {
@@ -320,7 +320,7 @@ function LojistasRoutinePanel ({
         </Badge>
       </div>
       <p className="text-xs text-muted-foreground">
-        Envia diariamente às 10h (via GitHub Actions) a lista de atacado no grupo do WhatsApp.
+        Envia diariamente por volta das 9h (via GitHub Actions) a lista de atacado no grupo do WhatsApp.
       </p>
       {last ? (
         <p className="text-xs text-muted-foreground">
