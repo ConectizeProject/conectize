@@ -2,8 +2,10 @@ name: WhatsApp Lista Lojistas Seminovos
 
 on:
   schedule:
-    # 10:00 America/Sao_Paulo (BRT, UTC-3) = 13:00 UTC
-    - cron: '0 13 * * *'
+    # Alvo: ~09:00 America/Sao_Paulo (BRT, UTC-3) = 12:00 UTC.
+    # Agendado 11:40 UTC (08:40 BRT) fora do minuto 0 porque o GitHub Actions
+    # costuma atrasar crons em horários concorridos (chegou a rodar 2h depois).
+    - cron: '40 11 * * *'
   workflow_dispatch:
 
 jobs:
