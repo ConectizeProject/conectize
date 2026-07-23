@@ -50,7 +50,6 @@ export async function createOrderAction(formData: FormData) {
   const brand = String(formData.get('brand') || '').trim()
   const model = String(formData.get('model') || '').trim()
   const deviceType = String(formData.get('deviceType') || '').trim()
-  const service = ''
 
   if (!document || (document.length !== 11 && document.length !== 14)) {
     redirect(`/portal/ordens/nova?error=${document && document.length > 11 ? 'cnpj_invalido' : 'cpf_invalido'}`)
@@ -115,7 +114,6 @@ export async function createOrderAction(formData: FormData) {
       status,
       brand: brand || null,
       model: model || null,
-      service: service || null,
       created_by: user.id,
       seller_user_id: sellerUserId,
       device_model_id: deviceModelId,
