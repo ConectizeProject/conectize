@@ -427,7 +427,6 @@ create table if not exists public.service_orders (
   device text,
   brand text,
   model text,
-  service text,
   created_by uuid null references auth.users(id) on delete set null,
   seller_user_id uuid null references auth.users(id) on delete set null,
   device_model_id uuid null references public.device_models(id) on delete set null,
