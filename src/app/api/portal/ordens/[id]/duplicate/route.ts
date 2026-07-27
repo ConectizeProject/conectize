@@ -88,8 +88,6 @@ export async function GET (
       status,
       title,
       device_model_id,
-      brand,
-      model,
       color,
       device_location,
       imei,
@@ -129,6 +127,16 @@ export async function GET (
   const dtRaw = dm?.device_types
   const dt = Array.isArray(dtRaw) ? dtRaw[0] : dtRaw
   const deviceType = dt && typeof dt === 'object' ? String((dt as { name?: string }).name ?? '') : ''
+  const brandRaw =
+    dt && typeof dt === 'object'
+      ? (dt as { device_brands?: unknown }).device_brands
+      : null
+  const brandRow = Array.isArray(brandRaw) ? brandRaw[0] : brandRaw
+  const brandName =
+    brandRow && typeof brandRow === 'object'
+      ? String((brandRow as { name?: string }).name ?? '')
+      : ''
+  const modelName = dm ? String(dm.model ?? '') : ''
 
   let documentDigits = ''
   if (cust) {
@@ -174,8 +182,8 @@ export async function GET (
     title: String(o.title ?? ''),
     status: statusForNovaOrdemForm(o.status),
     deviceModelId: o.device_model_id ? String(o.device_model_id) : '',
-    brand: String(o.brand ?? ''),
-    model: o.device_model_id && dm ? String(dm.model ?? o.model ?? '') : String(o.model ?? ''),
+    brand: brandName,
+    model: modelName,
     deviceType,
     imei: String(o.imei ?? ''),
     color: String(o.color ?? ''),

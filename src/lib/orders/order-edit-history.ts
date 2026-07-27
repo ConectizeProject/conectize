@@ -78,8 +78,6 @@ function normalizeIso (value: unknown): string {
 
 function parseOrderPaymentMethodsForCompare (order: {
   payment_methods?: unknown
-  payment_method_id?: string | null
-  installments?: number | null
 }): Array<{ payment_method_id: string; installments?: number; value_cents?: number | null }> {
   let pm = order?.payment_methods
   if (typeof pm === 'string') {
@@ -102,10 +100,6 @@ function parseOrderPaymentMethodsForCompare (order: {
         }
       })
       .filter(Boolean) as Array<{ payment_method_id: string; installments?: number; value_cents?: number | null }>
-  }
-  const legacyId = parseOptionalUuid(order?.payment_method_id)
-  if (legacyId) {
-    return [{ payment_method_id: legacyId, installments: order?.installments ?? 1, value_cents: null }]
   }
   return []
 }
@@ -280,7 +274,7 @@ function serializeScalar (key: string, value: unknown): string {
   }
   if (typeof value === 'object') return JSON.stringify(value)
   if (typeof value === 'string') {
-    const t = ['title', 'imei', 'color', 'device_location', 'customer_description', 'receiving_notes', 'warranty_text', 'brand', 'model', 'passcode_text', 'passcode_pattern'].includes(key)
+    const t = ['title', 'imei', 'color', 'device_location', 'customer_description', 'receiving_notes', 'warranty_text', 'passcode_text', 'passcode_pattern'].includes(key)
     return t ? value.trim() : value
   }
   return String(value)

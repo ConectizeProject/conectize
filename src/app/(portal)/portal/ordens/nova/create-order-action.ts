@@ -112,8 +112,6 @@ export async function createOrderAction(formData: FormData) {
       customer_id: customerId,
       title,
       status,
-      brand: brand || null,
-      model: model || null,
       created_by: user.id,
       seller_user_id: sellerUserId,
       device_model_id: deviceModelId,

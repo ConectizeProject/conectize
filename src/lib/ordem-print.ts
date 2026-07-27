@@ -170,7 +170,6 @@ export type OrdemPrintData = {
 	isWarranty: boolean
 	estimatedReadyAt: string | null
 	customerDescription: string | null
-	internalDescription: string | null
 	receivingNotes: string | null
 	assistanceInfo?: string | null
 	warrantyText?: string | null
@@ -366,7 +365,6 @@ export function buildOrdemPrintHtml(
 
   ${data.customerDescription ? `<div class="section"><h2>Descrição</h2><div class="block">${escapeHtml(data.customerDescription)}</div></div>` : ''}
   ${data.receivingNotes ? `<div class="section"><h2>Observações do recebimento</h2><div class="block">${escapeHtml(data.receivingNotes)}</div></div>` : ''}
-  ${data.internalDescription ? `<div class="section"><h2>Notas internas</h2><div class="block">${escapeHtml(data.internalDescription)}</div></div>` : ''}
   ${(() => {
 			const checks = data.deviceEntryChecks
 			if (!checks || typeof checks !== 'object' || Array.isArray(checks)) return ''

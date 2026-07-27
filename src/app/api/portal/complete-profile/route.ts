@@ -33,6 +33,10 @@ function getRpcErrorCode (error: { message?: string; details?: string; hint?: st
     return 'cpf_already_claimed'
   }
 
+  if (combined.includes('organization_required') || combined.includes('organization_id')) {
+    return 'organization_required'
+  }
+
   if (combined.includes('permission denied')) {
     return 'permission_denied'
   }

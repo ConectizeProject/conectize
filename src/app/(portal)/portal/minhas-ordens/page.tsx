@@ -20,6 +20,8 @@ export default async function MinhasOrdensPage() {
 
   if (!user) await redirectToPortalLogin()
 
+  await ensurePortalOrganizationContext(supabase, user.id)
+
   const { data: appUser } = await supabase
     .from('users')
     .select('role, cpf')
@@ -88,10 +90,16 @@ export default async function MinhasOrdensPage() {
     )
   }
 
-  const { data: orders } = await supabase
-    .from('service_orders')
-    .select('id, display_number, status, title, created_at, updated_at')
-    .order('created_at', { ascending: false })
+  const { data: orders } = customer?.id
+    ? await supabase
+      .from('service_orders')
+      .select('id, display_number, status, title, created_at, updated_at')
+      .eq('customer_id', customer.id)
+      .order('created_at', { ascending: false })
+    : await supabase
+      .from('service_orders')
+      .select('id, display_number, status, title, created_at, updated_at')
+      .order('created_at', { ascending: false })
 
   const displayLabel =
     customer?.company_name ||

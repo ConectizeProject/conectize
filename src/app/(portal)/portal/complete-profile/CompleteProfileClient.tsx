@@ -40,6 +40,7 @@ function getApiErrorMessage(code: string) {
   if (code == 'rpc_missing') return 'Função do banco não encontrada. Verifique se você rodou o SQL no Supabase.'
   if (code == 'db_schema_outdated') return 'Seu banco está desatualizado. Rode o SQL de atualização no Supabase.'
   if (code == 'permission_denied') return 'Sem permissão para concluir esta ação. Verifique as policies no Supabase.'
+  if (code == 'organization_required') return 'Não foi possível identificar a empresa do cadastro. Tente pelo link da ordem de serviço ou contate o suporte.'
   return 'Não foi possível vincular seu CPF agora. Tente novamente.'
 }
 

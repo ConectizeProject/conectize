@@ -67,7 +67,7 @@ async function fetchOrdersForSummary(
   let query = supabase
     .from('service_orders')
     .select(
-      'id, display_number, status, title, created_at, closed_at, services, services_total_cents, services_cost_total_cents, brand, model, customer_description, receiving_notes, customers(full_name, company_name, trade_name), device_models(model, device_types(name, device_brands(name)))'
+      'id, display_number, status, title, created_at, closed_at, services, services_total_cents, services_cost_total_cents, customer_description, receiving_notes, customers(full_name, company_name, trade_name), device_models(model, device_types(name, device_brands(name)))'
     )
     .order('created_at', { ascending: false })
 
@@ -90,11 +90,9 @@ async function fetchOrdersForSummary(
     const dt = dm?.device_types as Record<string, unknown> | null
     const db = dt?.device_brands as Record<string, unknown> | null
     const device =
-      row.brand && row.model
-        ? `${row.brand} ${row.model}`
-        : dm?.model && db?.name
-          ? `${db.name} ${dm.model}`
-          : (row.brand || row.model || dt?.name || '')?.toString() || 'Aparelho não informado'
+      dm?.model && db?.name
+        ? `${db.name} ${dt?.name ? `${dt.name} ` : ''}${dm.model}`
+        : (dt?.name || dm?.model || '')?.toString() || 'Aparelho não informado'
     return {
       display_number: row.display_number,
       status: row.status,

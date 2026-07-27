@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
-import { ChevronDown, ChevronRight, Loader2, Pencil } from 'lucide-react'
+import { Building2, ChevronDown, ChevronRight, Loader2, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -25,6 +25,16 @@ type UserRow = {
   cpf?: string | null
   role: string | null
   created_at: string
+  organization_id?: string | null
+  organization_name?: string | null
+  organization_slug?: string | null
+}
+
+type OrgOption = {
+  id: string
+  slug: string
+  name: string | null
+  is_host: boolean
 }
 
 function filterByEmail (users: UserRow[], emailFilter: string): UserRow[] {
@@ -48,18 +58,29 @@ function roleVariant (role: string): 'default' | 'secondary' | 'outline' {
   return 'outline'
 }
 
+function orgLabel (u: UserRow): string | null {
+  const name = String(u.organization_name || '').trim()
+  const slug = String(u.organization_slug || '').trim()
+  if (name) return name
+  if (slug) return slug
+  return null
+}
+
 function UserCard ({
   u,
   currentUserId,
   onEdit,
+  showOrganization,
 }: {
   u: UserRow
   currentUserId: string
   onEdit: (user: UserRow) => void
+  showOrganization: boolean
 }) {
   const normalizedRole = u.role === 'customer' ? 'user' : u.role || 'user'
   const displayName = (u.full_name ?? '').trim() || u.email || u.id.slice(0, 8)
   const isYou = u.id === currentUserId
+  const organization = orgLabel(u)
 
   return (
     <Card className="overflow-hidden">
@@ -74,6 +95,12 @@ function UserCard ({
                 {u.email}
               </p>
             )}
+            {showOrganization ? (
+              <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground truncate" title={organization || 'Sem organização'}>
+                <Building2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span className="truncate">{organization || 'Sem organização'}</span>
+              </p>
+            ) : null}
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <Badge variant={roleVariant(normalizedRole)}>
@@ -107,6 +134,8 @@ type Props = {
   currentUserId: string
   updateRoleAction: (formData: FormData) => void
   initialEmailFilter?: string
+  isPlatformAdmin?: boolean
+  organizations?: OrgOption[]
 }
 
 export function UsuariosClient ({
@@ -115,6 +144,8 @@ export function UsuariosClient ({
   currentUserId,
   updateRoleAction,
   initialEmailFilter = '',
+  isPlatformAdmin = false,
+  organizations = [],
 }: Props) {
   const router = useRouter()
   const pathname = usePathname() || '/portal/admin/usuarios'
@@ -197,6 +228,7 @@ export function UsuariosClient ({
         <CardTitle>Usuários</CardTitle>
         <CardDescription>
           Papéis: usuário, lojista, staff, admin. Admins e staff carregados. Demais usuários ao expandir.
+          {isPlatformAdmin ? ' Como master, você vê a organização atual de cada usuário e pode alterá-la ao editar.' : ''}
         </CardDescription>
         <div className="pt-2">
           <Label htmlFor="email-filter" className="sr-only">
@@ -227,6 +259,7 @@ export function UsuariosClient ({
                     u={u}
                     currentUserId={currentUserId}
                     onEdit={setEditUser}
+                    showOrganization={isPlatformAdmin}
                   />
                 ))}
               </div>
@@ -250,6 +283,7 @@ export function UsuariosClient ({
                     u={u}
                     currentUserId={currentUserId}
                     onEdit={setEditUser}
+                    showOrganization={isPlatformAdmin}
                   />
                 ))}
               </div>
@@ -278,6 +312,7 @@ export function UsuariosClient ({
                     u={u}
                     currentUserId={currentUserId}
                     onEdit={setEditUser}
+                    showOrganization={isPlatformAdmin}
                   />
                 ))}
               </div>
@@ -299,6 +334,7 @@ export function UsuariosClient ({
                 <DialogTitle>Editar usuário</DialogTitle>
                 <DialogDescription>
                   Atualize os dados básicos e o nível de acesso.
+                  {isPlatformAdmin ? ' Você também pode alterar a organização.' : ''}
                 </DialogDescription>
               </DialogHeader>
               <div className="py-4 space-y-4">
@@ -320,6 +356,27 @@ export function UsuariosClient ({
                     placeholder="Somente números"
                   />
                 </div>
+                {isPlatformAdmin && organizations.length > 0 ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-organization">Organização</Label>
+                    <select
+                      id="edit-organization"
+                      name="organizationId"
+                      defaultValue={editUser.organization_id || ''}
+                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      required
+                    >
+                      <option value="" disabled>
+                        Selecione a organização
+                      </option>
+                      {organizations.map((org) => (
+                        <option key={org.id} value={org.id}>
+                          {(org.name || org.slug) + (org.is_host ? ' (matriz)' : '')}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
                 <div className="space-y-2">
                   <Label htmlFor="edit-role">Nível de acesso</Label>
                   {isEditingSelf ? (
