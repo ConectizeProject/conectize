@@ -19,6 +19,7 @@ export type OrderFormServiceLine = {
   valueCents: number
   costCents: number
   sourceProductId: string | null
+  noCost: boolean
 }
 
 export type ParseServicesFromFormJsonResult = {
@@ -102,7 +103,8 @@ export function parseServicesJson (raw: unknown): ParseServicesFromFormJsonResul
             ? Math.min(9999, Math.max(1, quantityRaw))
             : 1
         const unitValueCentsRaw = i.unitValueCents ?? i.valueCents ?? 0
-        const unitCostCentsRaw = i.unitCostCents ?? i.costCents ?? 0
+        const noCost = i.noCost === true
+        const unitCostCentsRaw = noCost ? 0 : (i.unitCostCents ?? i.costCents ?? 0)
         const unitValueCents = Math.max(0, Number(unitValueCentsRaw ?? 0) || 0)
         const unitCostCents = Math.max(0, Number(unitCostCentsRaw ?? 0) || 0)
         const valueCents = unitValueCents * quantity
@@ -117,6 +119,7 @@ export function parseServicesJson (raw: unknown): ParseServicesFromFormJsonResul
           valueCents,
           costCents,
           sourceProductId,
+          noCost,
         }
       })
       .filter((s) => s.description || s.valueCents > 0 || s.costCents > 0)

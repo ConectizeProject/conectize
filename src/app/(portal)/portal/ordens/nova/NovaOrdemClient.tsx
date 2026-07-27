@@ -284,7 +284,8 @@ export function NovaOrdemClient(props: Props) {
 						? Math.min(9999, Math.max(1, quantityRaw))
 						: 1;
 				const unitValueCents = parseMoneyToCents(s.value);
-				const unitCostCents = parseMoneyToCents(s.cost);
+				const noCost = s.noCost === true;
+				const unitCostCents = noCost ? 0 : parseMoneyToCents(s.cost);
 				const valueCents = unitValueCents * quantity;
 				const costCents = unitCostCents * quantity;
 				const sourceProductId = parseOptionalUuid(s.sourceProductId);
@@ -297,6 +298,7 @@ export function NovaOrdemClient(props: Props) {
 					valueCents,
 					costCents,
 					...(sourceProductId ? { sourceProductId } : {}),
+					noCost,
 				};
 			})
 			.filter((s) => s.description || s.valueCents > 0 || s.costCents > 0);

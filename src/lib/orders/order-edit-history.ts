@@ -190,6 +190,7 @@ type NormalizedServiceLineForCompare = {
   valueCents: number
   costCents: number
   sourceProductId: string | null
+  noCost: boolean
 }
 
 /**
@@ -209,8 +210,9 @@ function normalizeServiceLineForCompare (item: unknown): NormalizedServiceLineFo
     Number.isFinite(quantityRaw) && quantityRaw > 0
       ? Math.min(9999, Math.max(1, quantityRaw))
       : 1
+  const noCost = i.noCost === true
   const unitValueCentsRaw = i.unitValueCents ?? i.valueCents ?? 0
-  const unitCostCentsRaw = i.unitCostCents ?? i.costCents ?? 0
+  const unitCostCentsRaw = noCost ? 0 : (i.unitCostCents ?? i.costCents ?? 0)
   const unitValueCents = Math.max(0, Math.round(Number(unitValueCentsRaw ?? 0) || 0))
   const unitCostCents = Math.max(0, Math.round(Number(unitCostCentsRaw ?? 0) || 0))
   const valueCents = Math.round(unitValueCents * quantity)
@@ -225,6 +227,7 @@ function normalizeServiceLineForCompare (item: unknown): NormalizedServiceLineFo
     valueCents,
     costCents,
     sourceProductId,
+    noCost,
   }
   if (!line.description && line.valueCents <= 0 && line.costCents <= 0) return null
   return line
@@ -240,6 +243,7 @@ function serviceLineCompareKey (a: NormalizedServiceLineForCompare): string {
     String(a.costCents),
     String(a.unitValueCents),
     String(a.unitCostCents),
+    a.noCost ? '1' : '0',
   ].join('\u0001')
 }
 

@@ -262,6 +262,12 @@ export function OrdemDetalhePageContent (props: Props) {
 								description?: string
 								valueCents?: number
 								costCents?: number
+								unitValueCents?: number
+								unitCostCents?: number
+								kind?: 'service' | 'product'
+								quantity?: number
+								sourceProductId?: string | null
+								noCost?: boolean
 							}>) ?? []
 						}
 						inputName="servicesJson"
