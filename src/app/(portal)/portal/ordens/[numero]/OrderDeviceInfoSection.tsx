@@ -53,8 +53,6 @@ type OrderDeviceInfoSectionProps = {
 	deviceModel: Record<string, unknown> | null
 	order: {
 		device_model_id?: string | null
-		brand?: string | null
-		model?: string | null
 		color?: string | null
 		device_location?: string | null
 		imei?: string | null
@@ -113,9 +111,9 @@ function DeviceFormFields(props: Omit<OrderDeviceInfoSectionProps, 'deviceString
 						(deviceModel as { id?: string })?.id ??
 						order.device_model_id ??
 						null,
-					brand: brandName || order.brand || null,
+					brand: brandName || null,
 					deviceType: deviceTypeName || null,
-					model: (deviceModel as { model?: string })?.model ?? order.model ?? null,
+					model: (deviceModel as { model?: string })?.model ?? null,
 				}}
 				initialDeviceModels={deviceModels}
 				formId={formId}
@@ -180,7 +178,7 @@ export function OrderDeviceInfoSection(props: OrderDeviceInfoSectionProps) {
 	const aparelhoLine = buildAparelhoSummaryLine(
 		brandName,
 		deviceTypeName,
-		(deviceModel as { model?: string })?.model ?? order.model,
+		(deviceModel as { model?: string })?.model,
 		order.color,
 	)
 	const imeiDisplay = String(order.imei || '').trim() || '—'

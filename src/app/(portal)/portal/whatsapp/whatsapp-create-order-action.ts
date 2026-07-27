@@ -108,8 +108,6 @@ export async function createOrderFromWhatsappConversationAction (
       customer_id: customerId,
       title,
       status: 'orcamento',
-      brand: null,
-      model: null,
       created_by: user.id,
       seller_user_id: user.id,
       device_model_id: null,

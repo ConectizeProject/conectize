@@ -33,20 +33,18 @@ function firstNameFromCustomer (c: Record<string, unknown> | null): string | nul
   return parts[0] || null
 }
 
-function buildDeviceString (order: Record<string, unknown>, dm: Record<string, unknown> | null): string {
+function buildDeviceString (dm: Record<string, unknown> | null): string {
   if (dm) {
     const dtRaw = dm.device_types
     const dt = (Array.isArray(dtRaw) ? dtRaw[0] : dtRaw) as Record<string, unknown> | null
     const brandRaw = dt?.device_brands
     const brandRow = Array.isArray(brandRaw) ? brandRaw[0] : brandRaw
-    const brandName = String((brandRow as { name?: string } | null)?.name ?? order.brand ?? '').trim()
+    const brandName = String((brandRow as { name?: string } | null)?.name ?? '').trim()
     const typeName = String((dt as { name?: string } | null)?.name ?? '').trim()
-    const model = String(dm.model ?? order.model ?? '').trim()
+    const model = String(dm.model ?? '').trim()
     return [brandName, typeName, model].filter(Boolean).join(' ') || '-'
   }
-  const b = String(order.brand ?? '').trim()
-  const m = String(order.model ?? '').trim()
-  return [b, m].filter(Boolean).join(' ') || '-'
+  return '-'
 }
 
 function normalizeServicesForPrint (raw: unknown): OrdemPrintData['services'] {
@@ -95,12 +93,9 @@ const ORDER_PRINT_SELECT = `
   warranty_text,
   services,
   device_entry_checks,
-  brand,
-  model,
   created_at,
   updated_at,
   closed_at,
-  description,
   customers (
     cpf, cnpj, is_company, full_name, company_name, trade_name,
     email, mobile_phone, contact_phone, contact_notes, address_full
@@ -133,7 +128,7 @@ export async function buildOrderPrintAndLabelHtml (
   const o = order as Record<string, unknown>
   const customer = getCustomerFromOrder(o) as Record<string, unknown> | null
   const deviceModel = getDeviceModelFromOrder(o) as Record<string, unknown> | null
-  const device = buildDeviceString(o, deviceModel)
+  const device = buildDeviceString(deviceModel)
 
   const { data: assistRows } = await supabase
     .from('service_order_assistance_comments')
@@ -196,7 +191,6 @@ export async function buildOrderPrintAndLabelHtml (
     isWarranty: Boolean(o.is_warranty),
     estimatedReadyAt: o.estimated_ready_at ? String(o.estimated_ready_at) : null,
     customerDescription: o.customer_description != null ? String(o.customer_description) : null,
-    internalDescription: o.description != null ? String(o.description) : null,
     receivingNotes: o.receiving_notes != null ? String(o.receiving_notes) : null,
     assistanceInfo,
     warrantyText: o.warranty_text != null ? String(o.warranty_text) : null,

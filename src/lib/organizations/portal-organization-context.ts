@@ -1,5 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { CONECTIZE_HOST_ORGANIZATION_ID } from '@/lib/organizations/constants'
+import { stripAutoHostOrganizationMembership } from '@/lib/organizations/strip-auto-host-membership'
+
 function normalizePortalRole (role: string | null | undefined): string {
   const r = role || 'user'
   return r === 'customer' ? 'user' : r
@@ -117,6 +120,36 @@ export async function ensurePortalOrganizationContext (
     if (activeId) return activeId
     if (firstStaffOrg) return await persistOrg(firstStaffOrg)
     return null
+  }
+
+  if (normalized === 'user') {
+    const { data: cust } = await supabase
+      .from('customers')
+      .select('organization_id')
+      .eq('auth_user_id', userId)
+      .maybeSingle()
+
+    const customerOrg = cust?.organization_id ? String(cust.organization_id) : null
+
+    if (customerOrg) {
+      await supabase.from('organization_members').upsert({
+        organization_id: customerOrg,
+        user_id: userId,
+        role_in_org: 'user',
+      })
+
+      if (customerOrg !== CONECTIZE_HOST_ORGANIZATION_ID) {
+        await stripAutoHostOrganizationMembership(supabase, userId)
+      }
+
+      if (activeId !== customerOrg) {
+        return await persistOrg(customerOrg)
+      }
+
+      return customerOrg
+    }
+
+    return activeId
   }
 
   if (normalized !== 'staff' && normalized !== 'admin') {

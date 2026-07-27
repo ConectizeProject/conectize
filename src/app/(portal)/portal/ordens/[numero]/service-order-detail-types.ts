@@ -16,16 +16,11 @@ export type ServiceOrderDetail = {
   passcode_text: string | null
   passcode_pattern: string | null
   payment_methods: unknown
-  /** Legado (antes de payment_methods JSON) */
-  payment_method_id?: string | null
-  installments?: number | null
   customer_description: string | null
   receiving_notes: string | null
   warranty_template_id: string | null
   warranty_text: string | null
   device_model_id: string | null
-  brand: string | null
-  model: string | null
   services: unknown
   services_total_cents: number | null
   services_cost_total_cents: number | null

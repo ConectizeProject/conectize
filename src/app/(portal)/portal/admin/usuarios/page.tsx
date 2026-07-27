@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
+import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import {
   ensurePortalOrganizationContext,
   getPortalOrganizationId,
@@ -17,6 +18,12 @@ function isValidRole (value: string) {
   )
 }
 
+function roleToOrgRole (role: string): 'admin' | 'staff' | 'user' {
+  if (role === 'admin' || role === 'platform_admin') return 'admin'
+  if (role === 'staff') return 'staff'
+  return 'user'
+}
+
 async function updateRoleAction (formData: FormData) {
   'use server'
 
@@ -24,6 +31,7 @@ async function updateRoleAction (formData: FormData) {
   const role = String(formData.get('role') || '').trim()
   const fullName = String(formData.get('fullName') || '').trim()
   const cpf = String(formData.get('cpf') || '').trim()
+  const organizationIdInput = String(formData.get('organizationId') || '').trim()
 
   if (!userId) {
     redirect('/portal/admin/usuarios?error=dados_invalidos')
@@ -46,7 +54,8 @@ async function updateRoleAction (formData: FormData) {
 
   const myRole = (!meRoleError && me?.role) ? me.role : 'user'
   const myNormalizedRole = myRole === 'customer' ? 'user' : myRole
-  if (myNormalizedRole !== 'admin' && myRole !== 'platform_admin') redirect('/portal/ordens')
+  const isPlatformAdmin = myRole === 'platform_admin'
+  if (myNormalizedRole !== 'admin' && !isPlatformAdmin) redirect('/portal/ordens')
 
   const payload: Record<string, unknown> = {}
   if (!isEditingSelf) {
@@ -66,8 +75,77 @@ async function updateRoleAction (formData: FormData) {
 
   if (error) redirect('/portal/admin/usuarios?error=nao_foi_possivel_atualizar')
 
+  if (isPlatformAdmin && organizationIdInput && formData.has('organizationId')) {
+    const { data: orgRow } = await supabase
+      .from('organizations')
+      .select('id')
+      .eq('id', organizationIdInput)
+      .maybeSingle()
+
+    if (!orgRow?.id) {
+      redirect('/portal/admin/usuarios?error=org_invalida')
+    }
+
+    const { data: targetUser } = await supabase
+      .from('users')
+      .select('role')
+      .eq('id', userId)
+      .maybeSingle()
+
+    const targetRole = String(targetUser?.role || role || 'user')
+    const roleInOrg = roleToOrgRole(targetRole)
+
+    try {
+      const svc = createSupabaseServiceClient()
+      const { data: currentMemberships } = await svc
+        .from('organization_members')
+        .select('organization_id')
+        .eq('user_id', userId)
+
+      const currentIds = (currentMemberships ?? []).map((m) => String(m.organization_id))
+      const alreadyInTarget = currentIds.includes(organizationIdInput)
+
+      if (!alreadyInTarget) {
+        const { error: upsertErr } = await svc.from('organization_members').upsert(
+          {
+            organization_id: organizationIdInput,
+            user_id: userId,
+            role_in_org: roleInOrg,
+          },
+          { onConflict: 'organization_id,user_id' },
+        )
+        if (upsertErr) redirect('/portal/admin/usuarios?error=nao_foi_possivel_atualizar')
+
+        const toRemove = currentIds.filter((id) => id !== organizationIdInput)
+        if (toRemove.length > 0) {
+          const { error: delErr } = await svc
+            .from('organization_members')
+            .delete()
+            .eq('user_id', userId)
+            .in('organization_id', toRemove)
+          if (delErr) redirect('/portal/admin/usuarios?error=nao_foi_possivel_atualizar')
+        }
+      } else {
+        await svc
+          .from('organization_members')
+          .update({ role_in_org: roleInOrg })
+          .eq('user_id', userId)
+          .eq('organization_id', organizationIdInput)
+      }
+
+      await svc.from('user_portal_context').upsert({
+        user_id: userId,
+        active_organization_id: organizationIdInput,
+      })
+    } catch {
+      redirect('/portal/admin/usuarios?error=nao_foi_possivel_atualizar')
+    }
+  }
+
   redirect('/portal/admin/usuarios?ok=1')
 }
+
+type OrgOption = { id: string; slug: string; name: string | null; is_host: boolean }
 
 export default async function AdminUsuariosPage ({
   searchParams,
@@ -89,18 +167,39 @@ export default async function AdminUsuariosPage ({
 
   const myRole = (!meRoleError && me?.role) ? me.role : 'user'
   const myNormalizedRole = myRole === 'customer' ? 'user' : myRole
-  if (myNormalizedRole !== 'admin' && myRole !== 'platform_admin') redirect('/portal/ordens')
+  const isPlatformAdmin = myRole === 'platform_admin'
+  if (myNormalizedRole !== 'admin' && !isPlatformAdmin) redirect('/portal/ordens')
 
   await ensurePortalOrganizationContext(supabase, user.id)
   const organizationId = await getPortalOrganizationId(supabase, user.id)
   if (!organizationId) redirect('/portal/ordens')
 
+  let organizations: OrgOption[] = []
+  let currentOrg: OrgOption | null = null
+  if (isPlatformAdmin) {
+    const { data: orgs } = await supabase
+      .from('organizations')
+      .select('id, slug, name, is_host')
+      .order('name', { ascending: true })
+    organizations = (orgs ?? []) as OrgOption[]
+    currentOrg = organizations.find((o) => o.id === organizationId) ?? null
+  }
+
+  const membershipByUser = new Map<string, { organization_id: string; organization?: OrgOption | null }>()
+
   const { data: memberRows } = await supabase
     .from('organization_members')
-    .select('user_id')
+    .select('user_id, organization_id')
     .eq('organization_id', organizationId)
 
-  const memberIds = new Set((memberRows ?? []).map((m) => m.user_id))
+  for (const row of memberRows ?? []) {
+    membershipByUser.set(String(row.user_id), {
+      organization_id: String(row.organization_id),
+      organization: currentOrg,
+    })
+  }
+
+  const memberIds = new Set(membershipByUser.keys())
 
   const { data: adminsAndStaff } = await supabase
     .from('users')
@@ -108,9 +207,32 @@ export default async function AdminUsuariosPage ({
     .in('role', ['admin', 'staff', 'platform_admin'])
     .order('created_at', { ascending: false })
 
-  const inOrg = (adminsAndStaff ?? []).filter((u: { id?: string }) => memberIds.has(String(u.id)))
-  const admins = inOrg.filter((u: { role?: string }) => u.role === 'admin' || u.role === 'platform_admin')
-  const staff = inOrg.filter((u: { role?: string }) => u.role === 'staff')
+  const enrich = (u: {
+    id: string
+    email: string | null
+    full_name?: string | null
+    cpf?: string | null
+    role: string | null
+    created_at: string
+  }) => {
+    const m = membershipByUser.get(u.id)
+    const org = m?.organization
+    return {
+      ...u,
+      organization_id: m?.organization_id ?? organizationId,
+      organization_name: org?.name ?? org?.slug ?? null,
+      organization_slug: org?.slug ?? null,
+    }
+  }
+
+  const inScope = (adminsAndStaff ?? []).filter((u) => memberIds.has(u.id))
+
+  const admins = inScope
+    .filter((u) => u.role === 'admin' || u.role === 'platform_admin')
+    .map(enrich)
+  const staff = inScope
+    .filter((u) => u.role === 'staff')
+    .map(enrich)
 
   return (
     <div className="space-y-6">
@@ -123,7 +245,11 @@ export default async function AdminUsuariosPage ({
 
       {error ? (
         <p className="text-sm text-destructive">
-          {error === 'dados_invalidos' ? 'Dados inválidos.' : 'Não foi possível atualizar agora.'}
+          {error === 'dados_invalidos'
+            ? 'Dados inválidos.'
+            : error === 'org_invalida'
+              ? 'Organização inválida.'
+              : 'Não foi possível atualizar agora.'}
         </p>
       ) : null}
 
@@ -139,8 +265,9 @@ export default async function AdminUsuariosPage ({
         currentUserId={user.id}
         updateRoleAction={updateRoleAction}
         initialEmailFilter={initialEmail}
+        isPlatformAdmin={isPlatformAdmin}
+        organizations={organizations}
       />
     </div>
   )
 }
-

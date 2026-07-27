@@ -59,8 +59,6 @@ export async function updateOrderAction (formData: FormData) {
 			? deviceExitChecksRaw.trim()
 			: ''
 	const deviceModelId = parseOptionalUuid(formData.get('deviceModelId'))
-	const brand = String(formData.get('brand') || '').trim() || null
-	const model = String(formData.get('model') || '').trim() || null
 	const warrantyTemplateId = parseOptionalUuid(
 		formData.get('warrantyTemplateId'),
 	)
@@ -121,7 +119,7 @@ export async function updateOrderAction (formData: FormData) {
 			`display_number, status, services, title, imei, color, device_location, is_warranty, estimated_ready_at,
 				passcode_type, passcode_text, passcode_pattern,
 				payment_methods, customer_description, receiving_notes,
-				warranty_template_id, warranty_text, device_model_id, brand, model,
+				warranty_template_id, warranty_text, device_model_id,
 				services_total_cents, services_cost_total_cents,
 				device_entry_checks, device_exit_checks, seller_user_id, closed_at,
 				created_at, organization_id`,
@@ -209,8 +207,6 @@ export async function updateOrderAction (formData: FormData) {
 		warranty_template_id: warrantyTemplateId,
 		warranty_text: warrantyTextRaw || null,
 		device_model_id: deviceModelId,
-		brand: brand ?? null,
-		model: model ?? null,
 		services: services.items,
 		services_total_cents: services.totalValueCents,
 		services_cost_total_cents: services.totalCostCents,
