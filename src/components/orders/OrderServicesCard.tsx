@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils'
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
 	Dialog,
 	DialogContent,
@@ -33,6 +34,8 @@ export type ServiceItemDb = {
 	unitValueCents?: number | null
 	unitCostCents?: number | null
 	sourceProductId?: string | null
+	/** Quando true, custo unitário fica zerado e bloqueado na edição avançada. */
+	noCost?: boolean | null
 }
 
 export type ServiceLine = {
@@ -43,6 +46,7 @@ export type ServiceLine = {
 	value: string
 	cost: string
 	sourceProductId?: string | null
+	noCost?: boolean
 }
 
 type CatalogItem = {
@@ -95,14 +99,21 @@ function dbToLine(item: ServiceItemDb, index: number): ServiceLine {
 
 	const desc = String(item?.description || '').trim()
 
+	const noCost = item?.noCost === true
+
 	return {
 		id: stableServiceId(index, item),
 		kind,
 		description: desc,
 		quantity,
 		value: unitValueCents ? formatMoneyInputBr(String(unitValueCents)) : '',
-		cost: unitCostCents ? formatMoneyInputBr(String(unitCostCents)) : '',
+		cost: noCost
+			? ''
+			: unitCostCents
+				? formatMoneyInputBr(String(unitCostCents))
+				: '',
 		sourceProductId: item?.sourceProductId ? String(item.sourceProductId).trim() : null,
+		noCost,
 	}
 }
 
@@ -234,8 +245,9 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 					? Number.parseInt(String(s.quantity || '1'), 10)
 					: 1
 			const quantity = Number.isFinite(quantityRaw) && quantityRaw > 0 ? Math.min(9999, Math.max(1, quantityRaw)) : 1
+			const noCost = s.noCost === true
 			const unitValueCents = parseMoneyToCents(s.value)
-			const unitCostCents = parseMoneyToCents(s.cost)
+			const unitCostCents = noCost ? 0 : parseMoneyToCents(s.cost)
 			const valueCents = unitValueCents * quantity
 			const costCents = unitCostCents * quantity
 
@@ -248,6 +260,7 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 				valueCents,
 				costCents,
 				sourceProductId: s.sourceProductId ? String(s.sourceProductId).trim() : null,
+				noCost,
 			}
 		})
 		.filter((s) => s.description || s.valueCents > 0 || s.costCents > 0)
@@ -269,6 +282,24 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 	const syncOnBlur = useCallback(() => {
 		syncTotalOnBlur()
 	}, [syncTotalOnBlur])
+
+	const handleToggleNoCost = useCallback((index: number, checked: boolean) => {
+		let nextSnapshot: ServiceLine[] = []
+		setInternalServices((prev) => {
+			nextSnapshot = prev.map((s, i) =>
+				i !== index
+					? s
+					: {
+						...s,
+						noCost: checked,
+						cost: checked ? '' : s.cost,
+					},
+			)
+			return nextSnapshot
+		})
+		formik?.onBlurSync?.(nextSnapshot)
+		syncTotalOnBlur()
+	}, [formik, syncTotalOnBlur])
 
 	useImperativeHandle(ref, () => ({
 		syncToFormik: () => {
@@ -627,7 +658,7 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 				) : null}
 
 				<Dialog open={isAdvancedOpen} onOpenChange={setIsAdvancedOpen}>
-					<DialogContent className="max-w-lg">
+					<DialogContent className="max-w-2xl">
 						<DialogHeader>
 							<DialogTitle>Serviços e produtos</DialogTitle>
 							<DialogDescription>
@@ -679,7 +710,7 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 												) : null}
 											</div>
 
-											<div className="grid grid-cols-2 gap-2">
+											<div className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
 												<div className="space-y-1 min-w-0">
 													<Label htmlFor={`adv-value-${s.id}`}>Valor unitário</Label>
 													<Input
@@ -702,7 +733,7 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 													<Label htmlFor={`adv-cost-${s.id}`}>Custo unitário</Label>
 													<Input
 														id={`adv-cost-${s.id}`}
-														value={s.cost}
+														value={s.noCost ? '0,00' : s.cost}
 														onChange={(e) =>
 															handleUpdate(
 																idx,
@@ -713,8 +744,24 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 														onBlur={syncOnBlur}
 														inputMode="numeric"
 														placeholder="0,00"
+														disabled={disabled || Boolean(s.noCost)}
+													/>
+												</div>
+												<div className="flex h-9 items-center gap-2 pb-px shrink-0">
+													<Checkbox
+														id={`adv-nocost-${s.id}`}
+														checked={Boolean(s.noCost)}
+														onCheckedChange={(v) =>
+															handleToggleNoCost(idx, v === true)
+														}
 														disabled={disabled}
 													/>
+													<Label
+														htmlFor={`adv-nocost-${s.id}`}
+														className="text-sm font-normal text-muted-foreground cursor-pointer whitespace-nowrap"
+													>
+														Sem custo
+													</Label>
 												</div>
 											</div>
 										</div>

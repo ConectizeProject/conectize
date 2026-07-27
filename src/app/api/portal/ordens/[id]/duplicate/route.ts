@@ -42,14 +42,20 @@ function mapServicesForDuplicateForm (raw: unknown): unknown[] {
       )
       const desc = String(item.description ?? '').trim()
       const pid = item.sourceProductId
+      const noCost = item.noCost === true
       return {
         id: `dup-${index}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         kind,
         description: desc,
         quantity,
         value: unitValueCents ? formatMoneyInputBr(String(unitValueCents)) : '',
-        cost: unitCostCents ? formatMoneyInputBr(String(unitCostCents)) : '',
+        cost: noCost
+          ? ''
+          : unitCostCents
+            ? formatMoneyInputBr(String(unitCostCents))
+            : '',
         sourceProductId: pid ? String(pid).trim() : null,
+        noCost,
       }
     })
   } catch {
