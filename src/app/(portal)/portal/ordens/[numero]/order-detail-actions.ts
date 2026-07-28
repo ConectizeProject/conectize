@@ -226,7 +226,8 @@ export async function updateOrderAction (formData: FormData) {
 			.maybeSingle()
 		if (sellerUser?.id) updatePayload.seller_user_id = sellerUser.id
 	}
-	if (isFinalizedOrderStatus(status)) {
+	const willBeFinalized = isFinalizedOrderStatus(status)
+	if (willBeFinalized && !isOrderFinalized) {
 		updatePayload.closed_at = new Date().toISOString()
 	}
 	const { error } = await supabase
@@ -269,20 +270,28 @@ export async function updateOrderAction (formData: FormData) {
 	)
 	if (diffRowsForHistory.length > 0) {
 		const editedAt = new Date().toISOString()
-		const { error: histErr } = await supabase
-			.from('service_order_edit_history')
-			.insert(
-				diffRowsForHistory.map((r) => ({
-					service_order_id: formOrderId,
-					edited_by: user.id,
-					edited_at: editedAt,
-					field_key: r.field_key,
-					old_value: r.old_value,
-					new_value: r.new_value,
-				})),
-			)
-		if (histErr) {
-			console.error('[order-edit-history]', histErr)
+		const organizationId = String(existing.organization_id || '').trim()
+		if (!organizationId) {
+			console.error('[order-edit-history] missing organization_id', {
+				orderId: formOrderId,
+			})
+		} else {
+			const { error: histErr } = await supabase
+				.from('service_order_edit_history')
+				.insert(
+					diffRowsForHistory.map((r) => ({
+						service_order_id: formOrderId,
+						organization_id: organizationId,
+						edited_by: user.id,
+						edited_at: editedAt,
+						field_key: r.field_key,
+						old_value: r.old_value,
+						new_value: r.new_value,
+					})),
+				)
+			if (histErr) {
+				console.error('[order-edit-history]', histErr)
+			}
 		}
 	}
 
