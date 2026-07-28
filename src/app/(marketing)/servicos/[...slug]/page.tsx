@@ -1,8 +1,10 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { notFound } from 'next/navigation'
+import { notFound, permanentRedirect } from 'next/navigation'
 import { MessageCircle, Phone, MapPin } from 'lucide-react'
+import { business, buildWhatsAppUrl, getFaqPageJsonLd, getServiceJsonLd } from '@/lib/data/business'
 import { getBrandBySlug, getModelBySlugAnyType, getServiceBySlug } from '@/lib/data/services'
+import { resolveLegacyServiceDestination } from '@/lib/utils/legacy-service-redirect'
 import { generateKeywords } from '@/lib/utils/seo'
 import { formatModelName } from '@/lib/utils/format-model-name'
 import { generateProgrammaticContent } from '@/lib/utils/programmatic-content'
@@ -15,7 +17,22 @@ import { FreteCalculatorLazy } from '@/components/FreteCalculatorLazy'
 export const dynamic = 'force-dynamic'
 
 interface PageProps {
-  params: Promise<{ slug: string }>
+  params: Promise<{ slug: string[] }>
+}
+
+function resolveProductSlug (segments: string[]): string {
+  if (segments.length === 0) notFound()
+
+  if (segments.length > 1) {
+    const destination = resolveLegacyServiceDestination(segments)
+    if (destination) permanentRedirect(destination)
+    notFound()
+  }
+
+  const destination = resolveLegacyServiceDestination(segments)
+  if (destination) permanentRedirect(destination)
+
+  return segments[0]
 }
 
 const includedInService = [
@@ -73,7 +90,8 @@ function ServiceFocusContent(props: { title: string; paragraphs: string[] }) {
 }
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
-  const { slug } = await params
+  const { slug: segments } = await params
+  const slug = resolveProductSlug(segments)
   const parsed = parseServiceProductSlug(slug)
   if (!parsed.isValid) {
     return {
@@ -160,7 +178,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 }
 
 export default async function ServiceProductPage({ params }: PageProps) {
-  const { slug } = await params
+  const { slug: segments } = await params
+  const slug = resolveProductSlug(segments)
   const parsed = parseServiceProductSlug(slug)
   if (!parsed.isValid) notFound()
 
@@ -190,20 +209,22 @@ export default async function ServiceProductPage({ params }: PageProps) {
       { label: deviceType.displayName, href: `/servicos/${slug}` }
     ]
 
-    const structuredData = {
-      '@context': 'https://schema.org',
-      '@type': 'Service',
+    const structuredData = getServiceJsonLd({
       name: content.h1,
       description: content.sections.intro,
-      areaServed: { '@type': 'City', name: 'Belo Horizonte' },
-      provider: { '@type': 'LocalBusiness', name: 'Conectize' }
-    }
+      serviceType: service.name,
+      url: `${business.siteUrl}/servicos/${slug}`
+    })
 
     return (
       <>
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(getFaqPageJsonLd(content.sections.faq)) }}
         />
 
         <div className="min-h-screen pt-32 pb-20">
@@ -296,7 +317,7 @@ export default async function ServiceProductPage({ params }: PageProps) {
                     </p>
                     <div className="flex flex-col gap-3">
                       <a
-                        href={`https://wa.me/5531986140889?text=Olá! Gostaria de um orçamento para ${service.name.toLowerCase()} do meu ${deviceType.displayName}.`}
+                        href={buildWhatsAppUrl(`Olá! Gostaria de um orçamento para ${service.name.toLowerCase()} do meu ${deviceType.displayName}.`)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center justify-center gap-2 bg-[hsl(142,70%,45%)] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[hsl(142,70%,40%)] transition-colors"
@@ -305,7 +326,7 @@ export default async function ServiceProductPage({ params }: PageProps) {
                         WhatsApp
                       </a>
                       <a
-                        href="tel:+5531986140889"
+                        href={`tel:${business.phone}`}
                         className="flex items-center justify-center gap-2 bg-primary text-primary-foreground px-6 py-3 rounded-lg font-semibold hover:bg-primary/90 transition-colors"
                       >
                         <Phone className="w-5 h-5" />
@@ -351,20 +372,22 @@ export default async function ServiceProductPage({ params }: PageProps) {
     { label: model.displayName, href: `/servicos/${slug}` }
   ]
 
-  const structuredData = {
-    '@context': 'https://schema.org',
-    '@type': 'Service',
+  const structuredData = getServiceJsonLd({
     name: content.h1,
     description: content.sections.intro,
-    areaServed: { '@type': 'City', name: 'Belo Horizonte' },
-    provider: { '@type': 'LocalBusiness', name: 'Conectize' }
-  }
+    serviceType: service.name,
+    url: `${business.siteUrl}/servicos/${slug}`
+  })
 
   return (
     <>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(getFaqPageJsonLd(content.sections.faq)) }}
       />
 
       <div className="min-h-screen pt-32 pb-20">
@@ -424,10 +447,10 @@ export default async function ServiceProductPage({ params }: PageProps) {
                   <MapPin className="w-5 h-5 mt-1 flex-shrink-0" />
                   <div>
                     <p className="font-medium text-foreground mb-1">Conectize</p>
-                    <p>R. Padre Rolim, 620 - Santa Efigênia</p>
-                    <p>Belo Horizonte - MG, 30130-094</p>
-                    <p className="mt-2">Segunda a Sexta: 8h às 18h</p>
-                    <p>Sábado: 10h às 14h</p>
+                    <p>{business.address.streetAddress} - {business.address.neighborhood}</p>
+                    <p>{business.address.addressLocality} - {business.address.addressRegion}, {business.address.postalCode}</p>
+                    <p className="mt-2">{business.openingHours[0].label}: {business.openingHours[0].display}</p>
+                    <p>{business.openingHours[1].label}: {business.openingHours[1].display}</p>
                   </div>
                 </div>
               </section>
@@ -460,7 +483,7 @@ export default async function ServiceProductPage({ params }: PageProps) {
                   </p>
                   <div className="flex flex-col gap-3">
                     <a
-                      href={`https://wa.me/5531986140889?text=Olá! Gostaria de um orçamento para ${service.name.toLowerCase()} do ${model.displayName}.`}
+                      href={buildWhatsAppUrl(`Olá! Gostaria de um orçamento para ${service.name.toLowerCase()} do ${model.displayName}.`)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex items-center justify-center gap-2 bg-[hsl(142,70%,45%)] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[hsl(142,70%,40%)] transition-colors"
@@ -469,7 +492,7 @@ export default async function ServiceProductPage({ params }: PageProps) {
                       WhatsApp
                     </a>
                     <a
-                      href="tel:+5531986140889"
+                      href={`tel:${business.phone}`}
                       className="flex items-center justify-center gap-2 bg-primary text-primary-foreground px-6 py-3 rounded-lg font-semibold hover:bg-primary/90 transition-colors"
                     >
                       <Phone className="w-5 h-5" />

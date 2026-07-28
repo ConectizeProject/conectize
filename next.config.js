@@ -77,6 +77,7 @@ const nextConfig = {
 		const serviceSlugs = [
 			'troca-de-tela',
 			'troca-de-vidro-da-tela',
+			'troca-de-vidro-tampa-traseira',
 			'troca-de-bateria',
 			'reparo-de-placa',
 			'troca-de-conector',
@@ -86,29 +87,49 @@ const nextConfig = {
 			'reparo-de-agua',
 		]
 
-		return serviceSlugs.flatMap((serviceSlug) => ([
-			// Rotas antigas -> nova semântica (marca + serviço + modelo)
+		// Só 1 segmento aqui: next.config não consegue montar slug com hífen
+		// (ex.: troca-de-bateria-samsung-galaxy-a54). Multi-segmento fica no proxy + catch-all.
+		const serviceRedirects = serviceSlugs.map((serviceSlug) => ({
+			source: `/servicos/${serviceSlug}`,
+			destination: `/servicos?servico=${serviceSlug}`,
+			permanent: true,
+		}))
+
+		// URLs fantasma de loja/ML antiga + home legado (~45% dos 404 do GSC)
+		const legacyStoreRedirects = [
 			{
-				source: `/servicos/${serviceSlug}/:marca/:tipo/:modelo`,
-				destination: `/servicos/:marca/${serviceSlug}/:modelo`,
+				source: '/MLB-:path*',
+				destination: '/acessorios',
 				permanent: true,
 			},
 			{
-				source: `/servicos/${serviceSlug}/:marca/:tipo`,
-				destination: `/servicos/:marca/${serviceSlug}`,
+				source: '/lista/:path*',
+				destination: '/acessorios',
 				permanent: true,
 			},
 			{
-				source: `/servicos/${serviceSlug}/:marca`,
-				destination: `/servicos/:marca/${serviceSlug}`,
+				source: '/:slug/p/MLB:id',
+				destination: '/acessorios',
 				permanent: true,
 			},
 			{
-				source: `/servicos/${serviceSlug}`,
-				destination: `/servicos?servico=${serviceSlug}`,
+				source: '/p/MLB:id',
+				destination: '/acessorios',
 				permanent: true,
 			},
-		]))
+			{
+				source: '/home',
+				destination: '/',
+				permanent: true,
+			},
+			{
+				source: '/HOME',
+				destination: '/',
+				permanent: true,
+			},
+		]
+
+		return [...serviceRedirects, ...legacyStoreRedirects]
 	},
 	async headers () {
 		return [
