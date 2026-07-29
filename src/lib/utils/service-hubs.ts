@@ -2,6 +2,7 @@ import { brands, services } from '@/lib/data/services'
 import { buildServiceProductSlug } from '@/lib/utils/service-product-slug'
 
 export type ServiceHub = {
+  slug: string
   href: string
   serviceSlug: string
   serviceName: string
@@ -36,12 +37,15 @@ export function listServiceHubs (filters?: {
       for (const deviceType of Object.values(brand.deviceTypes)) {
         if (excludedTypes.includes(deviceType.slug)) continue
 
+        const slug = buildServiceProductSlug({
+          serviceSlug: service.slug,
+          brandSlug,
+          modelSlug: deviceType.slug,
+        })
+
         hubs.push({
-          href: `/servicos/${buildServiceProductSlug({
-            serviceSlug: service.slug,
-            brandSlug,
-            modelSlug: deviceType.slug,
-          })}`,
+          slug,
+          href: `/servicos/${slug}`,
           serviceSlug: service.slug,
           serviceName: service.name,
           brandSlug,
