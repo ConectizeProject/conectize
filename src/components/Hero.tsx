@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
+import { buildWhatsAppUrl } from '@/lib/data/business'
 import { Smartphone, Shield, Clock, ArrowRight } from 'lucide-react'
 
 const Hero = () => {
@@ -48,7 +49,7 @@ const Hero = () => {
               </Button>
               <Button variant="whatsapp" size="xl" asChild>
                 <a
-                  href="https://wa.me/5531986140889?text=Olá! Gostaria de um orçamento para conserto de celular."
+                  href={buildWhatsAppUrl('Olá! Gostaria de um orçamento para conserto de celular.')}
                   target="_blank"
                   rel="noopener noreferrer"
                 >

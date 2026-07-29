@@ -1,4 +1,5 @@
 import type { MetadataRoute } from 'next'
+import { geoLandingPages } from '@/lib/data/geo-landing-pages'
 import { brands, services } from '@/lib/data/services'
 import { buildServiceProductSlug } from '@/lib/utils/service-product-slug'
 
@@ -57,6 +58,12 @@ export default function sitemap (): MetadataRoute.Sitemap {
       changeFrequency: 'monthly',
       priority: 0.6,
     },
+    ...geoLandingPages.map((page) => ({
+      url: `${baseUrl}/${page.slug}`,
+      lastModified,
+      changeFrequency: 'weekly' as const,
+      priority: 0.9,
+    })),
   ]
   
   // Adicionar páginas de serviços (nova semântica: serviço + marca + modelo em slug único)
@@ -91,11 +98,13 @@ export default function sitemap (): MetadataRoute.Sitemap {
     { serviceSlug: 'troca-de-tela', brandSlug: 'apple', deviceTypeSlug: 'iphone' },
     { serviceSlug: 'troca-de-bateria', brandSlug: 'apple', deviceTypeSlug: 'iphone' },
     { serviceSlug: 'troca-de-vidro-da-tela', brandSlug: 'apple', deviceTypeSlug: 'iphone' },
+    { serviceSlug: 'troca-de-vidro-tampa-traseira', brandSlug: 'apple', deviceTypeSlug: 'iphone' },
     { serviceSlug: 'troca-de-conector', brandSlug: 'apple', deviceTypeSlug: 'iphone' },
     { serviceSlug: 'troca-de-camera', brandSlug: 'apple', deviceTypeSlug: 'iphone' },
 
     { serviceSlug: 'troca-de-tela', brandSlug: 'samsung', deviceTypeSlug: 'smartphone' },
     { serviceSlug: 'troca-de-bateria', brandSlug: 'samsung', deviceTypeSlug: 'smartphone' },
+    { serviceSlug: 'troca-de-vidro-tampa-traseira', brandSlug: 'samsung', deviceTypeSlug: 'smartphone' },
     { serviceSlug: 'troca-de-camera', brandSlug: 'samsung', deviceTypeSlug: 'smartphone' },
 
     { serviceSlug: 'troca-de-tela', brandSlug: 'motorola', deviceTypeSlug: 'smartphone' },

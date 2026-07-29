@@ -1,4 +1,5 @@
 import type { Service, Brand, DeviceType, Model, BreadcrumbItem } from '../types/seo'
+import { buildServiceProductSlug } from './service-product-slug'
 
 function getSiteUrl (): string {
   return process.env.NEXT_PUBLIC_SITE_URL || 'https://conectize.com.br'
@@ -69,7 +70,7 @@ export function generateBreadcrumbs (service: Service, brand?: Brand, deviceType
 
   if (brand) {
     breadcrumbs.push({ label: brand.displayName, href: `/servicos?marca=${brand.slug}` })
-    breadcrumbs.push({ label: service.name, href: `/servicos/${brand.slug}/${service.slug}` })
+    breadcrumbs.push({ label: service.name, href: `/servicos?marca=${brand.slug}&servico=${service.slug}` })
   } else {
     breadcrumbs.push({ label: service.name, href: `/servicos?servico=${service.slug}` })
   }
@@ -77,7 +78,11 @@ export function generateBreadcrumbs (service: Service, brand?: Brand, deviceType
   if (brand && model) {
     breadcrumbs.push({
       label: model.displayName || model.name,
-      href: `/servicos/${brand.slug}/${service.slug}/${model.slug}`
+      href: `/servicos/${buildServiceProductSlug({
+        serviceSlug: service.slug,
+        brandSlug: brand.slug,
+        modelSlug: model.slug
+      })}`
     })
   }
 
@@ -85,8 +90,21 @@ export function generateBreadcrumbs (service: Service, brand?: Brand, deviceType
 }
 
 export function generateCanonicalUrl (service: Service, brand?: Brand, deviceType?: DeviceType, model?: Model): string {
-  if (model && brand) return `/servicos/${brand.slug}/${service.slug}/${model.slug}`
-  if (brand) return `/servicos/${brand.slug}/${service.slug}`
+  if (model && brand) {
+    return `/servicos/${buildServiceProductSlug({
+      serviceSlug: service.slug,
+      brandSlug: brand.slug,
+      modelSlug: model.slug
+    })}`
+  }
+  if (deviceType && brand) {
+    return `/servicos/${buildServiceProductSlug({
+      serviceSlug: service.slug,
+      brandSlug: brand.slug,
+      modelSlug: deviceType.slug
+    })}`
+  }
+  if (brand) return `/servicos?marca=${brand.slug}&servico=${service.slug}`
   return `/servicos?servico=${service.slug}`
 }
 

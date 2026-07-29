@@ -18,6 +18,17 @@ export const services: Service[] = [
     brands: ['apple', 'samsung', 'xiaomi', 'motorola', 'lg']
   },
   {
+    slug: 'troca-de-vidro-tampa-traseira',
+    name: 'Troca de Vidro/Tampa Traseira',
+    description: 'Serviço especializado de troca de vidro e tampa traseira para smartphones e tablets. Restauramos acabamento, vedação e encaixe do aparelho com peças de alta qualidade.',
+    shortDescription: 'Troca de vidro traseiro e tampa traseira',
+    keywords: ['troca de vidro traseiro', 'tampa traseira', 'vidro da tampa traseira', 'back glass', 'housing', 'vidro traseiro quebrado'],
+    brands: ['apple', 'samsung', 'xiaomi', 'motorola', 'lg'],
+    excludedDeviceTypes: {
+      apple: ['watch']
+    }
+  },
+  {
     slug: 'troca-de-bateria',
     name: 'Troca de Bateria',
     description: 'Substituição de bateria com peças de alta qualidade. Restauramos a autonomia do seu dispositivo, garantindo maior durabilidade e segurança.',
