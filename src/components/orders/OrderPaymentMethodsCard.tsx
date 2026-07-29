@@ -1,20 +1,30 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  OrderPaymentDiscountCommissionFields,
+  type OrderTeamUserOption,
+} from './OrderPaymentDiscountCommissionFields'
 import {
   OrderPaymentMethodFields,
   type OrderPaymentMethodFieldsRef,
   type PaymentMethodEntry,
 } from './OrderPaymentMethodFields'
+import {
+  EMPTY_ORDER_DISCOUNT_COMMISSION,
+  type OrderDiscountCommissionValues,
+} from '@/lib/orders/order-discount-commission'
 
 type Props = {
   defaultValue: PaymentMethodEntry[]
   formId: string
   disabled?: boolean
   cardDescription?: string
+  teamUsers?: OrderTeamUserOption[]
+  discountCommission?: OrderDiscountCommissionValues
 }
 
 export function OrderPaymentMethodsCard({
@@ -22,9 +32,15 @@ export function OrderPaymentMethodsCard({
   formId,
   disabled = false,
   cardDescription = 'Como o cliente pode quitar esta ordem de serviço.',
+  teamUsers = [],
+  discountCommission = EMPTY_ORDER_DISCOUNT_COMMISSION,
 }: Props) {
   const fieldsRef = useRef<OrderPaymentMethodFieldsRef>(null)
   const [catalogLoading, setCatalogLoading] = useState(true)
+  const [discountCents, setDiscountCents] = useState(0)
+  const handleDiscountCentsChange = useCallback((cents: number) => {
+    setDiscountCents(cents)
+  }, [])
 
   return (
     <Card>
@@ -38,6 +54,7 @@ export function OrderPaymentMethodsCard({
           defaultValue={defaultValue}
           formId={formId}
           disabled={disabled}
+          discountCents={discountCents}
           onCatalogLoadingChange={setCatalogLoading}
         />
         <Button
@@ -52,6 +69,13 @@ export function OrderPaymentMethodsCard({
           <Plus className="h-4 w-4 mr-2" />
           Incluir forma de pagamento
         </Button>
+        <OrderPaymentDiscountCommissionFields
+          defaultValue={discountCommission}
+          formId={formId}
+          disabled={disabled}
+          teamUsers={teamUsers}
+          onDiscountCentsChange={handleDiscountCentsChange}
+        />
       </CardContent>
     </Card>
   )

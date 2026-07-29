@@ -42,6 +42,7 @@ import {
 } from './order-detail-actions'
 import { formatDateTimeLocal, parseOrderPaymentMethods } from './order-detail-helpers'
 import { formatDateTimeBr } from '@/lib/utils/format-date'
+import { parseOrderDiscountCommissionFromRow } from '@/lib/orders/order-discount-commission'
 import type { ServiceOrderDetail } from './service-order-detail-types'
 
 type WarrantyTemplateRow = {
@@ -230,32 +231,6 @@ export function OrdemDetalhePageContent (props: Props) {
 						deviceEntryChecks={order.device_entry_checks ?? null}
 					/>
 
-					<Card>
-						<CardHeader className="p-5">
-							<CardTitle>Considerações da assistência</CardTitle>
-							<CardDescription>
-								Checklist e fotos na saída do aparelho. Registro
-								independente da entrada, para comparar antes e
-								depois.
-							</CardDescription>
-						</CardHeader>
-						<CardContent className="space-y-6 p-5 pt-0">
-							<OrderDeviceEntryChecksEditor
-								initialValue={order.device_exit_checks ?? null}
-								disabled={formDisabled}
-								formId="order-edit-form"
-								variant="exit"
-							/>
-							<OrderEntryPhotos
-								orderId={order.id}
-								portalPathSegment={getOrdemPortalPathSegment(order)}
-								initialPhotoCount={exitPhotoCount}
-								disabled={formDisabled}
-								photoStage="exit"
-							/>
-						</CardContent>
-					</Card>
-
 					<OrderServicesCard
 						initialServices={
 							(order.services as Array<{
@@ -296,6 +271,32 @@ export function OrdemDetalhePageContent (props: Props) {
 						</Card>
 					) : null}
 
+					<Card>
+						<CardHeader className="p-5">
+							<CardTitle>Considerações da assistência</CardTitle>
+							<CardDescription>
+								Checklist e fotos na saída do aparelho. Registro
+								independente da entrada, para comparar antes e
+								depois.
+							</CardDescription>
+						</CardHeader>
+						<CardContent className="space-y-6 p-5 pt-0">
+							<OrderDeviceEntryChecksEditor
+								initialValue={order.device_exit_checks ?? null}
+								disabled={formDisabled}
+								formId="order-edit-form"
+								variant="exit"
+							/>
+							<OrderEntryPhotos
+								orderId={order.id}
+								portalPathSegment={getOrdemPortalPathSegment(order)}
+								initialPhotoCount={exitPhotoCount}
+								disabled={formDisabled}
+								photoStage="exit"
+							/>
+						</CardContent>
+					</Card>
+
 					{Array.isArray(warrantyTemplates) && warrantyTemplates.length > 0 ? (
 						<Card>
 							<CardHeader className="p-5">
@@ -318,12 +319,6 @@ export function OrdemDetalhePageContent (props: Props) {
 						</Card>
 					) : null}
 
-					<OrderPaymentMethodsCard
-						defaultValue={parseOrderPaymentMethods(order)}
-						formId="order-edit-form"
-						disabled={formDisabled}
-					/>
-
 					{!isPortalReadOnly ? (
 						<Card>
 							<CardHeader className="p-5">
@@ -342,6 +337,14 @@ export function OrdemDetalhePageContent (props: Props) {
 							</CardContent>
 						</Card>
 					) : null}
+
+					<OrderPaymentMethodsCard
+						defaultValue={parseOrderPaymentMethods(order)}
+						formId="order-edit-form"
+						disabled={formDisabled}
+						teamUsers={sellerOptions}
+						discountCommission={parseOrderDiscountCommissionFromRow(order)}
+					/>
 
 					<div aria-hidden className={orderFormActionBarFlowSpacerClassName} />
 					<OrderFormActionBar>

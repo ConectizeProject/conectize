@@ -6,6 +6,7 @@ import {
 	type CustomerHit,
 } from "@/components/customers";
 import {
+	OrderPaymentDiscountCommissionFields,
 	OrderPaymentMethodFields,
 	OrderServicesCard,
 	OrderServicesTotalProvider,
@@ -14,6 +15,7 @@ import {
 	type OrderPaymentMethodFieldsRef,
 	type OrderServicesCardRef,
 } from "@/components/orders";
+import { EMPTY_ORDER_DISCOUNT_COMMISSION } from "@/lib/orders/order-discount-commission";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -41,7 +43,7 @@ import { Field, FieldArray, Form, Formik } from "formik";
 import { Loader2, Plus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	OrderFormActionBar,
 	orderFormActionBarFlowSpacerClassName,
@@ -75,6 +77,8 @@ type Props = {
 	sellerName: string;
 	isAdmin: boolean;
 	sellerOptions: SellerOption[];
+	/** Colaboradores para seleção de comissão (admin/staff). */
+	teamUsers: SellerOption[];
 	deviceModels?: DeviceModel[];
 	paymentMethodsCatalog: PortalPaymentMethodCatalogItem[];
 	currentUserId: string;
@@ -112,6 +116,10 @@ export function NovaOrdemClient(props: Props) {
 	const servicesCardRef = useRef<OrderServicesCardRef>(null);
 	const paymentMethodsFieldsRef = useRef<OrderPaymentMethodFieldsRef>(null);
 	const initialErrorToastShownRef = useRef(false);
+	const [paymentDiscountCents, setPaymentDiscountCents] = useState(0);
+	const handlePaymentDiscountCentsChange = useCallback((cents: number) => {
+		setPaymentDiscountCents(cents);
+	}, []);
 
 	const [customerDevices, setCustomerDevices] = useState<
 		NovaOrdemCustomerDevice[]
@@ -200,6 +208,28 @@ export function NovaOrdemClient(props: Props) {
 										},
 									]
 								: [],
+					...EMPTY_ORDER_DISCOUNT_COMMISSION,
+					...(o.discountMode
+						? {
+								discountMode:
+									o.discountMode === "percent" ? "percent" : "fixed",
+								discountFixedCents: Math.max(0, Number(o.discountFixedCents) || 0),
+								discountPercent: Math.max(0, Number(o.discountPercent) || 0),
+							}
+						: {}),
+					...(o.commissionUserId
+						? {
+								commissionEnabled: true,
+								commissionUserId: String(o.commissionUserId),
+								commissionKind:
+									o.commissionKind === "fixed" ? "fixed" : "percent",
+								commissionFixedCents: Math.max(
+									0,
+									Number(o.commissionFixedCents) || 0,
+								),
+								commissionPercent: Math.max(0, Number(o.commissionPercent) || 0),
+							}
+						: {}),
 					customerDescription: o.customerDescription ?? "",
 					internalInitialComment: o.internalInitialComment ?? "",
 					receivingNotes: o.receivingNotes ?? "",
@@ -336,6 +366,17 @@ export function NovaOrdemClient(props: Props) {
 				}),
 			),
 		);
+		fd.append("discountMode", values.discountMode);
+		fd.append("discountFixedCents", String(values.discountFixedCents || 0));
+		fd.append("discountPercent", String(values.discountPercent || 0));
+		fd.append("commissionEnabled", values.commissionEnabled ? "1" : "");
+		fd.append("commissionUserId", values.commissionUserId || "");
+		fd.append("commissionKind", values.commissionKind);
+		fd.append(
+			"commissionFixedCents",
+			String(values.commissionFixedCents || 0),
+		);
+		fd.append("commissionPercent", String(values.commissionPercent || 0));
 		fd.append("title", values.title);
 		fd.append("status", values.status);
 		fd.append("imei", values.imei);
@@ -476,40 +517,6 @@ export function NovaOrdemClient(props: Props) {
 
 								<Card>
 									<CardHeader>
-										<CardTitle>Formas de pagamento</CardTitle>
-										<CardDescription>
-											Defina como o cliente pagará a OS.
-										</CardDescription>
-									</CardHeader>
-									<CardContent className="relative space-y-3">
-										<OrderPaymentMethodFields
-											ref={paymentMethodsFieldsRef}
-											initialCatalog={props.paymentMethodsCatalog}
-											formik={{
-												values: {
-													paymentMethods: formik.values.paymentMethods ?? [],
-												},
-												setFieldValue: formik.setFieldValue,
-											}}
-										/>
-										<Button
-											type="button"
-											variant="outline"
-											size="sm"
-											className="w-full border-dashed border-green-600 bg-green-600/5 text-green-700 hover:bg-green-600/10 hover:text-green-800"
-											onClick={() =>
-												paymentMethodsFieldsRef.current?.addEntry()
-											}
-											aria-label="Incluir forma de pagamento"
-										>
-											<Plus className="h-4 w-4 mr-2" />
-											Incluir forma de pagamento
-										</Button>
-									</CardContent>
-								</Card>
-
-								<Card>
-									<CardHeader>
 										<CardTitle>Descrição interna</CardTitle>
 										<CardDescription>
 											Primeira anotação interna (opcional). Depois de criar a
@@ -558,6 +565,59 @@ export function NovaOrdemClient(props: Props) {
 												{formik.errors.customerId}
 											</p>
 										) : null}
+									</CardContent>
+								</Card>
+
+								<Card>
+									<CardHeader>
+										<CardTitle>Formas de pagamento</CardTitle>
+										<CardDescription>
+											Defina como o cliente pagará a OS.
+										</CardDescription>
+									</CardHeader>
+									<CardContent className="relative space-y-3">
+										<OrderPaymentMethodFields
+											ref={paymentMethodsFieldsRef}
+											initialCatalog={props.paymentMethodsCatalog}
+											discountCents={paymentDiscountCents}
+											formik={{
+												values: {
+													paymentMethods: formik.values.paymentMethods ?? [],
+												},
+												setFieldValue: formik.setFieldValue,
+											}}
+										/>
+										<Button
+											type="button"
+											variant="outline"
+											size="sm"
+											className="w-full border-dashed border-green-600 bg-green-600/5 text-green-700 hover:bg-green-600/10 hover:text-green-800"
+											onClick={() =>
+												paymentMethodsFieldsRef.current?.addEntry()
+											}
+											aria-label="Incluir forma de pagamento"
+										>
+											<Plus className="h-4 w-4 mr-2" />
+											Incluir forma de pagamento
+										</Button>
+										<OrderPaymentDiscountCommissionFields
+											teamUsers={props.teamUsers}
+											onDiscountCentsChange={handlePaymentDiscountCentsChange}
+											formik={{
+												values: {
+													discountMode: formik.values.discountMode,
+													discountFixedCents: formik.values.discountFixedCents,
+													discountPercent: formik.values.discountPercent,
+													commissionEnabled: formik.values.commissionEnabled,
+													commissionUserId: formik.values.commissionUserId,
+													commissionKind: formik.values.commissionKind,
+													commissionFixedCents:
+														formik.values.commissionFixedCents,
+													commissionPercent: formik.values.commissionPercent,
+												},
+												setFieldValue: formik.setFieldValue,
+											}}
+										/>
 									</CardContent>
 								</Card>
 

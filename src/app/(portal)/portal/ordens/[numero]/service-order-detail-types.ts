@@ -24,6 +24,13 @@ export type ServiceOrderDetail = {
   services: unknown
   services_total_cents: number | null
   services_cost_total_cents: number | null
+  discount_cents?: number | null
+  discount_mode?: string | null
+  discount_percent?: number | null
+  commission_user_id?: string | null
+  commission_kind?: string | null
+  commission_fixed_cents?: number | null
+  commission_percent?: number | null
   created_at: string
   updated_at: string
   closed_at: string | null

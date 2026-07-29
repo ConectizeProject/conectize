@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { SlidersHorizontal, X } from 'lucide-react'
@@ -344,9 +344,27 @@ export function OrdensFilterCollapsible ({
 
   const showAppliedExtrasRow = appliedExtraFilterLabels.length > 0
 
+  function handleFilterSubmit (e: FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    const fd = new FormData(e.currentTarget)
+    const params = new URLSearchParams()
+    for (const [key, value] of fd.entries()) {
+      const raw = String(value ?? '').trim()
+      if (!raw) continue
+      if (key === 'cpf') {
+        const digits = raw.replace(/\D/g, '')
+        if (digits) params.set('cpf', digits)
+        continue
+      }
+      params.set(key, raw)
+    }
+    const qs = params.toString()
+    router.push(qs ? `/portal/ordens?${qs}` : '/portal/ordens')
+  }
+
   return (
     <div className="rounded-md border bg-card p-3">
-      <form action="/portal/ordens" method="get">
+      <form action="/portal/ordens" method="get" onSubmit={handleFilterSubmit}>
         {initialValues.noServices ? <input type="hidden" name="noServices" value="1" /> : null}
         {initialValues.noCost ? <input type="hidden" name="noCost" value="1" /> : null}
         {initialValues.noPayment ? <input type="hidden" name="noPayment" value="1" /> : null}
