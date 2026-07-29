@@ -9,13 +9,19 @@ import { generateKeywords } from '@/lib/utils/seo'
 import { formatModelName } from '@/lib/utils/format-model-name'
 import { generateProgrammaticContent } from '@/lib/utils/programmatic-content'
 import { buildServiceProductSlug, parseServiceProductSlug } from '@/lib/utils/service-product-slug'
+import { listServiceHubs } from '@/lib/utils/service-hubs'
 import { getSiteUrl } from '@/lib/utils/site-url'
 import { Breadcrumbs } from '@/components/seo/Breadcrumbs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 import { FreteCalculatorLazy } from '@/components/FreteCalculatorLazy'
 
-export const dynamic = 'force-dynamic'
+export const revalidate = 86400
+export const dynamicParams = true
+
+export function generateStaticParams (): Array<{ slug: string[] }> {
+  return listServiceHubs().map((hub) => ({ slug: [hub.slug] }))
+}
 
 interface PageProps {
   params: Promise<{ slug: string[] }>
