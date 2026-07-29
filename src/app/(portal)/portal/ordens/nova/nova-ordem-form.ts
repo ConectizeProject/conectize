@@ -1,4 +1,6 @@
 import type { ServiceLine } from "@/components/orders";
+import type { OrderDiscountCommissionValues } from "@/lib/orders/order-discount-commission";
+import { EMPTY_ORDER_DISCOUNT_COMMISSION } from "@/lib/orders/order-discount-commission";
 import * as Yup from "yup";
 
 export type FormValues = {
@@ -29,7 +31,7 @@ export type FormValues = {
 	receivingNotes: string;
 	services: ServiceLine[];
 	deviceEntryChecksJson: string;
-};
+} & OrderDiscountCommissionValues;
 
 export const initialFormValues: FormValues = {
 	customerId: "",
@@ -55,6 +57,7 @@ export const initialFormValues: FormValues = {
 	receivingNotes: "",
 	services: [],
 	deviceEntryChecksJson: "",
+	...EMPTY_ORDER_DISCOUNT_COMMISSION,
 };
 
 export const orderFormSchema = Yup.object().shape({

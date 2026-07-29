@@ -7,6 +7,10 @@ import {
 	enrichWarrantyTemplateHistoryValues,
 } from '@/lib/orders/order-edit-history'
 import {
+	parseOrderDiscountCommissionFromFormData,
+	toOrderDiscountCommissionDbPayload,
+} from '@/lib/orders/order-discount-commission'
+import {
 	parsePaymentMethodsJson,
 	parseServicesJson,
 } from '@/lib/orders/order-form-parsers'
@@ -44,6 +48,13 @@ export async function updateOrderAction (formData: FormData) {
 	).trim()
 	const paymentMethodsJson = formData.get('paymentMethodsJson')
 	const paymentMethods = parsePaymentMethodsJson(paymentMethodsJson)
+	const servicesJson = formData.get('servicesJson')
+	const services = parseServicesJson(servicesJson)
+	const discountCommissionForm = parseOrderDiscountCommissionFromFormData(formData)
+	let discountCommission = toOrderDiscountCommissionDbPayload(
+		discountCommissionForm,
+		services.totalValueCents,
+	)
 	const customerDescription = String(
 		formData.get('customerDescription') || '',
 	).trim()
@@ -66,8 +77,6 @@ export async function updateOrderAction (formData: FormData) {
 	const formSellerUserId = String(
 		formData.get('seller_user_id') || '',
 	).trim()
-	const servicesJson = formData.get('servicesJson')
-	const services = parseServicesJson(servicesJson)
 
 	let deviceEntryChecks: unknown = null
 	if (deviceEntryChecksJson) {
@@ -121,6 +130,8 @@ export async function updateOrderAction (formData: FormData) {
 				payment_methods, customer_description, receiving_notes,
 				warranty_template_id, warranty_text, device_model_id,
 				services_total_cents, services_cost_total_cents,
+				discount_cents, discount_mode, discount_percent,
+				commission_user_id, commission_kind, commission_fixed_cents, commission_percent,
 				device_entry_checks, device_exit_checks, seller_user_id, closed_at,
 				created_at, organization_id`,
 		)
@@ -186,6 +197,24 @@ export async function updateOrderAction (formData: FormData) {
 	if (isOrderFinalized && role !== 'admin' && role !== 'platform_admin') {
 		redirect(`${ordemPath}?error=ordem_finalizada`)
 	}
+	if (discountCommission.commission_user_id) {
+		const { data: commissionUser } = await supabase
+			.from('users')
+			.select('id')
+			.eq('id', discountCommission.commission_user_id)
+			.in('role', ['admin', 'staff'])
+			.maybeSingle()
+		if (!commissionUser?.id) {
+			discountCommission = {
+				...discountCommission,
+				commission_user_id: null,
+				commission_kind: null,
+				commission_fixed_cents: null,
+				commission_percent: null,
+			}
+		}
+	}
+
 	const updatePayload: Record<string, unknown> = {
 		title,
 		status,
@@ -210,6 +239,7 @@ export async function updateOrderAction (formData: FormData) {
 		services: services.items,
 		services_total_cents: services.totalValueCents,
 		services_cost_total_cents: services.totalCostCents,
+		...discountCommission,
 	}
 	if (formData.has('deviceEntryChecksJson')) {
 		updatePayload.device_entry_checks = deviceEntryChecks

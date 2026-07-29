@@ -24,22 +24,25 @@ export default async function NovaOrdemPage({
   const sellerName = fullName || user.email || ''
   const isAdmin = role === 'admin' || role === 'platform_admin'
 
-  const [sellerOptionsResult, deviceModels, paymentMethodsCatalog] = await Promise.all([
+  const [sellerOptionsResult, teamUsersResult, deviceModels, paymentMethodsCatalog] = await Promise.all([
     isAdmin
       ? supabase.from('users').select('id, email, full_name').in('role', ['admin', 'staff']).order('email')
       : Promise.resolve({ data: [] }),
+    supabase.from('users').select('id, email, full_name').in('role', ['admin', 'staff']).order('email'),
     fetchDeviceModelsForSelector(supabase),
     fetchPaymentMethodsCatalogForPortal(supabase),
   ])
 
   type SellerOptionRow = { id: string; full_name: string | null; email: string | null }
+  const mapUser = (u: SellerOptionRow) => ({
+    id: u.id,
+    full_name: u.full_name ?? null,
+    email: u.email ?? null,
+  })
   const sellerOptions: SellerOptionRow[] = isAdmin
-    ? (sellerOptionsResult.data ?? []).map((u: SellerOptionRow) => ({
-        id: u.id,
-        full_name: u.full_name ?? null,
-        email: u.email ?? null,
-      }))
+    ? (sellerOptionsResult.data ?? []).map(mapUser)
     : []
+  const teamUsers: SellerOptionRow[] = (teamUsersResult.data ?? []).map(mapUser)
 
   return (
     <NovaOrdemClient
@@ -47,6 +50,7 @@ export default async function NovaOrdemPage({
       sellerName={sellerName}
       isAdmin={isAdmin}
       sellerOptions={sellerOptions}
+      teamUsers={teamUsers}
       deviceModels={deviceModels}
       paymentMethodsCatalog={paymentMethodsCatalog}
       currentUserId={user.id}
