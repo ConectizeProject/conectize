@@ -4,6 +4,7 @@ import { ArrowLeft, ArrowRight } from 'lucide-react'
 import { brands, services } from '@/lib/data/services'
 import { formatModelName } from '@/lib/utils/format-model-name'
 import { buildServiceProductSlug } from '@/lib/utils/service-product-slug'
+import { getSiteUrl } from '@/lib/utils/site-url'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ServicesFiltersLazy } from '@/components/services/ServicesFiltersLazy'
@@ -144,7 +145,7 @@ export async function generateMetadata({ searchParams }: { searchParams: SearchP
     description: 'Serviços especializados de reparo em Belo Horizonte. Filtre por marca, serviço, dispositivo e modelo para solicitar orçamento.',
     keywords: 'assistência técnica celular belo horizonte, reparo celular bh, troca de tela, troca de bateria, reparo de placa',
     alternates: {
-      canonical: '/servicos',
+      canonical: `${getSiteUrl()}/servicos`,
     },
   }
 }

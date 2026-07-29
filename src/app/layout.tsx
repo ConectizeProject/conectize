@@ -52,6 +52,9 @@ export const metadata: Metadata = {
     siteName: 'Conectize',
     locale: 'pt_BR',
   },
+  alternates: {
+    canonical: business.siteUrl,
+  },
   other: {
     'geo.region': 'BR-MG',
     'geo.placename': 'Belo Horizonte, Santa Efigênia',
