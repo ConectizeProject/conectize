@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   description: 'Acessórios de qualidade para seu celular: capinhas, carregadores, películas protetoras e fones de ouvido. Encontre tudo que você precisa na Conectize em Belo Horizonte.',
   keywords: 'acessorios celular belo horizonte, capinha celular bh, carregador celular, pelicula celular, fone de ouvido celular',
   alternates: {
-    canonical: 'https://conectize.com.br/acessorios',
+    canonical: '/acessorios',
   },
 }
 

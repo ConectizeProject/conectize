@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   description: 'Passo a passo público para conectar o Conectize ao Bling, autorizar o aplicativo e sincronizar produtos.',
   robots: 'index, follow',
   alternates: {
-    canonical: 'https://conectize.com.br/manual/bling',
+    canonical: '/manual/bling',
   },
 }
 

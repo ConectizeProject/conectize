@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   description: 'Entre em contato com a Conectize. Telefone, WhatsApp, e-mail e endereço em Belo Horizonte. Atendimento de segunda a sábado. Solicite seu orçamento!',
   keywords: 'contato conectize, telefone assistência técnica bh, whatsapp conserto celular, endereço conectize belo horizonte',
   alternates: {
-    canonical: 'https://conectize.com.br/contato',
+    canonical: '/contato',
   },
 }
 

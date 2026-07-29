@@ -1,9 +1,8 @@
 import type { Service, Brand, DeviceType, Model, BreadcrumbItem } from '../types/seo'
 import { buildServiceProductSlug } from './service-product-slug'
+import { getSiteUrl } from './site-url'
 
-function getSiteUrl (): string {
-  return process.env.NEXT_PUBLIC_SITE_URL || 'https://conectize.com.br'
-}
+export { getSiteUrl } from './site-url'
 
 export function generatePageTitle (service: Service, brand?: Brand, deviceType?: DeviceType, model?: Model): string {
   if (model && deviceType && brand) {

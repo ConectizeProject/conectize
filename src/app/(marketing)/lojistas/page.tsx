@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   description: 'Condições diferenciadas para lojistas: manutenção de aparelhos, venda de celulares seminovos e suporte técnico especializado. Parcerias e descontos para revendedores.',
   keywords: 'atendimento lojistas belo horizonte, condições especiais lojistas, celulares seminovos, manutenção para lojistas, atacado celular',
   alternates: {
-    canonical: 'https://conectize.com.br/lojistas',
+    canonical: '/lojistas',
   },
 }
 
