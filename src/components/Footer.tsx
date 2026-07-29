@@ -1,6 +1,21 @@
 import Link from 'next/link'
 import Image from 'next/image'
 import { MapPin, Phone, Mail } from 'lucide-react'
+import { business } from '@/lib/data/business'
+
+const footerServices = [
+  { label: 'Assistência Apple (iPhone, iPad, Mac)', href: '/assistencia-apple-bh' },
+  { label: 'Troca de Tela', href: '/troca-de-tela-celular-bh' },
+  { label: 'Troca de Bateria', href: '/servicos?servico=troca-de-bateria' },
+  { label: 'Reparo de Placa', href: '/servicos?servico=reparo-de-placa' },
+  { label: 'Coleta em Domicílio', href: '/coleta' }
+]
+
+const socialLinks = [
+  { label: 'Instagram', href: 'https://www.instagram.com/conectizeoficial/' },
+  { label: 'Facebook', href: 'https://www.facebook.com/ConectizeStore/' },
+  { label: 'Google Maps', href: business.hasMap }
+]
 
 const Footer = () => {
   const currentYear = new Date().getFullYear();
@@ -26,17 +41,26 @@ const Footer = () => {
               Assistência técnica especializada em conserto de celulares e produtos Apple em Belo Horizonte. 
               Qualidade, rapidez e garantia em todos os serviços.
             </p>
+            <div className="flex flex-wrap gap-3 text-sm">
+              {socialLinks.map((link) => (
+                <a key={link.label} href={link.href} target="_blank" rel="noopener noreferrer" className="text-background/70 hover:text-background transition-colors">
+                  {link.label}
+                </a>
+              ))}
+            </div>
           </div>
 
           {/* Services */}
           <div>
             <p className="text-lg font-bold mb-4">Serviços</p>
             <ul className="space-y-2 text-background/70">
-              <li>Assistência Apple (iPhone, iPad, Mac)</li>
-              <li>Troca de Tela</li>
-              <li>Troca de Bateria</li>
-              <li>Reparo de Placa</li>
-              <li>Coleta em Domicílio</li>
+              {footerServices.map((service) => (
+                <li key={service.href}>
+                  <Link href={service.href} className="hover:text-background transition-colors">
+                    {service.label}
+                  </Link>
+                </li>
+              ))}
             </ul>
           </div>
 
@@ -46,17 +70,17 @@ const Footer = () => {
             <ul className="space-y-3 text-background/70">
               <li className="flex items-start gap-2">
                 <MapPin className="w-4 h-4 mt-1 flex-shrink-0" />
-                <span>R. Padre Rolim, 620 - Santa Efigênia<br />Belo Horizonte - MG, 30130-094</span>
+                <span>{business.address.streetAddress} - {business.address.neighborhood}<br />{business.address.addressLocality} - {business.address.addressRegion}, {business.address.postalCode}</span>
               </li>
               <li className="flex items-center gap-2">
                 <Phone className="w-4 h-4" />
-                <a href="tel:+5531986140889" className="hover:text-background transition-colors">
-                  (31) 9 8614-0889
+                <a href={`tel:${business.phone}`} className="hover:text-background transition-colors">
+                  {business.phoneDisplay}
                 </a>
               </li>
               <li className="flex items-center gap-2">
                 <Mail className="w-4 h-4" />
-                contato@conectize.com.br
+                {business.email}
               </li>
             </ul>
           </div>
@@ -64,7 +88,7 @@ const Footer = () => {
 
         <div className="border-t border-background/20 pt-8">
           <div className="text-center text-background/60 text-sm">
-            <p>© {currentYear} Conectize - Assistência Técnica de Celular e Apple em Belo Horizonte. CNPJ 44.957.050/0001-37. Todos os direitos reservados.</p>
+            <p>© {currentYear} Conectize - Assistência Técnica de Celular e Apple em Belo Horizonte. CNPJ {business.cnpj}. Todos os direitos reservados.</p>
             <p className="mt-2">
               Conserto de celulares Belo Horizonte | Assistência técnica iPhone BH | Coleta em domicílio | Especialista Apple
             </p>

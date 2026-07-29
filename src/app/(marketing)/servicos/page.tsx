@@ -40,6 +40,10 @@ const quickFilters = [
     href: `/servicos/${buildServiceProductSlug({ serviceSlug: 'troca-de-vidro-da-tela', brandSlug: 'apple', modelSlug: 'iphone' })}`
   },
   {
+    label: 'Troca de vidro/tampa traseira do iPhone',
+    href: `/servicos/${buildServiceProductSlug({ serviceSlug: 'troca-de-vidro-tampa-traseira', brandSlug: 'apple', modelSlug: 'iphone' })}`
+  },
+  {
     label: 'Troca de display Samsung Galaxy',
     href: `/servicos/${buildServiceProductSlug({ serviceSlug: 'troca-de-tela', brandSlug: 'samsung', modelSlug: 'smartphone' })}`
   },

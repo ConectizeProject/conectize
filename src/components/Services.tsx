@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Smartphone, Battery, Monitor, Cpu, Wifi, Camera, Settings, Wrench, LucideIcon } from "lucide-react";
 
 interface Service {
@@ -5,6 +6,7 @@ interface Service {
   customIcon?: boolean;
   title: string;
   description: string;
+  href: string;
   highlight?: boolean;
 }
 
@@ -20,52 +22,68 @@ const services: Service[] = [
     customIcon: true,
     title: "Assistência Apple",
     description: "Especialistas em iPhone, iPad, MacBook e Apple Watch. Reparo com peças de qualidade.",
+    href: "/assistencia-apple-bh",
     highlight: true,
   },
   {
     icon: Monitor,
     title: "Troca de Tela",
     description: "Substituição de telas quebradas ou com defeito para todas as marcas de celulares.",
+    href: "/troca-de-tela-celular-bh",
   },
   {
     icon: Monitor,
     title: "Troca de Vidro da Tela",
     description: "Substituição de vidro da tela quebrado ou arranhado para todas as marcas de celulares.",
+    href: "/servicos?servico=troca-de-vidro-da-tela",
+  },
+  {
+    icon: Smartphone,
+    title: "Troca de Vidro/Tampa Traseira",
+    description: "Substituição de vidro traseiro e tampa traseira quebrada, trincada ou arranhada.",
+    href: "/servicos?servico=troca-de-vidro-tampa-traseira",
   },
   {
     icon: Battery,
     title: "Troca de Bateria",
     description: "Baterias de alta qualidade para seu celular durar mais.",
+    href: "/servicos?servico=troca-de-bateria",
   },
   {
     icon: Cpu,
     title: "Reparo de Placa",
     description: "Conserto de placas lógicas e componentes internos com precisão.",
+    href: "/servicos?servico=reparo-de-placa",
   },
   {
     icon: Wifi,
     title: "Problemas de Conectividade",
     description: "Reparos em Wi-Fi, Bluetooth, antenas e conexões de rede.",
+    href: "/servicos?servico=troca-de-conector",
   },
   {
     icon: Camera,
     title: "Reparo de Câmera",
     description: "Troca e conserto de câmeras frontais e traseiras.",
+    href: "/servicos?servico=troca-de-camera",
   },
   {
     icon: Settings,
     title: "Problemas de Software",
     description: "Formatação, atualização e resolução de problemas de sistema.",
+    href: "/servicos?servico=correcoes-de-software",
   },
   {
     icon: Smartphone,
     title: "Troca de Conector",
     description: "Substituição de conectores de carga e fones de ouvido.",
+    href: "/servicos?servico=troca-de-conector",
   },
   {
     icon: Wrench,
     title: "Manutenção Geral",
     description: "Limpeza, diagnóstico completo e manutenção preventiva.",
+    href: "/servicos",
   },
 ];
 
@@ -92,8 +110,9 @@ const Services = () => {
           {services.map((service, index) => {
             const IconComponent = service.icon;
             return (
-              <div
+              <Link
                 key={service.title}
+                href={service.href}
                 className={`group bg-card rounded-2xl p-6 shadow-card hover:shadow-glow transition-all duration-300 hover:-translate-y-1 animate-fade-up ${
                   service.highlight ? "ring-2 ring-primary lg:col-span-1 relative overflow-hidden" : ""
                 }`}
@@ -117,7 +136,7 @@ const Services = () => {
                 <p className="text-muted-foreground text-sm leading-relaxed">
                   {service.description}
                 </p>
-              </div>
+              </Link>
             );
           })}
         </div>

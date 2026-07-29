@@ -57,6 +57,7 @@ function compactService(service: Service) {
     const map: Record<string, string> = {
         'troca-de-tela': 'Troca de tela',
         'troca-de-vidro-da-tela': 'Troca de vidro',
+        'troca-de-vidro-tampa-traseira': 'Troca de vidro/tampa traseira',
         'troca-de-bateria': 'Troca de bateria',
         'reparo-de-placa': 'Reparo de placa',
         'troca-de-conector': 'Troca de conector',
@@ -295,6 +296,27 @@ function getFaq(service: Service, brand: Brand, deviceType: DeviceType, model?: 
         ]
     }
 
+    if (service.slug === 'troca-de-vidro-tampa-traseira') {
+        return [
+            {
+                q: `Quando vale fazer troca de vidro/tampa traseira no ${deviceLabel}?`,
+                a: 'Quando a traseira está trincada, solta, arranhada ou com encaixe comprometido após queda. Avaliamos se basta substituir o vidro traseiro ou se a tampa/housing completo precisa ser trocado.'
+            },
+            {
+                q: 'Qual a diferença para troca de vidro da tela?',
+                a: 'A troca de vidro da tela envolve o conjunto frontal e depende de display/toque íntegros. A troca de vidro/tampa traseira restaura a parte externa traseira, acabamento, encaixe e proteção dos componentes internos.'
+            },
+            {
+                q: 'Vidro traseiro quebrado pode afetar câmera ou bateria?',
+                a: 'Pode. Impacto na traseira pode desalinhar lentes, comprometer vedação e pressionar bateria ou flex. Por isso verificamos câmeras, encaixes e sinais de empeno antes de fechar o aparelho.'
+            },
+            {
+                q: 'Qual é o prazo e a garantia?',
+                a: 'Em geral até 24-48h úteis, variando por modelo e disponibilidade da tampa. Garantia de 6 meses para o serviço e peça instalada.'
+            }
+        ]
+    }
+
     if (service.slug === 'troca-de-bateria') {
         return [
             {
@@ -500,6 +522,61 @@ function getServiceProblems(service: Service, brand: Brand, deviceType: DeviceTy
             'Manchas/névoa por contaminação interna',
             'Falha ao alternar entre lentes',
             'Selfie sem imagem após impacto'
+        ]
+    }
+
+    if (slug === 'troca-de-vidro-tampa-traseira') {
+        if (brandSlug === 'apple') {
+            return [
+                'Vidro traseiro do iPhone trincado após queda',
+                'Tampa traseira soltando ou com frestas',
+                'Lente da câmera desalinhada após impacto',
+                'Traseira riscada ou quebrada perto das bordas',
+                'Carcaça empenada pressionando bateria',
+                'Vedação comprometida com entrada de poeira'
+            ]
+        }
+
+        if (brandSlug === 'samsung') {
+            return [
+                'Back glass de Galaxy trincado ou estilhaçado',
+                'Tampa traseira descolando nas bordas',
+                'Moldura traseira empenada após queda',
+                'Câmeras com aro deslocado ou folga',
+                'Vidro traseiro arranhado com risco de corte',
+                'Bateria estufando e levantando a tampa'
+            ]
+        }
+
+        if (brandSlug === 'motorola') {
+            return [
+                'Tampa traseira do Moto G quebrada',
+                'Traseira soltando após queda',
+                'Moldura com folga perto dos botões',
+                'Vidro/carcaça riscado e com quinas quebradas',
+                'Câmera traseira com aro comprometido',
+                'Tampa aberta por bateria inchada'
+            ]
+        }
+
+        if (brandSlug === 'xiaomi') {
+            return [
+                'Vidro traseiro de Redmi/Poco trincado',
+                'Tampa traseira descolando nas laterais',
+                'Carcaça empenada perto do módulo de câmera',
+                'Rachadura avançando para as bordas',
+                'Poeira entrando pela traseira quebrada',
+                'Acabamento traseiro solto após impacto'
+            ]
+        }
+
+        return [
+            'Vidro traseiro trincado ou estilhaçado',
+            'Tampa traseira descolando',
+            'Moldura/carcaça empenada',
+            'Câmera traseira desalinhada após queda',
+            'Bordas quebradas com risco de corte',
+            'Vedação comprometida por impacto'
         ]
     }
 
@@ -763,6 +840,36 @@ function getServiceProcess(service: Service, brand: Brand, deviceType: DeviceTyp
         }
     }
 
+    if (serviceSlug === 'troca-de-vidro-tampa-traseira') {
+        if (brandSlug === 'apple') {
+            return normalizeSpaces(
+                `No iPhone/iPad, avaliamos a traseira, aro das câmeras e sinais de empeno antes da troca. ` +
+                `Removemos o vidro/tampa com controle térmico, instalamos a peça compatível e validamos câmeras, botões, carga por indução quando aplicável e acabamento${modelLabel}.`
+            )
+        }
+
+        if (brandSlug === 'samsung') {
+            return normalizeSpaces(
+                `Em Samsung, removemos a tampa traseira preservando flex, lentes e vedação do conjunto. ` +
+                `Depois instalamos o back glass/tampa compatível, conferimos alinhamento do módulo de câmera e validamos fechamento sem frestas${modelLabel}.`
+            )
+        }
+
+        if (brandSlug === 'motorola') {
+            return normalizeSpaces(
+                `Nos Motorola, checamos se a tampa traseira quebrou por impacto ou por pressão de bateria estufada. ` +
+                `Fazemos a substituição com alinhamento de carcaça, inspeção de botões e teste de encaixe para evitar folgas${modelLabel}.`
+            )
+        }
+
+        if (brandSlug === 'xiaomi') {
+            return normalizeSpaces(
+                `Em Xiaomi/Redmi/Poco, avaliamos módulo de câmera, cola da tampa e possíveis empenos na moldura. ` +
+                `A troca restaura acabamento traseiro, reduz entrada de poeira e finaliza com teste de câmera e fechamento${modelLabel}.`
+            )
+        }
+    }
+
     if (serviceSlug === 'troca-de-bateria') {
         if (brandSlug === 'apple') {
             return normalizeSpaces(
@@ -871,6 +978,21 @@ function getTechnicalSection(service: Service, brand: Brand, deviceType: DeviceT
         }
     }
 
+    if (serviceSlug === 'troca-de-vidro-tampa-traseira') {
+        if (brand.slug === 'samsung') {
+            return normalizeSpaces(
+                `A troca de vidro/tampa traseira em ${brand.displayName} exige cuidado com back glass, lentes e vedação do conjunto. ` +
+                `Validamos encaixe, alinhamento do módulo de câmera e fechamento sem frestas no ${deviceLabel}.`
+            )
+        }
+        if (brand.slug === 'apple') {
+            return normalizeSpaces(
+                `Em ${brand.displayName}, a traseira pode envolver vidro, aro de câmera, MagSafe/carga por indução e vedação. ` +
+                `O processo prioriza acabamento, alinhamento e testes de câmera e carregamento no ${deviceLabel}.`
+            )
+        }
+    }
+
     if (serviceSlug === 'troca-de-bateria') {
         if (brand.slug === 'motorola') {
             return normalizeSpaces(
@@ -931,6 +1053,24 @@ function getIntro(service: Service, brand: Brand, deviceType: DeviceType, model?
         }
     }
 
+    if (service.slug === 'troca-de-vidro-tampa-traseira') {
+        if (brand.slug === 'apple') {
+            return normalizeSpaces(
+                `${compact} em ${city} para ${deviceLabel} ${brand.displayName}. ` +
+                `Avaliamos vidro traseiro, aro de câmera, acabamento e compatibilidade com recursos como MagSafe/carga por indução quando presentes. ` +
+                `A rota cobre troca de tampa traseira com foco em encaixe, vedação e aparência original.`
+            )
+        }
+
+        if (brand.slug === 'samsung') {
+            return normalizeSpaces(
+                `${compact} em ${city} para ${deviceLabel} ${brand.displayName}. ` +
+                `Em Galaxy, trincas no back glass podem comprometer vedação, câmeras e acabamento. ` +
+                `Aqui o foco é restaurar a traseira com alinhamento correto e fechamento sem frestas.`
+            )
+        }
+    }
+
     return normalizeSpaces(
         `${compact} em ${city} para ${deviceLabel} ${brand.displayName}. `
     )
@@ -967,6 +1107,18 @@ function buildDescription(service: Service, brand: Brand, deviceType: DeviceType
     if (service.slug === 'troca-de-camera' && brand.slug === 'apple') {
         return ensureDescription(
             `${s} em ${city} para ${device}. Validamos recursos do iOS (foco, vídeo, retrato) e checamos flex/conectores. Na frontal, cuidamos do conjunto TrueDepth quando aplicável.`
+        )
+    }
+
+    if (service.slug === 'troca-de-vidro-tampa-traseira' && brand.slug === 'apple') {
+        return ensureDescription(
+            `${s} em ${city} para ${device}. Trocamos vidro traseiro/tampa, alinhamos câmera e validamos acabamento, encaixe e carga por indução quando aplicável.`
+        )
+    }
+
+    if (service.slug === 'troca-de-vidro-tampa-traseira' && brand.slug === 'samsung') {
+        return ensureDescription(
+            `${s} em ${city} para ${device}. Corrige back glass trincado, tampa soltando e frestas, com checagem de câmera, vedação e acabamento em Galaxy.`
         )
     }
 
