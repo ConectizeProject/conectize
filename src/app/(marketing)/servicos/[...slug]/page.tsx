@@ -9,6 +9,7 @@ import { generateKeywords } from '@/lib/utils/seo'
 import { formatModelName } from '@/lib/utils/format-model-name'
 import { generateProgrammaticContent } from '@/lib/utils/programmatic-content'
 import { buildServiceProductSlug, parseServiceProductSlug } from '@/lib/utils/service-product-slug'
+import { getSiteUrl } from '@/lib/utils/site-url'
 import { Breadcrumbs } from '@/components/seo/Breadcrumbs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
@@ -132,7 +133,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       title: content.title,
       description: content.description,
       keywords: generateKeywords(service, brand, deviceType),
-      alternates: { canonical: `/servicos/${slug}` }
+      alternates: { canonical: `${getSiteUrl()}/servicos/${slug}` }
     }
   }
 
@@ -172,7 +173,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     description: content.description,
     keywords: generateKeywords(service, brand, modelData.deviceType, model),
     alternates: {
-      canonical: `/servicos/${slug}`
+      canonical: `${getSiteUrl()}/servicos/${slug}`
     }
   }
 }

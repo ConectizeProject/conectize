@@ -1,3 +1,5 @@
+import { getSiteUrl } from './site-url'
+
 // Coordenadas da Conectize (R. Padre Rolim, 620, Santa Efigênia, BH)
 const CONECTIZE_LAT = -19.9276
 const CONECTIZE_LNG = -43.9248
@@ -129,7 +131,7 @@ async function obterCoordenadas (
     const headers = {
       'User-Agent': 'Conectize/1.0 (contact@conectize.com.br)',
       'Accept-Language': 'pt-BR,pt;q=0.9',
-      'Referer': 'https://www.conectize.com.br'
+      'Referer': getSiteUrl()
     }
 
     const urls = [

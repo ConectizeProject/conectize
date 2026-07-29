@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Button } from '@/components/ui/button'
 import { business, buildWhatsAppUrl } from '@/lib/data/business'
+import { getSiteUrl } from '@/lib/utils/site-url'
 import { Phone, Mail, MapPin, Clock, MessageCircle } from 'lucide-react'
 
 export const metadata: Metadata = {
@@ -8,7 +9,7 @@ export const metadata: Metadata = {
   description: 'Entre em contato com a Conectize. Telefone, WhatsApp, e-mail e endereço em Belo Horizonte. Atendimento de segunda a sábado. Solicite seu orçamento!',
   keywords: 'contato conectize, telefone assistência técnica bh, whatsapp conserto celular, endereço conectize belo horizonte',
   alternates: {
-    canonical: '/contato',
+    canonical: `${getSiteUrl()}/contato`,
   },
 }
 
