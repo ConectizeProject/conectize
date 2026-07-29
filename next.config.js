@@ -86,6 +86,16 @@ const nextConfig = {
 			'reparo-de-agua',
 		]
 
+		// Host canônico: apex → www em 308 (Vercel sozinho usa 307 e o GSC conta como 302)
+		const hostRedirects = [
+			{
+				source: '/:path*',
+				has: [{ type: 'host', value: 'conectize.com.br' }],
+				destination: 'https://www.conectize.com.br/:path*',
+				permanent: true,
+			},
+		]
+
 		// Só 1 segmento aqui: next.config não consegue montar slug com hífen
 		// (ex.: troca-de-bateria-samsung-galaxy-a54). Multi-segmento fica no proxy + catch-all.
 		const serviceRedirects = serviceSlugs.map((serviceSlug) => ({
@@ -130,7 +140,7 @@ const nextConfig = {
 			},
 		]
 
-		return [...serviceRedirects, ...legacyStoreRedirects]
+		return [...hostRedirects, ...serviceRedirects, ...legacyStoreRedirects]
 	},
 	async headers () {
 		return [

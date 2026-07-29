@@ -1,4 +1,5 @@
 import { services } from './services'
+import { getSiteUrl } from '@/lib/utils/site-url'
 
 export type FaqItem = {
   q: string
@@ -6,7 +7,7 @@ export type FaqItem = {
 }
 
 export const business = {
-  siteUrl: process.env.NEXT_PUBLIC_SITE_URL || 'https://conectize.com.br',
+  siteUrl: getSiteUrl(),
   name: 'Conectize',
   legalName: 'Conectize',
   label: 'Conectize - Assistência Técnica de Celular e Apple',

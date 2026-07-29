@@ -129,7 +129,7 @@ async function obterCoordenadas (
     const headers = {
       'User-Agent': 'Conectize/1.0 (contact@conectize.com.br)',
       'Accept-Language': 'pt-BR,pt;q=0.9',
-      'Referer': 'https://conectize.com.br'
+      'Referer': 'https://www.conectize.com.br'
     }
 
     const urls = [

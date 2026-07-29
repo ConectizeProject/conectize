@@ -144,7 +144,7 @@ export async function generateMetadata({ searchParams }: { searchParams: SearchP
     description: 'Serviços especializados de reparo em Belo Horizonte. Filtre por marca, serviço, dispositivo e modelo para solicitar orçamento.',
     keywords: 'assistência técnica celular belo horizonte, reparo celular bh, troca de tela, troca de bateria, reparo de placa',
     alternates: {
-      canonical: 'https://conectize.com.br/servicos',
+      canonical: '/servicos',
     },
   }
 }

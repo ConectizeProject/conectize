@@ -2,9 +2,10 @@ import type { MetadataRoute } from 'next'
 import { geoLandingPages } from '@/lib/data/geo-landing-pages'
 import { brands, services } from '@/lib/data/services'
 import { buildServiceProductSlug } from '@/lib/utils/service-product-slug'
+import { getSiteUrl } from '@/lib/utils/site-url'
 
 export default function sitemap (): MetadataRoute.Sitemap {
-  const baseUrl = 'https://conectize.com.br'
+  const baseUrl = getSiteUrl()
   const lastModified = new Date()
   
   const routes: MetadataRoute.Sitemap = [

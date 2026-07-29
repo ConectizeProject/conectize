@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   description: 'Serviço exclusivo de coleta e entrega em domicílio para conserto de celulares em Belo Horizonte. Calcule o frete pelo seu CEP. Buscamos e devolvemos seu aparelho. Agende agora!',
   keywords: 'coleta em domicilio celular belo horizonte, busca e entrega celular bh, frete coleta celular bh, serviço de coleta celular, calcular frete coleta',
   alternates: {
-    canonical: 'https://conectize.com.br/coleta',
+    canonical: '/coleta',
   },
 }
 

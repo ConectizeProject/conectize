@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: 'Conheça a Conectize, assistência técnica especializada em conserto de celulares em Belo Horizonte. Mais de 15 anos de experiência, técnicos certificados e garantia de 6 meses.',
   keywords: 'sobre conectize, assistência técnica belo horizonte, história empresa conserto celular, técnicos certificados bh',
   alternates: {
-    canonical: 'https://conectize.com.br/sobre',
+    canonical: '/sobre',
   },
 }
 
