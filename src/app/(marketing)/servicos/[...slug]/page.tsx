@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { notFound, permanentRedirect } from 'next/navigation'
 import { MessageCircle, Phone, MapPin } from 'lucide-react'
 import { business, buildWhatsAppUrl, getFaqPageJsonLd, getServiceJsonLd } from '@/lib/data/business'
-import { getBrandBySlug, getModelBySlugAnyType, getServiceBySlug } from '@/lib/data/services'
+import { getBrandBySlug, getModelBySlugAnyType, getServiceBySlug, services } from '@/lib/data/services'
 import { resolveLegacyServiceDestination } from '@/lib/utils/legacy-service-redirect'
 import { generateKeywords } from '@/lib/utils/seo'
 import { formatModelName } from '@/lib/utils/format-model-name'
@@ -103,7 +103,6 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
   const service = getServiceBySlug(parsed.serviceSlug)
   const brand = getBrandBySlug(parsed.brandSlug)
-  const modelData = getModelBySlugAnyType(parsed.brandSlug, parsed.modelSlug)
 
   if (!service || !brand) {
     return {
@@ -112,11 +111,13 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     }
   }
 
-  // Se o "modelo" for na verdade um tipo de dispositivo (iphone/ipad/smartphone...), vira uma rota fixa indexável
-  const deviceType = brand.deviceTypes?.[parsed.modelSlug]
-  if (!modelData && deviceType) {
+  // Hub tem prioridade quando o 3º segmento é exatamente um deviceType (ex.: ipad)
+  const deviceTypeHub = brand.deviceTypes?.[parsed.modelSlug]
+  const modelData = deviceTypeHub ? undefined : getModelBySlugAnyType(parsed.brandSlug, parsed.modelSlug)
+
+  if (deviceTypeHub) {
     const excludedTypes = service.excludedDeviceTypes?.[brand.slug] || []
-    if (excludedTypes.includes(deviceType.slug)) {
+    if (excludedTypes.includes(deviceTypeHub.slug)) {
       return {
         title: 'Página não encontrada | Conectize',
         robots: { index: false, follow: false }
@@ -126,13 +127,13 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     const content = generateProgrammaticContent({
       service,
       brand,
-      deviceType
+      deviceType: deviceTypeHub
     })
 
     return {
       title: content.title,
       description: content.description,
-      keywords: generateKeywords(service, brand, deviceType),
+      keywords: generateKeywords(service, brand, deviceTypeHub),
       alternates: { canonical: `${getSiteUrl()}/servicos/${slug}` }
     }
   }
@@ -186,15 +187,22 @@ export default async function ServiceProductPage({ params }: PageProps) {
 
   const service = getServiceBySlug(parsed.serviceSlug)
   const brand = getBrandBySlug(parsed.brandSlug)
-  const modelData = getModelBySlugAnyType(parsed.brandSlug, parsed.modelSlug)
 
   if (!service || !brand) notFound()
 
-  // Rota fixa: /servicos/<servico>-<marca>-<dispositivo>
-  const deviceType = !modelData ? brand.deviceTypes?.[parsed.modelSlug] : null
-  if (!modelData && deviceType) {
+  // Hub: /servicos/<servico>-<marca>-<dispositivo> (prioridade sobre modelo homônimo)
+  const deviceType = brand.deviceTypes?.[parsed.modelSlug]
+  const modelData = deviceType ? undefined : getModelBySlugAnyType(parsed.brandSlug, parsed.modelSlug)
+
+  if (deviceType) {
     const excludedTypes = service.excludedDeviceTypes?.[brand.slug] || []
     if (excludedTypes.includes(deviceType.slug)) notFound()
+
+    const hubHref = `/servicos/${buildServiceProductSlug({
+      serviceSlug: service.slug,
+      brandSlug: brand.slug,
+      modelSlug: deviceType.slug,
+    })}`
 
     const content = generateProgrammaticContent({
       service,
@@ -205,9 +213,9 @@ export default async function ServiceProductPage({ params }: PageProps) {
     const breadcrumbs = [
       { label: 'Home', href: '/' },
       { label: 'Serviços', href: '/servicos' },
-      { label: brand.displayName, href: `/servicos?marca=${brand.slug}` },
-      { label: service.name, href: `/servicos?marca=${brand.slug}&servico=${service.slug}` },
-      { label: deviceType.displayName, href: `/servicos/${slug}` }
+      { label: brand.displayName, href: '/servicos' },
+      { label: service.name, href: hubHref },
+      { label: deviceType.displayName, href: hubHref }
     ]
 
     const structuredData = getServiceJsonLd({
@@ -267,7 +275,9 @@ export default async function ServiceProductPage({ params }: PageProps) {
                     Modelos {deviceType.displayName} que atendemos
                   </h2>
                   <ul className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
-                    {deviceType.models.map((modelSlug) => (
+                    {deviceType.models
+                      .filter((modelSlug) => modelSlug !== deviceType.slug)
+                      .map((modelSlug) => (
                       <li key={modelSlug}>
                         <Link
                           href={`/servicos/${buildServiceProductSlug({ serviceSlug: service.slug, brandSlug: brand.slug, modelSlug })}`}
@@ -365,11 +375,30 @@ export default async function ServiceProductPage({ params }: PageProps) {
     model
   })
 
+  const hubHref = `/servicos/${buildServiceProductSlug({
+    serviceSlug: service.slug,
+    brandSlug: brand.slug,
+    modelSlug: modelData.deviceType.slug,
+  })}`
+
+  const relatedServices = services
+    .filter((entry) => {
+      if (entry.slug === service.slug) return false
+      if (!entry.brands.includes(brand.slug)) return false
+      const excluded = entry.excludedDeviceTypes?.[brand.slug] || []
+      return !excluded.includes(modelData.deviceType.slug)
+    })
+    .slice(0, 8)
+
+  const siblingModels = modelData.deviceType.models
+    .filter((entry) => entry !== model.slug)
+    .slice(0, 6)
+
   const breadcrumbs = [
     { label: 'Home', href: '/' },
     { label: 'Serviços', href: '/servicos' },
-    { label: brand.displayName, href: `/servicos?marca=${brand.slug}` },
-    { label: service.name, href: `/servicos?marca=${brand.slug}&servico=${service.slug}` },
+    { label: brand.displayName, href: '/servicos' },
+    { label: service.name, href: hubHref },
     { label: model.displayName, href: `/servicos/${slug}` }
   ]
 
@@ -440,6 +469,62 @@ export default async function ServiceProductPage({ params }: PageProps) {
                 </div>
               </section>
 
+              <section className="bg-card rounded-xl p-8 mb-12 border border-border">
+                <h2 className="text-2xl font-bold text-foreground mb-4">
+                  Outros serviços para {model.displayName}
+                </h2>
+                <ul className="flex flex-wrap gap-2">
+                  <li>
+                    <Link
+                      href={hubHref}
+                      className="inline-flex rounded-lg border border-border bg-secondary/30 px-3 py-2 text-sm font-medium text-foreground hover:bg-secondary/40"
+                    >
+                      Todos os {modelData.deviceType.displayName}
+                    </Link>
+                  </li>
+                  {relatedServices.map((entry) => (
+                    <li key={entry.slug}>
+                      <Link
+                        href={`/servicos/${buildServiceProductSlug({
+                          serviceSlug: entry.slug,
+                          brandSlug: brand.slug,
+                          modelSlug: model.slug,
+                        })}`}
+                        className="inline-flex rounded-lg border border-border bg-secondary/30 px-3 py-2 text-sm font-medium text-foreground hover:bg-secondary/40"
+                      >
+                        {entry.name}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+
+              {siblingModels.length > 0 && (
+                <section className="bg-card rounded-xl p-8 mb-12 border border-border">
+                  <h2 className="text-2xl font-bold text-foreground mb-4">
+                    Outros modelos {modelData.deviceType.displayName}
+                  </h2>
+                  <ul className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {siblingModels.map((modelSlug) => (
+                      <li key={modelSlug}>
+                        <Link
+                          href={`/servicos/${buildServiceProductSlug({
+                            serviceSlug: service.slug,
+                            brandSlug: brand.slug,
+                            modelSlug,
+                          })}`}
+                          className="block rounded-xl border border-border bg-secondary/30 p-4 hover:bg-secondary/40"
+                        >
+                          <span className="font-semibold text-foreground">
+                            {formatModelName(modelSlug)}
+                          </span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+
               <section className="bg-secondary/30 rounded-xl p-8">
                 <h2 className="text-2xl font-bold text-foreground mb-4">
                   Nossa Localização
@@ -458,10 +543,10 @@ export default async function ServiceProductPage({ params }: PageProps) {
 
               <div className="mt-10">
                 <Link
-                  href={brand.slug ? `/servicos?marca=${brand.slug}&servico=${service.slug}` : '/servicos'}
+                  href={hubHref}
                   className="text-sm text-muted-foreground hover:text-primary transition-colors"
                 >
-                  ← Ver outras opções
+                  ← Ver outras opções de {modelData.deviceType.displayName}
                 </Link>
               </div>
             </article>

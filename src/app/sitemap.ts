@@ -2,6 +2,7 @@ import type { MetadataRoute } from 'next'
 import { geoLandingPages } from '@/lib/data/geo-landing-pages'
 import { brands, services } from '@/lib/data/services'
 import { buildServiceProductSlug } from '@/lib/utils/service-product-slug'
+import { listServiceHubs } from '@/lib/utils/service-hubs'
 import { getSiteUrl } from '@/lib/utils/site-url'
 
 export default function sitemap (): MetadataRoute.Sitemap {
@@ -80,6 +81,8 @@ export default function sitemap (): MetadataRoute.Sitemap {
         if (excludedTypes.includes(deviceType.slug)) continue
 
         for (const modelSlug of deviceType.models) {
+          // Evita duplicar a URL do hub quando um modelo tem o mesmo slug do deviceType (ex.: ipad)
+          if (brand.deviceTypes?.[modelSlug]) continue
           if (seenModels.has(modelSlug)) continue
           seenModels.add(modelSlug)
 
@@ -94,47 +97,15 @@ export default function sitemap (): MetadataRoute.Sitemap {
     }
   }
 
-  // Rotas fixas (serviço + marca + dispositivo) para indexação
-  const fixedRoutes: Array<{ serviceSlug: string; brandSlug: string; deviceTypeSlug: string }> = [
-    { serviceSlug: 'troca-de-tela', brandSlug: 'apple', deviceTypeSlug: 'iphone' },
-    { serviceSlug: 'troca-de-bateria', brandSlug: 'apple', deviceTypeSlug: 'iphone' },
-    { serviceSlug: 'troca-de-vidro-da-tela', brandSlug: 'apple', deviceTypeSlug: 'iphone' },
-    { serviceSlug: 'troca-de-vidro-tampa-traseira', brandSlug: 'apple', deviceTypeSlug: 'iphone' },
-    { serviceSlug: 'troca-de-conector', brandSlug: 'apple', deviceTypeSlug: 'iphone' },
-    { serviceSlug: 'troca-de-camera', brandSlug: 'apple', deviceTypeSlug: 'iphone' },
-
-    { serviceSlug: 'troca-de-tela', brandSlug: 'samsung', deviceTypeSlug: 'smartphone' },
-    { serviceSlug: 'troca-de-bateria', brandSlug: 'samsung', deviceTypeSlug: 'smartphone' },
-    { serviceSlug: 'troca-de-vidro-tampa-traseira', brandSlug: 'samsung', deviceTypeSlug: 'smartphone' },
-    { serviceSlug: 'troca-de-camera', brandSlug: 'samsung', deviceTypeSlug: 'smartphone' },
-
-    { serviceSlug: 'troca-de-tela', brandSlug: 'motorola', deviceTypeSlug: 'smartphone' },
-    { serviceSlug: 'troca-de-bateria', brandSlug: 'motorola', deviceTypeSlug: 'smartphone' },
-
-    { serviceSlug: 'troca-de-tela', brandSlug: 'xiaomi', deviceTypeSlug: 'smartphone' },
-    { serviceSlug: 'troca-de-bateria', brandSlug: 'xiaomi', deviceTypeSlug: 'smartphone' },
-  ]
-
-  for (const entry of fixedRoutes) {
-    const service = services.find(s => s.slug === entry.serviceSlug)
-    const brand = brands[entry.brandSlug]
-    const deviceType = brand?.deviceTypes?.[entry.deviceTypeSlug]
-    if (!service || !brand || !deviceType) continue
-
-    const excludedTypes = service.excludedDeviceTypes?.[brand.slug] || []
-    if (excludedTypes.includes(deviceType.slug)) continue
-
+  // Hubs serviço + marca + dispositivo (elo de descoberta das páginas de modelo)
+  for (const hub of listServiceHubs()) {
     routes.push({
-      url: `${baseUrl}/servicos/${buildServiceProductSlug({
-        serviceSlug: service.slug,
-        brandSlug: brand.slug,
-        modelSlug: deviceType.slug
-      })}`,
+      url: `${baseUrl}${hub.href}`,
       lastModified,
-      changeFrequency: 'monthly',
-      priority: 0.75,
+      changeFrequency: 'weekly',
+      priority: 0.8,
     })
   }
-  
+
   return routes
 }

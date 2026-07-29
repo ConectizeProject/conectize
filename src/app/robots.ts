@@ -8,7 +8,14 @@ export default function robots (): MetadataRoute.Robots {
       {
         userAgent: '*',
         allow: '/',
-        disallow: ['/api/', '/_next/', '/portal/', '/os/'],
+        disallow: [
+          '/api/',
+          '/_next/',
+          '/portal',
+          '/os/',
+          '/.well-known/apple-app-site-association',
+          '/apple-app-site-association',
+        ],
       },
     ],
     sitemap: `${siteUrl}/sitemap.xml`,
