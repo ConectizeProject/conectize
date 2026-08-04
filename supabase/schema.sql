@@ -248,12 +248,13 @@ create unique index if not exists customers_auth_user_id_unique
   on public.customers(auth_user_id)
   where auth_user_id is not null;
 
-create unique index if not exists customers_cpf_unique
-  on public.customers(cpf)
+-- CPF/CNPJ únicos por organização (multi-tenant)
+create unique index if not exists customers_org_cpf_unique
+  on public.customers (organization_id, cpf)
   where cpf is not null;
 
-create unique index if not exists customers_cnpj_unique
-  on public.customers(cnpj)
+create unique index if not exists customers_org_cnpj_unique
+  on public.customers (organization_id, cnpj)
   where cnpj is not null;
 
 create index if not exists customers_cpf_idx

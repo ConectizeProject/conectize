@@ -30,6 +30,83 @@ function buildAddressFull(addr: {
   return parts.join('\n').trim()
 }
 
+type DbErrLike = {
+  code?: string
+  message?: string
+  details?: string
+  hint?: string
+}
+
+function logCustomerDbError (op: 'insert' | 'update' | 'fetch', error: DbErrLike) {
+  console.error(`[api/portal/customers] ${op} failed`, {
+    code: error.code,
+    message: error.message,
+    details: error.details,
+    hint: error.hint,
+  })
+}
+
+function customerDbErrorResponse (error: DbErrLike) {
+  const code = String(error.code || '').trim()
+  const message = String(error.message || '').trim()
+  const details = String(error.details || '').trim()
+  const hint = String(error.hint || '').trim()
+
+  if (code === '23505') {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: 'already_exists',
+        code,
+        message: message || 'Documento já cadastrado.',
+        details: details || undefined,
+        hint: hint || undefined,
+      },
+      { status: 409 },
+    )
+  }
+
+  if (code === '42501') {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: 'rls_forbidden',
+        code,
+        message: message || 'Sem permissão para gravar este cliente.',
+        details: details || undefined,
+        hint: hint || undefined,
+      },
+      { status: 403 },
+    )
+  }
+
+  if (code === '23502') {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: 'missing_required',
+        code,
+        message: message || 'Campo obrigatório ausente.',
+        details: details || undefined,
+        hint: hint || undefined,
+      },
+      { status: 400 },
+    )
+  }
+
+  return NextResponse.json(
+    {
+      ok: false,
+      error: 'db_error',
+      code: code || undefined,
+      message: message || 'Erro ao gravar no banco.',
+      details: details || undefined,
+      hint: hint || undefined,
+    },
+    { status: 500 },
+  )
+}
+
 export async function POST(request: Request) {
   const auth = await requireStaffOrAdmin()
   if (auth.ok === false) {
@@ -148,6 +225,7 @@ export async function POST(request: Request) {
     .single()
 
   if (error) {
+    logCustomerDbError('insert', error)
     const { data: after } = await auth.supabase
       .from('customers')
       .select('id')
@@ -162,7 +240,7 @@ export async function POST(request: Request) {
       )
     }
 
-    return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+    return customerDbErrorResponse(error)
   }
 
   return NextResponse.json({ ok: true, id: inserted.id, existed: false })
@@ -190,7 +268,8 @@ export async function PATCH(request: Request) {
     .maybeSingle()
 
   if (existingError) {
-    return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+    logCustomerDbError('fetch', existingError)
+    return customerDbErrorResponse(existingError)
   }
 
   if (!existingCustomer?.id) {
@@ -303,7 +382,8 @@ export async function PATCH(request: Request) {
     .eq('id', id)
 
   if (error) {
-    return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+    logCustomerDbError('update', error)
+    return customerDbErrorResponse(error)
   }
 
   return NextResponse.json({ ok: true, id })

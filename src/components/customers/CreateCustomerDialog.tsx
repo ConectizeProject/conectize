@@ -306,14 +306,34 @@ export function CreateCustomerDialog(props: Props) {
             setDuplicateDialogOpen(true)
             return
           }
-          setErrorMessage('Este CPF/CNPJ já está cadastrado.')
+          setErrorMessage(
+            'Este CPF/CNPJ já está cadastrado, mas não foi possível localizar o cliente nesta loja. Atualize a página e busque novamente.',
+          )
           return
         }
         if (data?.error === 'document_locked') {
           setErrorMessage('CPF/CNPJ não pode ser alterado após cadastrado.')
           return
         }
-        setErrorMessage('Não foi possível criar o cliente.')
+        if (data?.error === 'rls_forbidden') {
+          setErrorMessage('Sem permissão para cadastrar este cliente nesta loja.')
+          return
+        }
+        if (data?.error === 'missing_required') {
+          setErrorMessage(
+            String(data.message || data.details || 'Campo obrigatório ausente.'),
+          )
+          return
+        }
+        const detail = [data?.message, data?.details, data?.hint, data?.code]
+          .map((v) => String(v || '').trim())
+          .filter(Boolean)
+          .join(' — ')
+        setErrorMessage(
+          detail
+            ? `Não foi possível criar o cliente. ${detail}`
+            : 'Não foi possível criar o cliente.',
+        )
         return
       }
 
