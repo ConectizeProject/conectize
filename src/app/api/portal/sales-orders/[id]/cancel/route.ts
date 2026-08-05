@@ -15,7 +15,7 @@ export async function POST (request: NextRequest, { params }: { params: Params }
   const reason = String(body?.reason || '').trim() || null
 
   const result = await cancelSalesOrder(auth, id, reason)
-  if (!result.ok) {
+  if (result.ok === false) {
     const status =
       result.error === 'not_found'
         ? 404
