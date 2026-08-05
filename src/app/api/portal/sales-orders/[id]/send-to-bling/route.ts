@@ -19,7 +19,7 @@ export async function POST (
   }
 
   const result = await pushSalesOrderToBling(auth, orderId)
-  if (!result.ok) {
+  if (result.ok === false) {
     const status =
       result.error === 'order_not_found'
         ? 404
