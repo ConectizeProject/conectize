@@ -2,13 +2,15 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { portalFetch } from '@/lib/portal/portal-fetch'
 import { maskedFromCents } from '@/lib/utils/money'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
+import { toast } from '@/hooks/use-toast'
+import { SalesOrderAfterSaleActions } from '@/app/(portal)/portal/pedidos-venda/SalesOrderAfterSaleActions'
 
 type OrderDetail = {
   id: string
@@ -22,6 +24,8 @@ type OrderDetail = {
   total_cents: number
   paid_amount_cents: number
   change_cents: number
+  bling_pedido_id?: string | null
+  bling_nfce_id?: string | null
   created_at: string
   updated_at: string
 }
@@ -51,10 +55,12 @@ function statusLabel (status: string) {
 
 export default function PedidoVendaDetailPage () {
   const params = useParams()
+  const router = useRouter()
   const orderId = String(params.id || '')
   const [order, setOrder] = useState<OrderDetail | null>(null)
   const [items, setItems] = useState<OrderItem[]>([])
   const [payments, setPayments] = useState<OrderPayment[]>([])
+  const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     async function load () {
@@ -68,6 +74,49 @@ export default function PedidoVendaDetailPage () {
     }
     if (orderId) void load()
   }, [orderId])
+
+  async function cancelOrder () {
+    if (!order) return
+    const isPaid = order.status === 'paid'
+    let reason = 'Cancelado no detalhe do pedido'
+    if (isPaid) {
+      const typed = window.prompt('Motivo do estorno da venda paga:')
+      if (typed == null) return
+      reason = typed.trim()
+      if (!reason) {
+        toast({ title: 'Informe o motivo do estorno', variant: 'destructive' })
+        return
+      }
+      if (!confirm('Estornar esta venda paga? Estoque e financeiro serão revertidos.')) return
+    } else if (!confirm(`Cancelar o pedido #${order.order_number}?`)) {
+      return
+    }
+
+    setBusy(true)
+    try {
+      const res = await portalFetch(`/api/portal/sales-orders/${encodeURIComponent(order.id)}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      })
+      const data = await res?.json().catch(() => null)
+      if (!data?.ok) {
+        toast({
+          title: data?.message || data?.error || 'Erro ao cancelar',
+          variant: 'destructive',
+        })
+        return
+      }
+      toast({
+        title: isPaid ? 'Venda estornada' : 'Pedido cancelado',
+        description: data.bling_warning || undefined,
+      })
+      setOrder((prev) => prev ? { ...prev, status: 'canceled' } : prev)
+      router.refresh()
+    } finally {
+      setBusy(false)
+    }
+  }
 
   if (!order) {
     return (
@@ -83,14 +132,43 @@ export default function PedidoVendaDetailPage () {
 
   return (
     <div className='space-y-4 py-4'>
-      <div className='flex items-center justify-between'>
+      <div className='flex flex-wrap items-start justify-between gap-3'>
         <div>
           <h1 className='text-2xl font-semibold'>Pedido #{order.order_number}</h1>
           <Badge className='mt-1' variant={order.status === 'paid' ? 'secondary' : order.status === 'canceled' ? 'destructive' : 'default'}>
             {statusLabel(order.status)}
           </Badge>
         </div>
-        <Link href='/portal/pedidos-venda'><Button variant='outline'>Voltar</Button></Link>
+        <div className='flex flex-wrap items-center gap-2'>
+          <SalesOrderAfterSaleActions
+            orderId={order.id}
+            orderNumber={order.order_number}
+            status={order.status}
+            blingPedidoId={order.bling_pedido_id}
+            blingNfceId={order.bling_nfce_id}
+            onBlingUpdated={(bling) => {
+              setOrder((prev) => prev
+                ? {
+                  ...prev,
+                  bling_pedido_id: bling.blingPedidoId,
+                  bling_nfce_id: bling.blingNfceId,
+                }
+                : prev)
+            }}
+          />
+          {order.status === 'paid' || order.status === 'in_progress' ? (
+            <Button
+              type='button'
+              variant='outline'
+              className='text-destructive hover:text-destructive'
+              disabled={busy}
+              onClick={() => void cancelOrder()}
+            >
+              {order.status === 'paid' ? 'Estornar venda' : 'Cancelar pedido'}
+            </Button>
+          ) : null}
+          <Link href='/portal/pedidos-venda'><Button variant='outline'>Voltar</Button></Link>
+        </div>
       </div>
 
       <div className='grid gap-4 md:grid-cols-2'>
@@ -112,6 +190,9 @@ export default function PedidoVendaDetailPage () {
             <p><strong>Total:</strong> {maskedFromCents(order.total_cents)}</p>
             <p><strong>Pago:</strong> {maskedFromCents(order.paid_amount_cents)}</p>
             <p><strong>Troco:</strong> {maskedFromCents(order.change_cents)}</p>
+            {order.bling_pedido_id ? (
+              <p><strong>Bling:</strong> pedido #{order.bling_pedido_id}{order.bling_nfce_id ? ` · NFC-e #${order.bling_nfce_id}` : ''}</p>
+            ) : null}
           </CardContent>
         </Card>
       </div>

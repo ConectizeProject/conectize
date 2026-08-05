@@ -4,12 +4,16 @@ import {
   shouldRefreshBlingAccessToken,
   type HubConnection,
 } from '@/lib/integrations/bling/api'
+import {
+  blingRefreshTokenErrorCode,
+  blingRefreshTokenErrorToMessage,
+} from '@/lib/integrations/bling/refresh-token-errors'
 
 export type BlingScheduledRefreshSummary = {
   checked: number
   refreshed: number
   skipped: number
-  failed: Array<{ id: string, error: string }>
+  failed: Array<{ id: string, error: string, code: string, message: string }>
 }
 
 /**
@@ -31,9 +35,18 @@ export async function runBlingTokenRefreshForAllConnections (): Promise<BlingSch
   }
 
   const list = (rows || []) as HubConnection[]
-  const failed: Array<{ id: string, error: string }> = []
+  const failed: BlingScheduledRefreshSummary['failed'] = []
   let refreshed = 0
   let skipped = 0
+
+  function pushFailure (id: string, rawError: string) {
+    failed.push({
+      id,
+      error: rawError,
+      code: blingRefreshTokenErrorCode(rawError),
+      message: blingRefreshTokenErrorToMessage(rawError),
+    })
+  }
 
   for (const conn of list) {
     if (!shouldRefreshBlingAccessToken(conn.token_expires_at)) {
@@ -46,13 +59,13 @@ export async function runBlingTokenRefreshForAllConnections (): Promise<BlingSch
       if (result.ok === true) {
         refreshed++
       } else {
-        failed.push({ id: conn.id, error: result.error })
+        pushFailure(conn.id, result.error)
       }
     } catch (err) {
       const message = err instanceof Error
         ? err.message
         : 'unexpected_refresh_exception'
-      failed.push({ id: conn.id, error: message })
+      pushFailure(conn.id, message)
     }
   }
 

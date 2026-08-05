@@ -16,9 +16,33 @@ export async function POST (request: NextRequest, { params }: { params: Params }
 
   const result = await cancelSalesOrder(auth, id, reason)
   if (!result.ok) {
-    const status = result.error === 'not_found' ? 404 : result.error === 'order_not_editable' ? 400 : 500
-    return NextResponse.json({ ok: false, error: result.error }, { status })
+    const status =
+      result.error === 'not_found'
+        ? 404
+        : result.error === 'cancel_reason_required'
+          || result.error === 'order_not_cancellable'
+          || result.error === 'already_canceled'
+          || result.error === 'order_not_editable'
+          ? 400
+          : 500
+
+    const message =
+      result.error === 'cancel_reason_required'
+        ? 'Informe o motivo do estorno da venda paga.'
+        : result.error === 'already_canceled'
+          ? 'Pedido já está cancelado.'
+          : result.error === 'stock_reverse_failed'
+            ? 'Não foi possível estornar o estoque.'
+            : result.error === 'finance_sync_failed'
+              ? 'Estoque revertido, mas falhou ao estornar o financeiro.'
+              : result.error
+
+    return NextResponse.json({ ok: false, error: result.error, message }, { status })
   }
 
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({
+    ok: true,
+    bling_warning: result.blingWarning,
+    had_stock_reversal: result.hadStockReversal,
+  })
 }
