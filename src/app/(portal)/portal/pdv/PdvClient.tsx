@@ -851,57 +851,6 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
     return { ok: false }
   }, [buildOrderPayload, cart, cashOpen, currentOrderId, currentOrderNumber, loadSessionOrders])
 
-  const addProductToCartQuick = useCallback(async (product: CatalogProduct, quantity = 1) => {
-    if (!cashOpen) {
-      toast({ title: 'Abra o caixa antes de vender', variant: 'destructive' })
-      return false
-    }
-
-    const qtyInCart = cart
-      .filter((item) => item.productId === product.id)
-      .reduce((acc, item) => acc + item.quantity, 0)
-
-    if (product.stock <= 0 || qtyInCart + quantity > product.stock) {
-      toast({
-        title: 'Estoque insuficiente',
-        description: `${product.name}: estoque ${product.stock}. A venda será permitida mesmo assim.`,
-        variant: 'destructive',
-      })
-    }
-
-    const newItem: CartItem = {
-      lineId: createCartLineId(),
-      productId: product.id,
-      name: product.name,
-      quantity: Math.max(1, quantity),
-      unitPriceCents: Number(product.sale_price_cents) || 0,
-      unitCostCents: Number(product.cost_price_cents) || 0,
-      discountCents: 0,
-    }
-
-    const nextCart = mergeCartItem(cart, newItem)
-    setCart(nextCart)
-    setSelectedProduct(product)
-    setInsertUnitPriceMasked(maskedFromCents(product.sale_price_cents || 0))
-    setInsertQty(1)
-    setItemDiscountMasked('')
-    setEditingCartLineId(null)
-    setQuery('')
-    setShowSearchDropdown(false)
-    setSearchResults([])
-
-    toast({
-      title: 'Produto adicionado',
-      description: `${product.name} · ${quantity} un.`,
-    })
-
-    await syncCurrentOrder(Boolean(currentOrderId), nextCart)
-    requestAnimationFrame(() => {
-      document.getElementById('pdv-search')?.focus()
-    })
-    return true
-  }, [cart, cashOpen, currentOrderId, syncCurrentOrder])
-
   async function handleSearchSubmit () {
     const code = query.trim()
     if (!code) return
@@ -911,7 +860,8 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
       if (isLikelyBarcode(code)) {
         const product = await lookupProductByBarcode(code)
         if (product) {
-          await addProductToCartQuick(product, 1)
+          selectProduct(product)
+          setSearchResults([])
           return
         }
         toast({ title: 'Código não encontrado', description: code, variant: 'destructive' })
@@ -931,12 +881,14 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
       ))
 
       if (exact) {
-        await addProductToCartQuick(exact, 1)
+        selectProduct(exact)
+        setSearchResults([])
         return
       }
 
       if (products.length === 1) {
-        await addProductToCartQuick(products[0], 1)
+        selectProduct(products[0])
+        setSearchResults([])
         return
       }
 
@@ -1161,7 +1113,7 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
     setItemDiscountMasked('')
   }
 
-  function beginEditCartItem (lineId: string) {
+  async function beginEditCartItem (lineId: string) {
     const item = cart.find((row) => row.lineId === lineId)
     if (!item) return
 
@@ -1183,6 +1135,21 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
     setQuery('')
     setShowSearchDropdown(false)
     setActiveTab('produto')
+
+    const res = await portalFetch(
+      `/api/portal/pdv/catalog?id=${encodeURIComponent(item.productId)}`,
+    )
+    const data = await res?.json().catch(() => null)
+    const raw = Array.isArray(data?.products) ? data.products[0] : null
+    if (!raw || !data?.ok) return
+
+    const catalog = mapCatalogProduct(raw as Record<string, unknown>)
+    setSelectedProduct({
+      ...catalog,
+      // Mantém preço e custo da linha em edição no formulário.
+      sale_price_cents: item.unitPriceCents,
+      cost_price_cents: item.unitCostCents,
+    })
   }
 
   async function insertItem () {
@@ -1962,7 +1929,8 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
                         type='button'
                         className='block w-full px-3 py-2 text-left text-sm hover:bg-accent'
                         onClick={() => {
-                          void addProductToCartQuick(product, 1)
+                          selectProduct(product)
+                          setSearchResults([])
                         }}
                       >
                         <div className='font-medium'>{product.name}</div>
@@ -2383,7 +2351,7 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
                             variant='ghost'
                             size='icon'
                             className='h-8 w-8'
-                            onClick={() => beginEditCartItem(item.lineId)}
+                            onClick={() => void beginEditCartItem(item.lineId)}
                             aria-label='Editar item'
                           >
                             <Pencil className='h-4 w-4' />

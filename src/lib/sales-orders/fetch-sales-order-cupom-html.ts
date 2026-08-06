@@ -21,7 +21,8 @@ function paymentLabel (type: string) {
 export async function buildSalesOrderCupomHtml (
   supabase: SupabaseClient,
   organizationId: string,
-  orderId: string
+  orderId: string,
+  options?: { autoPrint?: boolean }
 ): Promise<{ status: number, html?: string }> {
   const { data: order, error: orderError } = await supabase
     .from('sales_orders')
@@ -112,5 +113,8 @@ export async function buildSalesOrderCupomHtml (
     payments: cupomPayments,
   }
 
-  return { status: 200, html: buildSalesCupomHtml(cupom, company) }
+  return {
+    status: 200,
+    html: buildSalesCupomHtml(cupom, company, { autoPrint: options?.autoPrint !== false }),
+  }
 }

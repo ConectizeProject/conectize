@@ -36,6 +36,26 @@ export function calcItemSubtotal (item: SaleItemInput) {
   return Math.max(0, raw - discount)
 }
 
+async function assertProductsBelongToOrganization (
+  auth: AuthCtx,
+  productIds: string[],
+) {
+  const uniqueIds = [...new Set(productIds.filter(Boolean))]
+  if (uniqueIds.length === 0) return { ok: true as const }
+
+  const { data, error } = await auth.supabase
+    .from('products')
+    .select('id')
+    .eq('organization_id', auth.organizationId)
+    .in('id', uniqueIds)
+
+  if (error) return { ok: false as const, error: 'db_error' as const }
+  if ((data?.length ?? 0) !== uniqueIds.length) {
+    return { ok: false as const, error: 'invalid_product' as const }
+  }
+  return { ok: true as const }
+}
+
 export function calcSaleTotals (items: SaleItemInput[], discountTotalCents = 0) {
   const subtotal = items.reduce((acc, item) => acc + calcItemSubtotal(item), 0)
   const discountTotal = toInt(discountTotalCents, 0)
@@ -68,12 +88,18 @@ export async function createPendingSale (
   discountTotalCents = 0,
 ): Promise<
   | { ok: true, saleId: string }
-  | { ok: false, error: 'db_error' | 'cash_not_open' }
+  | { ok: false, error: 'db_error' | 'cash_not_open' | 'invalid_product' }
 > {
   const session = await getOpenCashSession(auth)
   if (!session.ok) {
     return { ok: false, error: session.error === 'cash_not_open' ? 'cash_not_open' : 'db_error' }
   }
+
+  const ownership = await assertProductsBelongToOrganization(
+    auth,
+    items.map((item) => item.product_id),
+  )
+  if (!ownership.ok) return ownership
 
   const totals = calcSaleTotals(items, discountTotalCents)
   const { data: sale, error: saleError } = await auth.supabase
@@ -106,7 +132,14 @@ export async function createPendingSale (
       subtotal_cents: calcItemSubtotal(item),
     }))
     const { error: itemError } = await auth.supabase.from('pos_sale_items').insert(rows)
-    if (itemError) return { ok: false as const, error: 'db_error' as const }
+    if (itemError) {
+      await auth.supabase
+        .from('pos_sales')
+        .delete()
+        .eq('organization_id', auth.organizationId)
+        .eq('id', sale.id)
+      return { ok: false as const, error: 'db_error' as const }
+    }
   }
 
   return { ok: true as const, saleId: sale.id }
@@ -125,6 +158,12 @@ export async function listSaleItems (auth: AuthCtx, saleId: string) {
 }
 
 export async function replaceSaleItems (auth: AuthCtx, saleId: string, items: SaleItemInput[]) {
+  const ownership = await assertProductsBelongToOrganization(
+    auth,
+    items.map((item) => item.product_id),
+  )
+  if (!ownership.ok) return ownership
+
   const { error: delError } = await auth.supabase
     .from('pos_sale_items')
     .delete()

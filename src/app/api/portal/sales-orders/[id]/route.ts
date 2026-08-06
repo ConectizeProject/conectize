@@ -39,7 +39,11 @@ export async function PATCH (request: NextRequest, { params }: { params: Params 
 
   const result = await updateSalesOrderDraft(auth, id, draft, items)
   if (!result.ok) {
-    const status = result.error === 'not_found' ? 404 : result.error === 'order_not_editable' ? 400 : 500
+    const status = result.error === 'not_found'
+      ? 404
+      : result.error === 'order_not_editable' || result.error === 'invalid_product'
+        ? 400
+        : 500
     return NextResponse.json({ ok: false, error: result.error }, { status })
   }
 

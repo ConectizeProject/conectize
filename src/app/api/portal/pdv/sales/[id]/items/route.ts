@@ -15,7 +15,10 @@ export async function PATCH (request: NextRequest, { params }: { params: Params 
   const items = Array.isArray(body?.items) ? body.items : []
 
   const updated = await replaceSaleItems(auth, id, items)
-  if (!updated.ok) return NextResponse.json({ ok: false, error: updated.error }, { status: 500 })
+  if (!updated.ok) {
+    const status = updated.error === 'invalid_product' ? 400 : 500
+    return NextResponse.json({ ok: false, error: updated.error }, { status })
+  }
 
   const sale = await loadSale(auth, id)
   if (!sale.ok) return NextResponse.json({ ok: false, error: sale.error }, { status: 500 })

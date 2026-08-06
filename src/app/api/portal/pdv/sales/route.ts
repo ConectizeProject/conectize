@@ -44,7 +44,7 @@ export async function POST (request: NextRequest) {
 
   const result = await createPendingSale(auth, items, discountTotalCents)
   if (result.ok === false) {
-    const status = result.error === 'cash_not_open' ? 400 : 500
+    const status = result.error === 'cash_not_open' || result.error === 'invalid_product' ? 400 : 500
     return NextResponse.json({ ok: false, error: result.error }, { status })
   }
 

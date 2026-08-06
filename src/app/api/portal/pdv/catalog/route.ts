@@ -8,6 +8,7 @@ export async function GET (request: NextRequest) {
   }
 
   const { searchParams } = new URL(request.url)
+  const id = String(searchParams.get('id') || '').trim()
   const q = String(searchParams.get('q') || '').trim()
   const barcode = String(searchParams.get('barcode') || '').trim()
 
@@ -17,10 +18,12 @@ export async function GET (request: NextRequest) {
     .eq('organization_id', auth.organizationId)
     .eq('is_active', true)
     .eq('kind', 'product')
-    .limit(barcode || q ? 10 : 40)
+    .limit(id || barcode || q ? 10 : 40)
     .order('name', { ascending: true })
 
-  if (barcode) {
+  if (id) {
+    query = query.eq('id', id)
+  } else if (barcode) {
     query = query.eq('barcode', barcode)
   } else if (q) {
     query = query.or(`name.ilike.%${q}%,sku.ilike.%${q}%,barcode.ilike.%${q}%`)

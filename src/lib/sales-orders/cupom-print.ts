@@ -67,11 +67,14 @@ function buildCompanyAddress (c: CompanyPrintData | null | undefined): string {
 
 /**
  * Cupom de venda não-fiscal (comprovante interno) para impressão térmica / A4 estreito.
+ * `autoPrint: false` para preview em modal (impressão via iframe.contentWindow.print).
  */
 export function buildSalesCupomHtml (
   cupom: SalesCupomData,
-  company?: CompanyPrintData | null
+  company?: CompanyPrintData | null,
+  options?: { autoPrint?: boolean }
 ): string {
+  const shouldAutoPrint = options?.autoPrint !== false
   const companyName = escapeHtml(company?.name || 'Empresa')
   const companyCnpj = formatCompanyCnpj(company?.cnpj || null)
   const companyAddress = escapeHtml(buildCompanyAddress(company))
@@ -196,11 +199,13 @@ export function buildSalesCupomHtml (
     <div class="muted">Este cupom não substitui documento fiscal (NFC-e / NF-e).</div>
   </footer>
 
-  <script>
+  ${shouldAutoPrint
+    ? `<script>
     window.addEventListener('load', function () {
       setTimeout(function () { window.print(); }, 250);
     });
-  </script>
+  </script>`
+    : ''}
 </body>
 </html>`
 }
