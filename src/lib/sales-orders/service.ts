@@ -116,7 +116,7 @@ export async function createSalesOrder (
   draft: SalesOrderDraftInput = {},
 ): Promise<
   | { ok: true, orderId: string }
-  | { ok: false, error: 'db_error' | 'cash_not_open' }
+  | { ok: false, error: 'db_error' | 'cash_not_open' | 'invalid_product' }
 > {
   const session = await getOpenCashSession(auth)
   if (!session.ok) {
