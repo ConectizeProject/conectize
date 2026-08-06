@@ -1,6 +1,5 @@
 import type { CompanyPrintData } from '@/lib/ordem-print'
-import { formatDateTimeBr } from '@/lib/utils/format-date'
-import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
+import { formatDateBr, formatDateTimeBr } from '@/lib/utils/format-date'
 import { formatPhoneBr } from '@/lib/utils/format-phone'
 
 export type SalesCupomItem = {
@@ -24,6 +23,7 @@ export type SalesCupomData = {
   customerDocument: string | null
   subtotalCents: number
   discountTotalCents: number
+  surchargeCents: number
   totalCents: number
   paidAmountCents: number
   changeCents: number
@@ -43,7 +43,10 @@ function escapeHtml (text: string): string {
 }
 
 function formatCentsBr (cents: number): string {
-  return (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  return (cents / 100).toLocaleString('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
 }
 
 function formatCompanyCnpj (value: string | null): string {
@@ -65,6 +68,12 @@ function buildCompanyAddress (c: CompanyPrintData | null | undefined): string {
   return parts.join(', ')
 }
 
+function resolveLogoUrl (logoUrl: string | null | undefined, baseUrl = ''): string {
+  if (!logoUrl) return ''
+  if (logoUrl.startsWith('http') || logoUrl.startsWith('/')) return logoUrl
+  return `${baseUrl}${baseUrl.endsWith('/') ? '' : '/'}${logoUrl}`
+}
+
 /**
  * Cupom de venda não-fiscal (comprovante interno) para impressão térmica / A4 estreito.
  * `autoPrint: false` para preview em modal (impressão via iframe.contentWindow.print).
@@ -72,43 +81,42 @@ function buildCompanyAddress (c: CompanyPrintData | null | undefined): string {
 export function buildSalesCupomHtml (
   cupom: SalesCupomData,
   company?: CompanyPrintData | null,
-  options?: { autoPrint?: boolean }
+  options?: { autoPrint?: boolean, baseUrl?: string }
 ): string {
   const shouldAutoPrint = options?.autoPrint !== false
   const companyName = escapeHtml(company?.name || 'Empresa')
   const companyCnpj = formatCompanyCnpj(company?.cnpj || null)
   const companyAddress = escapeHtml(buildCompanyAddress(company))
   const companyPhone = company?.phone ? formatPhoneBr(company.phone) : ''
-  const companyEmail = company?.email ? escapeHtml(company.email) : ''
-
-  const customerName = escapeHtml(cupom.customerName || 'Consumidor Final')
-  const customerDoc = cupom.customerDocument
-    ? formatCpfCnpj(cupom.customerDocument)
-    : ''
+  const logoFullUrl = resolveLogoUrl(company?.logoUrl, options?.baseUrl || '')
+  const dateLabel = escapeHtml(formatDateBr(cupom.createdAt))
+  const dateTimeLabel = escapeHtml(formatDateTimeBr(cupom.createdAt))
 
   const itemsHtml = cupom.items.map((item) => {
     const name = escapeHtml(item.name || 'Produto')
-    const sku = item.sku ? escapeHtml(String(item.sku)) : ''
     return `
       <tr>
-        <td class="item-name">
-          <div>${name}</div>
-          ${sku ? `<div class="muted">SKU ${sku}</div>` : ''}
-          <div class="muted">${item.quantity} × ${formatCentsBr(item.unitPriceCents)}${item.discountCents > 0 ? ` (−${formatCentsBr(item.discountCents)})` : ''}</div>
-        </td>
-        <td class="item-total">${formatCentsBr(item.subtotalCents)}</td>
+        <td class="col-item">${name}</td>
+        <td class="col-qty">${item.quantity}</td>
+        <td class="col-val">${formatCentsBr(item.unitPriceCents)}</td>
+        <td class="col-total">${formatCentsBr(item.subtotalCents)}</td>
       </tr>
     `
   }).join('')
 
   const paymentsHtml = cupom.payments.length > 0
     ? cupom.payments.map((p) => `
-        <div class="row">
-          <span>${escapeHtml(p.methodLabel)}</span>
-          <span>${formatCentsBr(p.amountCents)}</span>
-        </div>
+        <tr>
+          <td class="col-date">${dateLabel}</td>
+          <td class="col-pay">${escapeHtml(p.methodLabel)}</td>
+          <td class="col-pay-val">${formatCentsBr(p.amountCents)}</td>
+        </tr>
       `).join('')
-    : '<div class="row"><span>Pagamento</span><span>—</span></div>'
+    : `<tr>
+        <td class="col-date">${dateLabel}</td>
+        <td class="col-pay">—</td>
+        <td class="col-pay-val">${formatCentsBr(cupom.paidAmountCents || cupom.totalCents)}</td>
+      </tr>`
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -121,7 +129,7 @@ export function buildSalesCupomHtml (
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
       color: #111;
       background: #fff;
-      font-size: 12px;
+      font-size: 11px;
       line-height: 1.35;
       padding: 8px;
       max-width: 80mm;
@@ -130,73 +138,136 @@ export function buildSalesCupomHtml (
     .center { text-align: center; }
     .muted { color: #444; font-size: 10px; }
     .sep { border: none; border-top: 1px dashed #222; margin: 8px 0; }
-    h1 { font-size: 14px; font-weight: 700; }
-    .company-name { font-size: 15px; font-weight: 700; margin-bottom: 2px; }
-    .row { display: flex; justify-content: space-between; gap: 8px; margin: 2px 0; }
+    .spacer { height: 10px; }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 2px;
+    }
+    .logo-wrap {
+      width: 64px;
+      height: 64px;
+      flex-shrink: 0;
+      background: #000;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px;
+      box-sizing: border-box;
+      overflow: hidden;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .logo-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .header-info { flex: 1; min-width: 0; }
+    .company-name { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
+    .header-info div { font-size: 10px; line-height: 1.3; word-break: break-word; }
     table { width: 100%; border-collapse: collapse; }
-    td { vertical-align: top; padding: 4px 0; }
-    .item-total { text-align: right; white-space: nowrap; font-weight: 600; }
-    .totals .row strong { font-size: 13px; }
-    .footer { margin-top: 10px; font-size: 10px; }
+    th, td { vertical-align: top; padding: 3px 2px; }
+    thead th {
+      font-size: 9px;
+      font-weight: 700;
+      text-align: left;
+      border-bottom: 1px solid #222;
+      padding-bottom: 4px;
+    }
+    .col-item { width: 48%; word-break: break-word; }
+    .col-qty { width: 10%; text-align: center; white-space: nowrap; }
+    .col-val, .col-total, .col-pay-val { text-align: right; white-space: nowrap; }
+    .col-val { width: 20%; }
+    .col-total { width: 22%; }
+    .col-date { width: 34%; white-space: nowrap; font-size: 9px; }
+    .col-pay { width: 36%; word-break: break-word; }
+    .col-pay-val { width: 30%; }
+    th.col-qty, th.col-val, th.col-total, th.col-pay-val { text-align: right; }
+    th.col-qty { text-align: center; }
+    .totals { margin: 2px 0; }
+    .totals .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      margin: 2px 0;
+    }
+    .totals .row.total { font-size: 12px; font-weight: 700; margin-top: 4px; }
+    .footer { margin-top: 10px; font-size: 11px; }
+    .footer .datetime { margin-top: 4px; font-size: 10px; }
     @media print {
       body { padding: 0; max-width: none; width: 80mm; }
       @page { margin: 4mm; size: auto; }
+      .logo-wrap, .logo-wrap img { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     }
   </style>
 </head>
 <body>
-  <header class="center">
-    <div class="company-name">${companyName}</div>
-    ${companyCnpj ? `<div>CNPJ ${escapeHtml(companyCnpj)}</div>` : ''}
-    ${companyAddress ? `<div class="muted">${companyAddress}</div>` : ''}
-    ${companyPhone ? `<div class="muted">${escapeHtml(companyPhone)}</div>` : ''}
-    ${companyEmail ? `<div class="muted">${companyEmail}</div>` : ''}
+  <header class="header">
+    ${logoFullUrl
+      ? `<div class="logo-wrap"><img src="${escapeHtml(logoFullUrl)}" alt="" onerror="this.parentElement.style.display='none'" /></div>`
+      : ''}
+    <div class="header-info">
+      <div class="company-name">${companyName}</div>
+      ${companyCnpj ? `<div>${escapeHtml(companyCnpj)}</div>` : ''}
+      ${companyPhone ? `<div>${escapeHtml(companyPhone)}</div>` : ''}
+      ${companyAddress ? `<div>${companyAddress}</div>` : ''}
+    </div>
   </header>
 
   <hr class="sep" />
 
-  <div class="center">
-    <h1>CUPOM DE VENDA</h1>
-    <div class="muted">Documento não fiscal</div>
-  </div>
+  <table>
+    <thead>
+      <tr>
+        <th class="col-item">Item</th>
+        <th class="col-qty">Qtd</th>
+        <th class="col-val">Valor</th>
+        <th class="col-total">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${itemsHtml || '<tr><td colspan="4" class="muted">Sem itens</td></tr>'}
+    </tbody>
+    </table>
 
-  <div style="margin-top:8px">
-    <div class="row"><span>Pedido</span><span><strong>#${escapeHtml(String(cupom.orderNumber))}</strong></span></div>
-    <div class="row"><span>Data</span><span>${escapeHtml(formatDateTimeBr(cupom.createdAt))}</span></div>
-    <div class="row"><span>Cliente</span><span>${customerName}</span></div>
-    ${customerDoc ? `<div class="row"><span>Doc.</span><span>${escapeHtml(customerDoc)}</span></div>` : ''}
-  </div>
-
-  <hr class="sep" />
+  <div class="spacer"></div>
 
   <table>
+    <thead>
+      <tr>
+        <th class="col-date">Data</th>
+        <th class="col-pay">Forma de pgto.</th>
+        <th class="col-pay-val">Valor</th>
+      </tr>
+    </thead>
     <tbody>
-      ${itemsHtml || '<tr><td colspan="2" class="muted">Sem itens</td></tr>'}
+      ${paymentsHtml}
     </tbody>
   </table>
 
-  <hr class="sep" />
+  <div class="spacer"></div>
 
   <div class="totals">
     <div class="row"><span>Subtotal</span><span>${formatCentsBr(cupom.subtotalCents)}</span></div>
-    ${cupom.discountTotalCents > 0 ? `<div class="row"><span>Desconto</span><span>−${formatCentsBr(cupom.discountTotalCents)}</span></div>` : ''}
-    <div class="row"><span><strong>Total</strong></span><span><strong>${formatCentsBr(cupom.totalCents)}</strong></span></div>
-  </div>
-
-  <hr class="sep" />
-
-  <div>
-    <div style="margin-bottom:4px"><strong>Pagamentos</strong></div>
-    ${paymentsHtml}
-    <div class="row"><span>Pago</span><span>${formatCentsBr(cupom.paidAmountCents)}</span></div>
-    ${cupom.changeCents > 0 ? `<div class="row"><span>Troco</span><span>${formatCentsBr(cupom.changeCents)}</span></div>` : ''}
+    ${cupom.discountTotalCents > 0
+      ? `<div class="row"><span>Descontos</span><span>−${formatCentsBr(cupom.discountTotalCents)}</span></div>`
+      : ''}
+    ${cupom.surchargeCents > 0
+      ? `<div class="row"><span>Adicional</span><span>${formatCentsBr(cupom.surchargeCents)}</span></div>`
+      : ''}
+    <div class="row total"><span>Total</span><span>${formatCentsBr(cupom.totalCents)}</span></div>
   </div>
 
   <hr class="sep" />
 
   <footer class="footer center">
     <div>Obrigado pela preferência!</div>
-    <div class="muted">Este cupom não substitui documento fiscal (NFC-e / NF-e).</div>
+    <div class="datetime">${dateTimeLabel}</div>
   </footer>
 
   ${shouldAutoPrint

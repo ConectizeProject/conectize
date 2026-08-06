@@ -26,7 +26,7 @@ export async function buildSalesOrderCupomHtml (
 ): Promise<{ status: number, html?: string }> {
   const { data: order, error: orderError } = await supabase
     .from('sales_orders')
-    .select('id, order_number, status, customer_name, customer_document, subtotal_cents, discount_total_cents, total_cents, paid_amount_cents, change_cents, created_at, organization_id')
+    .select('id, order_number, status, customer_name, customer_document, subtotal_cents, discount_total_cents, surcharge_cents, total_cents, paid_amount_cents, change_cents, created_at, organization_id')
     .eq('organization_id', organizationId)
     .eq('id', orderId)
     .maybeSingle()
@@ -92,6 +92,7 @@ export async function buildSalesOrderCupomHtml (
     customerDocument: order.customer_document,
     subtotalCents: Number(order.subtotal_cents) || 0,
     discountTotalCents: Number(order.discount_total_cents) || 0,
+    surchargeCents: Number(order.surcharge_cents) || 0,
     totalCents: Number(order.total_cents) || 0,
     paidAmountCents: Number(order.paid_amount_cents) || 0,
     changeCents: Number(order.change_cents) || 0,
