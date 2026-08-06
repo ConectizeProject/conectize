@@ -37,6 +37,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
+import { blingRefreshTokenErrorToMessage } from '@/lib/integrations/bling/refresh-token-errors'
 import {
   HubInboxViewersPicker,
   type InboxAccessState,
@@ -951,20 +952,11 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
       const data = await res.json().catch(() => null)
 
       if (!res.ok || !data?.ok) {
-        const code = data?.error as string | undefined
-        const rawErr = typeof data?.error === 'string' ? data.error : ''
-        const isInvalidGrant =
-          rawErr.toLowerCase().includes('invalid_grant') ||
-          rawErr.toLowerCase().includes('token inválido') ||
-          rawErr.toLowerCase().includes('invalid token')
-        const description =
-          code === 'no_refresh_token'
-            ? 'Não há refresh token salvo. Desconecte e conecte o Bling novamente.'
-            : code === 'bling_oauth_not_configured'
-              ? 'OAuth do Bling não configurado no servidor.'
-              : isInvalidGrant
-                ? 'O refresh token expirou ou foi revogado (ex.: após ~30 dias ou nova autorização). Desconecte e conecte o Bling de novo no HUB.'
-                : rawErr || 'Não foi possível renovar o token.'
+        const apiMessage = typeof data?.message === 'string' ? data.message.trim() : ''
+        const code = typeof data?.error === 'string' ? data.error : ''
+        const detail = typeof data?.detail === 'string' ? data.detail : ''
+        const description = apiMessage
+          || blingRefreshTokenErrorToMessage(code || detail)
         toast({ title: 'Erro ao renovar token', description, variant: 'destructive' })
         return
       }

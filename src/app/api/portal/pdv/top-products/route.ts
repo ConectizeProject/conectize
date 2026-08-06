@@ -1,11 +1,16 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 
-export async function GET () {
+const PRODUCT_SELECT = 'id, name, sku, barcode, sale_price_cents, cost_price_cents, image_url'
+
+export async function GET (request: NextRequest) {
   const auth = await requireStaffOrAdmin()
   if (auth.ok === false) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
+
+  const limitRaw = Number(request.nextUrl.searchParams.get('limit') || 5)
+  const limit = Math.min(40, Math.max(1, Number.isFinite(limitRaw) ? Math.round(limitRaw) : 5))
 
   const { data: paidOrders, error: ordersError } = await auth.supabase
     .from('sales_orders')
@@ -18,12 +23,13 @@ export async function GET () {
   if (ordersError) return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
 
   const orderIds = (paidOrders ?? []).map((row) => String(row.id))
-  let sorted: Array<{ product: Record<string, unknown>, qty: number }> = []
+  const ranked: Array<{ product: Record<string, unknown>, qty: number }> = []
+  const seenIds = new Set<string>()
 
   if (orderIds.length > 0) {
     const { data: items, error: itemsError } = await auth.supabase
       .from('sales_order_items')
-      .select('product_id, quantity, products(id, name, sku, barcode, sale_price_cents, image_url)')
+      .select('product_id, quantity, products(id, name, sku, barcode, sale_price_cents, cost_price_cents, image_url)')
       .eq('organization_id', auth.organizationId)
       .in('sales_order_id', orderIds)
 
@@ -43,31 +49,41 @@ export async function GET () {
         }
       }
 
-      sorted = Array.from(qtyByProduct.values())
+      const topSold = Array.from(qtyByProduct.values())
         .sort((a, b) => b.qty - a.qty)
-        .slice(0, 5)
+        .slice(0, limit)
+
+      for (const entry of topSold) {
+        const id = String(entry.product.id || '')
+        if (!id || seenIds.has(id)) continue
+        seenIds.add(id)
+        ranked.push(entry)
+      }
     }
   }
 
-  if (sorted.length === 0) {
-    const { data: fallbackProducts, error: fallbackError } = await auth.supabase
+  if (ranked.length < limit) {
+    const { data: catalogProducts, error: catalogError } = await auth.supabase
       .from('products')
-      .select('id, name, sku, barcode, sale_price_cents, image_url')
+      .select(PRODUCT_SELECT)
       .eq('organization_id', auth.organizationId)
       .eq('is_active', true)
       .eq('kind', 'product')
-      .order('updated_at', { ascending: false })
-      .limit(5)
+      .order('name', { ascending: true })
+      .limit(limit + seenIds.size)
 
-    if (fallbackError) return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+    if (catalogError) return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
 
-    sorted = (fallbackProducts ?? []).map((product) => ({
-      product: product as Record<string, unknown>,
-      qty: 0,
-    }))
+    for (const product of catalogProducts ?? []) {
+      if (ranked.length >= limit) break
+      const id = String(product.id || '')
+      if (!id || seenIds.has(id)) continue
+      seenIds.add(id)
+      ranked.push({ product: product as Record<string, unknown>, qty: 0 })
+    }
   }
 
-  const productIds = sorted.map((entry) => String(entry.product.id || ''))
+  const productIds = ranked.map((entry) => String(entry.product.id || ''))
   let stockById = new Map<string, number>()
   if (productIds.length > 0) {
     const { data: stockRows } = await auth.supabase.rpc('portal_products_list_stock_summary', {
@@ -80,11 +96,11 @@ export async function GET () {
     }))
   }
 
-  const products = sorted.map(({ product, qty }) => ({
+  const products = ranked.map(({ product, qty }) => ({
     ...product,
     sold_qty: qty,
     stock: stockById.get(String(product.id)) ?? 0,
   }))
 
-  return NextResponse.json({ ok: true, products })
+  return NextResponse.json({ ok: true, products, limit })
 }

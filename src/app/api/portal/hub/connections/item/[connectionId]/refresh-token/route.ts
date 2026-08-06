@@ -1,105 +1,85 @@
 import { NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth/portal-api'
+import { forceRefreshBlingToken, type HubConnection } from '@/lib/integrations/bling/api'
+import {
+  blingRefreshTokenErrorCode,
+  blingRefreshTokenErrorToMessage,
+} from '@/lib/integrations/bling/refresh-token-errors'
 
-export async function GET() {
+export async function POST (
+  _request: Request,
+  { params }: { params: Promise<{ connectionId: string }> }
+) {
   const auth = await requireAdmin()
   if (auth.ok === false) {
-    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: auth.error,
+        message: blingRefreshTokenErrorToMessage(auth.error),
+      },
+      { status: auth.status }
+    )
   }
 
-  const { data, error } = await auth.supabase
+  const { connectionId } = await params
+  if (!connectionId) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: 'connection_id_required',
+        message: blingRefreshTokenErrorToMessage('connection_id_required'),
+      },
+      { status: 400 }
+    )
+  }
+
+  const { data: row, error } = await auth.supabase
     .from('hub_connections')
-    .select('id, platform_id, metadata, created_at')
-    .order('platform_id')
-
-  if (error) {
-    return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
-  }
-
-  return NextResponse.json({ ok: true, connections: data || [] })
-}
-
-export async function POST(request: Request) {
-  const auth = await requireAdmin()
-  if (auth.ok === false) {
-    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
-  }
-
-  const body = await request.json().catch(() => null)
-  const platformId = String(body?.platform_id || body?.platformId || '').trim()
-  const apiKey = String(body?.api_key || body?.apiKey || '').trim()
-  const model = String(body?.model || '').trim() || null
-
-  const allowedPlatforms = ['chatgpt']
-  if (!platformId || !allowedPlatforms.includes(platformId)) {
-    return NextResponse.json({ ok: false, error: 'platform_invalid' }, { status: 400 })
-  }
-
-  // Se jÃ¡ existe conexÃ£o e sÃ³ estÃ¡ atualizando o modelo, nÃ£o precisa de api_key
-  const { data: existing } = await auth.supabase
-    .from('hub_connections')
-    .select('api_key, metadata')
-    .eq('platform_id', platformId)
+    .select('id, platform_id, access_token, refresh_token, token_expires_at, metadata, created_by')
+    .eq('id', connectionId)
+    .eq('platform_id', 'bling')
     .eq('organization_id', auth.organizationId)
     .maybeSingle()
 
-  if (!existing && !apiKey) {
-    return NextResponse.json({ ok: false, error: 'api_key_required' }, { status: 400 })
+  if (error || !row) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: 'bling_connection_not_found',
+        message: blingRefreshTokenErrorToMessage('bling_connection_not_found'),
+      },
+      { status: 404 }
+    )
   }
 
-  // Preserva metadata existente e atualiza apenas o modelo se fornecido
-  const existingMetadata = (existing?.metadata as Record<string, unknown> | null) || {}
-  const metadata: Record<string, unknown> = { ...existingMetadata }
-  if (platformId === 'chatgpt' && model) {
-    metadata.model = model
+  const result = await forceRefreshBlingToken(row as HubConnection, {
+    supabase: auth.supabase,
+  })
+
+  if (result.ok === false) {
+    const code = blingRefreshTokenErrorCode(result.error)
+    const message = blingRefreshTokenErrorToMessage(result.error)
+    const status =
+      code === 'no_refresh_token' || code === 'invalid_grant'
+        ? 400
+        : code === 'bling_oauth_not_configured' || code === 'db_update_failed'
+          ? 500
+          : 502
+
+    return NextResponse.json(
+      {
+        ok: false,
+        error: code,
+        message,
+        detail: result.error !== code ? result.error : undefined,
+      },
+      { status }
+    )
   }
 
-  const updateData: Record<string, unknown> = {
-    platform_id: platformId,
-    organization_id: auth.organizationId,
-    updated_at: new Date().toISOString(),
-    metadata,
-  }
-
-  if (apiKey) {
-    updateData.api_key = apiKey
-  } else if (existing) {
-    // Mantém a api_key existente se não foi fornecida
-    updateData.api_key = existing.api_key
-  }
-  if (!existing) {
-    updateData.created_by = auth.userId
-    updateData.access_token = null
-    updateData.refresh_token = null
-    updateData.token_expires_at = null
-  }
-
-  let data: { id: string; platform_id: string } | null = null
-  let error: { message?: string } | null = null
-
-  if (existing) {
-    const res = await auth.supabase
-      .from('hub_connections')
-      .update(updateData)
-      .eq('platform_id', platformId)
-      .eq('organization_id', auth.organizationId)
-      .select('id, platform_id')
-      .single()
-    data = res.data
-    error = res.error
-  } else {
-    const res = await auth.supabase
-      .from('hub_connections')
-      .insert(updateData)
-      .select('id, platform_id')
-      .single()
-    data = res.data
-    error = res.error
-  }
-
-  if (error) {
-    return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
-  }
-
-  return NextResponse.json({ ok: true, connection: data })
+  return NextResponse.json({
+    ok: true,
+    token_expires_at: result.connection.token_expires_at,
+  })
 }

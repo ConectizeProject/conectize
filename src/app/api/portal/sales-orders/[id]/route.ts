@@ -34,6 +34,7 @@ export async function PATCH (request: NextRequest, { params }: { params: Params 
     customer_type: body?.customer_type ?? undefined,
     customer_document: body?.customer_document ?? undefined,
     discount_total_cents: body?.discount_total_cents ?? undefined,
+    surcharge_cents: body?.surcharge_cents ?? undefined,
   }
 
   const result = await updateSalesOrderDraft(auth, id, draft, items)

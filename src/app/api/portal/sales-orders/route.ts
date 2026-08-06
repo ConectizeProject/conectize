@@ -18,7 +18,7 @@ export async function GET (request: NextRequest) {
 
   let query = auth.supabase
     .from('sales_orders')
-    .select('id, order_number, status, seller_user_id, customer_name, customer_type, customer_document, subtotal_cents, discount_total_cents, total_cents, paid_amount_cents, change_cents, cash_session_id, created_at, updated_at', { count: 'exact' })
+    .select('id, order_number, status, seller_user_id, customer_name, customer_type, customer_document, subtotal_cents, discount_total_cents, total_cents, paid_amount_cents, change_cents, cash_session_id, bling_pedido_id, bling_nfce_id, created_at, updated_at', { count: 'exact' })
     .eq('organization_id', auth.organizationId)
     .order('created_at', { ascending: false })
     .limit(200)
@@ -55,6 +55,7 @@ export async function POST (request: NextRequest) {
     customer_type: body?.customer_type ?? undefined,
     customer_document: body?.customer_document ?? undefined,
     discount_total_cents: body?.discount_total_cents ?? undefined,
+    surcharge_cents: body?.surcharge_cents ?? undefined,
   }
 
   const result = await createSalesOrder(auth, items, draft)
