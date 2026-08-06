@@ -61,7 +61,6 @@ type Movement = {
   resale_device_id: string | null
   sales_order_id: string | null
   sales_order_href: string | null
-  pos_sale_id: string | null
   editable: boolean
 }
 
@@ -84,7 +83,6 @@ function movementFromApiTransaction (tx: ApiFinancialTransactionRow, contaName: 
     resale_device_id: null,
     sales_order_id: null,
     sales_order_href: null,
-    pos_sale_id: null,
     editable: true,
   }
 }
@@ -255,10 +253,9 @@ export function FinanceiroMovimentacaoClient() {
       if (data?.ok) {
         const syncedOrders = Number(data.syncedOrders) || 0
         const syncedResaleDevices = Number(data.syncedResaleDevices) || 0
-        const syncedPdvSales = Number(data.syncedPdvSales) || 0
         const syncedSalesOrders = Number(data.syncedSalesOrders) || 0
         toast({
-          title: `Dados atualizados (${syncedOrders} OS, ${syncedResaleDevices} aparelhos, ${syncedSalesOrders} pedidos de venda e ${syncedPdvSales} vendas PDV legado)`,
+          title: `Dados atualizados (${syncedOrders} OS, ${syncedResaleDevices} aparelhos e ${syncedSalesOrders} pedidos de venda)`,
         })
         await loadMovements()
       } else {
@@ -660,10 +657,6 @@ export function FinanceiroMovimentacaoClient() {
                           </Link>
                         ) : m.resale_device_id ? (
                           <Link href={`/portal/revendaaparelhos/${m.resale_device_id}`} className="text-primary hover:underline">
-                            {m.description}
-                          </Link>
-                        ) : m.pos_sale_id ? (
-                          <Link href={`/portal/pdv/vendas/${m.pos_sale_id}`} className="text-primary hover:underline">
                             {m.description}
                           </Link>
                         ) : (

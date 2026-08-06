@@ -60,13 +60,14 @@ export async function POST (request: NextRequest) {
 
   const result = await createSalesOrder(auth, items, draft)
   if (result.ok === false) {
-    const status = result.error === 'cash_not_open' ? 400 : 500
+    const status = result.error === 'cash_not_open' || result.error === 'invalid_product' ? 400 : 500
     return NextResponse.json({ ok: false, error: result.error }, { status })
   }
 
   const loaded = await auth.supabase
     .from('sales_orders')
     .select('id, order_number, status, total_cents')
+    .eq('organization_id', auth.organizationId)
     .eq('id', result.orderId)
     .single()
 

@@ -48,12 +48,15 @@ function createSupabaseMock ({
         }
       }
 
-      if (table === 'pos_sales') {
+      if (table === 'sales_orders') {
         return {
           select () {
             return {
               eq () {
-                return {
+                const chain = {
+                  eq () {
+                    return chain
+                  },
                   range () {
                     return {
                       order () {
@@ -62,13 +65,14 @@ function createSupabaseMock ({
                     }
                   },
                 }
+                return chain
               },
             }
           },
         }
       }
 
-      if (table === 'pos_sale_payments') {
+      if (table === 'sales_order_payments') {
         return {
           select () {
             return {
@@ -350,12 +354,15 @@ describe('backfillServiceOrderFinancialTransactionsByOrganization', () => {
           }
         }
 
-        if (table === 'pos_sales') {
+        if (table === 'sales_orders') {
           return {
             select () {
               return {
                 eq () {
-                  return {
+                  const chain = {
+                    eq () {
+                      return chain
+                    },
                     range () {
                       return {
                         order () {
@@ -367,13 +374,14 @@ describe('backfillServiceOrderFinancialTransactionsByOrganization', () => {
                       return Promise.resolve({ data: [], error: null })
                     },
                   }
+                  return chain
                 },
               }
             },
           }
         }
 
-        if (table === 'pos_sale_payments') {
+        if (table === 'sales_order_payments') {
           return {
             select () {
               return {

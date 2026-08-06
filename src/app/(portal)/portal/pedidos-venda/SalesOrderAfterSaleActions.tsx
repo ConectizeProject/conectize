@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ExternalLink, Loader2, Printer, Send } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -12,8 +12,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { portalFetch } from '@/lib/portal/portal-fetch'
-import { getPrintWindowFeatures } from '@/lib/ordem-print'
 import { toast } from '@/hooks/use-toast'
+import {
+  SalesOrderCupomPreview,
+  openSalesOrderCupomPrint,
+  salesOrderCupomPrintLabel,
+} from '@/app/(portal)/portal/pedidos-venda/SalesOrderCupomPrint'
+
+export { openSalesOrderCupomPrint, salesOrderCupomPrintLabel }
 
 export type SalesOrderBlingLinkState = {
   blingPedidoId: string | null
@@ -32,15 +38,6 @@ type SalesOrderAfterSaleDialogProps = {
   orderNumber: number | string | null
   initialBling?: SalesOrderBlingLinkState | null
   onDone?: () => void
-}
-
-export function openSalesOrderCupomPrint (orderId: string) {
-  const url = `/api/portal/sales-orders/${encodeURIComponent(orderId)}/print`
-  window.open(url, '_blank', getPrintWindowFeatures())
-}
-
-export function salesOrderCupomPrintLabel (status?: string | null) {
-  return status === 'paid' ? 'Reimprimir cupom' : 'Imprimir cupom'
 }
 
 function buildInitialBlingState (props: {
@@ -71,8 +68,8 @@ export function SalesOrderAfterSaleActions (props: {
   blingPedidoId?: string | null
   blingNfceId?: string | null
   className?: string
-  /** Força o rótulo "Reimprimir" mesmo fora de status paid (ex.: 2ª vez no diálogo). */
-  reprint?: boolean
+  /** Se informado, imprime o iframe embutido em vez de abrir o modal global. */
+  onPrintCupom?: () => boolean
   onBlingUpdated?: (state: SalesOrderBlingLinkState) => void
 }) {
   const [busyPrint, setBusyPrint] = useState(false)
@@ -88,16 +85,17 @@ export function SalesOrderAfterSaleActions (props: {
   const isPaid = props.status === 'paid' || props.status == null
   const canSendBling = props.status === 'paid' || props.status == null
   const viewUrl = bling.preferredUrl || bling.pedidoUrl
-  const printLabel = props.reprint || props.status === 'paid'
-    ? 'Reimprimir cupom'
-    : 'Imprimir cupom'
 
   async function handlePrint () {
     setBusyPrint(true)
     try {
-      openSalesOrderCupomPrint(props.orderId)
+      if (props.onPrintCupom) {
+        props.onPrintCupom()
+      } else {
+        openSalesOrderCupomPrint(props.orderId, { autoPrint: true })
+      }
     } finally {
-      setBusyPrint(false)
+      window.setTimeout(() => setBusyPrint(false), 400)
     }
   }
 
@@ -160,7 +158,7 @@ export function SalesOrderAfterSaleActions (props: {
     <div className={props.className || 'flex flex-wrap gap-2'}>
       <Button type='button' variant='outline' disabled={busyPrint} onClick={() => void handlePrint()}>
         {busyPrint ? <Loader2 className='h-4 w-4 animate-spin' /> : <Printer className='h-4 w-4' />}
-        <span className='ml-2'>{printLabel}</span>
+        <span className='ml-2'>Imprimir cupom</span>
       </Button>
 
       {canSendBling ? (
@@ -193,6 +191,7 @@ export function SalesOrderAfterSaleDialog ({
   onDone,
 }: SalesOrderAfterSaleDialogProps) {
   const [bling, setBling] = useState<SalesOrderBlingLinkState | null>(initialBling ?? null)
+  const printRef = useRef<(() => boolean) | null>(null)
 
   useEffect(() => {
     if (open) setBling(initialBling ?? null)
@@ -217,18 +216,26 @@ export function SalesOrderAfterSaleDialog ({
             Pedido {orderNumber != null ? `#${orderNumber}` : ''} finalizado
           </DialogTitle>
           <DialogDescription>
-            Imprima o cupom agora ou reimprima depois pelo PDV / Pedidos de venda. Também pode enviar ao Bling para NFC-e.
+            O cupom será enviado à impressora automaticamente. Você também pode imprimir de novo ou enviar ao Bling.
           </DialogDescription>
         </DialogHeader>
 
         {orderId ? (
           <div className='space-y-3'>
+            <SalesOrderCupomPreview
+              orderId={orderId}
+              autoPrint
+              onPrintReady={(print) => {
+                printRef.current = print
+              }}
+            />
             <SalesOrderAfterSaleActions
               orderId={orderId}
               orderNumber={orderNumber}
               status='paid'
               blingPedidoId={bling?.blingPedidoId}
               blingNfceId={bling?.blingNfceId}
+              onPrintCupom={() => Boolean(printRef.current?.())}
               onBlingUpdated={setBling}
             />
             {bling?.nfceError ? (

@@ -48,6 +48,26 @@ export function calcItemSubtotal (item: SalesOrderItemInput) {
   return Math.max(0, raw - discount)
 }
 
+async function assertProductsBelongToOrganization (
+  auth: AuthCtx,
+  productIds: string[],
+) {
+  const uniqueIds = [...new Set(productIds.filter(Boolean))]
+  if (uniqueIds.length === 0) return { ok: true as const }
+
+  const { data, error } = await auth.supabase
+    .from('products')
+    .select('id')
+    .eq('organization_id', auth.organizationId)
+    .in('id', uniqueIds)
+
+  if (error) return { ok: false as const, error: 'db_error' as const }
+  if ((data?.length ?? 0) !== uniqueIds.length) {
+    return { ok: false as const, error: 'invalid_product' as const }
+  }
+  return { ok: true as const }
+}
+
 export function calcSalesOrderTotals (
   items: SalesOrderItemInput[],
   discountTotalCents = 0,
@@ -96,7 +116,7 @@ export async function createSalesOrder (
   draft: SalesOrderDraftInput = {},
 ): Promise<
   | { ok: true, orderId: string }
-  | { ok: false, error: 'db_error' | 'cash_not_open' }
+  | { ok: false, error: 'db_error' | 'cash_not_open' | 'invalid_product' }
 > {
   const session = await getOpenCashSession(auth)
   if (!session.ok) {
@@ -135,8 +155,12 @@ export async function createSalesOrder (
   if (items.length > 0) {
     const replace = await replaceSalesOrderItems(auth, order.id, items)
     if (!replace.ok) {
-      await auth.supabase.from('sales_orders').delete().eq('id', order.id)
-      return { ok: false as const, error: 'db_error' as const }
+      await auth.supabase
+        .from('sales_orders')
+        .delete()
+        .eq('organization_id', auth.organizationId)
+        .eq('id', order.id)
+      return { ok: false as const, error: replace.error }
     }
   }
 
@@ -227,6 +251,12 @@ export async function listSalesOrderItems (auth: AuthCtx, orderId: string) {
 }
 
 export async function replaceSalesOrderItems (auth: AuthCtx, orderId: string, items: SalesOrderItemInput[]) {
+  const ownership = await assertProductsBelongToOrganization(
+    auth,
+    items.map((item) => item.product_id),
+  )
+  if (!ownership.ok) return ownership
+
   const { error: delError } = await auth.supabase
     .from('sales_order_items')
     .delete()
