@@ -103,7 +103,7 @@ export type StockMovement = {
 	quantity: number;
 	unitValueCents: number;
 	totalValueCents: number;
-	source: "manual" | "bling" | "system" | "pdv_sale" | "service_order";
+	source: "manual" | "bling" | "system" | "pdv_sale" | "service_order" | "sales_order";
 	externalReference: string | null;
 	createdAt: string;
 };
@@ -112,7 +112,7 @@ export type AddStockMovementInput = {
 	type: StockMovementType;
 	quantity: number;
 	unitValueCents?: number | null;
-	source?: "manual" | "bling" | "system" | "pdv_sale" | "service_order";
+	source?: "manual" | "bling" | "system" | "service_order" | "sales_order";
 	externalReference?: string | null;
 };
 
@@ -1195,7 +1195,12 @@ function mapRowToProductSyncSnapshot(
 
 function mapRowToMovement(row: Record<string, unknown>): StockMovement {
 	const source =
-		row.source === "bling" || row.source === "system" || row.source === "manual" || row.source === "pdv_sale" || row.source === "service_order"
+		row.source === "bling"
+		|| row.source === "system"
+		|| row.source === "manual"
+		|| row.source === "pdv_sale"
+		|| row.source === "service_order"
+		|| row.source === "sales_order"
 			? row.source
 			: "manual";
 	const createdAt = typeof row.created_at === "string" ? row.created_at : "";

@@ -95,11 +95,21 @@ export async function GET(request: NextRequest) {
     const salesOrderId = t.sales_order_id as string | null
     const resaleDeviceId = t.resale_device_id as string | null
     const description = (t.description as string) ?? ''
-    const pdvMatch = description.match(/^PDV:([0-9a-fA-F-]{36}):/)
-    const posSaleId = pdvMatch?.[1] ?? null
-    const visibleDescription = pdvMatch ? description.replace(/^PDV:[0-9a-fA-F-]{36}:/, '').trim() : description
-    const source = serviceOrderId ? 'os' : salesOrderId ? 'pdv' : resaleDeviceId ? 'seminovo' : posSaleId ? 'pdv' : 'transaction'
-    const editable = !serviceOrderId && !salesOrderId && !resaleDeviceId && !posSaleId
+    const legacyPdvMatch = description.match(/^PDV:([0-9a-fA-F-]{36}):/)
+    const isLegacyPdv = Boolean(legacyPdvMatch)
+    const visibleDescription = legacyPdvMatch
+      ? description.replace(/^PDV:[0-9a-fA-F-]{36}:/, '').trim()
+      : description
+    const source = serviceOrderId
+      ? 'os'
+      : salesOrderId
+        ? 'pdv'
+        : resaleDeviceId
+          ? 'seminovo'
+          : isLegacyPdv
+            ? 'pdv'
+            : 'transaction'
+    const editable = !serviceOrderId && !salesOrderId && !resaleDeviceId && !isLegacyPdv
     const serviceOrderHref = serviceOrderId
       ? getOrdemPortalPath({
           id: serviceOrderId,
@@ -123,7 +133,6 @@ export async function GET(request: NextRequest) {
       resale_device_id: resaleDeviceId,
       sales_order_id: salesOrderId,
       sales_order_href: salesOrderId ? `/portal/pedidos-venda/${salesOrderId}` : null,
-      pos_sale_id: posSaleId,
       editable,
     }
   }).sort((a, b) => {
