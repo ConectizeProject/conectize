@@ -1,0 +1,205 @@
+/* Home hero — full-bleed atmosphere, brand-first, press feedback */
+
+.hero {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  align-items: flex-end;
+  min-height: 100dvh;
+  overflow: hidden;
+  padding: 7.5rem 0 4.5rem;
+  color: hsl(var(--foreground));
+}
+
+.atmosphere {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 70% 20%, hsl(199 89% 48% / 0.22), transparent 55%),
+    radial-gradient(ellipse 55% 45% at 10% 80%, hsl(168 76% 42% / 0.16), transparent 50%),
+    radial-gradient(ellipse 40% 30% at 90% 85%, hsl(210 40% 80% / 0.35), transparent 45%),
+    linear-gradient(165deg, hsl(210 25% 97%) 0%, hsl(199 28% 94%) 48%, hsl(210 18% 92%) 100%);
+}
+
+.atmosphereGrain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.35;
+  pointer-events: none;
+  background-image:
+    linear-gradient(hsl(215 25% 10% / 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(215 25% 10% / 0.03) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: linear-gradient(to bottom, black 40%, transparent 95%);
+}
+
+.visualPlane {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.deviceSilhouette {
+  position: absolute;
+  right: -8%;
+  top: 12%;
+  width: min(52vw, 34rem);
+  height: auto;
+  opacity: 0.9;
+  transform: rotate(-8deg);
+  animation: settleDevice 900ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.deviceBody {
+  fill: hsl(215 25% 12% / 0.06);
+  stroke: hsl(199 89% 28% / 0.18);
+  stroke-width: 1.5;
+}
+
+.deviceScreen {
+  fill: hsl(199 89% 48% / 0.12);
+}
+
+.deviceGlow {
+  fill: hsl(168 76% 42% / 0.2);
+  filter: blur(18px);
+}
+
+.content {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 0 1.25rem;
+}
+
+.brand {
+  display: block;
+  margin: 0 0 1.25rem;
+  font-size: clamp(2.75rem, 9vw, 5.5rem);
+  font-weight: 750;
+  letter-spacing: -0.045em;
+  line-height: 0.95;
+  color: hsl(var(--foreground));
+  animation: settleUp 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.headline {
+  max-width: 18ch;
+  margin: 0 0 1rem;
+  font-size: clamp(1.65rem, 4.2vw, 2.65rem);
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1.12;
+  color: hsl(var(--foreground));
+  animation: settleUp 700ms cubic-bezier(0.22, 1, 0.36, 1) 80ms both;
+}
+
+.lede {
+  max-width: 34rem;
+  margin: 0 0 1.75rem;
+  font-size: clamp(1rem, 2vw, 1.2rem);
+  line-height: 1.5;
+  color: hsl(var(--muted-foreground));
+  animation: settleUp 700ms cubic-bezier(0.22, 1, 0.36, 1) 140ms both;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  animation: settleUp 700ms cubic-bezier(0.22, 1, 0.36, 1) 200ms both;
+}
+
+.press {
+  transition: transform 100ms ease-out, box-shadow 160ms ease;
+  will-change: transform;
+}
+
+.press:active {
+  transform: scale(0.97);
+}
+
+.scrollHint {
+  position: absolute;
+  bottom: 1.25rem;
+  left: 50%;
+  z-index: 2;
+  width: 1px;
+  height: 2.5rem;
+  transform: translateX(-50%);
+  background: linear-gradient(to bottom, transparent, hsl(var(--foreground) / 0.35));
+  animation: pulseLine 2.4s ease-in-out infinite;
+}
+
+@keyframes settleUp {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes settleDevice {
+  from {
+    opacity: 0;
+    transform: rotate(-8deg) translateY(24px) scale(0.98);
+  }
+  to {
+    opacity: 0.9;
+    transform: rotate(-8deg) translateY(0) scale(1);
+  }
+}
+
+@keyframes pulseLine {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: translateX(-50%) scaleY(0.85);
+  }
+  50% {
+    opacity: 0.7;
+    transform: translateX(-50%) scaleY(1);
+  }
+}
+
+@media (max-width: 900px) {
+  .deviceSilhouette {
+    right: -28%;
+    top: 8%;
+    width: min(78vw, 26rem);
+    opacity: 0.55;
+  }
+
+  .hero {
+    align-items: center;
+    padding-top: 6.5rem;
+    padding-bottom: 3.5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brand,
+  .headline,
+  .lede,
+  .actions,
+  .deviceSilhouette {
+    animation: none;
+  }
+
+  .scrollHint {
+    animation: none;
+    opacity: 0.4;
+  }
+
+  .press:active {
+    transform: none;
+  }
+}
