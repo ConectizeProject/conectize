@@ -473,26 +473,26 @@ export async function checkoutSalesOrder (
 
   if (!orderId) {
     const created = await createSalesOrder(auth, items, draft)
-    if (!created.ok) {
+    if (created.ok === false) {
       return { ok: false as const, error: created.error, orderId: null as string | null }
     }
     orderId = created.orderId
   } else {
     const updated = await updateSalesOrderDraft(auth, orderId, draft, items)
-    if (!updated.ok) {
+    if (updated.ok === false) {
       return { ok: false as const, error: updated.error, orderId }
     }
   }
 
   const payResult = await replaceSalesOrderPayments(auth, orderId, input.payments)
-  if (!payResult.ok) {
+  if (payResult.ok === false) {
     return { ok: false as const, error: payResult.error, orderId }
   }
 
   const finalized = await finalizeSalesOrder(auth, orderId, {
     change_cents: input.change_cents,
   })
-  if (!finalized.ok) {
+  if (finalized.ok === false) {
     return {
       ok: false as const,
       error: finalized.error,
