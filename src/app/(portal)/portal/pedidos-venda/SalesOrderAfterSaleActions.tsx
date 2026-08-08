@@ -36,6 +36,9 @@ type SalesOrderAfterSaleDialogProps = {
   onOpenChange: (open: boolean) => void
   orderId: string | null
   orderNumber: number | string | null
+  /** Checkout ainda em andamento — exibe ações de cupom desabilitadas. */
+  saving?: boolean
+  error?: string | null
   initialBling?: SalesOrderBlingLinkState | null
   onDone?: () => void
 }
@@ -187,17 +190,21 @@ export function SalesOrderAfterSaleDialog ({
   onOpenChange,
   orderId,
   orderNumber,
+  saving = false,
+  error = null,
   initialBling,
   onDone,
 }: SalesOrderAfterSaleDialogProps) {
   const [bling, setBling] = useState<SalesOrderBlingLinkState | null>(initialBling ?? null)
   const printRef = useRef<(() => boolean) | null>(null)
+  const isReady = Boolean(orderId) && !saving && !error
 
   useEffect(() => {
     if (open) setBling(initialBling ?? null)
   }, [open, initialBling])
 
   function handleClose () {
+    if (saving) return
     onOpenChange(false)
     onDone?.()
   }
@@ -210,17 +217,34 @@ export function SalesOrderAfterSaleDialog ({
         else onOpenChange(true)
       }}
     >
-      <DialogContent aria-describedby={undefined} className='sm:max-w-md'>
+      <DialogContent
+        aria-describedby={undefined}
+        className='sm:max-w-md'
+        onPointerDownOutside={(event) => {
+          if (saving) event.preventDefault()
+        }}
+        onEscapeKeyDown={(event) => {
+          if (saving) event.preventDefault()
+        }}
+      >
         <DialogHeader>
           <DialogTitle>
-            Pedido {orderNumber != null ? `#${orderNumber}` : ''} finalizado
+            {error
+              ? 'Não foi possível finalizar'
+              : saving
+                ? (orderNumber != null ? `Finalizando pedido #${orderNumber}` : 'Finalizando pedido')
+                : `Pedido ${orderNumber != null ? `#${orderNumber}` : ''} finalizado`}
           </DialogTitle>
           <DialogDescription>
-            O cupom será enviado à impressora automaticamente. Você também pode imprimir de novo ou enviar ao Bling.
+            {error
+              ? error
+              : saving
+                ? 'Salvando a venda em segundo plano. A impressão será liberada em instantes.'
+                : 'O cupom será enviado à impressora automaticamente. Você também pode imprimir de novo ou enviar ao Bling.'}
           </DialogDescription>
         </DialogHeader>
 
-        {orderId ? (
+        {error ? null : isReady && orderId ? (
           <div className='space-y-3'>
             <SalesOrderCupomPreview
               orderId={orderId}
@@ -244,11 +268,33 @@ export function SalesOrderAfterSaleDialog ({
               </p>
             ) : null}
           </div>
-        ) : null}
+        ) : (
+          <div className='space-y-3'>
+            <div className='flex items-center gap-2 rounded-md border border-dashed border-border bg-muted/40 px-3 py-6 text-sm text-muted-foreground'>
+              <Loader2 className='h-4 w-4 shrink-0 animate-spin' />
+              Preparando cupom…
+            </div>
+            <div className='flex flex-col gap-2 sm:flex-row sm:flex-wrap'>
+              <Button type='button' variant='outline' disabled className='justify-start'>
+                <Loader2 className='h-4 w-4 animate-spin' />
+                <span className='ml-2'>Imprimir cupom</span>
+              </Button>
+              <Button type='button' disabled className='justify-start'>
+                <Send className='h-4 w-4' />
+                <span className='ml-2'>Enviar ao Bling</span>
+              </Button>
+            </div>
+          </div>
+        )}
 
         <DialogFooter>
-          <Button type='button' variant='secondary' onClick={handleClose}>
-            Nova venda
+          <Button
+            type='button'
+            variant='secondary'
+            onClick={handleClose}
+            disabled={saving}
+          >
+            {error ? 'Voltar' : 'Nova venda'}
           </Button>
         </DialogFooter>
       </DialogContent>

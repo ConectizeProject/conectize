@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 
 const PRODUCT_SELECT = 'id, name, sku, barcode, sale_price_cents, cost_price_cents, image_url'
+/** Janela recente de pedidos pagos para ranking (evita varrer centenas de pedidos + todos os itens). */
+const RECENT_PAID_ORDERS = 80
+const MAX_ITEMS_SCAN = 400
 
 export async function GET (request: NextRequest) {
   const auth = await requireStaffOrAdmin()
@@ -18,7 +21,7 @@ export async function GET (request: NextRequest) {
     .eq('organization_id', auth.organizationId)
     .eq('status', 'paid')
     .order('created_at', { ascending: false })
-    .limit(500)
+    .limit(RECENT_PAID_ORDERS)
 
   if (ordersError) return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
 
@@ -32,6 +35,7 @@ export async function GET (request: NextRequest) {
       .select('product_id, quantity, products(id, name, sku, barcode, sale_price_cents, cost_price_cents, image_url)')
       .eq('organization_id', auth.organizationId)
       .in('sales_order_id', orderIds)
+      .limit(MAX_ITEMS_SCAN)
 
     if (!itemsError) {
       const qtyByProduct = new Map<string, { product: Record<string, unknown>, qty: number }>()
@@ -83,7 +87,7 @@ export async function GET (request: NextRequest) {
     }
   }
 
-  const productIds = ranked.map((entry) => String(entry.product.id || ''))
+  const productIds = ranked.map((entry) => String(entry.product.id || '')).filter(Boolean)
   let stockById = new Map<string, number>()
   if (productIds.length > 0) {
     const { data: stockRows } = await auth.supabase.rpc('portal_products_list_stock_summary', {

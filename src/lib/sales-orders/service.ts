@@ -452,6 +452,62 @@ export async function finalizeSalesOrder (
   }
 }
 
+/** Cria/atualiza rascunho + pagamentos + finaliza em uma única autenticação (checkout PDV). */
+export async function checkoutSalesOrder (
+  auth: AuthCtx,
+  input: {
+    orderId?: string | null
+    items: SalesOrderItemInput[]
+    draft?: SalesOrderDraftInput
+    payments: SalesOrderPaymentInput[]
+    change_cents?: number | null
+  },
+) {
+  const items = input.items
+  if (!items.length) {
+    return { ok: false as const, error: 'empty_order' as const, orderId: null as string | null }
+  }
+
+  const draft = input.draft ?? {}
+  let orderId = input.orderId ? String(input.orderId) : null
+
+  if (!orderId) {
+    const created = await createSalesOrder(auth, items, draft)
+    if (created.ok === false) {
+      return { ok: false as const, error: created.error, orderId: null as string | null }
+    }
+    orderId = created.orderId
+  } else {
+    const updated = await updateSalesOrderDraft(auth, orderId, draft, items)
+    if (updated.ok === false) {
+      return { ok: false as const, error: updated.error, orderId }
+    }
+  }
+
+  const payResult = await replaceSalesOrderPayments(auth, orderId, input.payments)
+  if (payResult.ok === false) {
+    return { ok: false as const, error: payResult.error, orderId }
+  }
+
+  const finalized = await finalizeSalesOrder(auth, orderId, {
+    change_cents: input.change_cents,
+  })
+  if (finalized.ok === false) {
+    return {
+      ok: false as const,
+      error: finalized.error,
+      orderId,
+      details: finalized,
+    }
+  }
+
+  if (!('order' in finalized)) {
+    return { ok: false as const, error: 'unexpected_result' as const, orderId }
+  }
+
+  return { ok: true as const, orderId, order: finalized.order }
+}
+
 export async function cancelSalesOrder (
   auth: AuthCtx,
   orderId: string,

@@ -1,16 +1,15 @@
 ﻿'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import {
   Barcode,
-  Hash,
   Loader2,
-  Minus,
   MoreVertical,
   Package,
   Pencil,
-  Plus,
+  RefreshCw,
   Search,
   Trash2,
   UserCheck,
@@ -44,427 +43,69 @@ import {
   type CashCloseSummary,
   type PaymentMethodType,
 } from '@/lib/pdv/cash-close-summary'
-import { openCashClosePrint } from '@/lib/pdv/open-cash-close-print'
-import { SalesOrderAfterSaleDialog, openSalesOrderCupomPrint, salesOrderCupomPrintLabel } from '@/app/(portal)/portal/pedidos-venda/SalesOrderAfterSaleActions'
+import { salesOrderCupomPrintLabel } from '@/app/(portal)/portal/pedidos-venda/SalesOrderCupomPrint'
+import type {
+  CartItem,
+  CatalogProduct,
+  OrderSummary,
+  PaymentLine,
+  PaymentMethod,
+  PdvClientProps,
+  PdvCustomerMatch,
+} from './pdv-types'
+import {
+  buildDefaultPaymentLine,
+  cartLineSubtotalCents,
+  clampPaymentLineAmount,
+  createCartLineId,
+  customerTypeFromDocument,
+  isLikelyBarcode,
+  mapCatalogProduct,
+  maxCreditInstallments,
+  mergeCartItem,
+  normalizePaymentType,
+  orderStatusChromeClass,
+  pickAddedPaymentMethod,
+  redistributeCashPaymentLine,
+  sortOrders,
+} from './pdv-helpers'
+import { ProductPreview, ProductThumbImage } from './PdvProductPreview'
+import { readTopProductsCache, writeTopProductsCache } from './pdv-top-products-cache'
+import {
+  findLocalCatalogByCode,
+  readSessionCatalogSnapshot,
+  searchLocalCatalog,
+  writeSessionCatalogSnapshot,
+} from './pdv-catalog-cache'
+import {
+  DiscountField,
+  inputGroupShell,
+  insertFormFieldClass,
+  pdvColumnHeaderClass,
+  pdvColumnTitleClass,
+  QuantityStepper,
+} from './PdvFormControls'
 
-type CatalogProduct = {
-  id: string
-  name: string
-  sku: string | null
-  barcode: string | null
-  sale_price_cents: number | null
-  cost_price_cents?: number | null
-  image_url: string | null
-  stock: number
+const SalesOrderAfterSaleDialog = dynamic(
+  () => import('@/app/(portal)/portal/pedidos-venda/SalesOrderAfterSaleActions').then((m) => ({
+    default: m.SalesOrderAfterSaleDialog,
+  })),
+  { ssr: false },
+)
+
+async function openCashClosePrintLazy (
+  ...args: Parameters<typeof import('@/lib/pdv/open-cash-close-print').openCashClosePrint>
+) {
+  const { openCashClosePrint } = await import('@/lib/pdv/open-cash-close-print')
+  return openCashClosePrint(...args)
 }
 
-type PdvCustomerMatch = {
-  id: string
-  label: string
-  document: string
-  isCompany: boolean
-  raw: {
-    id: string
-    is_company?: boolean | null
-    full_name?: string | null
-    company_name?: string | null
-    trade_name?: string | null
-    cpf?: string | null
-    cnpj?: string | null
-  }
+async function openSalesOrderCupomPrintLazy (orderId: string) {
+  const { openSalesOrderCupomPrint } = await import('@/app/(portal)/portal/pedidos-venda/SalesOrderCupomPrint')
+  return openSalesOrderCupomPrint(orderId)
 }
 
-type CartItem = {
-  lineId: string
-  productId: string
-  name: string
-  quantity: number
-  unitPriceCents: number
-  unitCostCents: number
-  discountCents: number
-}
-
-function createCartLineId () {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID()
-  }
-  return `line-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
-}
-
-function cartLineDiscountPerUnit (item: CartItem) {
-  const qty = Math.max(1, item.quantity)
-  return Math.round(item.discountCents / qty)
-}
-
-function cartLinesMatch (a: CartItem, b: CartItem) {
-  return a.productId === b.productId
-    && a.unitPriceCents === b.unitPriceCents
-    && a.unitCostCents === b.unitCostCents
-    && cartLineDiscountPerUnit(a) === cartLineDiscountPerUnit(b)
-}
-
-function cartLineSubtotalCents (item: CartItem) {
-  return Math.max(0, item.quantity * item.unitPriceCents - item.discountCents)
-}
-
-type PaymentLine = {
-  payment_method_id?: string | null
-  payment_method_type: 'dinheiro' | 'pix' | 'credito' | 'debito' | 'outro'
-  amountMasked: string
-  installments: number
-}
-
-type CreditInstallmentFee = {
-  installments: number
-  fee_percent: number
-}
-
-type PaymentMethod = {
-  id: string
-  description: string
-  type: 'dinheiro' | 'pix_direto' | 'pix_maquina' | 'credito' | 'debito'
-  credit_installment_fees?: CreditInstallmentFee[] | null
-}
-
-type OrderSummary = {
-  id: string
-  order_number: number
-  status: 'in_progress' | 'paid' | 'canceled'
-  customer_name: string | null
-  total_cents: number
-  created_at: string
-}
-
-type PdvClientProps = {
-  sellerName: string
-}
-
-function normalizePaymentType (type: PaymentMethod['type']): PaymentLine['payment_method_type'] {
-  if (type === 'pix_direto' || type === 'pix_maquina') return 'pix'
-  if (type === 'credito') return 'credito'
-  if (type === 'debito') return 'debito'
-  if (type === 'dinheiro') return 'dinheiro'
-  return 'outro'
-}
-
-function pickDefaultPaymentMethod (methods: PaymentMethod[]) {
-  return methods.find((m) => m.type === 'dinheiro') ?? methods[0] ?? null
-}
-
-function buildDefaultPaymentLine (totalCents: number, methods: PaymentMethod[]): PaymentLine {
-  const method = pickDefaultPaymentMethod(methods)
-  return {
-    payment_method_id: method?.id ?? null,
-    payment_method_type: method ? normalizePaymentType(method.type) : 'dinheiro',
-    amountMasked: maskedFromCents(totalCents),
-    installments: 1,
-  }
-}
-
-function paymentLineAmountCents (line: PaymentLine) {
-  return moneyToCentsFromMasked(line.amountMasked) || 0
-}
-
-function maxCreditInstallments (method: PaymentMethod | undefined) {
-  if (!method || method.type !== 'credito') return 1
-  const fees = Array.isArray(method.credit_installment_fees) ? method.credit_installment_fees : []
-  if (fees.length === 0) return 12
-  return Math.max(1, ...fees.map((fee) => Number(fee.installments) || 1))
-}
-
-function pickAddedPaymentMethod (methods: PaymentMethod[]) {
-  return methods.find((m) => normalizePaymentType(m.type) !== 'dinheiro')
-    ?? methods[0]
-    ?? null
-}
-
-/** Ajusta a linha de dinheiro para o restante do total (após outros métodos). */
-function redistributeCashPaymentLine (lines: PaymentLine[], totalCents: number): PaymentLine[] {
-  const cashIdx = lines.findIndex((line) => line.payment_method_type === 'dinheiro')
-  if (cashIdx < 0) return lines
-
-  const others = lines.reduce((acc, line, index) => (
-    index === cashIdx ? acc : acc + paymentLineAmountCents(line)
-  ), 0)
-  const cashAmount = Math.max(0, totalCents - others)
-  if (paymentLineAmountCents(lines[cashIdx]) === cashAmount) return lines
-
-  return lines.map((line, index) => (
-    index === cashIdx
-      ? { ...line, amountMasked: maskedFromCents(cashAmount) }
-      : line
-  ))
-}
-
-/** Limita a linha para que a soma dos métodos não ultrapasse o total. */
-function clampPaymentLineAmount (
-  lines: PaymentLine[],
-  idx: number,
-  requestedCents: number,
-  totalCents: number,
-): PaymentLine[] {
-  const others = lines.reduce((acc, line, index) => (
-    index === idx ? acc : acc + paymentLineAmountCents(line)
-  ), 0)
-  const amount = Math.min(Math.max(0, requestedCents), Math.max(0, totalCents - others))
-  return lines.map((line, index) => (
-    index === idx
-      ? { ...line, amountMasked: amount > 0 ? maskedFromCents(amount) : '' }
-      : line
-  ))
-}
-
-function mergeCartItem (prev: CartItem[], newItem: CartItem) {
-  const idx = prev.findIndex((item) => cartLinesMatch(item, newItem))
-  if (idx < 0) {
-    return [...prev, { ...newItem, lineId: newItem.lineId || createCartLineId() }]
-  }
-  const next = [...prev]
-  next[idx] = {
-    ...next[idx],
-    quantity: next[idx].quantity + newItem.quantity,
-    discountCents: next[idx].discountCents + newItem.discountCents,
-  }
-  return next
-}
-
-function sortOrders (orders: OrderSummary[]) {
-  const statusRank = { in_progress: 0, paid: 1, canceled: 2 }
-  return [...orders].sort((a, b) => {
-    const rankDiff = statusRank[a.status] - statusRank[b.status]
-    if (rankDiff !== 0) return rankDiff
-    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-  })
-}
-
-function orderStatusChromeClass (status: OrderSummary['status'], isSelected = false) {
-  if (status === 'in_progress') {
-    return cn(
-      'border-amber-400/70 bg-amber-50 text-amber-950 hover:bg-amber-100/80',
-      'dark:border-amber-500/50 dark:bg-amber-950/40 dark:text-amber-50 dark:hover:bg-amber-950/60',
-      isSelected && 'ring-2 ring-amber-400/50',
-    )
-  }
-  if (status === 'canceled') {
-    return 'border-red-300/80 bg-red-50/80 text-red-900/80 dark:border-red-500/40 dark:bg-red-950/30 dark:text-red-100/80'
-  }
-  // paid / finalizado
-  return 'border-zinc-300/80 bg-zinc-100/90 text-zinc-600 dark:border-zinc-600/60 dark:bg-zinc-800/50 dark:text-zinc-300'
-}
-
-function mapCatalogProduct (raw: Record<string, unknown>): CatalogProduct {
-  return {
-    id: String(raw.id || ''),
-    name: String(raw.name || ''),
-    sku: raw.sku != null ? String(raw.sku) : null,
-    barcode: raw.barcode != null ? String(raw.barcode) : null,
-    sale_price_cents: raw.sale_price_cents != null ? Number(raw.sale_price_cents) : null,
-    cost_price_cents: raw.cost_price_cents != null ? Number(raw.cost_price_cents) : null,
-    image_url: raw.image_url != null ? String(raw.image_url) : null,
-    stock: Number(raw.stock) || 0,
-  }
-}
-
-/** Código típico de leitor (EAN/UPC/ITF) — só dígitos, 8 a 14. */
-function isLikelyBarcode (value: string) {
-  const code = value.trim()
-  return /^\d{8,14}$/.test(code)
-}
-
-const CASH_QUICK_AMOUNTS_CENTS = [2000, 5000, 10000, 20000] as const
-
-const inputGroupShell = 'flex h-9 w-full overflow-hidden rounded-md border border-input bg-background ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2'
-const insertFormFieldClass = 'min-w-0 md:flex-[1_1_5rem]'
-const pdvColumnHeaderClass = 'flex h-10 shrink-0 items-center border-b px-4'
-const pdvColumnTitleClass = 'text-sm font-medium leading-none'
-
-function QuantityStepper ({
-  value,
-  onChange,
-  disabled,
-  inputId,
-}: {
-  value: number
-  onChange: (value: number) => void
-  disabled?: boolean
-  inputId?: string
-}) {
-  function handleInputChange (raw: string) {
-    const digits = raw.replace(/\D/g, '')
-    if (!digits) {
-      onChange(1)
-      return
-    }
-    onChange(Math.max(1, Number.parseInt(digits, 10) || 1))
-  }
-
-  return (
-    <div className={inputGroupShell} role='group' aria-label='Quantidade'>
-      <button
-        type='button'
-        disabled={disabled || value <= 1}
-        className='flex w-6 shrink-0 items-center justify-center border-r border-input text-muted-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50'
-        onClick={() => onChange(Math.max(1, value - 1))}
-      >
-        <Minus className='h-3.5 w-3.5' />
-      </button>
-      <input
-        id={inputId}
-        type='text'
-        inputMode='numeric'
-        disabled={disabled}
-        value={String(value)}
-        onChange={(e) => handleInputChange(e.target.value)}
-        className='min-w-0 flex-1 border-0 bg-transparent px-1 text-center text-xs outline-none disabled:cursor-not-allowed disabled:opacity-50'
-      />
-      <button
-        type='button'
-        disabled={disabled}
-        className='flex w-6 shrink-0 items-center justify-center border-l border-input text-muted-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50'
-        onClick={() => onChange(value + 1)}
-      >
-        <Plus className='h-3.5 w-3.5' />
-      </button>
-    </div>
-  )
-}
-
-function DiscountField ({
-  value,
-  onChange,
-  mode,
-  onModeToggle,
-  disabled,
-  ariaLabel = 'Desconto',
-}: {
-  value: string
-  onChange: (value: string) => void
-  mode: 'fixed' | 'percent'
-  onModeToggle: () => void
-  disabled?: boolean
-  ariaLabel?: string
-}) {
-  return (
-    <div className={inputGroupShell} role='group' aria-label={ariaLabel}>
-      <input
-        disabled={disabled}
-        value={value}
-        onChange={(e) => onChange(
-          mode === 'percent'
-            ? e.target.value.replace(/[^\d,]/g, '')
-            : formatMoneyInput(e.target.value),
-        )}
-        placeholder={mode === 'percent' ? '0' : '0,00'}
-        className='min-w-0 flex-1 border-0 bg-transparent px-3 text-xs outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50'
-      />
-      <button
-        type='button'
-        disabled={disabled}
-        onClick={onModeToggle}
-        className='flex w-9 shrink-0 items-center justify-center border-l border-input bg-primary text-xs font-medium text-primary-foreground transition-colors disabled:cursor-not-allowed disabled:opacity-50'
-      >
-        {mode === 'fixed' ? 'R$' : '%'}
-      </button>
-    </div>
-  )
-}
-
-function customerTypeFromDocument (document: string): 'pf' | 'pj' {
-  return document.replace(/\D/g, '').length > 11 ? 'pj' : 'pf'
-}
-
-function ProductThumbImage ({ src, alt, eager }: { src: string, alt: string, eager?: boolean }) {
-  const [hasError, setHasError] = useState(false)
-
-  if (hasError) {
-    return (
-      <div className='flex h-full w-full items-center justify-center bg-muted'>
-        <Package className='h-5 w-5 text-muted-foreground/50' />
-      </div>
-    )
-  }
-
-  return (
-    <img
-      src={src}
-      alt={alt}
-      className='absolute inset-0 h-full w-full object-cover'
-      loading={eager ? 'eager' : 'lazy'}
-      decoding='async'
-      referrerPolicy='no-referrer'
-      onError={() => setHasError(true)}
-    />
-  )
-}
-
-function ProductPreview ({ product }: { product: CatalogProduct | null }) {
-  const [previewImageError, setPreviewImageError] = useState(false)
-
-  useEffect(() => {
-    setPreviewImageError(false)
-  }, [product?.id])
-
-  if (!product) {
-    return (
-      <div className='flex h-full min-h-0 flex-1 items-center justify-center rounded-xl border border-dashed border-border bg-muted/30 p-4 text-sm text-muted-foreground'>
-        Selecione um produto
-      </div>
-    )
-  }
-
-  const imageUrl = product.image_url && isSafeProductListImageUrl(product.image_url)
-    ? product.image_url
-    : null
-  const stockLow = product.stock <= 0
-  const showPreviewImage = Boolean(imageUrl) && !previewImageError
-
-  return (
-    <div className='flex h-full min-h-0 flex-1 gap-2 overflow-hidden'>
-      <div className='relative flex h-full min-h-0 w-2/3 shrink-0 items-center justify-center rounded-xl border border-border'>
-        {showPreviewImage && imageUrl ? (
-          <img
-            src={imageUrl}
-            alt={product.name}
-            className='h-full w-full object-contain p-3'
-            loading='eager'
-            decoding='async'
-            referrerPolicy='no-referrer'
-            onError={() => setPreviewImageError(true)}
-          />
-        ) : (
-          <div className='flex h-full w-full flex-col items-center justify-center gap-2 p-4 text-center text-muted-foreground'>
-            <Package className='h-10 w-10 opacity-40' />
-            <span className='text-xs'>Sem foto</span>
-          </div>
-        )}
-      </div>
-      <div className='flex h-full min-h-0 w-1/3 min-w-0 flex-col gap-2'>
-        <p className='line-clamp-3 text-xs font-medium leading-tight'>{product.name}</p>
-        <p className='text-base font-semibold'>
-          R$ {maskedFromCents(product.sale_price_cents || 0)}
-        </p>
-        <div className='mt-auto space-y-1'>
-          <div className='flex items-center gap-1.5 rounded-md border border-border bg-white px-2 py-1 text-[10px]'>
-            <Package className={cn('h-3 w-3 shrink-0', stockLow ? 'text-destructive' : 'text-muted-foreground')} />
-            <span className={cn('min-w-0 truncate text-left font-medium', stockLow ? 'text-destructive' : 'text-foreground')}>
-              {product.stock}
-            </span>
-          </div>
-          <div className='flex items-center gap-1.5 rounded-md border border-border bg-white px-2 py-1 text-[10px]'>
-            <Hash className='h-3 w-3 shrink-0 text-muted-foreground' />
-            <span className='min-w-0 truncate text-left font-medium'>{product.sku || '—'}</span>
-          </div>
-          <div className='flex items-center gap-1.5 rounded-md border border-border bg-white px-2 py-1 text-[10px]'>
-            <Barcode className='h-3 w-3 shrink-0 text-muted-foreground' />
-            <span className='min-w-0 truncate text-left font-medium'>{product.barcode || '—'}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-export function PdvClient ({ sellerName }: PdvClientProps) {
+export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps) {
   const [loadingCash, setLoadingCash] = useState(true)
   const [loadingProducts, setLoadingProducts] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -478,6 +119,9 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
   const [showSearchDropdown, setShowSearchDropdown] = useState(false)
   const [topProducts, setTopProducts] = useState<CatalogProduct[]>([])
   const [loadingTopProducts, setLoadingTopProducts] = useState(true)
+  const [catalogCache, setCatalogCache] = useState<CatalogProduct[]>([])
+  const [syncingCatalog, setSyncingCatalog] = useState(false)
+  const catalogPrefetchRef = useRef<AbortController | null>(null)
   const [selectedProduct, setSelectedProduct] = useState<CatalogProduct | null>(null)
 
   const [insertQty, setInsertQty] = useState(1)
@@ -517,6 +161,8 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
   const [afterSaleOpen, setAfterSaleOpen] = useState(false)
   const [afterSaleOrderId, setAfterSaleOrderId] = useState<string | null>(null)
   const [afterSaleOrderNumber, setAfterSaleOrderNumber] = useState<number | string | null>(null)
+  const [afterSaleSaving, setAfterSaleSaving] = useState(false)
+  const [afterSaleError, setAfterSaleError] = useState<string | null>(null)
   const [movementAmount, setMovementAmount] = useState('')
   const [movementReason, setMovementReason] = useState('')
   const [closeSummary, setCloseSummary] = useState<CashCloseSummary | null>(null)
@@ -526,7 +172,7 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
 
   const searchRef = useRef<HTMLDivElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const syncRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const searchAbortRef = useRef<AbortController | null>(null)
 
   const subtotalCents = useMemo(() => cart.reduce((acc, item) => {
     const raw = item.quantity * item.unitPriceCents
@@ -609,21 +255,52 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
     }
   }, [])
 
-  const loadTopProducts = useCallback(async () => {
+  const loadTopProducts = useCallback(async (options?: { force?: boolean }) => {
+    if (!options?.force) {
+      const cached = readTopProductsCache(organizationId)
+      if (cached?.length) {
+        setTopProducts(cached)
+        setLoadingTopProducts(false)
+        return
+      }
+    }
+
     setLoadingTopProducts(true)
     const res = await portalFetch('/api/portal/pdv/top-products?limit=5')
     const data = await res?.json().catch(() => null)
     if (data?.ok && Array.isArray(data.products)) {
-      setTopProducts(data.products.map((row: Record<string, unknown>) => mapCatalogProduct(row)))
-    } else {
+      const products = data.products.map((row: Record<string, unknown>) => mapCatalogProduct(row))
+      setTopProducts(products)
+      writeTopProductsCache(organizationId, products)
+    } else if (!options?.force) {
       setTopProducts([])
     }
     setLoadingTopProducts(false)
-  }, [])
+  }, [organizationId])
 
   useEffect(() => {
-    void loadTopProducts()
-  }, [loadTopProducts])
+    const cached = readTopProductsCache(organizationId)
+    if (cached?.length) {
+      setTopProducts(cached)
+      setLoadingTopProducts(false)
+      return
+    }
+
+    let idleId: number | null = null
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+    const run = () => { void loadTopProducts({ force: true }) }
+    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+      idleId = window.requestIdleCallback(run, { timeout: 2500 })
+    } else {
+      timeoutId = setTimeout(run, 600)
+    }
+    return () => {
+      if (idleId != null && typeof window !== 'undefined' && 'cancelIdleCallback' in window) {
+        window.cancelIdleCallback(idleId)
+      }
+      if (timeoutId) clearTimeout(timeoutId)
+    }
+  }, [loadTopProducts, organizationId])
 
   const loadMethods = useCallback(async () => {
     const res = await portalFetch('/api/portal/payment-methods')
@@ -633,24 +310,141 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
     }
   }, [])
 
+  const prefetchCatalogSnapshot = useCallback(async (options?: {
+    force?: boolean
+    notify?: boolean
+  }) => {
+    if (!organizationId) return { ok: false as const, count: 0 }
+
+    const force = Boolean(options?.force)
+    const notify = Boolean(options?.notify)
+
+    if (!force) {
+      const sessionProducts = readSessionCatalogSnapshot(organizationId)
+      if (sessionProducts?.length) {
+        setCatalogCache(sessionProducts)
+      }
+    }
+
+    catalogPrefetchRef.current?.abort()
+    const controller = new AbortController()
+    catalogPrefetchRef.current = controller
+
+    if (notify || force) setSyncingCatalog(true)
+
+    try {
+      const res = await portalFetch('/api/portal/pdv/catalog?snapshot=1', {
+        signal: controller.signal,
+      })
+      if (controller.signal.aborted) return { ok: false as const, count: 0 }
+      const data = await res?.json().catch(() => null)
+      if (controller.signal.aborted) return { ok: false as const, count: 0 }
+      if (!data?.ok || !Array.isArray(data.products)) {
+        if (notify) {
+          toast({
+            title: 'Não foi possível sincronizar produtos',
+            variant: 'destructive',
+          })
+        }
+        return { ok: false as const, count: 0 }
+      }
+
+      const products = data.products.map((row: Record<string, unknown>) => mapCatalogProduct(row))
+      setCatalogCache(products)
+      writeSessionCatalogSnapshot(organizationId, products)
+
+      if (notify) {
+        toast({
+          title: 'Produtos sincronizados',
+          description: products.length === 1
+            ? '1 produto disponível no PDV.'
+            : `${products.length} produtos disponíveis no PDV.`,
+        })
+      }
+
+      return { ok: true as const, count: products.length }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return { ok: false as const, count: 0 }
+      }
+      if (notify) {
+        toast({
+          title: 'Não foi possível sincronizar produtos',
+          variant: 'destructive',
+        })
+      }
+      return { ok: false as const, count: 0 }
+    } finally {
+      if (!controller.signal.aborted && (notify || force)) {
+        setSyncingCatalog(false)
+      }
+    }
+  }, [organizationId])
+
+  const syncCatalogNow = useCallback(() => {
+    if (syncingCatalog) return
+    void prefetchCatalogSnapshot({ force: true, notify: true })
+  }, [prefetchCatalogSnapshot, syncingCatalog])
+
+  const prefetchPdvSessionData = useCallback(() => {
+    void loadMethods()
+    void prefetchCatalogSnapshot()
+  }, [loadMethods, prefetchCatalogSnapshot])
+
   const searchProducts = useCallback(async (value: string) => {
-    setLoadingProducts(true)
     const q = value.trim()
-    const res = await portalFetch(`/api/portal/pdv/catalog?q=${encodeURIComponent(q)}`)
-    const data = await res?.json().catch(() => null)
-    if (data?.ok && Array.isArray(data.products)) {
-      setSearchResults(data.products.slice(0, 10).map((row: Record<string, unknown>) => mapCatalogProduct(row)))
-      setShowSearchDropdown(q.length > 0)
-    } else {
+    if (!q) {
       setSearchResults([])
       setShowSearchDropdown(false)
+      setLoadingProducts(false)
+      return
     }
-    setLoadingProducts(false)
-  }, [])
+
+    // Busca local imediata quando o snapshot já está em memória.
+    if (catalogCache.length > 0) {
+      const local = searchLocalCatalog(catalogCache, q, 10)
+      setSearchResults(local)
+      setShowSearchDropdown(true)
+      setLoadingProducts(false)
+      return
+    }
+
+    searchAbortRef.current?.abort()
+    const controller = new AbortController()
+    searchAbortRef.current = controller
+
+    setLoadingProducts(true)
+    try {
+      const res = await portalFetch(`/api/portal/pdv/catalog?q=${encodeURIComponent(q)}`, {
+        signal: controller.signal,
+      })
+      if (controller.signal.aborted) return
+      const data = await res?.json().catch(() => null)
+      if (controller.signal.aborted) return
+      if (data?.ok && Array.isArray(data.products)) {
+        setSearchResults(data.products.slice(0, 10).map((row: Record<string, unknown>) => mapCatalogProduct(row)))
+        setShowSearchDropdown(true)
+      } else {
+        setSearchResults([])
+        setShowSearchDropdown(false)
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+      if (controller.signal.aborted) return
+      setSearchResults([])
+      setShowSearchDropdown(false)
+    } finally {
+      if (!controller.signal.aborted) setLoadingProducts(false)
+    }
+  }, [catalogCache])
 
   const lookupProductByBarcode = useCallback(async (code: string) => {
     const barcode = code.trim()
     if (!barcode) return null
+
+    const local = findLocalCatalogByCode(catalogCache, barcode)
+    if (local) return local
+
     const res = await portalFetch(`/api/portal/pdv/catalog?barcode=${encodeURIComponent(barcode)}`)
     const data = await res?.json().catch(() => null)
     if (!data?.ok || !Array.isArray(data.products) || data.products.length === 0) return null
@@ -660,12 +454,17 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
       return rowBarcode === barcode || rowSku === barcode
     })
     return mapCatalogProduct((exact || data.products[0]) as Record<string, unknown>)
-  }, [])
+  }, [catalogCache])
 
   useEffect(() => {
     void loadCash()
     void loadMethods()
   }, [loadCash, loadMethods])
+
+  useEffect(() => {
+    if (!cashOpen) return
+    prefetchPdvSessionData()
+  }, [cashOpen, prefetchPdvSessionData])
 
   useEffect(() => {
     if (cashOpen) void loadSessionOrders()
@@ -803,16 +602,22 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
     }
   }, [cart, customerName, customerType, customerDocument, discountTotalCents, surchargeCents])
 
-  const syncCurrentOrder = useCallback(async (
-    silent = false,
-    cartItems?: CartItem[],
-    orderIdOverride?: string | null,
+  const persistOrderDraft = useCallback(async (
+    payload: ReturnType<typeof buildOrderPayload>,
+    orderId: string | null,
+    options?: {
+      silent?: boolean
+      /** Se true, atualiza o pedido ativo da tela (evitar em saves em background). */
+      applyToActiveDraft?: boolean
+      /** Atualiza a lista lateral de pedidos da sessão. */
+      refreshSessionOrders?: boolean
+    },
   ): Promise<{ ok: boolean, orderId?: string | null, orderNumber?: number | null }> => {
-    const source = cartItems ?? cart
-    if (!cashOpen || source.length === 0) return { ok: false }
+    if (!cashOpen || payload.items.length === 0) return { ok: false }
 
-    const payload = buildOrderPayload(source)
-    const orderId = orderIdOverride !== undefined ? orderIdOverride : currentOrderId
+    const silent = Boolean(options?.silent)
+    const applyToActiveDraft = Boolean(options?.applyToActiveDraft)
+    const refreshSessionOrders = options?.refreshSessionOrders !== false
 
     if (!orderId) {
       const res = await portalFetch('/api/portal/sales-orders', {
@@ -823,9 +628,11 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
       const data = await res?.json().catch(() => null)
       if (data?.ok && data.order_id) {
         const orderNumber = data.order?.order_number ?? null
-        setCurrentOrderId(data.order_id)
-        setCurrentOrderNumber(orderNumber)
-        void loadSessionOrders()
+        if (applyToActiveDraft) {
+          setCurrentOrderId(data.order_id)
+          setCurrentOrderNumber(orderNumber)
+        }
+        if (refreshSessionOrders) void loadSessionOrders()
         return { ok: true, orderId: data.order_id, orderNumber }
       }
       if (!silent) {
@@ -841,15 +648,43 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
     })
     const data = await res?.json().catch(() => null)
     if (data?.ok) {
-      const orderNumber = data.order?.order_number ?? currentOrderNumber
-      void loadSessionOrders()
+      const orderNumber = data.order?.order_number ?? null
+      if (refreshSessionOrders) void loadSessionOrders()
       return { ok: true, orderId, orderNumber }
     }
     if (!silent) {
       toast({ title: data?.error || 'Erro ao atualizar pedido', variant: 'destructive' })
     }
     return { ok: false }
-  }, [buildOrderPayload, cart, cashOpen, currentOrderId, currentOrderNumber, loadSessionOrders])
+  }, [cashOpen, loadSessionOrders])
+
+  function saveDraftInBackground (
+    payload: ReturnType<typeof buildOrderPayload>,
+    orderId: string | null,
+    options?: { successToast?: boolean },
+  ) {
+    void persistOrderDraft(payload, orderId, {
+      silent: true,
+      applyToActiveDraft: false,
+      refreshSessionOrders: true,
+    }).then((result) => {
+      if (result.ok) {
+        if (options?.successToast !== false) {
+          const orderLabel = result.orderNumber != null ? `#${result.orderNumber}` : ''
+          toast({
+            title: orderLabel ? `Pedido ${orderLabel} salvo` : 'Pedido salvo',
+            description: 'Venda anterior ficou em andamento. Você pode retomá-la na lista.',
+          })
+        }
+        return
+      }
+      toast({
+        title: 'Não foi possível salvar a venda anterior',
+        description: 'Verifique a lista de pedidos ou tente novamente.',
+        variant: 'destructive',
+      })
+    })
+  }
 
   async function handleSearchSubmit () {
     const code = query.trim()
@@ -860,8 +695,12 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
       if (isLikelyBarcode(code)) {
         const product = await lookupProductByBarcode(code)
         if (product) {
-          selectProduct(product)
-          setSearchResults([])
+          const added = addProductToCart(product, 1)
+          if (added) {
+            requestAnimationFrame(() => {
+              document.getElementById('pdv-search')?.focus()
+            })
+          }
           return
         }
         toast({ title: 'Código não encontrado', description: code, variant: 'destructive' })
@@ -869,11 +708,16 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
         return
       }
 
-      const res = await portalFetch(`/api/portal/pdv/catalog?q=${encodeURIComponent(code)}`)
-      const data = await res?.json().catch(() => null)
-      const products = Array.isArray(data?.products)
-        ? data.products.map((row: Record<string, unknown>) => mapCatalogProduct(row))
-        : []
+      let products: CatalogProduct[] = []
+      if (catalogCache.length > 0) {
+        products = searchLocalCatalog(catalogCache, code, 10)
+      } else {
+        const res = await portalFetch(`/api/portal/pdv/catalog?q=${encodeURIComponent(code)}`)
+        const data = await res?.json().catch(() => null)
+        products = Array.isArray(data?.products)
+          ? data.products.map((row: Record<string, unknown>) => mapCatalogProduct(row))
+          : []
+      }
 
       const exact = products.find((p: CatalogProduct) => (
         (p.barcode && p.barcode.trim() === code)
@@ -917,16 +761,6 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
     setCashReceivedMasked(maskedFromCents(Math.max(0, cents)))
   }
 
-  useEffect(() => {
-    if (!cashOpen || cart.length === 0) return
-    if (!currentOrderId) return
-    if (syncRef.current) clearTimeout(syncRef.current)
-    syncRef.current = setTimeout(() => { void syncCurrentOrder(true) }, 400)
-    return () => {
-      if (syncRef.current) clearTimeout(syncRef.current)
-    }
-  }, [cart, currentOrderId, customerName, customerType, customerDocument, discountTotalCents, surchargeCents, syncCurrentOrder, cashOpen])
-
   function resetDraft () {
     setCart([])
     setPayments([])
@@ -949,7 +783,7 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
     setEditingCartLineId(null)
   }
 
-  async function startNewSale () {
+  function startNewSale () {
     if (!cashOpen) return
 
     if (cart.length === 0) {
@@ -957,23 +791,10 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
       return
     }
 
-    if (syncRef.current) {
-      clearTimeout(syncRef.current)
-      syncRef.current = null
-    }
-
-    setBusy(true)
-    const result = await syncCurrentOrder(false)
-    setBusy(false)
-
-    if (!result.ok) return
-
-    const orderLabel = result.orderNumber != null ? `#${result.orderNumber}` : ''
-    toast({
-      title: orderLabel ? `Pedido ${orderLabel} salvo` : 'Pedido salvo',
-      description: 'Venda atual ficou em andamento. Você pode retomá-la na lista.',
-    })
+    const payload = buildOrderPayload()
+    const previousOrderId = currentOrderId
     resetDraft()
+    saveDraftInBackground(payload, previousOrderId)
   }
 
   type CustomerMatch = PdvCustomerMatch
@@ -1111,6 +932,25 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
     setInsertQty(1)
     setInsertUnitPriceMasked(maskedFromCents(product.sale_price_cents || 0))
     setItemDiscountMasked('')
+    void refreshSelectedProductDetails(product.id)
+  }
+
+  async function refreshSelectedProductDetails (productId: string) {
+    const res = await portalFetch(
+      `/api/portal/pdv/catalog?id=${encodeURIComponent(productId)}`,
+    )
+    const data = await res?.json().catch(() => null)
+    const raw = Array.isArray(data?.products) ? data.products[0] : null
+    if (!raw || !data?.ok) return
+    const catalog = mapCatalogProduct(raw as Record<string, unknown>)
+    setSelectedProduct((prev) => {
+      if (!prev || prev.id !== productId) return prev
+      return {
+        ...catalog,
+        // Mantém preço já editado no formulário, se houver.
+        sale_price_cents: prev.sale_price_cents ?? catalog.sale_price_cents,
+      }
+    })
   }
 
   async function beginEditCartItem (lineId: string) {
@@ -1152,7 +992,36 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
     })
   }
 
-  async function insertItem () {
+  function addProductToCart (product: CatalogProduct, quantity = 1) {
+    if (!cashOpen) {
+      toast({ title: 'Abra o caixa antes de vender', variant: 'destructive' })
+      return false
+    }
+
+    const unitPriceCents = Number(product.sale_price_cents) || 0
+    const newItem: CartItem = {
+      lineId: createCartLineId(),
+      productId: product.id,
+      name: product.name,
+      quantity: Math.max(1, quantity),
+      unitPriceCents,
+      unitCostCents: Number(product.cost_price_cents) || 0,
+      discountCents: 0,
+    }
+
+    setCart((prev) => mergeCartItem(prev, newItem))
+    setEditingCartLineId(null)
+    setSelectedProduct(null)
+    setInsertUnitPriceMasked('')
+    setItemDiscountMasked('')
+    setInsertQty(1)
+    setQuery('')
+    setSearchResults([])
+    setShowSearchDropdown(false)
+    return true
+  }
+
+  function insertItem () {
     if (!cashOpen) {
       toast({ title: 'Abra o caixa antes de vender', variant: 'destructive' })
       return
@@ -1163,7 +1032,7 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
     }
 
     if (editingCartLineId) {
-      const nextCart = cart.map((item) => (
+      setCart((prev) => prev.map((item) => (
         item.lineId === editingCartLineId
           ? {
               ...item,
@@ -1172,10 +1041,8 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
               discountCents: insertDiscountCents,
             }
           : item
-      ))
-      setCart(nextCart)
+      )))
       cancelCartLineEdit()
-      await syncCurrentOrder(Boolean(currentOrderId), nextCart)
       return
     }
 
@@ -1189,12 +1056,9 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
       discountCents: insertDiscountCents,
     }
 
-    const nextCart = mergeCartItem(cart, newItem)
-    setCart(nextCart)
+    setCart((prev) => mergeCartItem(prev, newItem))
     setItemDiscountMasked('')
     setInsertQty(1)
-
-    await syncCurrentOrder(Boolean(currentOrderId), nextCart)
   }
 
   function updateCartItem (lineId: string, patch: Partial<CartItem>) {
@@ -1209,21 +1073,14 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
     if (orderId === currentOrderId) return
     if (loadingOrderId) return
 
-    if (syncRef.current) {
-      clearTimeout(syncRef.current)
-      syncRef.current = null
+    // Parqueia a venda atual em background e carrega a escolhida na hora.
+    if (cashOpen && cart.length > 0) {
+      const payload = buildOrderPayload()
+      const previousOrderId = currentOrderId
+      saveDraftInBackground(payload, previousOrderId, { successToast: false })
     }
 
     setLoadingOrderId(orderId)
-
-    // Se há venda em edição com itens, salva como em andamento antes de trocar.
-    if (cashOpen && cart.length > 0) {
-      const saved = await syncCurrentOrder(false)
-      if (!saved.ok) {
-        setLoadingOrderId(null)
-        return
-      }
-    }
 
     const res = await portalFetch(`/api/portal/sales-orders/${orderId}`)
     const data = await res?.json().catch(() => null)
@@ -1421,7 +1278,7 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
     setBusy(false)
     if (data?.ok) {
       const closedSessionId = String(data.session?.id || closeSummary.session_id || '')
-      openCashClosePrint({
+      void openCashClosePrintLazy({
         sessionId: closedSessionId || null,
         sellerName,
         countedCashCents,
@@ -1456,7 +1313,7 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
       if (!raw?.trim()) continue
       countedByMethod[type] = moneyToCentsFromMasked(raw) ?? 0
     }
-    openCashClosePrint({
+    void openCashClosePrintLazy({
       sessionId: closeSummary.session_id,
       sellerName,
       countedCashCents,
@@ -1571,7 +1428,8 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
     })
   }
 
-  async function finalizeOrder () {
+  function finalizeOrder () {
+    if (afterSaleOpen || afterSaleSaving) return
     if (!cashOpen) {
       toast({ title: 'Abra o caixa antes de vender', variant: 'destructive' })
       return
@@ -1606,92 +1464,70 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
       return
     }
 
-    setBusy(true)
-    const customerSync = await ensureCustomerInCadastro()
-    if (!customerSync.ok) {
-      toast({
-        title: 'Não foi possível cadastrar o cliente',
-        description: String(customerSync.error || 'A venda seguirá mesmo assim.'),
-        variant: 'destructive',
-      })
-    } else if ('created' in customerSync && customerSync.created) {
-      toast({ title: 'Cliente cadastrado', description: customerName.trim() })
-    }
-
-    await syncCurrentOrder(true)
-
-    let finalOrderId = currentOrderId
-    if (!finalOrderId) {
-      const createRes = await portalFetch('/api/portal/sales-orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildOrderPayload()),
-      })
-      const createData = await createRes?.json().catch(() => null)
-      if (!createData?.ok || !createData.order_id) {
-        setBusy(false)
-        toast({ title: createData?.error || 'Erro ao criar pedido', variant: 'destructive' })
-        return
-      }
-      finalOrderId = createData.order_id
-      setCurrentOrderId(createData.order_id)
-      setCurrentOrderNumber(createData.order?.order_number ?? null)
-    }
-
-    await portalFetch(`/api/portal/sales-orders/${finalOrderId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildOrderPayload()),
-    })
-
+    const orderPayload = buildOrderPayload()
     const paymentPayload = payments.map((line) => ({
       payment_method_id: line.payment_method_id ?? null,
       payment_method_type: line.payment_method_type,
       amount_cents: moneyToCentsFromMasked(line.amountMasked) || 0,
       installments: line.payment_method_type === 'credito' ? Math.max(1, line.installments || 1) : 1,
-      status: 'paid',
+      status: 'paid' as const,
     })).filter((line) => line.amount_cents > 0)
+    const checkoutChangeCents = changeCents
+    const checkoutOrderId = currentOrderId
 
-    const payRes = await portalFetch(`/api/portal/sales-orders/${finalOrderId}/payments`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ payments: paymentPayload }),
-    })
-    const payData = await payRes?.json().catch(() => null)
-    if (!payData?.ok) {
-      setBusy(false)
-      toast({ title: payData?.error || 'Erro ao lançar pagamento', variant: 'destructive' })
-      return
-    }
-
-    const finalizeRes = await portalFetch(`/api/portal/sales-orders/${finalOrderId}/finalize`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ change_cents: changeCents }),
-    })
-    const finalizeData = await finalizeRes?.json().catch(() => null)
-    setBusy(false)
-
-    if (!finalizeData?.ok) {
-      const errorTitle = finalizeData?.error === 'finance_sync_failed'
-        ? 'Venda paga, mas não foi possível lançar no financeiro'
-        : finalizeData?.error === 'db_error'
-          ? 'Erro ao finalizar'
-          : (finalizeData?.error || 'Erro ao finalizar')
-      const errorDescription = finalizeData?.error === 'finance_sync_failed'
-        ? 'Vincule cada forma de pagamento a uma carteira em Financeiro > Formas de pagamento.'
-        : undefined
-      toast({ title: errorTitle, description: errorDescription, variant: 'destructive' })
-      return
-    }
-
-    toast({ title: `Pedido #${finalizeData.order.order_number} finalizado` })
-    setAfterSaleOrderId(finalOrderId)
-    setAfterSaleOrderNumber(finalizeData.order.order_number ?? null)
+    setAfterSaleError(null)
+    setAfterSaleOrderId(null)
+    setAfterSaleOrderNumber(currentOrderNumber)
+    setAfterSaleSaving(true)
     setAfterSaleOpen(true)
-    resetDraft()
-    void loadSessionOrders()
-    void loadTopProducts()
+
+    void (async () => {
+      const customerSync = await ensureCustomerInCadastro()
+      if (!customerSync.ok) {
+        toast({
+          title: 'Não foi possível cadastrar o cliente',
+          description: String(customerSync.error || 'A venda seguirá mesmo assim.'),
+          variant: 'destructive',
+        })
+      } else if ('created' in customerSync && customerSync.created) {
+        toast({ title: 'Cliente cadastrado', description: customerName.trim() })
+      }
+
+      const checkoutRes = await portalFetch('/api/portal/pdv/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...orderPayload,
+          order_id: checkoutOrderId,
+          payments: paymentPayload,
+          change_cents: checkoutChangeCents,
+        }),
+      })
+      const finalizeData = await checkoutRes?.json().catch(() => null)
+
+      if (!finalizeData?.ok) {
+        const errorTitle = finalizeData?.error === 'finance_sync_failed'
+          ? 'Venda paga, mas não foi possível lançar no financeiro'
+          : finalizeData?.error === 'db_error'
+            ? 'Erro ao finalizar'
+            : (finalizeData?.error || 'Erro ao finalizar')
+        const errorDescription = finalizeData?.error === 'finance_sync_failed'
+          ? 'Vincule cada forma de pagamento a uma carteira em Financeiro > Formas de pagamento.'
+          : undefined
+        setAfterSaleSaving(false)
+        setAfterSaleError(errorDescription ? `${errorTitle}. ${errorDescription}` : String(errorTitle))
+        toast({ title: errorTitle, description: errorDescription, variant: 'destructive' })
+        return
+      }
+
+      const finalOrderId = String(finalizeData.order_id || finalizeData.order?.id || '')
+      setAfterSaleOrderId(finalOrderId || null)
+      setAfterSaleOrderNumber(finalizeData.order.order_number ?? null)
+      setAfterSaleSaving(false)
+      setAfterSaleError(null)
+      resetDraft()
+      void loadSessionOrders()
+    })()
   }
 
   useEffect(() => {
@@ -1748,7 +1584,7 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
       }
       if (key === 'F6') {
         event.preventDefault()
-        void finalizeOrder()
+        finalizeOrder()
         return
       }
       if (key === 'F7') {
@@ -1763,7 +1599,7 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
       }
       if (key === 'F9') {
         event.preventDefault()
-        void startNewSale()
+        startNewSale()
         return
       }
       if (key === 'Escape') {
@@ -1797,7 +1633,7 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
           <Button
             variant='secondary'
             size='sm'
-            onClick={() => void startNewSale()}
+            onClick={() => startNewSale()}
             disabled={!cashOpen || busy}
           >
             Nova venda
@@ -1813,6 +1649,17 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align='end'>
+                <DropdownMenuItem
+                  disabled={syncingCatalog}
+                  onClick={() => syncCatalogNow()}
+                >
+                  {syncingCatalog ? (
+                    <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                  ) : (
+                    <RefreshCw className='mr-2 h-4 w-4' />
+                  )}
+                  Sincronizar produtos
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setSangriaOpen(true)}>Sangria</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setSuprimentoOpen(true)}>Suprimento</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setCloseCashOpen(true)}>Fechar caixa</DropdownMenuItem>
@@ -1935,7 +1782,7 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
                       >
                         <div className='font-medium'>{product.name}</div>
                         <div className='text-xs text-muted-foreground'>
-                          {product.sku || '—'} · Est: {product.stock} · {maskedFromCents(product.sale_price_cents || 0)}
+                          {product.sku || '—'} · {maskedFromCents(product.sale_price_cents || 0)}
                         </div>
                       </button>
                     ))}
@@ -2008,7 +1855,7 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
                     'h-9 w-full px-3 md:w-auto md:flex-[0_0_auto]',
                     editingCartLineId ? 'col-span-2 md:col-auto' : 'col-span-2 md:col-auto',
                   )}
-                  onClick={() => void insertItem()}
+                  onClick={() => insertItem()}
                   disabled={!selectedProduct || !cashOpen}
                 >
                   {editingCartLineId ? 'Salvar' : 'Inserir'}
@@ -2421,8 +2268,11 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
             >
               Excluir venda
             </Button>
-            <Button onClick={() => void finalizeOrder()} disabled={busy || !cashOpen || cart.length === 0}>
-              {busy ? <Loader2 className='mr-2 h-4 w-4 animate-spin' /> : null}
+            <Button
+              onClick={() => finalizeOrder()}
+              disabled={busy || afterSaleSaving || afterSaleOpen || !cashOpen || cart.length === 0}
+            >
+              {afterSaleSaving ? <Loader2 className='mr-2 h-4 w-4 animate-spin' /> : null}
               Finalizar venda (F6)
             </Button>
           </div>
@@ -2486,7 +2336,7 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align='end'>
                           <DropdownMenuItem
-                            onClick={() => openSalesOrderCupomPrint(order.id)}
+                            onClick={() => void openSalesOrderCupomPrintLazy(order.id)}
                           >
                             {salesOrderCupomPrintLabel(order.status)}
                           </DropdownMenuItem>
@@ -2723,9 +2573,17 @@ export function PdvClient ({ sellerName }: PdvClientProps) {
 
       <SalesOrderAfterSaleDialog
         open={afterSaleOpen}
-        onOpenChange={setAfterSaleOpen}
+        onOpenChange={(open) => {
+          setAfterSaleOpen(open)
+          if (!open) {
+            setAfterSaleSaving(false)
+            setAfterSaleError(null)
+          }
+        }}
         orderId={afterSaleOrderId}
         orderNumber={afterSaleOrderNumber}
+        saving={afterSaleSaving}
+        error={afterSaleError}
       />
     </div>
   )

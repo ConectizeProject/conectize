@@ -12,6 +12,7 @@ export default async function PdvPage () {
     <PdvClient
       key={organizationId || 'no-org'}
       sellerName={sellerName}
+      organizationId={organizationId}
     />
   )
 }
