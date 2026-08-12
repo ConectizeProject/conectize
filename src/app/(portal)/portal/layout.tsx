@@ -42,14 +42,15 @@ export default async function PortalLayout({
       .maybeSingle()
     organizationDisplayName = orgRow?.name ? String(orgRow.name).trim() || null : null
 
-    const { data: whatsappConn } = await supabase
+    const { data: waRows } = await supabase
       .from('hub_connections')
-      .select('id')
+      .select('platform_id')
       .eq('organization_id', activeOrganizationId)
-      .eq('platform_id', 'whatsapp_business')
-      .limit(1)
-      .maybeSingle()
-    hasWhatsappIntegration = Boolean(whatsappConn?.id)
+      .in('platform_id', ['whatsapp_business', 'whatsapp_evolution'])
+    const waList = waRows ?? []
+    hasWhatsappIntegration = waList.some((r: { platform_id: string }) => {
+      return r.platform_id === 'whatsapp_business' || r.platform_id === 'whatsapp_evolution'
+    })
   }
 
   let platformOrganizations = null as

@@ -1,0 +1,83 @@
+name: WhatsApp Lista Lojistas Seminovos
+
+on:
+  schedule:
+    # Alvo: ~09:00 America/Sao_Paulo (BRT, UTC-3) = 12:00 UTC.
+    # Agendado 11:40 UTC (08:40 BRT) fora do minuto 0 porque o GitHub Actions
+    # costuma atrasar crons em horários concorridos (chegou a rodar 2h depois).
+    - cron: '40 11 * * *'
+  workflow_dispatch:
+
+jobs:
+  broadcast:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enviar lista atacado de seminovos no WhatsApp
+        env:
+          CRON_URL: ${{ secrets.SEMINOVOS_BROADCAST_CRON_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_URL" ]; then
+            echo "Missing secret: SEMINOVOS_BROADCAST_CRON_URL"
+            echo "  Ex.: https://www.conectize.com.br/api/cron/whatsapp-seminovos-lojistas-broadcast"
+            echo "  ou só: https://www.conectize.com.br"
+            exit 1
+          fi
+          if [ -z "$CRON_SECRET" ]; then
+            echo "Missing secret: CRON_SECRET"
+            exit 1
+          fi
+
+          CRON_URL=$(printf '%s' "$CRON_URL" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          CRON_SECRET=$(printf '%s' "$CRON_SECRET" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          if [ "${#CRON_SECRET}" -ge 2 ]; then
+            if [ "${CRON_SECRET:0:1}" = '"' ] && [ "${CRON_SECRET: -1}" = '"' ]; then
+              CRON_SECRET="${CRON_SECRET#\"}"
+              CRON_SECRET="${CRON_SECRET%\"}"
+            fi
+          fi
+
+          CRON_URL="${CRON_URL%/}"
+          case "$CRON_URL" in
+            *whatsapp-seminovos-lojistas-broadcast*) ;;
+            *)
+              if printf '%s' "$CRON_URL" | grep -qE '^https?://[^/]+$'; then
+                CRON_URL="${CRON_URL}/api/cron/whatsapp-seminovos-lojistas-broadcast"
+                echo "URL ajustada para: $CRON_URL"
+              else
+                echo "ERRO: SEMINOVOS_BROADCAST_CRON_URL deve ser a URL completa do cron de seminovos"
+                echo "       ou só a origem (ex.: https://www.conectize.com.br)."
+                echo "       Valor atual: $CRON_URL"
+                exit 1
+              fi
+              ;;
+          esac
+
+          echo "Calling: $CRON_URL"
+
+          HTTP_CODE=$(curl -sS -L --max-redirs 5 -o response.json -w "%{http_code}" \
+            -X GET "$CRON_URL" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "x-cron-secret: $CRON_SECRET")
+
+          echo "HTTP $HTTP_CODE"
+          cat response.json
+          echo
+
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "Broadcast failed (HTTP)"
+            jq -r '.hint // empty' response.json 2>/dev/null | while read -r line; do
+              [ -n "$line" ] && echo "Hint: $line"
+            done
+            exit 1
+          fi
+          if ! jq -e '.ok == true' response.json >/dev/null 2>&1; then
+            echo "Broadcast failed (JSON ok != true)"
+            jq -r '.hint // empty' response.json 2>/dev/null | while read -r line; do
+              [ -n "$line" ] && echo "Hint: $line"
+            done
+            if head -c 5 response.json | grep -q '<!DOC\|<html'; then
+              echo "A resposta é HTML (página do site), não JSON da API. Confira SEMINOVOS_BROADCAST_CRON_URL no GitHub (Secrets)."
+            fi
+            exit 1
+          fi

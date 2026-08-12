@@ -1,12 +1,13 @@
 import type { Metadata } from 'next'
 import { Award, Users, ThumbsUp, Zap } from 'lucide-react'
+import { getSiteUrl } from '@/lib/utils/site-url'
 
 export const metadata: Metadata = {
   title: 'Sobre Nós - Assistência Técnica em Belo Horizonte | Conectize',
   description: 'Conheça a Conectize, assistência técnica especializada em conserto de celulares em Belo Horizonte. Mais de 15 anos de experiência, técnicos certificados e garantia de 6 meses.',
   keywords: 'sobre conectize, assistência técnica belo horizonte, história empresa conserto celular, técnicos certificados bh',
   alternates: {
-    canonical: 'https://conectize.com.br/sobre',
+    canonical: `${getSiteUrl()}/sobre`,
   },
 }
 

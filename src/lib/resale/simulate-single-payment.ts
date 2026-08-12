@@ -1,5 +1,5 @@
 /**
- * Mesma regra do modal "Simular pagamento" em SeminovosListClient:
+ * Mesma regra do modal "Simular pagamento" da revenda:
  * valor líquido a receber → total a cobrar com taxa da forma escolhida.
  */
 export type PaymentMethodForSimulate = {

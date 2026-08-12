@@ -42,14 +42,20 @@ function mapServicesForDuplicateForm (raw: unknown): unknown[] {
       )
       const desc = String(item.description ?? '').trim()
       const pid = item.sourceProductId
+      const noCost = item.noCost === true
       return {
         id: `dup-${index}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         kind,
         description: desc,
         quantity,
         value: unitValueCents ? formatMoneyInputBr(String(unitValueCents)) : '',
-        cost: unitCostCents ? formatMoneyInputBr(String(unitCostCents)) : '',
+        cost: noCost
+          ? ''
+          : unitCostCents
+            ? formatMoneyInputBr(String(unitCostCents))
+            : '',
         sourceProductId: pid ? String(pid).trim() : null,
+        noCost,
       }
     })
   } catch {
@@ -88,8 +94,6 @@ export async function GET (
       status,
       title,
       device_model_id,
-      brand,
-      model,
       color,
       device_location,
       imei,
@@ -103,6 +107,13 @@ export async function GET (
       receiving_notes,
       services,
       device_entry_checks,
+      discount_cents,
+      discount_mode,
+      discount_percent,
+      commission_user_id,
+      commission_kind,
+      commission_fixed_cents,
+      commission_percent,
       customers (${CUSTOMER_SELECT}),
       device_models (
         id,
@@ -129,6 +140,16 @@ export async function GET (
   const dtRaw = dm?.device_types
   const dt = Array.isArray(dtRaw) ? dtRaw[0] : dtRaw
   const deviceType = dt && typeof dt === 'object' ? String((dt as { name?: string }).name ?? '') : ''
+  const brandRaw =
+    dt && typeof dt === 'object'
+      ? (dt as { device_brands?: unknown }).device_brands
+      : null
+  const brandRow = Array.isArray(brandRaw) ? brandRaw[0] : brandRaw
+  const brandName =
+    brandRow && typeof brandRow === 'object'
+      ? String((brandRow as { name?: string }).name ?? '')
+      : ''
+  const modelName = dm ? String(dm.model ?? '') : ''
 
   let documentDigits = ''
   if (cust) {
@@ -174,8 +195,8 @@ export async function GET (
     title: String(o.title ?? ''),
     status: statusForNovaOrdemForm(o.status),
     deviceModelId: o.device_model_id ? String(o.device_model_id) : '',
-    brand: String(o.brand ?? ''),
-    model: o.device_model_id && dm ? String(dm.model ?? o.model ?? '') : String(o.model ?? ''),
+    brand: brandName,
+    model: modelName,
     deviceType,
     imei: String(o.imei ?? ''),
     color: String(o.color ?? ''),
@@ -190,6 +211,13 @@ export async function GET (
     paymentMethods: pmList.length > 0 ? pmList : null,
     paymentMethodId,
     installments,
+    discountMode: String(o.discount_mode || 'fixed') === 'percent' ? 'percent' : 'fixed',
+    discountFixedCents: Math.max(0, Number(o.discount_cents) || 0),
+    discountPercent: Math.max(0, Number(o.discount_percent) || 0),
+    commissionUserId: o.commission_user_id ? String(o.commission_user_id) : '',
+    commissionKind: String(o.commission_kind || 'percent') === 'fixed' ? 'fixed' : 'percent',
+    commissionFixedCents: Math.max(0, Number(o.commission_fixed_cents) || 0),
+    commissionPercent: Math.max(0, Number(o.commission_percent) || 0),
     customerDescription: String(o.customer_description ?? ''),
     internalInitialComment,
     receivingNotes: String(o.receiving_notes ?? ''),

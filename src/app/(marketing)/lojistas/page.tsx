@@ -1,13 +1,14 @@
 import type { Metadata } from 'next'
 import { Building2, Wrench, Smartphone, TrendingUp, Users, Award } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { getSiteUrl } from '@/lib/utils/site-url'
 
 export const metadata: Metadata = {
   title: 'Atendimento para Lojistas - Condições Especiais | Conectize',
   description: 'Condições diferenciadas para lojistas: manutenção de aparelhos, venda de celulares seminovos e suporte técnico especializado. Parcerias e descontos para revendedores.',
   keywords: 'atendimento lojistas belo horizonte, condições especiais lojistas, celulares seminovos, manutenção para lojistas, atacado celular',
   alternates: {
-    canonical: 'https://conectize.com.br/lojistas',
+    canonical: `${getSiteUrl()}/lojistas`,
   },
 }
 

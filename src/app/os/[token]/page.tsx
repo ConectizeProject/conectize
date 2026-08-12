@@ -169,7 +169,7 @@ export default async function OrdemPublicaPage({
 	const { data: order } = await supabase
 		.from('service_orders')
 		.select(
-			'id, organization_id, display_number, status, title, imei, device_location, is_warranty, estimated_ready_at, customer_description, receiving_notes, warranty_text, services, payment_methods, brand, model, device_model_id, created_at, updated_at, closed_at, device_entry_checks, device_exit_checks, customers ( cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date ), device_models ( id, model, device_types ( name, device_brands ( name ) ) ), organizations ( slug, is_host, name, logo_url, phone, email )',
+			'id, organization_id, display_number, status, title, imei, device_location, is_warranty, estimated_ready_at, customer_description, receiving_notes, warranty_text, services, payment_methods, device_model_id, created_at, updated_at, closed_at, device_entry_checks, device_exit_checks, customers ( cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date ), device_models ( id, model, device_types ( name, device_brands ( name ) ) ), organizations ( slug, is_host, name, logo_url, phone, email )',
 		)
 		.eq('share_token', token)
 		.maybeSingle()
@@ -186,7 +186,7 @@ export default async function OrdemPublicaPage({
 			.order('sort_order', { ascending: true })
 		: { data: null as { id: string; type: string }[] | null }
 
-	// Dispositivo: vir da relação device_models (mesma query) ou dos campos brand/model
+	// Dispositivo: relação device_models (mesma query)
 	const orderDeviceModels = order?.device_models ?? null
 	const deviceModel = Array.isArray(orderDeviceModels)
 		? (orderDeviceModels[0] ?? null)
@@ -248,9 +248,7 @@ export default async function OrdemPublicaPage({
 	const deviceDisplay = formatDeviceDisplay(
 		deviceModel
 			? `${brandName || ''} ${deviceTypeName || ''} ${String(deviceModel.model ?? '')}`.trim() || '-'
-			: (order.brand || order.model)
-				? `${String(order.brand || '').trim()} ${String(order.model || '').trim()}`.trim() || '-'
-				: '-'
+			: '-'
 	)
 	const customerName = customer?.is_company
 		? (customer?.company_name || customer?.full_name || '-')

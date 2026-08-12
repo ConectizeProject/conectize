@@ -13,6 +13,7 @@ import {
 	type DeviceModel,
 	type OrderServicesCardRef,
 } from "@/components/orders";
+import { EMPTY_ORDER_DISCOUNT_COMMISSION } from "@/lib/orders/order-discount-commission";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -74,6 +75,8 @@ type Props = {
 	sellerName: string;
 	isAdmin: boolean;
 	sellerOptions: SellerOption[];
+	/** Colaboradores para seleção de comissão (admin/staff). */
+	teamUsers: SellerOption[];
 	deviceModels?: DeviceModel[];
 	paymentMethodsCatalog: PortalPaymentMethodCatalogItem[];
 	currentUserId: string;
@@ -198,6 +201,28 @@ export function NovaOrdemClient(props: Props) {
 										},
 									]
 								: [],
+					...EMPTY_ORDER_DISCOUNT_COMMISSION,
+					...(o.discountMode
+						? {
+								discountMode:
+									o.discountMode === "percent" ? "percent" : "fixed",
+								discountFixedCents: Math.max(0, Number(o.discountFixedCents) || 0),
+								discountPercent: Math.max(0, Number(o.discountPercent) || 0),
+							}
+						: {}),
+					...(o.commissionUserId
+						? {
+								commissionEnabled: true,
+								commissionUserId: String(o.commissionUserId),
+								commissionKind:
+									o.commissionKind === "fixed" ? "fixed" : "percent",
+								commissionFixedCents: Math.max(
+									0,
+									Number(o.commissionFixedCents) || 0,
+								),
+								commissionPercent: Math.max(0, Number(o.commissionPercent) || 0),
+							}
+						: {}),
 					customerDescription: o.customerDescription ?? "",
 					internalInitialComment: o.internalInitialComment ?? "",
 					receivingNotes: o.receivingNotes ?? "",
@@ -282,7 +307,8 @@ export function NovaOrdemClient(props: Props) {
 						? Math.min(9999, Math.max(1, quantityRaw))
 						: 1;
 				const unitValueCents = parseMoneyToCents(s.value);
-				const unitCostCents = parseMoneyToCents(s.cost);
+				const noCost = s.noCost === true;
+				const unitCostCents = noCost ? 0 : parseMoneyToCents(s.cost);
 				const valueCents = unitValueCents * quantity;
 				const costCents = unitCostCents * quantity;
 				const sourceProductId = parseOptionalUuid(s.sourceProductId);
@@ -295,6 +321,7 @@ export function NovaOrdemClient(props: Props) {
 					valueCents,
 					costCents,
 					...(sourceProductId ? { sourceProductId } : {}),
+					noCost,
 				};
 			})
 			.filter((s) => s.description || s.valueCents > 0 || s.costCents > 0);
@@ -332,6 +359,17 @@ export function NovaOrdemClient(props: Props) {
 				}),
 			),
 		);
+		fd.append("discountMode", values.discountMode);
+		fd.append("discountFixedCents", String(values.discountFixedCents || 0));
+		fd.append("discountPercent", String(values.discountPercent || 0));
+		fd.append("commissionEnabled", values.commissionEnabled ? "1" : "");
+		fd.append("commissionUserId", values.commissionUserId || "");
+		fd.append("commissionKind", values.commissionKind);
+		fd.append(
+			"commissionFixedCents",
+			String(values.commissionFixedCents || 0),
+		);
+		fd.append("commissionPercent", String(values.commissionPercent || 0));
 		fd.append("title", values.title);
 		fd.append("status", values.status);
 		fd.append("imei", values.imei);
@@ -479,6 +517,20 @@ export function NovaOrdemClient(props: Props) {
 									}}
 									initialCatalog={props.paymentMethodsCatalog}
 									description="Defina como o cliente pagará a OS."
+									teamUsers={props.teamUsers}
+									discountCommissionFormik={{
+										values: {
+											discountMode: formik.values.discountMode,
+											discountFixedCents: formik.values.discountFixedCents,
+											discountPercent: formik.values.discountPercent,
+											commissionEnabled: formik.values.commissionEnabled,
+											commissionUserId: formik.values.commissionUserId,
+											commissionKind: formik.values.commissionKind,
+											commissionFixedCents: formik.values.commissionFixedCents,
+											commissionPercent: formik.values.commissionPercent,
+										},
+										setFieldValue: formik.setFieldValue,
+									}}
 								/>
 
 								<Card>
@@ -533,6 +585,7 @@ export function NovaOrdemClient(props: Props) {
 										) : null}
 									</CardContent>
 								</Card>
+
 
 								<div
 									aria-hidden

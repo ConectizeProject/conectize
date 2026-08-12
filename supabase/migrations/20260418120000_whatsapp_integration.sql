@@ -63,6 +63,7 @@ create trigger whatsapp_conversations_updated_at
 alter table public.whatsapp_conversations enable row level security;
 alter table public.whatsapp_messages enable row level security;
 
+drop policy if exists "whatsapp_conversations_staff_all" on public.whatsapp_conversations;
 create policy "whatsapp_conversations_staff_all"
 on public.whatsapp_conversations
 for all
@@ -70,6 +71,7 @@ to authenticated
 using (public.is_staff_or_admin())
 with check (public.is_staff_or_admin());
 
+drop policy if exists "whatsapp_messages_staff_all" on public.whatsapp_messages;
 create policy "whatsapp_messages_staff_all"
 on public.whatsapp_messages
 for all

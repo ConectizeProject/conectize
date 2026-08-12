@@ -1,0 +1,40 @@
+# Evolution API — banco Postgres em projeto Supabase separado + Redis local.
+#
+# Como usar:
+# 1. Crie um projeto novo no Supabase (só dados da Evolution — Prisma usará schema evolution_api).
+# 2. Em Database → pegue Connection string modo "Direct" ou "URI" com SSL (`?sslmode=require`).
+# 3. Monte DATABASE_CONNECTION_URI (veja infra/evolution-api/env.example.txt).
+# 4. Deploy com: docker compose --env-file .env up -d
+#
+services:
+  evolution-api:
+    image: evoapicloud/evolution-api:latest
+    restart: unless-stopped
+    ports:
+      - '8080:8080'
+    env_file:
+      - .env
+    volumes:
+      # Persiste sessão WhatsApp — sem isso cada restart pede QR e “desconecta”.
+      - evolution_instances:/evolution/instances
+      - evolution_store:/evolution/store
+    depends_on:
+      - redis-evolution
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+
+  redis-evolution:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--save', '', '--appendonly', 'no']
+    volumes:
+      - evolution_redis_data:/data
+
+volumes:
+  evolution_redis_data:
+  evolution_instances:
+  evolution_store:

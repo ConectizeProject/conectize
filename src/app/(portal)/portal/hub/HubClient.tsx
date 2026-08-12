@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -20,19 +20,28 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import Link from 'next/link'
 import {
   Bot,
+  CalendarClock,
   Check,
   ExternalLink,
   History,
   Loader2,
   MessageCircle,
   Package,
+  Play,
+  QrCode,
   RefreshCw,
   Settings,
   ShoppingCart,
+  Smartphone,
   Store,
   Zap,
 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
+import { blingRefreshTokenErrorToMessage } from '@/lib/integrations/bling/refresh-token-errors'
+import {
+  HubInboxViewersPicker,
+  type InboxAccessState,
+} from './HubInboxViewersPicker'
 import { usePortalOrganizationName } from '@/lib/portal/portal-branding-context'
 
 type SetupStep = { text: string; link?: { url: string; label: string } }
@@ -98,6 +107,17 @@ const integrations: Integration[] = [
     docsUrl: 'https://developers.facebook.com/docs/whatsapp/cloud-api',
   },
   {
+    id: 'whatsapp_evolution',
+    name: 'WhatsApp Evolution',
+    description:
+      'Conexão WhatsApp Web via Evolution API (QR Code). Pode coexistir com o WhatsApp oficial—defina preferência ao enviar.',
+    icon: Smartphone,
+    color: 'bg-teal-500/10 text-teal-700 dark:text-teal-400',
+    status: 'available',
+    authType: 'api_key',
+    docsUrl: 'https://doc.evolution-api.com/',
+  },
+  {
     id: 'shopee',
     name: 'Shopee',
     description: 'Conecte sua loja Shopee para sincronizar vendas e produtos.',
@@ -137,12 +157,72 @@ type BlingConnection = {
 
 type WhatsappConfig = {
   connected: boolean
+  connection_id?: string | null
+  inbox_restricted?: boolean
   phone_number_id: string
   waba_id: string
   automation_enabled: boolean
   verify_token_configured: boolean
   access_token_masked: string | null
   webhook_url: string
+}
+
+type WhatsappEvolutionInstance = {
+  connection_id: string
+  instance_name: string
+  label: string | null
+  display_label: string
+  preferred_for_messages: boolean
+  api_base_url_override: string
+  automation_enabled: boolean
+  access_token_masked: string | null
+}
+
+type WhatsappEvolutionConfig = {
+  connected: boolean
+  instances: WhatsappEvolutionInstance[]
+  uses_env_api_base: boolean
+  env_api_key_fallback: boolean
+  webhook_url: string
+  webhook_secret_configured: boolean
+}
+
+type LojistasRoutineRun = {
+  run_day: string
+  status: 'running' | 'completed' | 'failed'
+  created_at: string
+  completed_at: string | null
+  result: Record<string, unknown> | null
+}
+
+type LojistasRoutineStatus = {
+  available: boolean
+  today?: string
+  last_run?: LojistasRoutineRun | null
+}
+
+function formatRunDayBr (runDay: string): string {
+  const [y, m, d] = runDay.split('-')
+  if (!y || !m || !d) return runDay
+  return `${d}/${m}/${y}`
+}
+
+function lojistasRoutineBadge (routine: LojistasRoutineStatus): {
+  label: string
+  variant: 'default' | 'secondary' | 'destructive' | 'outline'
+  className?: string
+} {
+  const last = routine.last_run
+  if (last && routine.today && last.run_day === routine.today) {
+    if (last.status === 'completed') {
+      return { label: 'Enviada hoje', variant: 'default', className: 'bg-green-600 hover:bg-green-600' }
+    }
+    if (last.status === 'running') {
+      return { label: 'Executando…', variant: 'secondary' }
+    }
+    return { label: 'Falhou hoje', variant: 'destructive' }
+  }
+  return { label: 'Agendada · ~9h', variant: 'outline' }
 }
 
 function isBlingTokenExpired (expiresAt: string | null | undefined) {
@@ -209,6 +289,71 @@ function getBlingReconnectStatus (connection: BlingConnection) {
   }
 }
 
+function LojistasRoutinePanel ({
+  routine,
+  onRun,
+  isRunning,
+}: {
+  routine: LojistasRoutineStatus
+  onRun?: () => void
+  isRunning: boolean
+}) {
+  const badge = lojistasRoutineBadge(routine)
+  const last = routine.last_run
+  const devicesCount =
+    last?.result && typeof last.result.devicesCount === 'number'
+      ? last.result.devicesCount
+      : null
+  const lastError =
+    last?.status === 'failed' && typeof last.result?.error === 'string'
+      ? String(last.result.error)
+      : null
+
+  return (
+    <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <CalendarClock className="h-3.5 w-3.5" aria-hidden="true" />
+          Rotina: lista de seminovos p/ lojistas
+        </p>
+        <Badge variant={badge.variant} className={`shrink-0 text-[10px] ${badge.className || ''}`}>
+          {badge.label}
+        </Badge>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Envia diariamente por volta das 9h (via GitHub Actions) a lista de atacado no grupo do WhatsApp.
+      </p>
+      {last ? (
+        <p className="text-xs text-muted-foreground">
+          Última execução: {formatRunDayBr(last.run_day)}
+          {devicesCount !== null ? ` · ${devicesCount} aparelhos` : ''}
+        </p>
+      ) : (
+        <p className="text-xs text-muted-foreground">Nenhuma execução registrada ainda.</p>
+      )}
+      {lastError ? (
+        <p className="text-xs text-destructive break-words">Erro: {lastError}</p>
+      ) : null}
+      {onRun ? (
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7"
+          disabled={isRunning}
+          onClick={onRun}
+        >
+          {isRunning ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Play className="h-3.5 w-3.5" />
+          )}
+          <span className="ml-1">{isRunning ? 'Enviando…' : 'Rodar agora'}</span>
+        </Button>
+      ) : null}
+    </div>
+  )
+}
+
 function IntegrationCard({
   integration,
   isConnected,
@@ -222,6 +367,11 @@ function IntegrationCard({
   refreshingBlingId,
   onConfigureWhatsapp,
   whatsappConfig,
+  onConfigureWhatsappEvolution,
+  whatsappEvolutionConfig,
+  lojistasRoutine,
+  onRunLojistasRoutine,
+  lojistasRoutineRunning,
 }: {
   integration: Integration
   isConnected: boolean
@@ -235,6 +385,11 @@ function IntegrationCard({
   refreshingBlingId?: string | null
   onConfigureWhatsapp?: () => void
   whatsappConfig?: WhatsappConfig | null
+  onConfigureWhatsappEvolution?: () => void
+  whatsappEvolutionConfig?: WhatsappEvolutionConfig | null
+  lojistasRoutine?: LojistasRoutineStatus | null
+  onRunLojistasRoutine?: () => void
+  lojistasRoutineRunning?: boolean
 }) {
   const Icon = integration.icon
   const isComingSoon = integration.status === 'coming_soon'
@@ -242,7 +397,8 @@ function IntegrationCard({
   const canConnectOAuth = isAdmin && !isComingSoon && integration.authType === 'oauth' && integration.oauthUrl
   const isBling = integration.id === 'bling'
   const isWhatsapp = integration.id === 'whatsapp_business'
-  const canConnect = !isWhatsapp && (canConnectApiKey || canConnectOAuth)
+  const isWhatsappEvolution = integration.id === 'whatsapp_evolution'
+  const canConnect = !isWhatsapp && !isWhatsappEvolution && (canConnectApiKey || canConnectOAuth)
 
   return (
     <Card className="overflow-hidden transition-colors hover:bg-muted/50">
@@ -351,11 +507,40 @@ function IntegrationCard({
             </p>
           </div>
         ) : null}
+        {isWhatsappEvolution && whatsappEvolutionConfig?.connected ? (
+          <div className="rounded-md border bg-muted/30 p-3 space-y-1">
+            <p className="text-xs text-muted-foreground">
+              Instâncias Evolution:{' '}
+              <span className="font-medium text-foreground">
+                {whatsappEvolutionConfig.instances?.length ?? 0}
+              </span>
+            </p>
+            {(whatsappEvolutionConfig.instances || []).slice(0, 4).map((inst) => (
+              <p key={inst.connection_id} className="text-xs text-muted-foreground">
+                · {inst.display_label}
+                {inst.preferred_for_messages ? ' (preferida)' : ''}
+              </p>
+            ))}
+          </div>
+        ) : null}
+        {isWhatsappEvolution && lojistasRoutine?.available ? (
+          <LojistasRoutinePanel
+            routine={lojistasRoutine}
+            onRun={onRunLojistasRoutine}
+            isRunning={lojistasRoutineRunning === true}
+          />
+        ) : null}
         <div className="flex items-center gap-2 flex-wrap">
           {isWhatsapp && isAdmin && onConfigureWhatsapp ? (
             <Button size="sm" onClick={onConfigureWhatsapp}>
               <Settings className="h-4 w-4 mr-1" />
               {whatsappConfig?.connected ? 'Editar informações' : 'Incluir informações'}
+            </Button>
+          ) : null}
+          {isWhatsappEvolution && isAdmin && onConfigureWhatsappEvolution ? (
+            <Button size="sm" onClick={onConfigureWhatsappEvolution}>
+              <Settings className="h-4 w-4 mr-1" />
+              {whatsappEvolutionConfig?.connected ? 'Editar Evolution' : 'Configurar Evolution'}
             </Button>
           ) : null}
           {canConnect && (
@@ -372,7 +557,7 @@ function IntegrationCard({
                     <Button size="sm" asChild>
                       <a href={integration.oauthUrl}>Conectar outra conta</a>
                     </Button>
-                  ) : !isBling && !isWhatsapp ? (
+                  ) : !isBling && !isWhatsapp && !isWhatsappEvolution ? (
                     <Button size="sm" variant="outline" onClick={onDisconnect}>
                       Desconectar
                     </Button>
@@ -398,7 +583,7 @@ function IntegrationCard({
           )}
           {isBling && isAdmin && (
             <Button size="sm" variant="ghost" asChild>
-              <Link href="/portal/admin/webhooks" className="inline-flex items-center gap-1.5">
+              <Link href="/portal/admin/webhooks?platform=bling" prefetch={false} className="inline-flex items-center gap-1.5">
                 <History className="h-4 w-4" />
                 Histórico de webhooks
               </Link>
@@ -435,6 +620,203 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
   const [verifyToken, setVerifyToken] = useState('')
   const [automationEnabled, setAutomationEnabled] = useState(false)
   const [testTo, setTestTo] = useState('')
+  const [evolutionDialogOpen, setEvolutionDialogOpen] = useState(false)
+  const [evolutionLoading, setEvolutionLoading] = useState(false)
+  const [evolutionSaving, setEvolutionSaving] = useState(false)
+  const [evolutionTestSending, setEvolutionTestSending] = useState(false)
+  const [evolutionConfig, setEvolutionConfig] = useState<WhatsappEvolutionConfig | null>(null)
+  const [evolutionEditingConnectionId, setEvolutionEditingConnectionId] = useState<string | null>(null)
+  const [evolutionInstanceName, setEvolutionInstanceName] = useState('')
+  const [evolutionLabel, setEvolutionLabel] = useState('')
+  const [evolutionApiKey, setEvolutionApiKey] = useState('')
+  const [evolutionBaseOverride, setEvolutionBaseOverride] = useState('')
+  const [evolutionPreferred, setEvolutionPreferred] = useState(false)
+  const [evolutionAutomation, setEvolutionAutomation] = useState(false)
+  const [evolutionTestTo, setEvolutionTestTo] = useState('')
+  const [evolutionStatusChecking, setEvolutionStatusChecking] = useState(false)
+  const [evolutionStatusHints, setEvolutionStatusHints] = useState<string[] | null>(null)
+  const [evolutionSyncing, setEvolutionSyncing] = useState(false)
+  const [evolutionConnectionState, setEvolutionConnectionState] = useState<
+    'unknown' | 'open' | 'close' | 'connecting'
+  >('unknown')
+  const [evolutionQrBase64, setEvolutionQrBase64] = useState<string | null>(null)
+  const [evolutionPairingCode, setEvolutionPairingCode] = useState<string | null>(null)
+  const [evolutionQrLoading, setEvolutionQrLoading] = useState(false)
+  const [evolutionQrPolling, setEvolutionQrPolling] = useState(false)
+  const evolutionQrPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [evolutionInboxAccess, setEvolutionInboxAccess] = useState<InboxAccessState>({
+    unrestricted: true,
+    userIds: [],
+  })
+  const [whatsappInboxAccess, setWhatsappInboxAccess] = useState<InboxAccessState>({
+    unrestricted: true,
+    userIds: [],
+  })
+  const [lojistasRoutine, setLojistasRoutine] = useState<LojistasRoutineStatus | null>(null)
+  const [lojistasRoutineRunning, setLojistasRoutineRunning] = useState(false)
+
+  const loadLojistasRoutineStatus = useCallback(async () => {
+    const res = await fetch('/api/portal/hub/whatsapp-lojistas-broadcast')
+    const data = await res.json().catch(() => null)
+    if (!res.ok || !data?.ok) return
+    setLojistasRoutine(data as LojistasRoutineStatus)
+  }, [])
+
+  useEffect(() => {
+    if (!isAdmin) return
+    void loadLojistasRoutineStatus()
+  }, [isAdmin, loadLojistasRoutineStatus])
+
+  async function handleRunLojistasRoutine () {
+    if (!confirm('Enviar agora a lista de seminovos no grupo de lojistas do WhatsApp?')) return
+
+    setLojistasRoutineRunning(true)
+    try {
+      const res = await fetch('/api/portal/hub/whatsapp-lojistas-broadcast', { method: 'POST' })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        toast({
+          title: 'Falha ao enviar a lista',
+          description: String((data as { hint?: string })?.hint || data?.error || 'Tente novamente.'),
+          variant: 'destructive',
+        })
+        return
+      }
+      const devicesCount = typeof data.devicesCount === 'number' ? data.devicesCount : null
+      toast({
+        variant: 'success',
+        title: 'Lista enviada ao grupo',
+        description: devicesCount !== null ? `${devicesCount} aparelhos na lista.` : undefined,
+      })
+    } finally {
+      setLojistasRoutineRunning(false)
+      void loadLojistasRoutineStatus()
+    }
+  }
+
+  function resetEvolutionQrState () {
+    setEvolutionQrPolling(false)
+    setEvolutionQrBase64(null)
+    setEvolutionPairingCode(null)
+    setEvolutionConnectionState('unknown')
+    if (evolutionQrPollRef.current) {
+      clearInterval(evolutionQrPollRef.current)
+      evolutionQrPollRef.current = null
+    }
+  }
+
+  const evolutionConnectRequestBody = useCallback(() => ({
+    connection_id: evolutionEditingConnectionId || undefined,
+    instance_name: evolutionInstanceName.trim() || undefined,
+    api_key: evolutionApiKey.trim() || undefined,
+    api_base_url_override: evolutionBaseOverride.trim() || undefined,
+  }), [
+    evolutionEditingConnectionId,
+    evolutionInstanceName,
+    evolutionApiKey,
+    evolutionBaseOverride,
+  ])
+
+  const pollEvolutionConnectionState = useCallback(async () => {
+    if (!evolutionInstanceName.trim()) return
+    const res = await fetch('/api/portal/hub/whatsapp-evolution-connect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...evolutionConnectRequestBody(),
+        check_only: true,
+      }),
+    })
+    const data = await res.json().catch(() => null)
+    if (!res.ok || !data?.ok) return
+    const state = String(data.state || 'unknown') as typeof evolutionConnectionState
+    setEvolutionConnectionState(state)
+    if (state === 'open') {
+      setEvolutionQrPolling(false)
+      setEvolutionQrBase64(null)
+      toast({ variant: 'success', title: 'WhatsApp conectado', description: 'Instância Evolution pronta para uso.' })
+    }
+  }, [evolutionInstanceName, evolutionConnectRequestBody])
+
+  useEffect(() => {
+    if (!evolutionDialogOpen || !evolutionQrPolling) {
+      if (evolutionQrPollRef.current) {
+        clearInterval(evolutionQrPollRef.current)
+        evolutionQrPollRef.current = null
+      }
+      return
+    }
+    void pollEvolutionConnectionState()
+    evolutionQrPollRef.current = setInterval(() => {
+      void pollEvolutionConnectionState()
+    }, 3000)
+    return () => {
+      if (evolutionQrPollRef.current) {
+        clearInterval(evolutionQrPollRef.current)
+        evolutionQrPollRef.current = null
+      }
+    }
+  }, [evolutionDialogOpen, evolutionQrPolling, pollEvolutionConnectionState])
+
+  useEffect(() => {
+    if (!evolutionDialogOpen || !evolutionInstanceName.trim()) return
+    void pollEvolutionConnectionState()
+  }, [evolutionDialogOpen, evolutionEditingConnectionId, pollEvolutionConnectionState])
+
+  async function handleEvolutionStartQrConnect () {
+    if (!evolutionInstanceName.trim()) {
+      toast({ title: 'Informe o nome da instância', variant: 'destructive' })
+      return
+    }
+    setEvolutionQrLoading(true)
+    try {
+      const res = await fetch('/api/portal/hub/whatsapp-evolution-connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(evolutionConnectRequestBody()),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        toast({
+          title: 'Não foi possível gerar o QR Code',
+          description: String((data as { hint?: string })?.hint || data?.error || 'Verifique URL e API key da Evolution.'),
+          variant: 'destructive',
+        })
+        return
+      }
+      const state = String(data.state || 'unknown') as typeof evolutionConnectionState
+      setEvolutionConnectionState(state)
+      setEvolutionQrBase64(typeof data.qr_base64 === 'string' ? data.qr_base64 : null)
+      setEvolutionPairingCode(typeof data.pairing_code === 'string' ? data.pairing_code : null)
+      if (state === 'open') {
+        setEvolutionQrPolling(false)
+        toast({ variant: 'success', title: 'WhatsApp já conectado' })
+        return
+      }
+      if (!data.qr_base64) {
+        toast({
+          title: 'QR Code indisponível',
+          description: 'A Evolution não retornou imagem. Confira se a instância existe e se a API está acessível.',
+          variant: 'destructive',
+        })
+        return
+      }
+      setEvolutionQrPolling(true)
+    } finally {
+      setEvolutionQrLoading(false)
+    }
+  }
+
+  async function refreshEvolutionConnectionState () {
+    if (!evolutionInstanceName.trim()) return
+    setEvolutionQrLoading(true)
+    try {
+      await pollEvolutionConnectionState()
+    } finally {
+      setEvolutionQrLoading(false)
+    }
+  }
+
   const [blingLookupMode, setBlingLookupMode] = useState<'sku' | 'barcode'>('sku')
   const [blingLookupQuery, setBlingLookupQuery] = useState('')
   const [blingLookupLoading, setBlingLookupLoading] = useState(false)
@@ -570,20 +952,11 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
       const data = await res.json().catch(() => null)
 
       if (!res.ok || !data?.ok) {
-        const code = data?.error as string | undefined
-        const rawErr = typeof data?.error === 'string' ? data.error : ''
-        const isInvalidGrant =
-          rawErr.toLowerCase().includes('invalid_grant') ||
-          rawErr.toLowerCase().includes('token inválido') ||
-          rawErr.toLowerCase().includes('invalid token')
-        const description =
-          code === 'no_refresh_token'
-            ? 'Não há refresh token salvo. Desconecte e conecte o Bling novamente.'
-            : code === 'bling_oauth_not_configured'
-              ? 'OAuth do Bling não configurado no servidor.'
-              : isInvalidGrant
-                ? 'O refresh token expirou ou foi revogado (ex.: após ~30 dias ou nova autorização). Desconecte e conecte o Bling de novo no HUB.'
-                : rawErr || 'Não foi possível renovar o token.'
+        const apiMessage = typeof data?.message === 'string' ? data.message.trim() : ''
+        const code = typeof data?.error === 'string' ? data.error : ''
+        const detail = typeof data?.detail === 'string' ? data.detail : ''
+        const description = apiMessage
+          || blingRefreshTokenErrorToMessage(code || detail)
         toast({ title: 'Erro ao renovar token', description, variant: 'destructive' })
         return
       }
@@ -658,13 +1031,17 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
           access_token: accessToken.trim() || undefined,
           verify_token: verifyToken.trim() || undefined,
           automation_enabled: automationEnabled,
+          inbox_access: {
+            unrestricted: whatsappInboxAccess.unrestricted,
+            viewer_user_ids: whatsappInboxAccess.userIds,
+          },
         }),
       })
       const data = await res.json().catch(() => null)
       if (!res.ok || !data?.ok) {
         toast({
           title: 'Erro ao salvar',
-          description: String(data?.error || 'Tente novamente.'),
+          description: String((data as { hint?: string })?.hint || data?.error || 'Tente novamente.'),
           variant: 'destructive',
         })
         return
@@ -734,14 +1111,277 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
       if (!res.ok || !data?.ok) {
         toast({
           title: 'Falha ao enviar',
-          description: String(data?.detail || data?.error || 'Verifique token e número de teste no Meta.'),
+          description: String(data?.detail || data?.error || 'Verifique token e número.'),
           variant: 'destructive',
         })
         return
       }
-      toast({ variant: 'success', title: 'Mensagem de teste enviada' })
+      const ch = data.channel === 'evolution' ? 'Evolution' : 'Cloud API'
+      toast({ variant: 'success', title: 'Mensagem de teste enviada', description: `Canal: ${ch}.` })
     } finally {
       setWhatsappTestSending(false)
+    }
+  }
+
+  async function loadEvolutionConfig (): Promise<WhatsappEvolutionConfig | null> {
+    setEvolutionLoading(true)
+    try {
+      const res = await fetch('/api/portal/hub/whatsapp-evolution-config')
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        toast({
+          title: 'Erro ao carregar Evolution API',
+          description: String(data?.error || 'Tente novamente.'),
+          variant: 'destructive',
+        })
+        return null
+      }
+      const config = data as WhatsappEvolutionConfig
+      setEvolutionConfig(config)
+      const instances = config.instances || []
+      const first = instances[0]
+      const editingId = evolutionEditingConnectionId && instances.some((i) => i.connection_id === evolutionEditingConnectionId)
+        ? evolutionEditingConnectionId
+        : first?.connection_id ?? null
+      setEvolutionEditingConnectionId(editingId)
+      const editing = instances.find((i) => i.connection_id === editingId)
+      setEvolutionInstanceName(String(editing?.instance_name || ''))
+      setEvolutionLabel(String(editing?.label || ''))
+      setEvolutionPreferred(editing?.preferred_for_messages === true)
+      setEvolutionAutomation(editing?.automation_enabled === true)
+      setEvolutionBaseOverride(String(editing?.api_base_url_override || ''))
+      return config
+    } finally {
+      setEvolutionLoading(false)
+    }
+    return null
+  }
+
+  function selectEvolutionInstanceForEdit (inst: WhatsappEvolutionInstance) {
+    resetEvolutionQrState()
+    setEvolutionEditingConnectionId(inst.connection_id)
+    setEvolutionInstanceName(inst.instance_name)
+    setEvolutionLabel(String(inst.label || ''))
+    setEvolutionPreferred(inst.preferred_for_messages)
+    setEvolutionAutomation(inst.automation_enabled)
+    setEvolutionBaseOverride(String(inst.api_base_url_override || ''))
+    setEvolutionApiKey('')
+  }
+
+  function startNewEvolutionInstance () {
+    resetEvolutionQrState()
+    setEvolutionEditingConnectionId(null)
+    setEvolutionInstanceName('')
+    setEvolutionLabel('')
+    setEvolutionPreferred(false)
+    setEvolutionAutomation(false)
+    setEvolutionBaseOverride('')
+    setEvolutionApiKey('')
+    setEvolutionInboxAccess({ unrestricted: true, userIds: [] })
+  }
+
+  async function handleOpenEvolutionConfig () {
+    setEvolutionDialogOpen(true)
+    resetEvolutionQrState()
+    await loadEvolutionConfig()
+  }
+
+  async function handleSaveEvolutionConfig () {
+    if (!evolutionInstanceName.trim()) {
+      toast({ title: 'Informe o nome da instância na Evolution', variant: 'destructive' })
+      return
+    }
+
+    setEvolutionSaving(true)
+    try {
+      const res = await fetch('/api/portal/hub/whatsapp-evolution-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          connection_id: evolutionEditingConnectionId || undefined,
+          instance_name: evolutionInstanceName.trim(),
+          label: evolutionLabel.trim() || undefined,
+          api_key: evolutionApiKey.trim() || undefined,
+          api_base_url_override: evolutionBaseOverride.trim() || undefined,
+          preferred_for_messages: evolutionPreferred,
+          automation_enabled: evolutionAutomation,
+          inbox_access: {
+            unrestricted: evolutionInboxAccess.unrestricted,
+            viewer_user_ids: evolutionInboxAccess.userIds,
+          },
+        }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        toast({
+          title: 'Erro ao salvar',
+          description: String((data as { hint?: string })?.hint || data?.error || 'Tente novamente.'),
+          variant: 'destructive',
+        })
+        return
+      }
+      setEvolutionApiKey('')
+      const savedId = String((data as { connection?: { id?: string } }).connection?.id || '')
+      if (savedId) setEvolutionEditingConnectionId(savedId)
+      toast({ variant: 'success', title: 'Evolution API configurada' })
+      setConnections((prev) => new Set(prev).add('whatsapp_evolution'))
+      router.refresh()
+      await loadEvolutionConfig()
+    } finally {
+      setEvolutionSaving(false)
+    }
+  }
+
+  async function handleDisconnectEvolutionConfig () {
+    const id = evolutionEditingConnectionId
+    if (!id) return
+    if (!confirm('Remover esta instância Evolution?')) return
+    setEvolutionSaving(true)
+    try {
+      const res = await fetch(`/api/portal/hub/whatsapp-evolution-config/${id}`, { method: 'DELETE' })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        toast({ title: 'Erro ao desconectar', variant: 'destructive' })
+        return
+      }
+      toast({ variant: 'success', title: 'Instância removida' })
+      setEvolutionEditingConnectionId(null)
+      const reloaded = await loadEvolutionConfig()
+      if (!reloaded?.instances?.length) {
+        setConnections((prev) => {
+          const next = new Set(prev)
+          next.delete('whatsapp_evolution')
+          return next
+        })
+      }
+      router.refresh()
+    } finally {
+      setEvolutionSaving(false)
+    }
+  }
+
+  async function handleEvolutionDiagnostics () {
+    setEvolutionStatusChecking(true)
+    setEvolutionStatusHints(null)
+    try {
+      const qs = evolutionEditingConnectionId
+        ? `?connection_id=${encodeURIComponent(evolutionEditingConnectionId)}`
+        : ''
+      const res = await fetch(`/api/portal/hub/whatsapp-evolution-status${qs}`)
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        toast({
+          title: 'Diagnóstico indisponível',
+          description: String(data?.error || 'Tente novamente.'),
+          variant: 'destructive',
+        })
+        return
+      }
+      const hints = Array.isArray(data.hints) ? (data.hints as string[]) : []
+      const last = data.last_24h as {
+        integration_webhooks?: number
+        whatsapp_conversations?: number
+        last_payload_analysis?: {
+          parsed_inbound_count?: number
+          message_type?: string | null
+          from_me?: boolean | null
+          data_shape?: string
+        } | null
+      } | undefined
+      const analysis = last?.last_payload_analysis
+      const summary = [
+        `Webhooks (24h): ${last?.integration_webhooks ?? 0}`,
+        `Conversas WhatsApp: ${last?.whatsapp_conversations ?? 0}`,
+        data.hub?.service_finds_hub === false
+          ? 'Servidor não achou o hub pela instância salva.'
+          : null,
+        analysis
+          ? `Último payload: ${analysis.data_shape ?? '—'}, tipo ${analysis.message_type ?? '—'}, fromMe ${analysis.from_me ?? '—'}, parse ${analysis.parsed_inbound_count ?? 0}`
+          : null,
+      ].filter(Boolean) as string[]
+      setEvolutionStatusHints([...summary, ...hints])
+      if (hints.length === 0 && (last?.whatsapp_conversations ?? 0) > 0) {
+        toast({ variant: 'success', title: 'Integração parece OK', description: 'Há conversas na base.' })
+      }
+    } finally {
+      setEvolutionStatusChecking(false)
+    }
+  }
+
+  async function handleEvolutionSyncChats () {
+    setEvolutionSyncing(true)
+    try {
+      if (!evolutionEditingConnectionId) {
+        toast({ title: 'Selecione ou salve uma instância', variant: 'destructive' })
+        return
+      }
+      const res = await fetch('/api/portal/hub/whatsapp-evolution-sync-chats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ connection_id: evolutionEditingConnectionId, limit: 150 }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        const err = String(data?.error || '')
+        const hint = String((data as { hint?: string })?.hint || '')
+        const desc =
+          hint ||
+          (err.includes('Unauthorized') || res.status === 401
+            ? 'API key ou nome da instância incorretos na Evolution.'
+            : err === 'whatsapp_evolution_not_configured'
+              ? 'Defina WHATSAPP_EVOLUTION_API_URL e API key no servidor ou no hub.'
+              : err || 'Verifique a Evolution API.')
+        toast({
+          title: 'Falha ao sincronizar',
+          description: desc,
+          variant: 'destructive',
+        })
+        return
+      }
+      const legacyNote = (data as { migration_recommended?: boolean; hint?: string }).migration_recommended
+        ? ` ${(data as { hint?: string }).hint || ''}`
+        : ''
+      toast({
+        variant: 'success',
+        title: 'Conversas sincronizadas',
+        description: `${data.synced ?? 0} no total (${data.direct ?? 0} diretas, ${data.groups ?? 0} grupos).${legacyNote}`,
+      })
+    } finally {
+      setEvolutionSyncing(false)
+    }
+  }
+
+  async function handleSendEvolutionTest () {
+    if (!evolutionTestTo.trim()) {
+      toast({ title: 'Informe o número', variant: 'destructive' })
+      return
+    }
+    setEvolutionTestSending(true)
+    try {
+      if (!evolutionEditingConnectionId) {
+        toast({ title: 'Selecione ou salve uma instância', variant: 'destructive' })
+        return
+      }
+      const res = await fetch('/api/portal/hub/whatsapp-evolution-test-send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          connection_id: evolutionEditingConnectionId,
+          to: evolutionTestTo.trim(),
+        }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        toast({
+          title: 'Falha ao enviar',
+          description: String(data?.detail || data?.error || 'Verifique instância Evolution e API.'),
+          variant: 'destructive',
+        })
+        return
+      }
+      toast({ variant: 'success', title: 'Teste Evolution enviado' })
+    } finally {
+      setEvolutionTestSending(false)
     }
   }
 
@@ -813,7 +1453,9 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
                   ? blingConnections.length > 0
                   : integration.id === 'whatsapp_business'
                     ? Boolean(whatsappConfig?.connected || connections.has('whatsapp_business'))
-                  : connections.has(integration.id)
+                    : integration.id === 'whatsapp_evolution'
+                      ? Boolean(evolutionConfig?.connected || connections.has('whatsapp_evolution'))
+                      : connections.has(integration.id)
               }
               isAdmin={isAdmin}
               onConnect={() => {
@@ -837,6 +1479,15 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
               refreshingBlingId={integration.id === 'bling' ? refreshingBlingId : undefined}
               onConfigureWhatsapp={integration.id === 'whatsapp_business' ? handleOpenWhatsappConfig : undefined}
               whatsappConfig={integration.id === 'whatsapp_business' ? whatsappConfig : undefined}
+              onConfigureWhatsappEvolution={integration.id === 'whatsapp_evolution' ? handleOpenEvolutionConfig : undefined}
+              whatsappEvolutionConfig={integration.id === 'whatsapp_evolution' ? evolutionConfig : undefined}
+              lojistasRoutine={integration.id === 'whatsapp_evolution' && isAdmin ? lojistasRoutine : undefined}
+              onRunLojistasRoutine={
+                integration.id === 'whatsapp_evolution' && isAdmin
+                  ? () => void handleRunLojistasRoutine()
+                  : undefined
+              }
+              lojistasRoutineRunning={integration.id === 'whatsapp_evolution' ? lojistasRoutineRunning : undefined}
             />
           ))}
         </div>
@@ -1085,6 +1736,15 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
                 <Switch checked={automationEnabled} onCheckedChange={setAutomationEnabled} />
               </div>
 
+              {isAdmin ? (
+                <HubInboxViewersPicker
+                  connectionId={whatsappConfig?.connection_id ?? null}
+                  disabled={whatsappSaving || whatsappLoading}
+                  value={whatsappInboxAccess}
+                  onChange={setWhatsappInboxAccess}
+                />
+              ) : null}
+
               <div className="rounded-md border border-dashed p-3 space-y-2">
                 <p className="text-sm font-medium">Enviar mensagem de teste</p>
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
@@ -1107,6 +1767,11 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
                   </Button>
                 </div>
               </div>
+
+              <p className="text-xs text-muted-foreground">
+                O teste usa a prioridade do portal: oficial por padrão; ative preferência Evolution no card Evolution
+                se quiser usar o Baileys.
+              </p>
 
               <p className="text-xs text-muted-foreground">
                 Defina <code className="rounded bg-muted px-1">WHATSAPP_APP_SECRET</code> ou{' '}
@@ -1141,6 +1806,333 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
               onClick={() => void handleSaveWhatsappConfig()}
             >
               {whatsappSaving ? 'Salvando…' : 'Salvar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={evolutionDialogOpen}
+        onOpenChange={(open) => {
+          setEvolutionDialogOpen(open)
+          if (!open) {
+            resetEvolutionQrState()
+            setEvolutionApiKey('')
+            setEvolutionTestTo('')
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Configurar WhatsApp Evolution API</DialogTitle>
+            <DialogDescription>
+              Configure a instância Evolution, conecte o WhatsApp pelo QR Code abaixo e aponte o webhook para a URL indicada.
+            </DialogDescription>
+          </DialogHeader>
+
+          {evolutionLoading ? (
+            <div className="flex items-center gap-2 py-8 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Carregando Evolution…
+            </div>
+          ) : (
+            <div className="space-y-4 py-2">
+              {evolutionConfig?.webhook_url ? (
+                <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm space-y-1">
+                  <div>
+                    <span className="font-medium">Webhook (POST): </span>
+                    <code className="break-all text-xs">{evolutionConfig.webhook_url}</code>
+                  </div>
+                  {evolutionConfig.webhook_secret_configured ? (
+                    <p className="text-xs text-muted-foreground">
+                      Configure o header <code className="rounded bg-muted px-1">x-whatsapp-evolution-secret</code> na
+                      Evolution com o mesmo valor de WHATSAPP_EVOLUTION_WEBHOOK_SECRET.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Opcional: defina WHATSAPP_EVOLUTION_WEBHOOK_SECRET no app e repita o valor em um header customizado
+                      na Evolution.
+                    </p>
+                  )}
+                </div>
+              ) : null}
+
+              <div className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground space-y-2">
+                <p>
+                  Se a Evolution roda no Docker, o webhook não pode ser <code className="rounded bg-muted px-1">localhost</code>{' '}
+                  — use{' '}
+                  <code className="rounded bg-muted px-1 break-all">
+                    http://host.docker.internal:3000/api/webhooks/whatsapp-evolution
+                  </code>
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={evolutionStatusChecking}
+                    onClick={() => void handleEvolutionDiagnostics()}
+                  >
+                    {evolutionStatusChecking ? 'Verificando…' : 'Verificar integração (24h)'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={evolutionSyncing || !evolutionEditingConnectionId}
+                    onClick={() => void handleEvolutionSyncChats()}
+                  >
+                    {evolutionSyncing ? 'Sincronizando…' : 'Sincronizar conversas (incl. grupos)'}
+                  </Button>
+                </div>
+                {evolutionStatusHints && evolutionStatusHints.length > 0 ? (
+                  <ul className="list-disc pl-4 space-y-1 text-foreground">
+                    {evolutionStatusHints.map((h) => (
+                      <li key={h}>{h}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => startNewEvolutionInstance()}>
+                  Nova instância
+                </Button>
+              </div>
+              {(evolutionConfig?.instances?.length ?? 0) > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {evolutionConfig?.instances.map((inst) => (
+                    <Button
+                      key={inst.connection_id}
+                      type="button"
+                      size="sm"
+                      variant={evolutionEditingConnectionId === inst.connection_id ? 'default' : 'outline'}
+                      onClick={() => selectEvolutionInstanceForEdit(inst)}
+                    >
+                      {inst.display_label}
+                    </Button>
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="space-y-2">
+                <Label htmlFor="evo-label">Nome no portal (opcional)</Label>
+                <Input
+                  id="evo-label"
+                  value={evolutionLabel}
+                  onChange={(e) => setEvolutionLabel(e.target.value)}
+                  placeholder="ex: Loja centro"
+                  autoComplete="off"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="evo-instance">Nome da instância (Evolution)</Label>
+                <Input
+                  id="evo-instance"
+                  value={evolutionInstanceName}
+                  onChange={(e) => setEvolutionInstanceName(e.target.value)}
+                  placeholder="ex: conectize-prod"
+                  autoComplete="off"
+                />
+              </div>
+
+              <div className="rounded-lg border bg-muted/20 p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-medium">Conexão WhatsApp (QR Code)</p>
+                    <p className="text-xs text-muted-foreground">
+                      Gera o QR na Evolution API e aguarda o pareamento no celular.
+                    </p>
+                  </div>
+                  <Badge
+                    variant={
+                      evolutionConnectionState === 'open'
+                        ? 'default'
+                        : evolutionConnectionState === 'connecting'
+                          ? 'secondary'
+                          : 'outline'
+                    }
+                  >
+                    {evolutionConnectionState === 'open'
+                      ? 'Conectado'
+                      : evolutionConnectionState === 'connecting'
+                        ? 'Aguardando leitura'
+                        : evolutionConnectionState === 'close'
+                          ? 'Desconectado'
+                          : 'Status desconhecido'}
+                  </Badge>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="default"
+                    size="sm"
+                    disabled={evolutionQrLoading || !evolutionInstanceName.trim()}
+                    onClick={() => void handleEvolutionStartQrConnect()}
+                  >
+                    {evolutionQrLoading ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <QrCode className="mr-2 h-4 w-4" />
+                    )}
+                    {evolutionQrBase64 ? 'Atualizar QR Code' : 'Conectar via QR Code'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={evolutionQrLoading || !evolutionInstanceName.trim()}
+                    onClick={() => void refreshEvolutionConnectionState()}
+                  >
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Verificar status
+                  </Button>
+                </div>
+
+                {evolutionPairingCode ? (
+                  <p className="text-xs text-muted-foreground">
+                    Código de pareamento: <span className="font-mono font-medium text-foreground">{evolutionPairingCode}</span>
+                  </p>
+                ) : null}
+
+                {evolutionQrBase64 ? (
+                  <div className="flex flex-col items-center gap-2 rounded-md border bg-background p-4">
+                    <img
+                      src={evolutionQrBase64}
+                      alt="QR Code WhatsApp Evolution"
+                      className="h-52 w-52 max-w-full object-contain"
+                    />
+                    <p className="text-center text-xs text-muted-foreground max-w-sm">
+                      No WhatsApp: Menu → Aparelhos conectados → Conectar aparelho → escaneie o QR Code.
+                      {evolutionQrPolling ? ' Aguardando confirmação…' : ''}
+                    </p>
+                  </div>
+                ) : evolutionConnectionState === 'open' ? (
+                  <p className="text-sm text-green-700 dark:text-green-400">
+                    Instância conectada. Salve as configurações e sincronize as conversas se necessário.
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="evo-key">API key (header apikey)</Label>
+                <Input
+                  id="evo-key"
+                  type="password"
+                  value={evolutionApiKey}
+                  onChange={(e) => setEvolutionApiKey(e.target.value)}
+                  placeholder={
+                    evolutionConfig?.env_api_key_fallback
+                      ? 'Opcional se WHATSAPP_EVOLUTION_API_KEY estiver no servidor'
+                      : evolutionConfig?.instances.find((i) => i.connection_id === evolutionEditingConnectionId)?.access_token_masked
+                        ? `Atual: ${evolutionConfig.instances.find((i) => i.connection_id === evolutionEditingConnectionId)?.access_token_masked}`
+                        : 'Mesmo AUTHENTICATION_API_KEY da Evolution'
+                  }
+                  autoComplete="off"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="evo-base">URL base da Evolution (override opcional)</Label>
+                <Input
+                  id="evo-base"
+                  value={evolutionBaseOverride}
+                  onChange={(e) => setEvolutionBaseOverride(e.target.value)}
+                  placeholder={
+                    evolutionConfig?.uses_env_api_base
+                      ? 'Deixe vazio para usar WHATSAPP_EVOLUTION_API_URL'
+                      : 'https://evolution.seudominio.com'
+                  }
+                  autoComplete="off"
+                />
+              </div>
+
+              <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
+                <div>
+                  <p className="text-sm font-medium">Preferir Evolution para envio</p>
+                  <p className="text-xs text-muted-foreground">
+                    Se o WhatsApp oficial também estiver ativo, mensagens do portal usam Evolution quando ligado.
+                  </p>
+                </div>
+                <Switch checked={evolutionPreferred} onCheckedChange={setEvolutionPreferred} />
+              </div>
+
+              <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
+                <div>
+                  <p className="text-sm font-medium">Atendimento automatizado por IA (Evolution inbound)</p>
+                  <p className="text-xs text-muted-foreground">
+                    Fluxo igual ao oficial: mensagens vindas pela Evolution podem responder via ChatGPT.
+                  </p>
+                </div>
+                <Switch checked={evolutionAutomation} onCheckedChange={setEvolutionAutomation} />
+              </div>
+
+              {isAdmin ? (
+                <HubInboxViewersPicker
+                  connectionId={evolutionEditingConnectionId}
+                  disabled={evolutionSaving || evolutionLoading}
+                  value={evolutionInboxAccess}
+                  onChange={setEvolutionInboxAccess}
+                />
+              ) : null}
+
+              <div className="rounded-md border border-dashed p-3 space-y-2">
+                <p className="text-sm font-medium">Teste direto via Evolution API</p>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                  <div className="flex-1 space-y-1">
+                    <Label htmlFor="evo-test-to">Número (DDI + DDD)</Label>
+                    <Input
+                      id="evo-test-to"
+                      value={evolutionTestTo}
+                      onChange={(e) => setEvolutionTestTo(e.target.value)}
+                      placeholder="5511999999999"
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={evolutionTestSending || !evolutionEditingConnectionId}
+                    onClick={() => void handleSendEvolutionTest()}
+                  >
+                    {evolutionTestSending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      'Enviar teste'
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="flex-wrap gap-2">
+            {evolutionEditingConnectionId ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="text-destructive hover:text-destructive"
+                disabled={evolutionSaving}
+                onClick={() => void handleDisconnectEvolutionConfig()}
+              >
+                Remover instância
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              disabled={evolutionSaving}
+              onClick={() => setEvolutionDialogOpen(false)}
+            >
+              Fechar
+            </Button>
+            <Button
+              type="button"
+              disabled={evolutionSaving || evolutionLoading}
+              onClick={() => void handleSaveEvolutionConfig()}
+            >
+              {evolutionSaving ? 'Salvando…' : 'Salvar'}
             </Button>
           </DialogFooter>
         </DialogContent>

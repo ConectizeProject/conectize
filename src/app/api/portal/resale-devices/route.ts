@@ -1,5 +1,12 @@
 import { NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import {
+  applyResaleDevicesListFilters,
+  DEVICE_SELECT,
+  parseResaleDevicesPagination,
+  resaleDevicesListOrder,
+  type ResaleDevicesListFilterParams,
+} from '@/lib/resale/resale-devices-list-filters'
 
 function cleanText(value: unknown): string {
   return String(value ?? '').trim()
@@ -49,90 +56,42 @@ export async function GET(request: Request) {
   const stockType = String(searchParams.get('stockType') || '').trim()
   const deviceName = String(searchParams.get('deviceName') || '').trim()
 
-  const soldFilter = soldParam === 'true' ? true : false
+  const soldFilter = soldParam === 'true'
+  const listFilters: ResaleDevicesListFilterParams = {
+    soldFilter,
+    q,
+    condition,
+    storageGb,
+    color,
+    purchaseDateFrom,
+    purchaseDateTo,
+    stockType,
+    deviceName,
+  }
+  const { limit, offset } = parseResaleDevicesPagination(
+    searchParams.get('limit'),
+    searchParams.get('offset'),
+  )
 
-  let query = auth.supabase
-    .from('resale_devices')
-    .select(`
-      id,
-      device_model_id,
-      device_name,
-      model,
-      color,
-      storage_gb,
-      battery,
-      condition,
-      info,
-      imei,
-      imei2,
-      serial,
-      purchase_value_cents,
-      wholesale_value_cents,
-      expected_profit_wholesale_cents,
-      sale_value_cents,
-      expected_profit_sale_cents,
-      sold_for_cents,
-      advertised,
-      tested,
-      label,
-      sold,
-      actual_profit_cents,
-      purchase_date,
-      sale_date,
-      payment_method_id,
-      payment_installments,
-      sale_payment_methods,
-      buyer_name,
-      buyer_cpf,
-      sale_details,
-      stock_type,
-      sale_commission_user_id,
-      image_url,
-      image_storage_path,
-      image_gallery_paths,
-      created_at,
-      updated_at
-    `)
-
-  if (soldFilter === true) {
-    query = query.eq('sold', true)
-  } else if (soldFilter === false) {
-    query = query.eq('sold', false)
+  let countQuery = applyResaleDevicesListFilters(
+    auth.supabase.from('resale_devices').select('id', { count: 'exact', head: true }),
+    listFilters,
+  )
+  let dataQuery = applyResaleDevicesListFilters(
+    auth.supabase.from('resale_devices').select(DEVICE_SELECT),
+    listFilters,
+  )
+  dataQuery = resaleDevicesListOrder(dataQuery, soldFilter)
+  if (limit != null) {
+    dataQuery = dataQuery.range(offset, offset + limit - 1)
   }
 
-  if (q) {
-    const escaped = q.replace(/%/g, '\\%').replace(/_/g, '\\_')
-    query = query.or(
-      `device_name.ilike.%${escaped}%,model.ilike.%${escaped}%,color.ilike.%${escaped}%,imei.ilike.%${escaped}%,info.ilike.%${escaped}%`
-    )
-  }
-  if (condition) {
-    query = query.eq('condition', condition)
-  }
-  if (storageGb) {
-    query = query.ilike('storage_gb', `%${storageGb}%`)
-  }
-  if (color) {
-    query = query.ilike('color', `%${color}%`)
-  }
-  if (purchaseDateFrom && /^\d{4}-\d{2}-\d{2}$/.test(purchaseDateFrom)) {
-    query = query.gte('purchase_date', purchaseDateFrom)
-  }
-  if (purchaseDateTo && /^\d{4}-\d{2}-\d{2}$/.test(purchaseDateTo)) {
-    query = query.lte('purchase_date', purchaseDateTo)
-  }
-  if (stockType === 'all') {
-    query = query.in('stock_type', ['seminovo', 'lacrado'])
-  } else if (stockType === 'seminovo' || stockType === 'lacrado') {
-    query = query.eq('stock_type', stockType)
-  }
-  if (deviceName) {
-    query = query.eq('device_name', deviceName)
-  }
+  const [{ count: totalCount, error: countError }, { data: devices, error }] = await Promise.all([
+    limit != null ? countQuery : Promise.resolve({ count: null, error: null }),
+    dataQuery,
+  ])
 
-  const { data: devices, error } = await query.order('created_at', { ascending: false })
-
-  if (error) {
+  if (error || countError) {
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
   }
 
@@ -159,7 +118,14 @@ export async function GET(request: Request) {
     costs: costsMap[(d.id as string)] || [],
   }, auth.isAdmin))
 
-  return NextResponse.json({ ok: true, devices: list })
+  const total = limit != null && typeof totalCount === 'number' ? totalCount : list.length
+  const hasMore = limit != null && offset + list.length < total
+
+  return NextResponse.json({
+    ok: true,
+    devices: list,
+    ...(limit != null ? { total, hasMore, limit, offset } : {}),
+  })
 }
 
 export async function POST(request: Request) {

@@ -89,12 +89,16 @@ type Props = {
     /** Catálogo revenda (GET): texto mascarado. */
     valueMin?: string
     valueMax?: string
+    /** Catálogo: incluir aparelhos já vendidos. */
+    includeSold?: boolean
   }
-  /** GET do formulário de filtros (rota seminovos, novos ou listagem revenda). */
+  /** GET do formulário de filtros (listagem de revenda). */
   filterFormAction: string
   distinctDeviceNames: string[]
   /** Listagem catálogo revenda: sem chips operacionais; `quickFilters` pode ser dummy. */
   catalogMode?: boolean
+  /** Exibe opção de incluir vendidos (somente admin no catálogo). */
+  showIncludeSoldFilter?: boolean
   /** Conteúdo após Aplicar / filtros detalhados (ex.: toggle na mesma linha). */
   trailingSlot?: ReactNode
   quickFilters: {
@@ -135,6 +139,7 @@ function seminovosFilterHref (
   const vmax = (iv.valueMax || '').trim()
   if (!omit.has('valueMin') && vmin) p.set('valueMin', vmin)
   if (!omit.has('valueMax') && vmax) p.set('valueMax', vmax)
+  if (!omit.has('sold') && iv.includeSold) p.set('sold', '1')
   const qs = p.toString()
   return qs ? `${basePath}?${qs}` : basePath
 }
@@ -148,7 +153,8 @@ function hasUrlExtraFilters (initialValues: Props['initialValues']) {
     initialValues.purchaseDateFrom ||
     initialValues.purchaseDateTo ||
     (initialValues.valueMin || '').trim() ||
-    (initialValues.valueMax || '').trim(),
+    (initialValues.valueMax || '').trim() ||
+    initialValues.includeSold,
   )
 }
 
@@ -157,6 +163,7 @@ export function SeminovosFilterCollapsible ({
   filterFormAction,
   distinctDeviceNames,
   catalogMode = false,
+  showIncludeSoldFilter = false,
   trailingSlot,
   quickFilters,
   extraAppliedChips = [],
@@ -206,6 +213,9 @@ export function SeminovosFilterCollapsible ({
     const vmax = (initialValues.valueMax || '').trim()
     if (vmin) rows.push({ id: 'vmin', text: `Valor de: R$ ${vmin}` })
     if (vmax) rows.push({ id: 'vmax', text: `Valor até: R$ ${vmax}` })
+    if (initialValues.includeSold) {
+      rows.push({ id: 'sold', text: 'Incluir vendidos' })
+    }
     return rows
   }, [initialValues])
 
@@ -228,12 +238,7 @@ export function SeminovosFilterCollapsible ({
 
   const showDetailFiltersIndicator = urlExtra || hasQuickActive
 
-  const clearHref =
-    initialValues.stockType === 'lacrado'
-      ? revendaPath.novos
-      : initialValues.stockType === 'seminovo'
-        ? revendaPath.seminovos
-        : revendaPath.listagem
+  const clearHref = revendaPath.listagem
 
   return (
     <div className="rounded-md border bg-card p-3">
@@ -415,6 +420,18 @@ export function SeminovosFilterCollapsible ({
               </div>
 
               <div className="sm:col-span-2 lg:col-span-3 xl:col-span-4 space-y-3">
+                {catalogMode && showIncludeSoldFilter ? (
+                  <label className="flex cursor-pointer items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      name="sold"
+                      value="1"
+                      defaultChecked={Boolean(initialValues.includeSold)}
+                      className="h-4 w-4 rounded border border-input"
+                    />
+                    <span>Incluir celulares já vendidos</span>
+                  </label>
+                ) : null}
                 {catalogMode ? null : (
                   <div className="flex flex-wrap gap-2">
                     <Button

@@ -29,7 +29,13 @@ type SearchParams = Promise<{
   deviceName?: string
   valueMin?: string
   valueMax?: string
+  sold?: string
 }>
+
+function looksLikeImeiSearch (q: string): boolean {
+  const digits = q.replace(/\D/g, '')
+  return digits.length >= 8
+}
 
 export default function RevendaAparelhosPage ({
   searchParams,
@@ -65,6 +71,8 @@ async function RevendaListagemInner ({
   if (!canAccess) redirect('/portal')
 
   const isRetailer = normalizedRole === 'retailer'
+  const isAdmin =
+    normalizedRole === 'admin' || normalizedRole === 'platform_admin'
 
   const params = await searchParams
   const rawValueMin = String(params?.valueMin ?? '').trim()
@@ -76,8 +84,12 @@ async function RevendaListagemInner ({
   const valueMaxCents =
     valueMaxParsed != null && valueMaxParsed > 0 ? valueMaxParsed : null
 
+  const q = String(params?.q || '').trim()
+  const includeSoldByFilter = isAdmin && params?.sold === '1'
+  const includeSold = includeSoldByFilter || looksLikeImeiSearch(q)
+
   const filters = {
-    q: String(params?.q || '').trim(),
+    q,
     condition: String(params?.condition || '').trim(),
     storageGb: String(params?.storageGb || '').trim(),
     color: String(params?.color || '').trim(),
@@ -91,6 +103,7 @@ async function RevendaListagemInner ({
     deviceName: String(params?.deviceName || '').trim(),
     valueMinCents,
     valueMaxCents,
+    includeSold,
   }
 
   const filterInitialValues = {
@@ -104,14 +117,23 @@ async function RevendaListagemInner ({
     deviceName: filters.deviceName,
     valueMin: rawValueMin,
     valueMax: rawValueMax,
+    includeSold: includeSoldByFilter,
   }
 
   const supabase = await createSupabaseServerClient()
-  const [devices, paymentMethods, distinctDeviceNames] = await Promise.all([
+  const [devicesRaw, paymentMethods, distinctDeviceNames] = await Promise.all([
     fetchSeminovosDevices(supabase, filters),
     fetchPaymentMethodsCatalogForPortal(supabase),
     fetchResaleDistinctDeviceNames(supabase, 'all'),
   ])
+
+  const devices = isAdmin
+    ? devicesRaw
+    : devicesRaw.map((d) => ({
+        ...d,
+        purchase_value_cents: null,
+        costs: [],
+      }))
 
   const orderedDevices = groupDevicesByModel(devices).flatMap((g) => g.devices)
   const devicesWithDisplay = await Promise.all(
@@ -123,6 +145,7 @@ async function RevendaListagemInner ({
       devices={devicesWithDisplay}
       paymentMethods={paymentMethods}
       isRetailer={isRetailer}
+      isAdmin={isAdmin}
       filterInitialValues={filterInitialValues}
       distinctDeviceNames={distinctDeviceNames}
     />

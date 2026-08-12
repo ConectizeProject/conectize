@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
 
   let query = auth.supabase
     .from('financial_transactions')
-    .select('id, conta_id, amount_cents, type, description, occurred_at, created_at, transfer_id, recurring_expense_id, service_order_id, resale_device_id, contas(name)')
+    .select('id, conta_id, amount_cents, type, description, occurred_at, created_at, transfer_id, recurring_expense_id, service_order_id, sales_order_id, resale_device_id, contas(name)')
     .eq('organization_id', auth.organizationId)
     .order('occurred_at', { ascending: false })
     .order('created_at', { ascending: false })
@@ -56,6 +56,13 @@ export async function GET(request: NextRequest) {
         .filter((id): id is string => Boolean(id)),
     ),
   ]
+  const salesOrderIds = [
+    ...new Set(
+      (transactions ?? [])
+        .map((t) => (t as { sales_order_id?: string | null }).sales_order_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ]
   const displayByOrderId: Record<string, number | null> = {}
   if (serviceOrderIds.length > 0) {
     const { data: soRows } = await auth.supabase
@@ -68,18 +75,41 @@ export async function GET(request: NextRequest) {
       displayByOrderId[row.id] = row.display_number
     }
   }
+  const salesOrderNumberById: Record<string, number | null> = {}
+  if (salesOrderIds.length > 0) {
+    const { data: salesRows } = await auth.supabase
+      .from('sales_orders')
+      .select('id, order_number')
+      .eq('organization_id', auth.organizationId)
+      .in('id', salesOrderIds)
+    for (const r of salesRows ?? []) {
+      const row = r as { id: string; order_number: number | null }
+      salesOrderNumberById[row.id] = row.order_number
+    }
+  }
 
   const merged = (transactions ?? []).map((t: Record<string, unknown>) => {
     const contaId = t.conta_id as string
     const conta = t.contas as { name?: string } | null
     const serviceOrderId = t.service_order_id as string | null
+    const salesOrderId = t.sales_order_id as string | null
     const resaleDeviceId = t.resale_device_id as string | null
     const description = (t.description as string) ?? ''
-    const pdvMatch = description.match(/^PDV:([0-9a-fA-F-]{36}):/)
-    const posSaleId = pdvMatch?.[1] ?? null
-    const visibleDescription = pdvMatch ? description.replace(/^PDV:[0-9a-fA-F-]{36}:/, '').trim() : description
-    const source = serviceOrderId ? 'os' : resaleDeviceId ? 'seminovo' : posSaleId ? 'pdv' : 'transaction'
-    const editable = !serviceOrderId && !resaleDeviceId && !posSaleId
+    const legacyPdvMatch = description.match(/^PDV:([0-9a-fA-F-]{36}):/)
+    const isLegacyPdv = Boolean(legacyPdvMatch)
+    const visibleDescription = legacyPdvMatch
+      ? description.replace(/^PDV:[0-9a-fA-F-]{36}:/, '').trim()
+      : description
+    const source = serviceOrderId
+      ? 'os'
+      : salesOrderId
+        ? 'pdv'
+        : resaleDeviceId
+          ? 'seminovo'
+          : isLegacyPdv
+            ? 'pdv'
+            : 'transaction'
+    const editable = !serviceOrderId && !salesOrderId && !resaleDeviceId && !isLegacyPdv
     const serviceOrderHref = serviceOrderId
       ? getOrdemPortalPath({
           id: serviceOrderId,
@@ -101,7 +131,8 @@ export async function GET(request: NextRequest) {
       service_order_id: serviceOrderId,
       service_order_href: serviceOrderHref,
       resale_device_id: resaleDeviceId,
-      pos_sale_id: posSaleId,
+      sales_order_id: salesOrderId,
+      sales_order_href: salesOrderId ? `/portal/pedidos-venda/${salesOrderId}` : null,
       editable,
     }
   }).sort((a, b) => {

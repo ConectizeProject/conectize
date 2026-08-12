@@ -55,7 +55,7 @@ export async function applyOrderStatusChange (
   const { data: existing, error: fetchErr } = await supabase
     .from('service_orders')
     .select(
-      'status, services, closed_at, device_exit_checks, warranty_template_id, warranty_text',
+      'status, services, closed_at, device_exit_checks, warranty_template_id, warranty_text, organization_id',
     )
     .eq('id', orderId)
     .maybeSingle()
@@ -117,7 +117,9 @@ export async function applyOrderStatusChange (
   }
 
   const updatePayload: Record<string, unknown> = { status: nextStatus }
-  if (FINALIZED_ORDER_STATUS_SET.has(nextStatus)) {
+  const wasFinalized = FINALIZED_ORDER_STATUS_SET.has(previousStatus)
+  const willBeFinalized = FINALIZED_ORDER_STATUS_SET.has(nextStatus)
+  if (willBeFinalized && !wasFinalized) {
     updatePayload.closed_at = new Date().toISOString()
   }
 
@@ -137,20 +139,30 @@ export async function applyOrderStatusChange (
   )
   if (diffRows.length > 0) {
     const editedAt = new Date().toISOString()
-    const { error: histErr } = await supabase
-      .from('service_order_edit_history')
-      .insert(
-        diffRows.map((r) => ({
-          service_order_id: orderId,
-          edited_by: editorUserId,
-          edited_at: editedAt,
-          field_key: r.field_key,
-          old_value: r.old_value,
-          new_value: r.new_value,
-        })),
-      )
-    if (histErr) {
-      console.error('[applyOrderStatusChange edit-history]', histErr)
+    const organizationId = String(
+      (existing as { organization_id?: string | null }).organization_id || '',
+    ).trim()
+    if (!organizationId) {
+      console.error('[applyOrderStatusChange edit-history] missing organization_id', {
+        orderId,
+      })
+    } else {
+      const { error: histErr } = await supabase
+        .from('service_order_edit_history')
+        .insert(
+          diffRows.map((r) => ({
+            service_order_id: orderId,
+            organization_id: organizationId,
+            edited_by: editorUserId,
+            edited_at: editedAt,
+            field_key: r.field_key,
+            old_value: r.old_value,
+            new_value: r.new_value,
+          })),
+        )
+      if (histErr) {
+        console.error('[applyOrderStatusChange edit-history]', histErr)
+      }
     }
   }
 

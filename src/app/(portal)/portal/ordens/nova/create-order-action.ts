@@ -6,6 +6,10 @@ import {
   getPortalOrganizationId,
 } from '@/lib/organizations/portal-organization-context'
 import {
+  parseOrderDiscountCommissionFromFormData,
+  toOrderDiscountCommissionDbPayload,
+} from '@/lib/orders/order-discount-commission'
+import {
   parsePaymentMethodsJson,
   parseServicesJson,
 } from '@/lib/orders/order-form-parsers'
@@ -44,13 +48,16 @@ export async function createOrderAction(formData: FormData) {
   const servicesJson = formData.get('servicesJson')
   const services = parseServicesJson(servicesJson)
   const paymentMethods = parsePaymentMethodsJson(paymentMethodsJson)
+  let discountCommission = toOrderDiscountCommissionDbPayload(
+    parseOrderDiscountCommissionFromFormData(formData),
+    services.totalValueCents,
+  )
 
   const estimatedReadyAt = previsaoToISO(estimatedReadyAtRaw)
 
   const brand = String(formData.get('brand') || '').trim()
   const model = String(formData.get('model') || '').trim()
   const deviceType = String(formData.get('deviceType') || '').trim()
-  const service = ''
 
   if (!document || (document.length !== 11 && document.length !== 14)) {
     redirect(`/portal/ordens/nova?error=${document && document.length > 11 ? 'cnpj_invalido' : 'cpf_invalido'}`)
@@ -97,6 +104,24 @@ export async function createOrderAction(formData: FormData) {
     if (sellerMember?.user_id) sellerUserId = sellerMember.user_id
   }
 
+  if (discountCommission.commission_user_id) {
+    const { data: commissionUser } = await supabase
+      .from('users')
+      .select('id')
+      .eq('id', discountCommission.commission_user_id)
+      .in('role', ['admin', 'staff'])
+      .maybeSingle()
+    if (!commissionUser?.id) {
+      discountCommission = {
+        ...discountCommission,
+        commission_user_id: null,
+        commission_kind: null,
+        commission_fixed_cents: null,
+        commission_percent: null,
+      }
+    }
+  }
+
   let deviceEntryChecks: unknown = null
   if (deviceEntryChecksJson && typeof deviceEntryChecksJson === 'string') {
     try {
@@ -113,9 +138,6 @@ export async function createOrderAction(formData: FormData) {
       customer_id: customerId,
       title,
       status,
-      brand: brand || null,
-      model: model || null,
-      service: service || null,
       created_by: user.id,
       seller_user_id: sellerUserId,
       device_model_id: deviceModelId,
@@ -134,6 +156,7 @@ export async function createOrderAction(formData: FormData) {
       services: services.items,
       services_total_cents: services.totalValueCents,
       services_cost_total_cents: services.totalCostCents,
+      ...discountCommission,
     })
     .select('id, display_number')
     .single()

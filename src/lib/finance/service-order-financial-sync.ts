@@ -56,14 +56,6 @@ type ResaleDeviceFinanceRow = {
   sale_date: string | null
 }
 
-type PdvSaleFinanceRow = {
-  id: string
-  organization_id: string
-  sale_number: number | null
-  status: string
-  updated_at: string | null
-}
-
 type SalesOrderFinanceRow = {
   id: string
   organization_id: string
@@ -324,7 +316,7 @@ export async function backfillServiceOrderFinancialTransactionsByOrganization ({
   const toIso = toSaoPauloIsoEnd(hasToDate ? String(toDate) : '2999-12-31')
 
   if (hasFromDate || hasToDate) {
-    const [ordersResult, resaleResult, pdvResult] = await Promise.all([
+    const [ordersResult, resaleResult, salesOrdersResult] = await Promise.all([
       syncOrdersByPeriodSignals({
         supabase,
         organizationId,
@@ -339,7 +331,7 @@ export async function backfillServiceOrderFinancialTransactionsByOrganization ({
         toIso,
         pageSize: safePageSize,
       }),
-      syncPdvSalesByPeriod({
+      syncSalesOrdersByPeriod({
         supabase,
         organizationId,
         fromIso,
@@ -350,11 +342,11 @@ export async function backfillServiceOrderFinancialTransactionsByOrganization ({
     return {
       syncedOrders: ordersResult.syncedOrders,
       syncedResaleDevices: resaleResult.syncedResaleDevices,
-      syncedPdvSales: pdvResult.syncedPdvSales,
+      syncedSalesOrders: salesOrdersResult.syncedSalesOrders,
     }
   }
 
-  const [allOrdersResult, allResaleResult, allPdvResult] = await Promise.all([
+  const [allOrdersResult, allResaleResult, allSalesOrdersResult] = await Promise.all([
     syncAllOrdersByOrganization({
       supabase,
       organizationId,
@@ -365,7 +357,7 @@ export async function backfillServiceOrderFinancialTransactionsByOrganization ({
       organizationId,
       pageSize: safePageSize,
     }),
-    syncAllPdvSalesByOrganization({
+    syncAllSalesOrdersByOrganization({
       supabase,
       organizationId,
       pageSize: safePageSize,
@@ -375,7 +367,7 @@ export async function backfillServiceOrderFinancialTransactionsByOrganization ({
   return {
     syncedOrders: allOrdersResult.syncedOrders,
     syncedResaleDevices: allResaleResult.syncedResaleDevices,
-    syncedPdvSales: allPdvResult.syncedPdvSales,
+    syncedSalesOrders: allSalesOrdersResult.syncedSalesOrders,
   }
 }
 
@@ -904,6 +896,107 @@ async function fetchSalesOrderForSync ({
   return (data ?? null) as SalesOrderFinanceRow | null
 }
 
+async function syncAllSalesOrdersByOrganization ({
+  supabase,
+  organizationId,
+  pageSize,
+}: {
+  supabase: SupabaseClient
+  organizationId: string
+  pageSize: number
+}) {
+  let from = 0
+  let syncedSalesOrders = 0
+
+  while (true) {
+    const to = from + pageSize - 1
+    const { data, error } = await supabase
+      .from('sales_orders')
+      .select('id, organization_id, order_number, status, updated_at, change_cents, total_cents')
+      .eq('organization_id', organizationId)
+      .eq('status', 'paid')
+      .range(from, to)
+      .order('updated_at', { ascending: false })
+    if (error) {
+      throw new Error(`Erro ao carregar pedidos de venda para backfill financeiro: ${error.message}`)
+    }
+    const rows = (data ?? []) as SalesOrderFinanceRow[]
+    if (rows.length === 0) break
+
+    for (const row of rows) {
+      await syncSalesOrderFinancialTransactions({
+        supabase,
+        organizationId,
+        orderId: row.id,
+        orderRow: row,
+      })
+      syncedSalesOrders += 1
+    }
+    if (rows.length < pageSize) break
+    from += pageSize
+  }
+
+  return { syncedSalesOrders }
+}
+
+async function syncSalesOrdersByPeriod ({
+  supabase,
+  organizationId,
+  fromIso,
+  toIso,
+  pageSize,
+}: {
+  supabase: SupabaseClient
+  organizationId: string
+  fromIso: string
+  toIso: string
+  pageSize: number
+}) {
+  const orderIds = new Set<string>()
+
+  const { data: paymentRows, error: paymentsError } = await supabase
+    .from('sales_order_payments')
+    .select('sales_order_id')
+    .eq('organization_id', organizationId)
+    .gte('created_at', fromIso)
+    .lte('created_at', toIso)
+  if (paymentsError) {
+    throw new Error(`Erro ao buscar pagamentos de pedidos no período: ${paymentsError.message}`)
+  }
+  for (const row of paymentRows ?? []) {
+    const id = String((row as { sales_order_id?: string }).sales_order_id || '')
+    if (id) orderIds.add(id)
+  }
+
+  const ids = Array.from(orderIds)
+  if (ids.length === 0) return { syncedSalesOrders: 0 }
+
+  let syncedSalesOrders = 0
+  for (let i = 0; i < ids.length; i += pageSize) {
+    const chunk = ids.slice(i, i + pageSize)
+    const { data, error } = await supabase
+      .from('sales_orders')
+      .select('id, organization_id, order_number, status, updated_at, change_cents, total_cents')
+      .eq('organization_id', organizationId)
+      .eq('status', 'paid')
+      .in('id', chunk)
+    if (error) {
+      throw new Error(`Erro ao carregar pedidos de venda no período: ${error.message}`)
+    }
+    for (const row of (data ?? []) as SalesOrderFinanceRow[]) {
+      await syncSalesOrderFinancialTransactions({
+        supabase,
+        organizationId,
+        orderId: row.id,
+        orderRow: row,
+      })
+      syncedSalesOrders += 1
+    }
+  }
+
+  return { syncedSalesOrders }
+}
+
 async function dedupeSalesOrderFinancialTransactions ({
   supabase,
   orderId,
@@ -942,271 +1035,6 @@ async function dedupeSalesOrderFinancialTransactions ({
     .in('id', duplicateIds)
   if (deleteError) {
     throw new Error(`Erro ao remover duplicidades do pedido: ${deleteError.message}`)
-  }
-}
-
-export async function syncPdvSaleFinancialTransactions ({
-  supabase,
-  organizationId,
-  saleId,
-  saleRow,
-}: {
-  supabase: SupabaseClient
-  organizationId: string
-  saleId: string
-  saleRow?: PdvSaleFinanceRow
-}) {
-  const sale = saleRow ?? await fetchPdvSaleForSync({ supabase, organizationId, saleId })
-  if (!sale) return
-
-  const financeSupabase = getFinanceWriteClient(supabase)
-
-  const { error: deleteError } = await financeSupabase
-    .from('financial_transactions')
-    .delete()
-    .eq('organization_id', organizationId)
-    .like('description', `PDV:${sale.id}:%`)
-  if (deleteError) {
-    throw new Error(`Erro ao limpar transações financeiras antigas da venda PDV: ${deleteError.message}`)
-  }
-
-  if (sale.status !== 'paid') return
-
-  const { data: payments, error: paymentsError } = await supabase
-    .from('pos_sale_payments')
-    .select('id, payment_method_id, amount_cents, status, created_at')
-    .eq('organization_id', organizationId)
-    .eq('sale_id', sale.id)
-  if (paymentsError) {
-    throw new Error(`Erro ao buscar pagamentos da venda PDV: ${paymentsError.message}`)
-  }
-
-  const paidPayments = (payments ?? []).filter((p) => {
-    const row = p as { status?: string | null; amount_cents?: number | null }
-    return (row.status ?? 'paid') !== 'canceled' && Math.max(0, Number(row.amount_cents) || 0) > 0
-  }) as Array<{
-    id: string
-    payment_method_id: string | null
-    amount_cents: number
-    status: string | null
-    created_at: string | null
-  }>
-  if (paidPayments.length === 0) return
-
-  const paymentMethodIds = paidPayments
-    .map((p) => parseOptionalUuid(p.payment_method_id))
-    .filter((id): id is string => Boolean(id))
-  if (paymentMethodIds.length === 0) return
-
-  const { data: methods, error: methodsError } = await supabase
-    .from('payment_methods')
-    .select('id, conta_id, description')
-    .eq('organization_id', organizationId)
-    .in('id', paymentMethodIds)
-  if (methodsError) {
-    throw new Error(`Erro ao buscar contas das formas de pagamento do PDV: ${methodsError.message}`)
-  }
-
-  const contaByMethod = new Map<string, string>()
-  const descriptionByMethod = new Map<string, string>()
-  for (const method of (methods ?? []) as PaymentMethodRow[]) {
-    if (!method.conta_id) continue
-    contaByMethod.set(method.id, method.conta_id)
-    descriptionByMethod.set(method.id, String(method.description || '').trim())
-  }
-
-  const rows = paidPayments
-    .map((payment, index) => {
-      const methodId = parseOptionalUuid(payment.payment_method_id)
-      if (!methodId) return null
-      const contaId = contaByMethod.get(methodId)
-      if (!contaId) return null
-      const paymentMethodLabel = descriptionByMethod.get(methodId) || 'Metodo de pagamento'
-      const occurredAt = toSaoPauloDate(payment.created_at || sale.updated_at || new Date().toISOString())
-      return {
-        organization_id: organizationId,
-        conta_id: contaId,
-        amount_cents: Math.max(0, Number(payment.amount_cents) || 0),
-        type: 'entrada',
-        occurred_at: occurredAt,
-        description: `PDV:${sale.id}:Venda #${sale.sale_number ?? sale.id.slice(0, 8)} - ${paymentMethodLabel}`,
-      }
-    })
-    .filter(Boolean)
-
-  if (rows.length === 0) return
-
-  const { error: insertError } = await financeSupabase
-    .from('financial_transactions')
-    .insert(rows)
-  if (insertError) {
-    throw new Error(`Erro ao inserir transações financeiras da venda PDV: ${insertError.message}`)
-  }
-
-  await dedupePdvSaleFinancialTransactions({
-    supabase: financeSupabase,
-    saleId: sale.id,
-  })
-}
-
-async function fetchPdvSaleForSync ({
-  supabase,
-  organizationId,
-  saleId,
-}: {
-  supabase: SupabaseClient
-  organizationId: string
-  saleId: string
-}) {
-  const { data, error } = await supabase
-    .from('pos_sales')
-    .select('id, organization_id, sale_number, status, updated_at')
-    .eq('organization_id', organizationId)
-    .eq('id', saleId)
-    .maybeSingle()
-  if (error) {
-    throw new Error(`Erro ao carregar venda PDV para sincronização financeira: ${error.message}`)
-  }
-  return (data ?? null) as PdvSaleFinanceRow | null
-}
-
-async function syncAllPdvSalesByOrganization ({
-  supabase,
-  organizationId,
-  pageSize,
-}: {
-  supabase: SupabaseClient
-  organizationId: string
-  pageSize: number
-}) {
-  let from = 0
-  let syncedPdvSales = 0
-
-  while (true) {
-    const to = from + pageSize - 1
-    const { data, error } = await supabase
-      .from('pos_sales')
-      .select('id, organization_id, sale_number, status, updated_at')
-      .eq('organization_id', organizationId)
-      .range(from, to)
-      .order('updated_at', { ascending: false })
-    if (error) {
-      throw new Error(`Erro ao carregar vendas PDV para backfill financeiro: ${error.message}`)
-    }
-    const rows = (data ?? []) as PdvSaleFinanceRow[]
-    if (rows.length === 0) break
-
-    for (const row of rows) {
-      await syncPdvSaleFinancialTransactions({
-        supabase,
-        organizationId,
-        saleId: row.id,
-        saleRow: row,
-      })
-      syncedPdvSales += 1
-    }
-    if (rows.length < pageSize) break
-    from += pageSize
-  }
-
-  return { syncedPdvSales }
-}
-
-async function syncPdvSalesByPeriod ({
-  supabase,
-  organizationId,
-  fromIso,
-  toIso,
-  pageSize,
-}: {
-  supabase: SupabaseClient
-  organizationId: string
-  fromIso: string
-  toIso: string
-  pageSize: number
-}) {
-  const saleIds = new Set<string>()
-
-  const { data: paymentRows, error: paymentsError } = await supabase
-    .from('pos_sale_payments')
-    .select('sale_id')
-    .eq('organization_id', organizationId)
-    .gte('created_at', fromIso)
-    .lte('created_at', toIso)
-  if (paymentsError) {
-    throw new Error(`Erro ao buscar pagamentos do PDV no período: ${paymentsError.message}`)
-  }
-  for (const row of paymentRows ?? []) {
-    const id = String((row as { sale_id?: string }).sale_id || '')
-    if (id) saleIds.add(id)
-  }
-
-  const ids = Array.from(saleIds)
-  if (ids.length === 0) return { syncedPdvSales: 0 }
-
-  let syncedPdvSales = 0
-  for (let i = 0; i < ids.length; i += pageSize) {
-    const chunk = ids.slice(i, i + pageSize)
-    const { data, error } = await supabase
-      .from('pos_sales')
-      .select('id, organization_id, sale_number, status, updated_at')
-      .eq('organization_id', organizationId)
-      .in('id', chunk)
-    if (error) {
-      throw new Error(`Erro ao carregar vendas PDV filtradas para sincronização: ${error.message}`)
-    }
-    for (const row of (data ?? []) as PdvSaleFinanceRow[]) {
-      await syncPdvSaleFinancialTransactions({
-        supabase,
-        organizationId,
-        saleId: row.id,
-        saleRow: row,
-      })
-      syncedPdvSales += 1
-    }
-  }
-
-  return { syncedPdvSales }
-}
-
-async function dedupePdvSaleFinancialTransactions ({
-  supabase,
-  saleId,
-}: {
-  supabase: SupabaseClient
-  saleId: string
-}) {
-  const { data, error } = await supabase
-    .from('financial_transactions')
-    .select('id, conta_id, amount_cents, type, occurred_at, description')
-    .like('description', `PDV:${saleId}:%`)
-    .order('created_at', { ascending: false })
-  if (error) {
-    throw new Error(`Erro ao deduplicar transações financeiras do PDV: ${error.message}`)
-  }
-  const rows = (data ?? []) as Array<{
-    id: string
-    conta_id: string
-    amount_cents: number
-    type: string
-    occurred_at: string
-    description: string | null
-  }>
-  if (rows.length <= 1) return
-  const seen = new Set<string>()
-  const duplicateIds: string[] = []
-  for (const row of rows) {
-    const key = [row.conta_id, row.amount_cents, row.type, row.occurred_at, row.description ?? ''].join('|')
-    if (seen.has(key)) duplicateIds.push(row.id)
-    else seen.add(key)
-  }
-  if (duplicateIds.length === 0) return
-  const { error: deleteError } = await supabase
-    .from('financial_transactions')
-    .delete()
-    .in('id', duplicateIds)
-  if (deleteError) {
-    throw new Error(`Erro ao remover duplicidades do PDV: ${deleteError.message}`)
   }
 }
 

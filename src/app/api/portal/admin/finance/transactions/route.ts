@@ -29,6 +29,7 @@ export async function POST(request: NextRequest) {
     .select('id')
     .eq('id', contaId)
     .eq('organization_id', auth.organizationId)
+    .is('deleted_at', null)
     .maybeSingle()
   if (!contaRow) {
     return NextResponse.json({ ok: false, error: 'invalid_conta' }, { status: 400 })

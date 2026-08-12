@@ -78,8 +78,6 @@ function normalizeIso (value: unknown): string {
 
 function parseOrderPaymentMethodsForCompare (order: {
   payment_methods?: unknown
-  payment_method_id?: string | null
-  installments?: number | null
 }): Array<{ payment_method_id: string; installments?: number; value_cents?: number | null }> {
   let pm = order?.payment_methods
   if (typeof pm === 'string') {
@@ -102,10 +100,6 @@ function parseOrderPaymentMethodsForCompare (order: {
         }
       })
       .filter(Boolean) as Array<{ payment_method_id: string; installments?: number; value_cents?: number | null }>
-  }
-  const legacyId = parseOptionalUuid(order?.payment_method_id)
-  if (legacyId) {
-    return [{ payment_method_id: legacyId, installments: order?.installments ?? 1, value_cents: null }]
   }
   return []
 }
@@ -196,6 +190,7 @@ type NormalizedServiceLineForCompare = {
   valueCents: number
   costCents: number
   sourceProductId: string | null
+  noCost: boolean
 }
 
 /**
@@ -215,8 +210,9 @@ function normalizeServiceLineForCompare (item: unknown): NormalizedServiceLineFo
     Number.isFinite(quantityRaw) && quantityRaw > 0
       ? Math.min(9999, Math.max(1, quantityRaw))
       : 1
+  const noCost = i.noCost === true
   const unitValueCentsRaw = i.unitValueCents ?? i.valueCents ?? 0
-  const unitCostCentsRaw = i.unitCostCents ?? i.costCents ?? 0
+  const unitCostCentsRaw = noCost ? 0 : (i.unitCostCents ?? i.costCents ?? 0)
   const unitValueCents = Math.max(0, Math.round(Number(unitValueCentsRaw ?? 0) || 0))
   const unitCostCents = Math.max(0, Math.round(Number(unitCostCentsRaw ?? 0) || 0))
   const valueCents = Math.round(unitValueCents * quantity)
@@ -231,6 +227,7 @@ function normalizeServiceLineForCompare (item: unknown): NormalizedServiceLineFo
     valueCents,
     costCents,
     sourceProductId,
+    noCost,
   }
   if (!line.description && line.valueCents <= 0 && line.costCents <= 0) return null
   return line
@@ -246,6 +243,7 @@ function serviceLineCompareKey (a: NormalizedServiceLineForCompare): string {
     String(a.costCents),
     String(a.unitValueCents),
     String(a.unitCostCents),
+    a.noCost ? '1' : '0',
   ].join('\u0001')
 }
 
@@ -280,7 +278,7 @@ function serializeScalar (key: string, value: unknown): string {
   }
   if (typeof value === 'object') return JSON.stringify(value)
   if (typeof value === 'string') {
-    const t = ['title', 'imei', 'color', 'device_location', 'customer_description', 'receiving_notes', 'warranty_text', 'brand', 'model', 'passcode_text', 'passcode_pattern'].includes(key)
+    const t = ['title', 'imei', 'color', 'device_location', 'customer_description', 'receiving_notes', 'warranty_text', 'passcode_text', 'passcode_pattern'].includes(key)
     return t ? value.trim() : value
   }
   return String(value)
@@ -408,6 +406,13 @@ export const ORDER_EDIT_FIELD_LABELS: Record<string, string> = {
   passcode_text: 'Senha (texto)',
   passcode_pattern: 'Senha (padrão)',
   payment_methods: 'Formas de pagamento',
+  discount_cents: 'Desconto (R$)',
+  discount_mode: 'Tipo de desconto',
+  discount_percent: 'Desconto (%)',
+  commission_user_id: 'Comissão (colaborador)',
+  commission_kind: 'Tipo de comissão',
+  commission_fixed_cents: 'Comissão fixa (R$)',
+  commission_percent: 'Comissão (%)',
   customer_description: 'Descrição (cliente)',
   receiving_notes: 'Observações do recebimento',
   warranty_template_id: 'Modelo de garantia',

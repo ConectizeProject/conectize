@@ -4,9 +4,11 @@ import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { MoreHorizontal } from 'lucide-react'
+import { DollarSign, MoreHorizontal, Pencil, Trash2, Wallet } from 'lucide-react'
 
 import { ResaleDeviceStandardActionItems } from './ResaleDeviceStandardActionItems'
 
@@ -22,6 +24,13 @@ type Props = {
   onCopyLojista: () => void
   onCopyCliente: () => void
   onCopyImei: () => void
+  /** Ações exclusivas de administrador. */
+  isAdmin?: boolean
+  deviceSold?: boolean
+  onEdit?: () => void
+  onMarkSold?: () => void
+  onAddCost?: () => void
+  onDelete?: () => void
   triggerClassName?: string
   contentClassName?: string
   align?: 'start' | 'center' | 'end'
@@ -35,6 +44,12 @@ export function ResaleDeviceQuickActionsDropdown ({
   onCopyLojista,
   onCopyCliente,
   onCopyImei,
+  isAdmin = false,
+  deviceSold = false,
+  onEdit,
+  onMarkSold,
+  onAddCost,
+  onDelete,
   triggerClassName,
   contentClassName,
   align = 'end',
@@ -61,9 +76,41 @@ export function ResaleDeviceQuickActionsDropdown ({
         className={contentClassName}
         onCloseAutoFocus={(e) => e.preventDefault()}
       >
+        {isAdmin ? (
+          <>
+            {onEdit ? (
+              <DropdownMenuItem onClick={onEdit}>
+                <Pencil className="mr-1.5 h-3.5 w-3.5" />
+                Editar
+              </DropdownMenuItem>
+            ) : null}
+            {!deviceSold && onMarkSold ? (
+              <DropdownMenuItem onClick={onMarkSold}>
+                <DollarSign className="mr-1.5 h-3.5 w-3.5" />
+                Vendido
+              </DropdownMenuItem>
+            ) : null}
+            {onAddCost ? (
+              <DropdownMenuItem onClick={onAddCost}>
+                <Wallet className="mr-1.5 h-3.5 w-3.5" />
+                Adicionar custo
+              </DropdownMenuItem>
+            ) : null}
+            {onDelete ? (
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onClick={onDelete}
+              >
+                <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                Excluir
+              </DropdownMenuItem>
+            ) : null}
+            <DropdownMenuSeparator />
+          </>
+        ) : null}
         <ResaleDeviceStandardActionItems
           device={device}
-          includeSimulate={includeSimulate}
+          includeSimulate={includeSimulate && !deviceSold}
           onSimulate={onSimulate}
           onPrintLabel={onPrintLabel}
           onCopyLojista={onCopyLojista}

@@ -248,12 +248,13 @@ create unique index if not exists customers_auth_user_id_unique
   on public.customers(auth_user_id)
   where auth_user_id is not null;
 
-create unique index if not exists customers_cpf_unique
-  on public.customers(cpf)
+-- CPF/CNPJ únicos por organização (multi-tenant)
+create unique index if not exists customers_org_cpf_unique
+  on public.customers (organization_id, cpf)
   where cpf is not null;
 
-create unique index if not exists customers_cnpj_unique
-  on public.customers(cnpj)
+create unique index if not exists customers_org_cnpj_unique
+  on public.customers (organization_id, cnpj)
   where cnpj is not null;
 
 create index if not exists customers_cpf_idx
@@ -292,7 +293,11 @@ as $$
 declare
   existing_id uuid;
   existing_auth uuid;
+  existing_org uuid;
   u_email text;
+  org_id uuid;
+  ctx_org uuid;
+  v_host uuid;
 begin
   if auth.uid() is null then
     raise exception 'not_authenticated';
@@ -300,7 +305,6 @@ begin
 
   select email into u_email from auth.users where id = auth.uid();
 
-  -- CPF pertence a 1 conta (users.cpf)
   if exists (
     select 1
     from public.users u
@@ -310,7 +314,6 @@ begin
     raise exception 'cpf_already_claimed';
   end if;
 
-  -- Se já existe CPF na conta, não permite trocar por outro
   if exists (
     select 1
     from public.users u
@@ -321,7 +324,6 @@ begin
     raise exception 'cpf_mismatch';
   end if;
 
-  -- Garante users (e grava cpf/nome)
   insert into public.users (id, email, cpf, full_name)
   values (auth.uid(), u_email, cpf_input, name_input)
   on conflict (id)
@@ -330,39 +332,88 @@ begin
     cpf = coalesce(public.users.cpf, excluded.cpf),
     full_name = coalesce(excluded.full_name, public.users.full_name);
 
-  select id, auth_user_id
-    into existing_id, existing_auth
+  select id, auth_user_id, organization_id
+    into existing_id, existing_auth, existing_org
   from public.customers
   where cpf = cpf_input;
 
-  if existing_id is null then
-    insert into public.customers (cpf, full_name, email, auth_user_id)
-    values (cpf_input, name_input, u_email, auth.uid())
-    returning id into existing_id;
+  -- Já existe cliente com esse CPF: só vincula o auth (não troca de org).
+  if existing_id is not null then
+    if existing_auth is null then
+      update public.customers
+        set auth_user_id = auth.uid(),
+            full_name = coalesce(name_input, full_name),
+            email = coalesce(u_email, email)
+      where id = existing_id;
+      return existing_id;
+    end if;
 
-    return existing_id;
+    if existing_auth = auth.uid() then
+      update public.customers
+        set full_name = coalesce(name_input, full_name),
+            email = coalesce(u_email, email)
+      where id = existing_id;
+      return existing_id;
+    end if;
+
+    raise exception 'cpf_already_claimed';
   end if;
 
-  if existing_auth is null then
-    update public.customers
-      set auth_user_id = auth.uid(),
-          full_name = coalesce(name_input, full_name),
-          email = coalesce(u_email, email)
-    where id = existing_id;
+  select o.id into v_host
+  from public.organizations o
+  where o.is_host = true
+  order by o.id asc
+  limit 1;
 
-    return existing_id;
+  -- Preferir membership em org que NÃO é host (cadastro via link de OS / empresa).
+  select m.organization_id
+    into org_id
+  from public.organization_members m
+  where m.user_id = auth.uid()
+    and (v_host is null or m.organization_id <> v_host)
+  order by m.organization_id asc
+  limit 1;
+
+  if org_id is null then
+    ctx_org := public.current_organization_id();
+    if ctx_org is not null and exists (
+      select 1
+      from public.organization_members m
+      where m.user_id = auth.uid()
+        and m.organization_id = ctx_org
+    ) then
+      org_id := ctx_org;
+    end if;
   end if;
 
-  if existing_auth = auth.uid() then
-    update public.customers
-      set full_name = coalesce(name_input, full_name),
-          email = coalesce(u_email, email)
-    where id = existing_id;
-
-    return existing_id;
+  if org_id is null then
+    select m.organization_id
+      into org_id
+    from public.organization_members m
+    where m.user_id = auth.uid()
+    order by m.organization_id asc
+    limit 1;
   end if;
 
-  raise exception 'cpf_already_claimed';
+  if org_id is null then
+    org_id := v_host;
+  end if;
+
+  if org_id is null then
+    raise exception 'organization_required';
+  end if;
+
+  insert into public.customers (organization_id, cpf, full_name, email, auth_user_id)
+  values (org_id, cpf_input, name_input, u_email, auth.uid())
+  returning id into existing_id;
+
+  -- Alinha o contexto do portal à org do customer criado.
+  insert into public.user_portal_context (user_id, active_organization_id)
+  values (auth.uid(), org_id)
+  on conflict (user_id) do update
+    set active_organization_id = excluded.active_organization_id;
+
+  return existing_id;
 end;
 $$;
 
@@ -423,11 +474,6 @@ create table if not exists public.service_orders (
     'cancelada'
   )),
   title text not null,
-  description text,
-  device text,
-  brand text,
-  model text,
-  service text,
   created_by uuid null references auth.users(id) on delete set null,
   seller_user_id uuid null references auth.users(id) on delete set null,
   device_model_id uuid null references public.device_models(id) on delete set null,
@@ -459,8 +505,6 @@ alter table public.service_orders
   add column if not exists customer_description text,
   add column if not exists receiving_notes text,
   add column if not exists device_location text,
-  add column if not exists payment_method_id uuid,
-  add column if not exists installments integer,
   add column if not exists services jsonb,
   add column if not exists services_total_cents integer,
   add column if not exists services_cost_total_cents integer;

@@ -12,7 +12,7 @@ export function BrandCard ({ brand, serviceSlug }: BrandCardProps) {
     0
   )
   const totalDeviceTypes = Object.keys(brand.deviceTypes).length
-  const href = `/servicos/${brand.slug}/${serviceSlug}`
+  const href = `/servicos?marca=${brand.slug}&servico=${serviceSlug}`
   
   return (
     <Link

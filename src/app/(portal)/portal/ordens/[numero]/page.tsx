@@ -25,7 +25,7 @@ import {
 export const dynamic = 'force-dynamic'
 
 const ORDER_SELECT =
-	'id, display_number, status, title, imei, color, device_location, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, payment_methods, customer_description, receiving_notes, warranty_template_id, warranty_text, device_model_id, brand, model, services, services_total_cents, services_cost_total_cents, created_at, updated_at, closed_at, share_token, seller_user_id, device_entry_checks, device_exit_checks, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date, zip_code, state, city, neighborhood, street, street_number, street_complement, referral_source, referral_source_other ), device_models ( id, model, device_types ( name, device_brands ( name ) ) )'
+	'id, display_number, status, title, imei, color, device_location, is_warranty, estimated_ready_at, passcode_type, passcode_text, passcode_pattern, payment_methods, customer_description, receiving_notes, warranty_template_id, warranty_text, device_model_id, services, services_total_cents, services_cost_total_cents, discount_cents, discount_mode, discount_percent, commission_user_id, commission_kind, commission_fixed_cents, commission_percent, created_at, updated_at, closed_at, share_token, seller_user_id, device_entry_checks, device_exit_checks, customers ( id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date, zip_code, state, city, neighborhood, street, street_number, street_complement, referral_source, referral_source_other ), device_models ( id, model, device_types ( name, device_brands ( name ) ) )'
 
 type PageProps = {
 	params: Promise<{ numero: string }>
@@ -129,13 +129,11 @@ export default async function OrdemDetalhePage ({
 				.eq('id', sellerUserId)
 				.maybeSingle()
 			: Promise.resolve({ data: null }),
-		isAdmin
-			? supabase
-				.from('users')
-				.select('id, full_name, email')
-				.in('role', ['admin', 'staff'])
-				.order('email')
-			: Promise.resolve({ data: [] }),
+		supabase
+			.from('users')
+			.select('id, full_name, email')
+			.in('role', ['admin', 'staff'])
+			.order('email'),
 		supabase
 			.from('service_order_entry_photos')
 			.select('*', { count: 'exact', head: true })
@@ -164,10 +162,7 @@ export default async function OrdemDetalhePage ({
 	const deviceModel = getDeviceModelFromOrder(order)
 	const dt = (deviceModel as { device_types?: { name?: string; device_brands?: { name?: string } } } | null)?.device_types || null
 	const brandRow = dt?.device_brands || null
-	const brandName =
-		(brandRow?.name as string | undefined) ??
-		(order.brand as string | null) ??
-		''
+	const brandName = (brandRow?.name as string | undefined) ?? ''
 	const deviceTypeName = (dt?.name as string | undefined) ?? ''
 	const deviceString = deviceModel
 		? [
@@ -177,9 +172,7 @@ export default async function OrdemDetalhePage ({
 		]
 			.filter(Boolean)
 			.join(' • ') || ''
-		: order.brand || order.model
-			? [order.brand, order.model].filter(Boolean).join(' • ')
-			: ''
+		: ''
 
 	const openServicesModalInitially = String(servicesModal || '').trim() === '1'
 

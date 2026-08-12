@@ -1,9 +1,19 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Pencil, ArrowRightLeft, Plus, Loader2, Settings, Scale } from 'lucide-react'
+import { Pencil, ArrowRightLeft, Plus, Loader2, Settings, Scale, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import {
   Dialog,
   DialogContent,
@@ -56,6 +66,7 @@ export function FinanceiroBancosClient() {
   const [editContaName, setEditContaName] = useState('')
   const [editSaldoInicial, setEditSaldoInicial] = useState('')
   const [saving, setSaving] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<BankBalance | null>(null)
 
   const loadBanks = useCallback(async () => {
     setLoading(true)
@@ -96,7 +107,7 @@ export function FinanceiroBancosClient() {
   async function submitAdjust(e: React.FormEvent) {
     e.preventDefault()
     if (!editingBank) return
-    const cents = moneyToCentsFromMasked(newBalanceValue)
+    const cents = moneyToCentsFromMaskedSigned(newBalanceValue)
     if (cents === null) {
       toast({ title: 'Informe o novo saldo', variant: 'destructive' })
       return
@@ -172,7 +183,7 @@ export function FinanceiroBancosClient() {
   async function submitBalanceBaseUpdate(e: React.FormEvent) {
     e.preventDefault()
     if (!editingBank) return
-    const cents = moneyToCentsFromMasked(balanceBaseValue)
+    const cents = moneyToCentsFromMaskedSigned(balanceBaseValue)
     if (cents === null) {
       toast({ title: 'Informe o novo balanço', variant: 'destructive' })
       return
@@ -267,6 +278,32 @@ export function FinanceiroBancosClient() {
     }
   }
 
+  async function confirmDeleteConta () {
+    if (!deleteTarget) return
+    setSaving(true)
+    try {
+      const res = await portalFetch(`/api/portal/admin/banks/${deleteTarget.id}`, {
+        method: 'DELETE',
+      })
+      const data = await res?.json().catch(() => null)
+      if (data?.ok) {
+        toast({
+          title: 'Carteira removida',
+          description: 'O histórico de movimentações foi mantido.',
+        })
+        setDeleteTarget(null)
+        loadBanks()
+      } else {
+        toast({
+          title: data?.error === 'not_found' ? 'Carteira não encontrada' : 'Não foi possível remover',
+          variant: 'destructive',
+        })
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const totalCents = banks.reduce((s, b) => s + b.balance_cents, 0)
 
   return (
@@ -331,6 +368,15 @@ export function FinanceiroBancosClient() {
                         <Button variant="ghost" size="icon" onClick={() => openAdjust(b)} aria-label="Ajustar saldo">
                           <Pencil className="h-4 w-4" />
                         </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setDeleteTarget(b)}
+                          aria-label="Excluir carteira"
+                          className="text-destructive hover:text-destructive"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))
@@ -356,12 +402,14 @@ export function FinanceiroBancosClient() {
                 <Label>Novo saldo (R$)</Label>
                 <Input
                   value={newBalanceValue}
-                  onChange={(e) => setNewBalanceValue(formatMoneyInput(e.target.value))}
-                  placeholder="0,00"
-                  inputMode="numeric"
+                  onChange={(e) => setNewBalanceValue(formatMoneyInputSigned(e.target.value))}
+                  placeholder="-0,00"
+                  type="text"
+                  inputMode="text"
                   autoComplete="off"
                   className="tabular-nums"
                 />
+                <p className="text-xs text-muted-foreground mt-1">Use o sinal de menos no início para saldo negativo (ex.: -150,00).</p>
               </div>
               <div>
                 <Label>Descrição do ajuste (opcional)</Label>
@@ -397,12 +445,14 @@ export function FinanceiroBancosClient() {
                 <Label>Novo balanço atual (R$)</Label>
                 <Input
                   value={balanceBaseValue}
-                  onChange={(e) => setBalanceBaseValue(formatMoneyInput(e.target.value))}
-                  placeholder="0,00"
-                  inputMode="numeric"
+                  onChange={(e) => setBalanceBaseValue(formatMoneyInputSigned(e.target.value))}
+                  placeholder="-0,00"
+                  type="text"
+                  inputMode="text"
                   autoComplete="off"
                   className="tabular-nums"
                 />
+                <p className="text-xs text-muted-foreground mt-1">Digite o sinal de menos no início para valor negativo (ex.: -100,00).</p>
               </div>
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setBalanceBaseDialogOpen(false)}>Cancelar</Button>
@@ -546,6 +596,32 @@ export function FinanceiroBancosClient() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir carteira?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A carteira <strong>{deleteTarget?.name}</strong> será removida das listas e não poderá receber novos lançamentos.
+              O histórico de movimentações permanece visível em Movimentação.
+              Formas de pagamento vinculadas serão desassociadas e custos recorrentes desta carteira serão desativados.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={saving}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => {
+                e.preventDefault()
+                void confirmDeleteConta()
+              }}
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Excluir carteira'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }

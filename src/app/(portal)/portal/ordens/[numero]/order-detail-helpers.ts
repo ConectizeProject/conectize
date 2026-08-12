@@ -50,17 +50,6 @@ export function parseOrderPaymentMethods (
 			value_cents?: number | null
 		}>
 	}
-	const legacyId = parseOptionalUuid(order?.payment_method_id)
-	if (legacyId) {
-		return [
-			{
-				payment_method_id: legacyId,
-				installments:
-					order.installments != null ? Number(order.installments) || 1 : 1,
-				value_cents: null,
-			},
-		]
-	}
 	return []
 }
 

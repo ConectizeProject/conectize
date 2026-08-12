@@ -128,8 +128,8 @@ export function ResetPasswordClient() {
       setMessage('Senha atualizada com sucesso. Você já pode continuar.')
       router.refresh()
       router.replace('/portal')
-    } catch {
-      setErrorMessage('Não foi possível redefinir sua senha agora. Tente novamente.')
+    } catch (err) {
+      setErrorMessage(getAuthErrorMessage(err, 'Não foi possível redefinir sua senha agora. Tente novamente.'))
     } finally {
       setIsSubmitting(false)
     }

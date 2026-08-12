@@ -26,9 +26,13 @@ type StockData = {
 
 function originLabel (m: Movement) {
   const ref = String(m.externalReference || '')
+  if (m.source === 'sales_order' && ref.startsWith('sales_order:')) {
+    const orderId = ref.split(':')[1] || ''
+    return `Pedido de venda (${orderId.slice(0, 8)})`
+  }
   if (m.source === 'pdv_sale' && ref.startsWith('pdv_sale:')) {
     const saleId = ref.split(':')[1] || ''
-    return `Venda (${saleId.slice(0, 8)})`
+    return `Venda PDV legado (${saleId.slice(0, 8)})`
   }
   if (m.source === 'service_order' && ref.startsWith('service_order:')) {
     const orderId = ref.split(':')[1] || ''

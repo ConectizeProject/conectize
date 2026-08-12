@@ -59,7 +59,29 @@ describe('parseServicesJson', () => {
     const r = parseServicesJson(JSON.stringify(payload))
     expect(r.items.length).toBe(1)
     expect(r.items[0].description).toBe('Troca')
+    expect(r.items[0].noCost).toBe(false)
     expect(r.totalValueCents).toBe(5000)
+  })
+
+  it('persists noCost and forces unit cost to zero', () => {
+    const payload = {
+      items: [
+        {
+          kind: 'service',
+          description: 'Diagnóstico',
+          quantity: 1,
+          unitValueCents: 8000,
+          unitCostCents: 1500,
+          noCost: true,
+        },
+      ],
+    }
+    const r = parseServicesJson(JSON.stringify(payload))
+    expect(r.items.length).toBe(1)
+    expect(r.items[0].noCost).toBe(true)
+    expect(r.items[0].unitCostCents).toBe(0)
+    expect(r.items[0].costCents).toBe(0)
+    expect(r.totalCostCents).toBe(0)
   })
 })
 

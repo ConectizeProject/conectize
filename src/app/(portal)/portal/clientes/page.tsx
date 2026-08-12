@@ -4,6 +4,7 @@ import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { formatCpf, formatCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { ClientesTableClient, type CustomerRow } from './ClientesTableClient'
 import { ClientesFilterCard } from './ClientesFilterCard'
 
@@ -44,10 +45,40 @@ export default async function ClientesPage({
 	}
 
 	if (documentDigits) {
-		customersQuery.or(`cpf.eq.${documentDigits},cnpj.eq.${documentDigits}`)
+		// Aceita documento só dígitos ou legado mascarado (000.000.000-00).
+		const cpfMasked = documentDigits.length === 11 ? formatCpf(documentDigits) : ''
+		const cnpjMasked = documentDigits.length === 14 ? formatCnpj(documentDigits) : ''
+		const orParts = [
+			`cpf.eq.${documentDigits}`,
+			`cnpj.eq.${documentDigits}`,
+			cpfMasked ? `cpf.eq.${cpfMasked}` : null,
+			cnpjMasked ? `cnpj.eq.${cnpjMasked}` : null,
+			documentDigits.length >= 5 ? `cpf.like.${documentDigits}%` : null,
+			documentDigits.length >= 5 ? `cnpj.like.${documentDigits}%` : null,
+		].filter(Boolean)
+		customersQuery.or(orParts.join(','))
 	}
 
-	const { data: customers } = await customersQuery
+	const { data: customers, error: customersError } = await customersQuery
+	if (customersError) {
+		console.error('[portal/clientes] list query failed', {
+			message: customersError.message,
+			code: customersError.code,
+			details: customersError.details,
+			hint: customersError.hint,
+			q: query,
+			document: documentDigits,
+		})
+	}
+
+	const rows = (customers ?? []) as CustomerRow[]
+	const hasActiveFilter = Boolean(query || documentDigits)
+	const resultsLabel =
+		rows.length > 0
+			? `${rows.length} cliente${rows.length === 1 ? '' : 's'}`
+			: hasActiveFilter
+				? 'Nenhum cliente encontrado para os filtros.'
+				: 'Nenhum cliente cadastrado ainda.'
 
 	return (
 		<div className="space-y-6">
@@ -81,18 +112,12 @@ export default async function ClientesPage({
 			<Card>
 				<CardHeader>
 					<CardTitle>Resultados</CardTitle>
-					<CardDescription>
-						{customers && customers.length > 0 ? `${customers.length} clientes` : 'Nenhum cliente encontrado.'}
-					</CardDescription>
+					<CardDescription>{resultsLabel}</CardDescription>
 				</CardHeader>
 				<CardContent>
-					{customers && customers.length > 0 ? (
-						<ClientesTableClient customers={(customers ?? []) as CustomerRow[]} />
-					) : (
-						<div className="text-sm text-muted-foreground">
-							Nenhum cliente encontrado.
-						</div>
-					)}
+					{rows.length > 0 ? (
+						<ClientesTableClient customers={rows} />
+					) : null}
 				</CardContent>
 			</Card>
 		</div>

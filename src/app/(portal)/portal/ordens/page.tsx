@@ -179,7 +179,17 @@ export default async function OrdensPage({
 		baseQuery.lte('estimated_ready_at', `${readyToValue}T23:59:59.999Z`)
 	}
 
-	const { data: rawOrders } = await baseQuery
+	const { data: rawOrders, error: openOrdersError } = await baseQuery
+	if (openOrdersError) {
+		console.error('[portal/ordens] open list query failed', {
+			message: openOrdersError.message,
+			code: openOrdersError.code,
+			details: openOrdersError.details,
+			hint: openOrdersError.hint,
+			q: query,
+			osNumber: osNumberValue,
+		})
+	}
 
 	let ordersList: PortalServiceOrderListQueryRow[] = (rawOrders ?? []) as unknown as PortalServiceOrderListQueryRow[]
 	if (needsQuickFilterColumns && ordersList.length > 0) {

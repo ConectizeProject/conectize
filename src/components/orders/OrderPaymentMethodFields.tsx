@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/select'
 import type { PortalPaymentMethodCatalogItem } from '@/lib/portal/payment-methods-server'
 import { portalFetch } from '@/lib/portal/portal-fetch'
+import { resolveOrderPayableCents } from '@/lib/orders/order-discount-commission'
 import { formatCentsBr, formatMoneyInputBr, parseMoneyToCents } from '@/lib/utils/format-money'
 import { cn } from '@/lib/utils'
 import { SELECT_NONE_VALUE } from '@/lib/utils/optional-uuid'
@@ -51,6 +52,8 @@ type Props = {
   disabled?: boolean
   /** Total da ordem em centavos (para exibir resumo e validar soma). */
   totalValueCents?: number
+  /** Desconto em centavos (reduz o total a pagar exibido). */
+  discountCents?: number
   /** Catálogo já carregado no servidor (RSC); se definido, não há fetch no cliente. */
   initialCatalog?: PortalPaymentMethodCatalogItem[]
   /** Para desabilitar o botão “Adicionar” no header enquanto o catálogo carrega. */
@@ -67,6 +70,7 @@ export const OrderPaymentMethodFields = forwardRef<OrderPaymentMethodFieldsRef, 
       formId,
       disabled = false,
       totalValueCents: totalValueCentsProp,
+      discountCents = 0,
       initialCatalog,
       onCatalogLoadingChange,
     },
@@ -74,6 +78,7 @@ export const OrderPaymentMethodFields = forwardRef<OrderPaymentMethodFieldsRef, 
   ) {
     const totalFromSubscription = useOrderServicesTotalSubscription()
     const totalValueCents = totalValueCentsProp ?? totalFromSubscription
+    const payableCents = resolveOrderPayableCents(totalValueCents ?? 0, discountCents)
 
     const [paymentMethodsCatalog, setPaymentMethodsCatalog] = useState<
       PortalPaymentMethodCatalogItem[]
@@ -324,17 +329,25 @@ export const OrderPaymentMethodFields = forwardRef<OrderPaymentMethodFieldsRef, 
         </div>
 
         {totalValueCents != null && totalValueCents > 0 && (
-          <div className="text-sm text-muted-foreground">
-            Total da ordem: {formatCentsBr(totalValueCents)}
+          <div className="text-sm text-muted-foreground space-y-0.5">
+            <div>
+              Total da ordem: {formatCentsBr(totalValueCents)}
+              {discountCents > 0 ? (
+                <>
+                  {' — '}Desconto: {formatCentsBr(discountCents)}
+                  {' — '}A pagar: {formatCentsBr(payableCents)}
+                </>
+              ) : null}
+            </div>
             {(() => {
               const sum = entries
                 .filter((e) => e.payment_method_id)
                 .reduce((acc, e) => acc + (e.value_cents ?? 0), 0)
               if (sum > 0) {
-                const diff = totalValueCents - sum
+                const diff = payableCents - sum
                 return (
-                  <>
-                    {' — '}Soma das formas: {formatCentsBr(sum)}
+                  <div>
+                    Soma das formas: {formatCentsBr(sum)}
                     {diff !== 0 && (
                       <span className={diff > 0 ? 'text-amber-600' : 'text-destructive'}>
                         {' '}
@@ -342,7 +355,7 @@ export const OrderPaymentMethodFields = forwardRef<OrderPaymentMethodFieldsRef, 
                         {formatCentsBr(Math.abs(diff))} de diferença)
                       </span>
                     )}
-                  </>
+                  </div>
                 )
               }
               return null

@@ -7,6 +7,10 @@ import {
 	enrichWarrantyTemplateHistoryValues,
 } from '@/lib/orders/order-edit-history'
 import {
+	parseOrderDiscountCommissionFromFormData,
+	toOrderDiscountCommissionDbPayload,
+} from '@/lib/orders/order-discount-commission'
+import {
 	parsePaymentMethodsJson,
 	parseServicesJson,
 } from '@/lib/orders/order-form-parsers'
@@ -44,6 +48,13 @@ export async function updateOrderAction (formData: FormData) {
 	).trim()
 	const paymentMethodsJson = formData.get('paymentMethodsJson')
 	const paymentMethods = parsePaymentMethodsJson(paymentMethodsJson)
+	const servicesJson = formData.get('servicesJson')
+	const services = parseServicesJson(servicesJson)
+	const discountCommissionForm = parseOrderDiscountCommissionFromFormData(formData)
+	let discountCommission = toOrderDiscountCommissionDbPayload(
+		discountCommissionForm,
+		services.totalValueCents,
+	)
 	const customerDescription = String(
 		formData.get('customerDescription') || '',
 	).trim()
@@ -59,8 +70,6 @@ export async function updateOrderAction (formData: FormData) {
 			? deviceExitChecksRaw.trim()
 			: ''
 	const deviceModelId = parseOptionalUuid(formData.get('deviceModelId'))
-	const brand = String(formData.get('brand') || '').trim() || null
-	const model = String(formData.get('model') || '').trim() || null
 	const warrantyTemplateId = parseOptionalUuid(
 		formData.get('warrantyTemplateId'),
 	)
@@ -68,8 +77,6 @@ export async function updateOrderAction (formData: FormData) {
 	const formSellerUserId = String(
 		formData.get('seller_user_id') || '',
 	).trim()
-	const servicesJson = formData.get('servicesJson')
-	const services = parseServicesJson(servicesJson)
 
 	let deviceEntryChecks: unknown = null
 	if (deviceEntryChecksJson) {
@@ -121,8 +128,10 @@ export async function updateOrderAction (formData: FormData) {
 			`display_number, status, services, title, imei, color, device_location, is_warranty, estimated_ready_at,
 				passcode_type, passcode_text, passcode_pattern,
 				payment_methods, customer_description, receiving_notes,
-				warranty_template_id, warranty_text, device_model_id, brand, model,
+				warranty_template_id, warranty_text, device_model_id,
 				services_total_cents, services_cost_total_cents,
+				discount_cents, discount_mode, discount_percent,
+				commission_user_id, commission_kind, commission_fixed_cents, commission_percent,
 				device_entry_checks, device_exit_checks, seller_user_id, closed_at,
 				created_at, organization_id`,
 		)
@@ -188,6 +197,24 @@ export async function updateOrderAction (formData: FormData) {
 	if (isOrderFinalized && role !== 'admin' && role !== 'platform_admin') {
 		redirect(`${ordemPath}?error=ordem_finalizada`)
 	}
+	if (discountCommission.commission_user_id) {
+		const { data: commissionUser } = await supabase
+			.from('users')
+			.select('id')
+			.eq('id', discountCommission.commission_user_id)
+			.in('role', ['admin', 'staff'])
+			.maybeSingle()
+		if (!commissionUser?.id) {
+			discountCommission = {
+				...discountCommission,
+				commission_user_id: null,
+				commission_kind: null,
+				commission_fixed_cents: null,
+				commission_percent: null,
+			}
+		}
+	}
+
 	const updatePayload: Record<string, unknown> = {
 		title,
 		status,
@@ -209,11 +236,10 @@ export async function updateOrderAction (formData: FormData) {
 		warranty_template_id: warrantyTemplateId,
 		warranty_text: warrantyTextRaw || null,
 		device_model_id: deviceModelId,
-		brand: brand ?? null,
-		model: model ?? null,
 		services: services.items,
 		services_total_cents: services.totalValueCents,
 		services_cost_total_cents: services.totalCostCents,
+		...discountCommission,
 	}
 	if (formData.has('deviceEntryChecksJson')) {
 		updatePayload.device_entry_checks = deviceEntryChecks
@@ -230,7 +256,8 @@ export async function updateOrderAction (formData: FormData) {
 			.maybeSingle()
 		if (sellerUser?.id) updatePayload.seller_user_id = sellerUser.id
 	}
-	if (isFinalizedOrderStatus(status)) {
+	const willBeFinalized = isFinalizedOrderStatus(status)
+	if (willBeFinalized && !isOrderFinalized) {
 		updatePayload.closed_at = new Date().toISOString()
 	}
 	const { error } = await supabase
@@ -273,20 +300,28 @@ export async function updateOrderAction (formData: FormData) {
 	)
 	if (diffRowsForHistory.length > 0) {
 		const editedAt = new Date().toISOString()
-		const { error: histErr } = await supabase
-			.from('service_order_edit_history')
-			.insert(
-				diffRowsForHistory.map((r) => ({
-					service_order_id: formOrderId,
-					edited_by: user.id,
-					edited_at: editedAt,
-					field_key: r.field_key,
-					old_value: r.old_value,
-					new_value: r.new_value,
-				})),
-			)
-		if (histErr) {
-			console.error('[order-edit-history]', histErr)
+		const organizationId = String(existing.organization_id || '').trim()
+		if (!organizationId) {
+			console.error('[order-edit-history] missing organization_id', {
+				orderId: formOrderId,
+			})
+		} else {
+			const { error: histErr } = await supabase
+				.from('service_order_edit_history')
+				.insert(
+					diffRowsForHistory.map((r) => ({
+						service_order_id: formOrderId,
+						organization_id: organizationId,
+						edited_by: user.id,
+						edited_at: editedAt,
+						field_key: r.field_key,
+						old_value: r.old_value,
+						new_value: r.new_value,
+					})),
+				)
+			if (histErr) {
+				console.error('[order-edit-history]', histErr)
+			}
 		}
 	}
 

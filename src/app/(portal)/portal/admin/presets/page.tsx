@@ -23,6 +23,26 @@ export default async function PresetsPage () {
       <div className="max-w-3xl space-y-6">
         <Card>
           <CardHeader>
+            <CardTitle>Armazenamento</CardTitle>
+            <CardDescription>
+              Veja o uso do Supabase Storage por bucket, compare com o limite do plano quando
+              disponível e exclua mídias manualmente.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex items-center justify-between gap-4">
+            <div className="text-sm text-muted-foreground">
+              Gerencie fotos de OS, imagens do WhatsApp e fotos de seminovos.
+            </div>
+            <Button asChild>
+              <Link href="/portal/admin/armazenamento">
+                Ver storage
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle>Modelos de garantia</CardTitle>
             <CardDescription>
               Cadastre textos de garantia para uso nas ordens de serviço. O texto escolhido aparece na impressão e na visão pública.

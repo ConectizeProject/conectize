@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { requireAdmin } from '@/lib/auth/portal-api'
+import { requireRealAdmin } from '@/lib/auth/portal-api'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 import { processBlingWebhook } from '@/lib/integrations/bling/webhook-service'
 
@@ -7,7 +7,7 @@ export async function POST (
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const auth = await requireAdmin()
+  const auth = await requireRealAdmin()
   if (auth.ok === false) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
@@ -22,6 +22,7 @@ export async function POST (
     .from('integration_webhooks')
     .select('id, platform_id')
     .eq('id', webhookId)
+    .eq('organization_id', auth.organizationId)
     .maybeSingle()
 
   if (!existing) {

@@ -51,10 +51,11 @@ export async function fetchCustomerIdsForOrdensMacroSearch (
 }
 
 /**
- * Cláusula `.or(...)` para `service_orders`: título, descrição, nº OS exibido, clientes.
+ * Cláusula `.or(...)` para `service_orders`: título, textos da OS, nº exibido, clientes.
  * — IMEI não entra na busca macro.
  * — 1 caractere não alfanumérico “só letra”: ignora (evita `ilike` muito amplo).
  * — só dígitos com 1 caractere: apenas `display_number` (ex.: OS #5).
+ * — não usa `description` (coluna legada removida).
  */
 export function buildServiceOrdersMacroQOrClause (
   rawQ: string,
@@ -82,7 +83,11 @@ export function buildServiceOrdersMacroQOrClause (
     }
   }
 
-  orParts.push(`title.ilike.%${esc}%`, `description.ilike.%${esc}%`)
+  orParts.push(
+    `title.ilike.%${esc}%`,
+    `customer_description.ilike.%${esc}%`,
+    `receiving_notes.ilike.%${esc}%`,
+  )
   if (capped.length > 0) {
     orParts.push(`customer_id.in.(${capped.join(',')})`)
   }

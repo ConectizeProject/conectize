@@ -1,9 +1,10 @@
 import type { Metadata, Viewport } from 'next'
+import Script from 'next/script'
 import { Outfit } from 'next/font/google'
 import { GoogleAnalyticsSafe } from '@/components/GoogleAnalyticsSafe'
+import { business, getLocalBusinessJsonLd } from '@/lib/data/business'
+import { THEME_BOOT_SCRIPT } from '@/lib/theme-boot-script'
 import './globals.css'
-
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://conectize.com.br'
 
 const outfit = Outfit({
   subsets: ['latin'],
@@ -13,10 +14,10 @@ const outfit = Outfit({
 })
 
 export const metadata: Metadata = {
-  metadataBase: new URL(siteUrl),
+  metadataBase: new URL(business.siteUrl),
   title: 'Assistência Técnica de Celular e Apple em Belo Horizonte | Conectize',
   description: 'Conserto de celulares e produtos Apple (iPhone, iPad, MacBook) em Belo Horizonte com coleta em domicílio. Especialistas Apple. Troca de tela, bateria, reparo de placa. Atendimento rápido e garantia!',
-  keywords: 'assistencia tecnica de celular em belo horizonte, concerto de celulares belo horizonte, conserto de celular bh, assistencia tecnica iPhone bh, conserto iPhone belo horizonte, assistencia apple bh, conserto macbook bh, troca de tela celular bh, coleta em domicilio celular',
+  keywords: 'assistência técnica de celular em belo horizonte, conserto de celulares belo horizonte, conserto de celular bh, assistência técnica iPhone bh, conserto iPhone belo horizonte, assistência apple bh, conserto macbook bh, troca de tela celular bh, troca de bateria bh, coleta em domicilio celular',
   authors: [{ name: 'Conectize' }],
   robots: 'index, follow',
   icons: {
@@ -47,9 +48,12 @@ export const metadata: Metadata = {
     type: 'website',
     title: 'Assistência Técnica de Celular e Apple em Belo Horizonte | Conectize',
     description: 'Conserto de celulares e produtos Apple em Belo Horizonte com coleta em domicílio. Especialistas Apple. Atendimento rápido e garantia!',
-    url: siteUrl,
+    url: business.siteUrl,
     siteName: 'Conectize',
     locale: 'pt_BR',
+  },
+  alternates: {
+    canonical: business.siteUrl,
   },
   other: {
     'geo.region': 'BR-MG',
@@ -63,61 +67,11 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-}
-
-const structuredData = {
-  '@context': 'https://schema.org',
-  '@type': 'LocalBusiness',
-  '@id': siteUrl,
-  name: 'Conectize - Assistência Técnica de Celular e Apple',
-  image: `${siteUrl}/logo_conectize.svg`,
-  description: 'Assistência técnica especializada em conserto de celulares e produtos Apple (iPhone, iPad, MacBook) em Belo Horizonte. Troca de tela, bateria, reparo de placa e coleta em domicílio.',
-  address: {
-    '@type': 'PostalAddress',
-    streetAddress: 'R. Padre Rolim, 620',
-    addressLocality: 'Belo Horizonte',
-    addressRegion: 'MG',
-    postalCode: '30130-094',
-    addressCountry: 'BR',
-    neighborhood: 'Santa Efigênia',
-  },
-  geo: {
-    '@type': 'GeoCoordinates',
-    latitude: -19.9297,
-    longitude: -43.9325,
-  },
-  url: siteUrl,
-  telephone: '+5531986140889',
-  priceRange: '$$',
-  openingHoursSpecification: [
-    {
-      '@type': 'OpeningHoursSpecification',
-      dayOfWeek: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
-      opens: '08:00',
-      closes: '18:00',
-    },
-    {
-      '@type': 'OpeningHoursSpecification',
-      dayOfWeek: 'Saturday',
-      opens: '08:00',
-      closes: '13:00',
-    },
-  ],
-  sameAs: [],
-  areaServed: {
-    '@type': 'City',
-    name: 'Belo Horizonte',
-  },
-  serviceType: [
-    'Assistência técnica de celular',
-    'Conserto de celulares',
-    'Assistência técnica Apple',
-    'Conserto de iPhone',
-    'Conserto de iPad',
-    'Conserto de MacBook',
-    'Troca de tela de celular',
-    'Troca de bateria de celular',
-    'Coleta em domicílio',
+  // Permite UA escuro no portal; o boot script + CSS evitam o flash preto
+  colorScheme: 'light dark',
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#f8fafc' },
+    { media: '(prefers-color-scheme: dark)', color: '#10151c' },
   ],
 }
 
@@ -128,11 +82,25 @@ export default function RootLayout ({
 }) {
   return (
     <html lang="pt-BR" className={outfit.variable} suppressHydrationWarning>
+      <head>
+        {/* CSS mínimo no head: cobre o gap antes do globals.css / boot script */}
+        <style
+          dangerouslySetInnerHTML={{
+            __html:
+              'html{background-color:hsl(210 20% 98%);color-scheme:light}html.dark{background-color:hsl(215 25% 8%);color-scheme:dark}',
+          }}
+        />
+      </head>
       <body>
+        <Script
+          id="theme-boot"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }}
+        />
         <GoogleAnalyticsSafe />
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(getLocalBusinessJsonLd()) }}
         />
         {children}
       </body>

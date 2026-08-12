@@ -4,6 +4,8 @@ import { ArrowLeft, ArrowRight } from 'lucide-react'
 import { brands, services } from '@/lib/data/services'
 import { formatModelName } from '@/lib/utils/format-model-name'
 import { buildServiceProductSlug } from '@/lib/utils/service-product-slug'
+import { listServiceHubs } from '@/lib/utils/service-hubs'
+import { getSiteUrl } from '@/lib/utils/site-url'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ServicesFiltersLazy } from '@/components/services/ServicesFiltersLazy'
@@ -38,6 +40,10 @@ const quickFilters = [
   {
     label: 'Troca de vidro do iPhone',
     href: `/servicos/${buildServiceProductSlug({ serviceSlug: 'troca-de-vidro-da-tela', brandSlug: 'apple', modelSlug: 'iphone' })}`
+  },
+  {
+    label: 'Troca de vidro/tampa traseira do iPhone',
+    href: `/servicos/${buildServiceProductSlug({ serviceSlug: 'troca-de-vidro-tampa-traseira', brandSlug: 'apple', modelSlug: 'iphone' })}`
   },
   {
     label: 'Troca de display Samsung Galaxy',
@@ -135,12 +141,15 @@ export async function generateMetadata({ searchParams }: { searchParams: SearchP
     return 'Serviços de Assistência Técnica em Belo Horizonte | Conectize'
   })()
 
+  const isFiltering = Boolean(marca || servico || dispositivo || modelo)
+
   return {
     title,
     description: 'Serviços especializados de reparo em Belo Horizonte. Filtre por marca, serviço, dispositivo e modelo para solicitar orçamento.',
     keywords: 'assistência técnica celular belo horizonte, reparo celular bh, troca de tela, troca de bateria, reparo de placa',
+    robots: isFiltering ? { index: false, follow: true } : { index: true, follow: true },
     alternates: {
-      canonical: 'https://conectize.com.br/servicos',
+      canonical: `${getSiteUrl()}/servicos`,
     },
   }
 }
@@ -305,34 +314,40 @@ export default async function ServicosPage({ searchParams }: { searchParams: Sea
                         <div>
                           <CardTitle className="text-2xl">{brand.displayName}</CardTitle>
                           <CardDescription>
-                            Serviços mais procurados e opções disponíveis para {brand.displayName}.
+                            Escolha o serviço e o tipo de aparelho para ver todos os modelos.
                           </CardDescription>
                         </div>
-                        <Button asChild variant="outline" size="sm">
-                          <Link href={buildServicosHref({ marca: brand.slug })}>
-                            Ver mais
-                          </Link>
-                        </Button>
                       </div>
                     </CardHeader>
-                    <CardContent>
-                      <ul className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
-                        {brandServices.slice(0, 6).map((service) => (
-                          <li key={`${brand.slug}-${service.slug}`}>
-                            <Link
-                              href={buildServicosHref({ marca: brand.slug, servico: service.slug })}
-                              className="block bg-secondary/30 rounded-xl p-5 hover:bg-secondary/40 transition-colors border border-border"
-                            >
-                              <h3 className="font-semibold text-foreground mb-1">
-                                {service.name}
-                              </h3>
-                              <p className="text-sm text-muted-foreground">
-                                {service.shortDescription}
-                              </p>
-                            </Link>
-                          </li>
-                        ))}
-                      </ul>
+                    <CardContent className="space-y-6">
+                      {brandServices.map((service) => {
+                        const hubs = listServiceHubs({
+                          brandSlug: brand.slug,
+                          serviceSlug: service.slug,
+                        })
+
+                        if (hubs.length === 0) return null
+
+                        return (
+                          <div key={`${brand.slug}-${service.slug}`}>
+                            <h3 className="font-semibold text-foreground mb-1">
+                              {service.name}
+                            </h3>
+                            <p className="text-sm text-muted-foreground mb-3">
+                              {service.shortDescription}
+                            </p>
+                            <ul className="flex flex-wrap gap-2">
+                              {hubs.map((hub) => (
+                                <li key={hub.href}>
+                                  <Button asChild variant="secondary" size="sm">
+                                    <Link href={hub.href}>{hub.deviceTypeName}</Link>
+                                  </Button>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )
+                      })}
                     </CardContent>
                   </Card>
                 ))}

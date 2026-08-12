@@ -29,6 +29,7 @@ export async function POST (request: NextRequest) {
     .select('id')
     .eq('id', contaId)
     .eq('organization_id', auth.organizationId)
+    .is('deleted_at', null)
     .maybeSingle()
 
   if (contaErr || !contaRow) {
@@ -60,6 +61,7 @@ export async function POST (request: NextRequest) {
     })
     .eq('id', contaId)
     .eq('organization_id', auth.organizationId)
+    .is('deleted_at', null)
     .select('id, saldo_inicial_cents')
     .single()
 

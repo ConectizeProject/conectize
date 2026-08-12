@@ -1,5 +1,7 @@
 import type { Metadata } from 'next'
 import { Button } from '@/components/ui/button'
+import { business, buildWhatsAppUrl } from '@/lib/data/business'
+import { getSiteUrl } from '@/lib/utils/site-url'
 import { Phone, Mail, MapPin, Clock, MessageCircle } from 'lucide-react'
 
 export const metadata: Metadata = {
@@ -7,7 +9,7 @@ export const metadata: Metadata = {
   description: 'Entre em contato com a Conectize. Telefone, WhatsApp, e-mail e endereço em Belo Horizonte. Atendimento de segunda a sábado. Solicite seu orçamento!',
   keywords: 'contato conectize, telefone assistência técnica bh, whatsapp conserto celular, endereço conectize belo horizonte',
   alternates: {
-    canonical: 'https://conectize.com.br/contato',
+    canonical: `${getSiteUrl()}/contato`,
   },
 }
 
@@ -36,8 +38,8 @@ export default function ContatoPage () {
               </div>
               <div>
                 <p className="font-bold text-foreground mb-1">Telefone</p>
-                <a href="tel:+5531986140889" className="text-foreground hover:text-primary-accessible transition-colors text-lg">
-                  (31) 9 8614-0889
+                <a href={`tel:${business.phone}`} className="text-foreground hover:text-primary-accessible transition-colors text-lg">
+                  {business.phoneDisplay}
                 </a>
               </div>
             </div>
@@ -48,8 +50,8 @@ export default function ContatoPage () {
               </div>
               <div>
                 <p className="font-bold text-foreground mb-1">WhatsApp</p>
-                <a href="https://wa.me/5531986140889" target="_blank" rel="noopener noreferrer" className="text-foreground hover:text-primary-accessible transition-colors text-lg">
-                  (31) 9 8614-0889
+                <a href={business.whatsappUrl} target="_blank" rel="noopener noreferrer" className="text-foreground hover:text-primary-accessible transition-colors text-lg">
+                  {business.phoneDisplay}
                 </a>
               </div>
             </div>
@@ -60,8 +62,8 @@ export default function ContatoPage () {
               </div>
               <div>
                 <p className="font-bold text-foreground mb-1">E-mail</p>
-                <a href="mailto:contato@conectize.com.br" className="text-foreground hover:text-primary-accessible transition-colors text-lg">
-                  contato@conectize.com.br
+                <a href={`mailto:${business.email}`} className="text-foreground hover:text-primary-accessible transition-colors text-lg">
+                  {business.email}
                 </a>
               </div>
             </div>
@@ -73,8 +75,8 @@ export default function ContatoPage () {
               <div>
                 <p className="font-bold text-foreground mb-1">Endereço</p>
                 <p className="text-muted-foreground text-lg">
-                  R. Padre Rolim, 620 - Santa Efigênia<br />
-                  Belo Horizonte - MG, 30130-094
+                  {business.address.streetAddress} - {business.address.neighborhood}<br />
+                  {business.address.addressLocality} - {business.address.addressRegion}, {business.address.postalCode}
                 </p>
               </div>
             </div>
@@ -86,8 +88,8 @@ export default function ContatoPage () {
               <div>
                 <p className="font-bold text-foreground mb-1">Horário de Atendimento</p>
                 <p className="text-muted-foreground text-lg">
-                  Segunda a Sexta: 9:30h às 18:30h<br />
-                  Sábado: 10h às 14h
+                  {business.openingHours[0].label}: {business.openingHours[0].display}<br />
+                  {business.openingHours[1].label}: {business.openingHours[1].display}
                 </p>
               </div>
             </div>
@@ -108,7 +110,7 @@ export default function ContatoPage () {
               />
               <div className="p-4">
                 <a
-                  href="https://www.google.com/maps/dir//R.+Padre+Rolim,+620+-+Santa+Efigênia,+Belo+Horizonte+-+MG,+30130-094"
+                  href={business.mapsDirectionsUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-primary-accessible hover:underline text-sm font-medium flex items-center gap-2"
@@ -135,7 +137,7 @@ export default function ContatoPage () {
                 <div className="space-y-4">
                   <Button variant="whatsapp" size="xl" className="w-full" asChild>
                     <a
-                      href="https://wa.me/5531986140889?text=Olá! Gostaria de um orçamento para conserto de celular."
+                      href={buildWhatsAppUrl('Olá! Gostaria de um orçamento para conserto de celular.')}
                       target="_blank"
                       rel="noopener noreferrer"
                     >
@@ -147,7 +149,7 @@ export default function ContatoPage () {
                   </Button>
 
                   <Button variant="outline" size="lg" className="w-full" asChild>
-                    <a href="tel:+5531986140889">
+                    <a href={`tel:${business.phone}`}>
                       <Phone className="w-5 h-5" />
                       Ligar Agora
                     </a>

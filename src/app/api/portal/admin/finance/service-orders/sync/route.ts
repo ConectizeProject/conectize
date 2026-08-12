@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
       ok: true,
       syncedOrders: result.syncedOrders,
       syncedResaleDevices: result.syncedResaleDevices,
-      syncedPdvSales: result.syncedPdvSales,
+      syncedSalesOrders: result.syncedSalesOrders,
     })
   } catch (err) {
     console.error('[finance-service-orders-sync]', err)
