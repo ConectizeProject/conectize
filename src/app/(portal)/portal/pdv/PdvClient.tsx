@@ -7,7 +7,13 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { OrderPaymentMethodsCard, type PaymentMethodEntry } from '@/components/orders'
 import { portalFetch } from '@/lib/portal/portal-fetch'
+import {
+  emptyPaymentEntry,
+  paymentEntriesToSalesPayload,
+  paymentsTotalCents,
+} from '@/lib/payments/payment-method-entries'
 import { maskedFromCents, moneyToCentsFromMasked, formatMoneyInput } from '@/lib/utils/money'
 import { toast } from '@/hooks/use-toast'
 
@@ -28,24 +34,13 @@ type CartItem = {
   discountCents: number
 }
 
-type PaymentLine = {
-  payment_method_id?: string | null
-  payment_method_type: 'dinheiro' | 'pix' | 'credito' | 'debito' | 'outro'
-  amountMasked: string
-}
-
 type PaymentMethod = {
   id: string
   description: string
-  type: 'dinheiro' | 'pix_direto' | 'pix_maquina' | 'credito' | 'debito'
-}
-
-function normalizePaymentType (type: PaymentMethod['type']): PaymentLine['payment_method_type'] {
-  if (type === 'pix_direto' || type === 'pix_maquina') return 'pix'
-  if (type === 'credito') return 'credito'
-  if (type === 'debito') return 'debito'
-  if (type === 'dinheiro') return 'dinheiro'
-  return 'outro'
+  type: string
+  fee_percent?: number
+  credit_installment_fees?: { installments: number; fee_percent: number }[]
+  sort_order?: number
 }
 
 export function PdvClient () {
@@ -55,7 +50,7 @@ export function PdvClient () {
   const [products, setProducts] = useState<CatalogProduct[]>([])
   const [cart, setCart] = useState<CartItem[]>([])
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([])
-  const [payments, setPayments] = useState<PaymentLine[]>([])
+  const [paymentEntries, setPaymentEntries] = useState<PaymentMethodEntry[]>([emptyPaymentEntry()])
   const [discountTotalMasked, setDiscountTotalMasked] = useState('')
   const [cashOpen, setCashOpen] = useState(false)
   const [openingAmount, setOpeningAmount] = useState('')
@@ -70,8 +65,13 @@ export function PdvClient () {
   }, 0), [cart])
 
   const totalCents = Math.max(0, subtotalCents - discountTotalCents)
-  const paidCents = useMemo(() => payments.reduce((acc, payment) => acc + (moneyToCentsFromMasked(payment.amountMasked) || 0), 0), [payments])
-  const hasCashPayment = payments.some((p) => p.payment_method_type === 'dinheiro')
+  const paidCents = useMemo(() => paymentsTotalCents(paymentEntries), [paymentEntries])
+  const hasCashPayment = useMemo(() => {
+    return paymentEntries.some((entry) => {
+      const method = paymentMethods.find((row) => row.id === entry.payment_method_id)
+      return method?.type === 'dinheiro'
+    })
+  }, [paymentEntries, paymentMethods])
   const changeCents = hasCashPayment ? Math.max(0, paidCents - totalCents) : 0
 
   const searchProducts = useCallback(async (value: string) => {
@@ -129,7 +129,7 @@ export function PdvClient () {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [cart, payments, discountTotalMasked, cashOpen])
+  }, [cart, paymentEntries, discountTotalMasked, cashOpen])
 
   function addProduct (product: CatalogProduct) {
     setCart((prev) => {
@@ -159,7 +159,7 @@ export function PdvClient () {
 
   function resetSale () {
     setCart([])
-    setPayments([])
+    setPaymentEntries([emptyPaymentEntry()])
     setDiscountTotalMasked('')
   }
 
@@ -201,22 +201,6 @@ export function PdvClient () {
     toast({ title: data?.error || 'Erro ao fechar caixa', variant: 'destructive' })
   }
 
-  function addPaymentLine (method?: PaymentMethod) {
-    setPayments((prev) => [...prev, {
-      payment_method_id: method?.id ?? null,
-      payment_method_type: method ? normalizePaymentType(method.type) : 'dinheiro',
-      amountMasked: '',
-    }])
-  }
-
-  function setPaymentLine (idx: number, patch: Partial<PaymentLine>) {
-    setPayments((prev) => prev.map((line, index) => index === idx ? { ...line, ...patch } : line))
-  }
-
-  function removePaymentLine (idx: number) {
-    setPayments((prev) => prev.filter((_, index) => index !== idx))
-  }
-
   async function finalizeSale () {
     if (!cashOpen) {
       toast({ title: 'Abra o caixa antes de vender', variant: 'destructive' })
@@ -228,6 +212,12 @@ export function PdvClient () {
     }
     if (paidCents < totalCents) {
       toast({ title: 'Pagamento insuficiente', variant: 'destructive' })
+      return
+    }
+
+    const paymentPayload = paymentEntriesToSalesPayload(paymentEntries, paymentMethods)
+    if (paymentPayload.length === 0) {
+      toast({ title: 'Informe ao menos uma forma de pagamento', variant: 'destructive' })
       return
     }
 
@@ -252,13 +242,6 @@ export function PdvClient () {
       toast({ title: saleData?.error || 'Erro ao criar venda', variant: 'destructive' })
       return
     }
-
-    const paymentPayload = payments.map((line) => ({
-      payment_method_id: line.payment_method_id ?? null,
-      payment_method_type: line.payment_method_type,
-      amount_cents: moneyToCentsFromMasked(line.amountMasked) || 0,
-      status: 'paid',
-    })).filter((line) => line.amount_cents > 0)
 
     const payRes = await portalFetch(`/api/portal/pdv/sales/${saleId}/payments`, {
       method: 'POST',
@@ -399,34 +382,14 @@ export function PdvClient () {
               <div className='flex justify-between'><span>Troco</span><strong>{maskedFromCents(changeCents)}</strong></div>
             </div>
 
-            <div className='space-y-2'>
-              <div className='flex gap-2'>
-                <Button variant='outline' onClick={() => addPaymentLine()}>Adicionar pagamento</Button>
-              </div>
-              {payments.map((line, idx) => (
-                <div key={`${idx}-${line.payment_method_type}`} className='grid gap-2 sm:grid-cols-[1fr,1fr,auto]'>
-                  <select
-                    className='h-10 rounded border bg-background px-2 text-sm'
-                    value={line.payment_method_id || ''}
-                    onChange={(e) => {
-                      const id = e.target.value || null
-                      const method = paymentMethods.find((m) => m.id === id)
-                      setPaymentLine(idx, {
-                        payment_method_id: id,
-                        payment_method_type: method ? normalizePaymentType(method.type) : line.payment_method_type,
-                      })
-                    }}
-                  >
-                    <option value=''>Sem método</option>
-                    {paymentMethods.map((method) => (
-                      <option key={method.id} value={method.id}>{method.description}</option>
-                    ))}
-                  </select>
-                  <Input value={line.amountMasked} onChange={(e) => setPaymentLine(idx, { amountMasked: formatMoneyInput(e.target.value) })} placeholder='0,00' />
-                  <Button variant='ghost' size='icon' onClick={() => removePaymentLine(idx)}><Trash2 className='h-4 w-4' /></Button>
-                </div>
-              ))}
-            </div>
+            <OrderPaymentMethodsCard
+              value={paymentEntries}
+              onChange={setPaymentEntries}
+              totalValueCents={totalCents}
+              initialCatalog={paymentMethods}
+              title='Formas de pagamento'
+              description='Selecione como o cliente vai pagar esta venda.'
+            />
 
             <Button className='w-full' disabled={busy || !cashOpen} onClick={() => void finalizeSale()}>
               {busy ? <Loader2 className='mr-2 h-4 w-4 animate-spin' /> : null}
