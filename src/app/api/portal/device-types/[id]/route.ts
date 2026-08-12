@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import { deviceCatalogOrganizationIds } from '@/lib/organizations/device-catalog'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 
 function cleanText (value: string) {
@@ -29,7 +30,7 @@ export async function PATCH (
 		.from('device_brands')
 		.select('id')
 		.eq('id', brandId)
-		.eq('organization_id', auth.organizationId)
+		.in('organization_id', deviceCatalogOrganizationIds(auth.organizationId))
 		.maybeSingle()
 	if (!brandRow) {
 		return NextResponse.json({ ok: false, error: 'invalid_brand' }, { status: 400 })
@@ -39,7 +40,7 @@ export async function PATCH (
 		.update({ brand_id: brandId, name })
 		.eq('id', id)
 		.eq('organization_id', auth.organizationId)
-		.select('id, brand_id, name')
+		.select('id, brand_id, name, organization_id')
 		.maybeSingle()
 	if (error) {
 		if (error.code === '23505') {

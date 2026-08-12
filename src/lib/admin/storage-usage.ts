@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { listServiceOrderPhotosWithSizes } from '@/lib/orders/service-order-photos-admin'
 import {
+  SERVICE_ORDER_ASSISTANCE_PHOTOS_BUCKET,
   SERVICE_ORDER_ENTRY_PHOTOS_BUCKET,
   SERVICE_ORDER_EXIT_PHOTOS_BUCKET,
 } from '@/lib/orders/service-order-photos-cleanup'
@@ -16,7 +17,7 @@ export type StorageUsageBucket = {
   bytes: number
 }
 
-export type StorageUsageCategoryKey = 'os_entry' | 'os_exit' | 'whatsapp' | 'resale'
+export type StorageUsageCategoryKey = 'os_entry' | 'os_exit' | 'os_assistance' | 'whatsapp' | 'resale'
 
 export type StorageUsageCategory = {
   key: StorageUsageCategoryKey
@@ -83,7 +84,7 @@ function toCategory (value: unknown): StorageUsageCategory | null {
   if (!value || typeof value !== 'object') return null
   const row = value as Record<string, unknown>
   const key = String(row.key || '').trim() as StorageUsageCategoryKey
-  if (!['os_entry', 'os_exit', 'whatsapp', 'resale'].includes(key)) return null
+  if (!['os_entry', 'os_exit', 'os_assistance', 'whatsapp', 'resale'].includes(key)) return null
   return {
     key,
     label: String(row.label || key),
@@ -243,20 +244,24 @@ async function getFallbackStorageUsageSummary (
 
   const entryPhotos = serviceOrderPhotos.filter((photo) => photo.kind === 'entry')
   const exitPhotos = serviceOrderPhotos.filter((photo) => photo.kind === 'exit')
+  const assistancePhotos = serviceOrderPhotos.filter((photo) => photo.kind === 'assistance')
   const entryBytes = entryPhotos.reduce((sum, photo) => sum + (photo.sizeBytes ?? 0), 0)
   const exitBytes = exitPhotos.reduce((sum, photo) => sum + (photo.sizeBytes ?? 0), 0)
+  const assistanceBytes = assistancePhotos.reduce((sum, photo) => sum + (photo.sizeBytes ?? 0), 0)
   const whatsappBytes = whatsappImages.reduce((sum, image) => sum + (image.sizeBytes ?? 0), 0)
   const resaleBytes = resalePhotos.reduce((sum, photo) => sum + (photo.sizeBytes ?? 0), 0)
 
   const categories = [
     buildCategory('os_entry', 'Fotos de entrada de OS', entryPhotos.length, entryBytes),
     buildCategory('os_exit', 'Fotos de saída de OS', exitPhotos.length, exitBytes),
+    buildCategory('os_assistance', 'Fotos da assistência de OS', assistancePhotos.length, assistanceBytes),
     buildCategory('whatsapp', 'Imagens do WhatsApp', whatsappImages.length, whatsappBytes),
     buildCategory('resale', 'Fotos de seminovos', resalePhotos.length, resaleBytes),
   ]
   const buckets = [
     buildBucket(SERVICE_ORDER_ENTRY_PHOTOS_BUCKET, entryPhotos.length, entryBytes),
     buildBucket(SERVICE_ORDER_EXIT_PHOTOS_BUCKET, exitPhotos.length, exitBytes),
+    buildBucket(SERVICE_ORDER_ASSISTANCE_PHOTOS_BUCKET, assistancePhotos.length, assistanceBytes),
     buildBucket(WHATSAPP_MEDIA_BUCKET, whatsappImages.length, whatsappBytes),
     buildBucket(RESALE_DEVICE_PHOTOS_BUCKET, resalePhotos.length, resaleBytes),
   ].sort((a, b) => b.bytes - a.bytes)

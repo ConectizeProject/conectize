@@ -1,10 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
+  SERVICE_ORDER_ASSISTANCE_PHOTOS_BUCKET,
   SERVICE_ORDER_ENTRY_PHOTOS_BUCKET,
   SERVICE_ORDER_EXIT_PHOTOS_BUCKET,
 } from '@/lib/orders/service-order-photos-cleanup'
 
-export type ServiceOrderPhotoKind = 'entry' | 'exit'
+export type ServiceOrderPhotoKind = 'entry' | 'exit' | 'assistance'
 
 export type ServiceOrderPhotoListItem = {
   id: string
@@ -25,8 +26,25 @@ type PhotoDbRow = {
   service_orders: { display_number: string | null } | { display_number: string | null }[] | null
 }
 
+type PhotoTable =
+  | 'service_order_entry_photos'
+  | 'service_order_exit_photos'
+  | 'service_order_assistance_photos'
+
 const FOLDER_LIST_CONCURRENCY = 8
 const SIGNED_URL_EXPIRES_SECONDS = 60 * 60
+
+const KIND_TABLE: Record<ServiceOrderPhotoKind, PhotoTable> = {
+  entry: 'service_order_entry_photos',
+  exit: 'service_order_exit_photos',
+  assistance: 'service_order_assistance_photos',
+}
+
+const KIND_BUCKET: Record<ServiceOrderPhotoKind, string> = {
+  entry: SERVICE_ORDER_ENTRY_PHOTOS_BUCKET,
+  exit: SERVICE_ORDER_EXIT_PHOTOS_BUCKET,
+  assistance: SERVICE_ORDER_ASSISTANCE_PHOTOS_BUCKET,
+}
 
 function resolveOrderNumber (
   serviceOrders: PhotoDbRow['service_orders'],
@@ -91,7 +109,7 @@ async function buildStorageSizeMap (
 async function fetchPhotoRows (
   supabase: SupabaseClient,
   organizationId: string,
-  table: 'service_order_entry_photos' | 'service_order_exit_photos',
+  table: PhotoTable,
 ): Promise<PhotoDbRow[]> {
   const { data, error } = await supabase
     .from(table)
@@ -138,25 +156,35 @@ export async function listServiceOrderPhotosWithSizes (
   supabase: SupabaseClient,
   organizationId: string,
 ): Promise<ServiceOrderPhotoListItem[]> {
-  const [entryRows, exitRows] = await Promise.all([
+  const [entryRows, exitRows, assistanceRows] = await Promise.all([
     fetchPhotoRows(supabase, organizationId, 'service_order_entry_photos'),
     fetchPhotoRows(supabase, organizationId, 'service_order_exit_photos'),
+    fetchPhotoRows(supabase, organizationId, 'service_order_assistance_photos'),
   ])
 
   const entryPaths = entryRows.map((row) => String(row.storage_path || '').trim()).filter(Boolean)
   const exitPaths = exitRows.map((row) => String(row.storage_path || '').trim()).filter(Boolean)
+  const assistancePaths = assistanceRows.map((row) => String(row.storage_path || '').trim()).filter(Boolean)
 
-  const [entrySizes, exitSizes] = await Promise.all([
+  const [entrySizes, exitSizes, assistanceSizes] = await Promise.all([
     buildStorageSizeMap(supabase, SERVICE_ORDER_ENTRY_PHOTOS_BUCKET, entryPaths),
     buildStorageSizeMap(supabase, SERVICE_ORDER_EXIT_PHOTOS_BUCKET, exitPaths),
+    buildStorageSizeMap(supabase, SERVICE_ORDER_ASSISTANCE_PHOTOS_BUCKET, assistancePaths),
   ])
 
-  const [entryItems, exitItems] = await Promise.all([
+  const [entryItems, exitItems, assistanceItems] = await Promise.all([
     mapRowsToListItems(supabase, entryRows, 'entry', SERVICE_ORDER_ENTRY_PHOTOS_BUCKET, entrySizes),
     mapRowsToListItems(supabase, exitRows, 'exit', SERVICE_ORDER_EXIT_PHOTOS_BUCKET, exitSizes),
+    mapRowsToListItems(
+      supabase,
+      assistanceRows,
+      'assistance',
+      SERVICE_ORDER_ASSISTANCE_PHOTOS_BUCKET,
+      assistanceSizes,
+    ),
   ])
 
-  return [...entryItems, ...exitItems].sort((a, b) => {
+  return [...entryItems, ...exitItems, ...assistanceItems].sort((a, b) => {
     const sizeA = a.sizeBytes ?? -1
     const sizeB = b.sizeBytes ?? -1
     if (sizeB !== sizeA) return sizeB - sizeA
@@ -170,8 +198,8 @@ export async function deleteServiceOrderPhoto (
   photoId: string,
   kind: ServiceOrderPhotoKind,
 ): Promise<void> {
-  const table = kind === 'entry' ? 'service_order_entry_photos' : 'service_order_exit_photos'
-  const bucket = kind === 'entry' ? SERVICE_ORDER_ENTRY_PHOTOS_BUCKET : SERVICE_ORDER_EXIT_PHOTOS_BUCKET
+  const table = KIND_TABLE[kind]
+  const bucket = KIND_BUCKET[kind]
 
   const { data: row, error: findErr } = await supabase
     .from(table)

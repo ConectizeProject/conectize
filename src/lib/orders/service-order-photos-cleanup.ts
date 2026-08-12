@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 export const SERVICE_ORDER_ENTRY_PHOTOS_BUCKET = 'order-entry-photos'
 export const SERVICE_ORDER_EXIT_PHOTOS_BUCKET = 'order-exit-photos'
+export const SERVICE_ORDER_ASSISTANCE_PHOTOS_BUCKET = 'order-assistance-photos'
 export const SERVICE_ORDER_PHOTO_RETENTION_MONTHS = 3
 
 const BATCH_SIZE = 100
@@ -12,9 +13,15 @@ type PhotoRow = {
   storage_path: string
 }
 
+type PhotoTable =
+  | 'service_order_entry_photos'
+  | 'service_order_exit_photos'
+  | 'service_order_assistance_photos'
+
 export type ServiceOrderPhotosCleanupPreview = {
   entryCount: number
   exitCount: number
+  assistanceCount: number
   totalCount: number
   cutoffAt: string
   retentionMonths: number
@@ -23,6 +30,7 @@ export type ServiceOrderPhotosCleanupPreview = {
 export type ServiceOrderPhotosCleanupResult = ServiceOrderPhotosCleanupPreview & {
   entryDeleted: number
   exitDeleted: number
+  assistanceDeleted: number
   storageRemoveErrors: number
 }
 
@@ -39,7 +47,7 @@ export function getServiceOrderPhotoCutoffIso (): string {
 async function countOldPhotos (
   supabase: SupabaseClient,
   organizationId: string,
-  table: 'service_order_entry_photos' | 'service_order_exit_photos',
+  table: PhotoTable,
   cutoffIso: string,
 ): Promise<number> {
   const { count, error } = await supabase
@@ -60,15 +68,17 @@ export async function previewOldServiceOrderPhotosCleanup (
   organizationId: string,
 ): Promise<ServiceOrderPhotosCleanupPreview> {
   const cutoffAt = getServiceOrderPhotoCutoffIso()
-  const [entryCount, exitCount] = await Promise.all([
+  const [entryCount, exitCount, assistanceCount] = await Promise.all([
     countOldPhotos(supabase, organizationId, 'service_order_entry_photos', cutoffAt),
     countOldPhotos(supabase, organizationId, 'service_order_exit_photos', cutoffAt),
+    countOldPhotos(supabase, organizationId, 'service_order_assistance_photos', cutoffAt),
   ])
 
   return {
     entryCount,
     exitCount,
-    totalCount: entryCount + exitCount,
+    assistanceCount,
+    totalCount: entryCount + exitCount + assistanceCount,
     cutoffAt,
     retentionMonths: SERVICE_ORDER_PHOTO_RETENTION_MONTHS,
   }
@@ -78,7 +88,7 @@ async function cleanupPhotoTable (
   supabase: SupabaseClient,
   organizationId: string,
   cutoffIso: string,
-  table: 'service_order_entry_photos' | 'service_order_exit_photos',
+  table: PhotoTable,
   bucket: string,
 ): Promise<{ deleted: number; storageRemoveErrors: number }> {
   let deleted = 0
@@ -137,7 +147,7 @@ export async function runOldServiceOrderPhotosCleanup (
   const preview = await previewOldServiceOrderPhotosCleanup(supabase, organizationId)
   const cutoffIso = preview.cutoffAt
 
-  const [entryResult, exitResult] = await Promise.all([
+  const [entryResult, exitResult, assistanceResult] = await Promise.all([
     cleanupPhotoTable(
       supabase,
       organizationId,
@@ -152,12 +162,23 @@ export async function runOldServiceOrderPhotosCleanup (
       'service_order_exit_photos',
       SERVICE_ORDER_EXIT_PHOTOS_BUCKET,
     ),
+    cleanupPhotoTable(
+      supabase,
+      organizationId,
+      cutoffIso,
+      'service_order_assistance_photos',
+      SERVICE_ORDER_ASSISTANCE_PHOTOS_BUCKET,
+    ),
   ])
 
   return {
     ...preview,
     entryDeleted: entryResult.deleted,
     exitDeleted: exitResult.deleted,
-    storageRemoveErrors: entryResult.storageRemoveErrors + exitResult.storageRemoveErrors,
+    assistanceDeleted: assistanceResult.deleted,
+    storageRemoveErrors:
+      entryResult.storageRemoveErrors +
+      exitResult.storageRemoveErrors +
+      assistanceResult.storageRemoveErrors,
   }
 }

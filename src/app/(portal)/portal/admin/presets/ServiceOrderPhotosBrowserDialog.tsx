@@ -56,7 +56,9 @@ function formatPhotoDate (iso: string): string {
 }
 
 function kindLabel (kind: ServiceOrderPhotoKind): string {
-  return kind === 'entry' ? 'Entrada' : 'Saída'
+  if (kind === 'entry') return 'Entrada'
+  if (kind === 'exit') return 'Saída'
+  return 'Assistência'
 }
 
 export function ServiceOrderPhotosBrowserDialog ({

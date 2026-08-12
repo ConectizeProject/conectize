@@ -15,7 +15,7 @@ export type DeviceModel = {
   model: string
 }
 
-const DEVICE_MODELS_CACHE_KEY = 'portal_device_models_v1'
+const DEVICE_MODELS_CACHE_KEY = 'portal_device_models_v2'
 const DEVICE_MODELS_CACHE_TTL_MS = 5 * 60 * 1000 // 5 min
 
 function getCachedDeviceModels(): DeviceModel[] | null {

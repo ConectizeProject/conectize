@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import { deviceCatalogOrganizationIds } from '@/lib/organizations/device-catalog'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 
 function cleanText (value: string) {
@@ -35,7 +36,7 @@ export async function PATCH (
 		.from('device_types')
 		.select('id, name, device_brands ( id, name )')
 		.eq('id', deviceTypeId)
-		.eq('organization_id', auth.organizationId)
+		.in('organization_id', deviceCatalogOrganizationIds(auth.organizationId))
 		.maybeSingle()
 	if (typeErr || !typeRow) {
 		return NextResponse.json({ ok: false, error: 'invalid_device_type' }, { status: 400 })
@@ -53,7 +54,7 @@ export async function PATCH (
 		.update({ device_type_id: deviceTypeId, model })
 		.eq('id', id)
 		.eq('organization_id', auth.organizationId)
-		.select('id, model, device_type_id')
+		.select('id, model, device_type_id, organization_id')
 		.maybeSingle()
 
 	if (error) {
@@ -76,6 +77,7 @@ export async function PATCH (
 			id: updated.id,
 			model: updated.model,
 			device_type_id: updated.device_type_id,
+			organization_id: updated.organization_id,
 			brand: brandName,
 			device_type: deviceTypeName,
 		},

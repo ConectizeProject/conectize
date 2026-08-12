@@ -32,7 +32,7 @@ export type EntryPhotoItem = {
 	created_at: string;
 };
 
-export type OrderPhotosStage = "entry" | "exit";
+export type OrderPhotosStage = "entry" | "exit" | "assistance";
 
 const PHOTO_STAGE_CONFIG: Record<
 	OrderPhotosStage,
@@ -79,6 +79,21 @@ const PHOTO_STAGE_CONFIG: Record<
 			"A foto de saída foi removida e a alteração já está salva.",
 		ariaAdd: "Adicionar fotos de saída",
 	},
+	assistance: {
+		apiPath: "assistance-photos",
+		queryOpen: "addAssistancePhotos",
+		labelRow: "Fotos da assistência",
+		modalTitle: "Fotos da assistência",
+		modalDesc:
+			"Adicione fotos do processo de assistência. Elas ficam visíveis para o cliente no link público da OS. No celular, escaneie o QR code para abrir esta tela e enviar fotos da câmera.",
+		toastSavedTitle: "Fotos da assistência salvas",
+		toastSavedDesc:
+			"As fotos da assistência foram adicionadas e já estão salvas.",
+		toastDeletedTitle: "Foto da assistência excluída",
+		toastDeletedDesc:
+			"A foto da assistência foi removida e a alteração já está salva.",
+		ariaAdd: "Adicionar fotos da assistência",
+	},
 };
 
 type OrderEntryPhotosProps = {
@@ -89,7 +104,7 @@ type OrderEntryPhotosProps = {
 	/** Quantidade de fotos vinda do servidor (evita request extra no mount) */
 	initialPhotoCount?: number | null;
 	disabled?: boolean;
-	/** `entry` = recebimento; `saída` = bucket e API próprios */
+	/** `entry` / `exit` / `assistance` = buckets e APIs próprios */
 	photoStage?: OrderPhotosStage;
 };
 

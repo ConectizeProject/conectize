@@ -19,9 +19,14 @@ export type OsPublicPhotoItem = {
 type OsPublicEntryPhotosProps = {
   photos: OsPublicPhotoItem[]
   className?: string
+  title?: string
 }
 
-export function OsPublicEntryPhotos ({ photos, className }: OsPublicEntryPhotosProps) {
+export function OsPublicEntryPhotos ({
+  photos,
+  className,
+  title = 'Fotos do aparelho no momento da entrada',
+}: OsPublicEntryPhotosProps) {
   const [modalOpen, setModalOpen] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(0)
 
@@ -57,7 +62,7 @@ export function OsPublicEntryPhotos ({ photos, className }: OsPublicEntryPhotosP
   return (
     <>
       <div className={cn('space-y-3', className)}>
-        <h3 className="text-sm font-medium">Fotos do aparelho no momento da entrada</h3>
+        <h3 className="text-sm font-medium">{title}</h3>
         <ul className="grid grid-cols-6 sm:grid-cols-8 gap-1.5">
           {photos.map((photo, index) => (
             <li key={photo.id} className="list-none">
