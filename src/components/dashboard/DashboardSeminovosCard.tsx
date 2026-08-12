@@ -107,7 +107,7 @@ export function DashboardSeminovosCard({ totalAvailable, groups }: Props) {
           )}
           <div className="flex flex-row gap-2 pt-1 justify-start items-center">
             <Link
-              href="/portal/revendaaparelhos/seminovos"
+              href="/portal/revendaaparelhos"
               className="text-xs font-medium text-primary hover:underline"
             >
               Ver aparelhos →

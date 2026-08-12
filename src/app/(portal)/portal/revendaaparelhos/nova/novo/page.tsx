@@ -20,7 +20,7 @@ export default async function RevendaNovaNovoPage () {
     <SeminovosFormClient
       isCreate
       defaultStockType="lacrado"
-      backHref={revendaPath.novos}
+      backHref={revendaPath.listagem}
       role={normalizedRole}
     />
   )

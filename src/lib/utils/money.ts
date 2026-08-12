@@ -29,6 +29,22 @@ export function maskedFromCents(cents: number | null | undefined): string {
   return `${sign}${whole},${frac}`
 }
 
+/** Arredonda centavos para cima ao real inteiro (ex.: 119935 → 120000). */
+export function ceilCentsToWholeReais (cents: number): number {
+  if (!Number.isFinite(cents) || cents <= 0) return 0
+  return Math.ceil(cents / 100) * 100
+}
+
+/** Formata centavos em reais inteiros sem casas decimais (ex.: 120000 → 1.200). */
+export function maskedWholeReaisFromCents (cents: number | null | undefined): string {
+  if (cents === null || cents === undefined) return ''
+  const rounded = ceilCentsToWholeReais(cents)
+  const sign = rounded < 0 ? '-' : ''
+  const whole = String(Math.abs(rounded) / 100)
+  const withDots = whole.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+  return `${sign}${withDots}`
+}
+
 function isNegativeMoneyMask (value: string): boolean {
   const trimmed = value.trim()
   return trimmed.startsWith('-') || trimmed.startsWith('−')

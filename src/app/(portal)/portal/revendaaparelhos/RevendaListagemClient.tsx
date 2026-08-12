@@ -2,7 +2,18 @@
 
 import { ResaleDeviceQuickActionsDropdown } from '@/components/resale/ResaleDeviceQuickActionsDropdown'
 import { ResaleSimulatePaymentDialog } from '@/components/resale/ResaleSimulatePaymentDialog'
+import { ResaleDevicePriceDisplay } from '@/components/resale/ResaleDevicePriceDisplay'
+import { ResaleDeviceInfoButton } from '@/components/resale/ResaleDeviceInfoButton'
+import { ResaleAddCostDialog } from '@/components/resale/ResaleAddCostDialog'
+import { ResaleDeleteDeviceDialog } from '@/components/resale/ResaleDeleteDeviceDialog'
+import { ResaleBulkEditTable } from '@/components/resale/ResaleBulkEditTable'
+import {
+  ResaleMarkSoldDialog,
+  type ResaleMarkSoldDevice,
+} from '@/components/resale/ResaleMarkSoldDialog'
+import { ResaleDeviceTermsDialog } from '../seminovos/ResaleDeviceTermsDialog'
 import { Card, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 import { WhatsAppTextModalButton } from '@/components/whatsapp-text-modal'
 import { getInstallmentRowForCount } from '@/lib/resale/credit-installment-max-fee'
 import { revendaPath } from '@/lib/revenda/revenda-paths'
@@ -20,9 +31,11 @@ import {
 } from '@/lib/seminovos/seminovos-device-actions'
 import { buildConectizeStockWhatsAppTexts } from '@/lib/seminovos/whatsapp-stock-broadcast-text'
 import { cn } from '@/lib/utils'
+import { formatDateBr } from '@/lib/utils/format-date'
 import { maskedFromCents } from '@/lib/utils/money'
-import { Smartphone } from 'lucide-react'
+import { Plus, Smartphone } from 'lucide-react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useCallback, useMemo, useState } from 'react'
 import { SeminovosFilterCollapsible } from '../seminovos/SeminovosFilterCollapsible'
 
@@ -46,12 +59,14 @@ type FilterInitial = {
   deviceName?: string
   valueMin?: string
   valueMax?: string
+  includeSold?: boolean
 }
 
 type Props = {
   devices: Array<ResaleDeviceRow & { display_image_url: string | null }>
   paymentMethods: PaymentMethod[]
   isRetailer: boolean
+  isAdmin?: boolean
   filterInitialValues: FilterInitial
   distinctDeviceNames: string[]
 }
@@ -66,17 +81,29 @@ function formatStorageLabel (raw: string | null | undefined): string | null {
   return /gb/i.test(t) ? t : `${t} GB`
 }
 
+function sumCostsCents (device: CatalogDeviceRow) {
+  return (device.costs || []).reduce((acc, row) => acc + (Number(row.value_cents) || 0), 0)
+}
+
 export function RevendaListagemClient ({
   devices,
   paymentMethods,
   isRetailer,
+  isAdmin = false,
   filterInitialValues,
   distinctDeviceNames,
 }: Props) {
+  const router = useRouter()
   const [priceMode, setPriceMode] = useState<'varejo' | 'atacado'>('varejo')
   const [simulateDevice, setSimulateDevice] = useState<CatalogDeviceRow | null>(
     null,
   )
+  const [costTarget, setCostTarget] = useState<CatalogDeviceRow | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<CatalogDeviceRow | null>(null)
+  const [sellTarget, setSellTarget] = useState<CatalogDeviceRow | null>(null)
+  const [termsDevice, setTermsDevice] = useState<ResaleMarkSoldDevice | null>(null)
+  const [showTermsDialog, setShowTermsDialog] = useState(false)
+  const [isBulkEdit, setIsBulkEdit] = useState(false)
 
   const orderedDevices = useMemo(
     () => groupDevicesByModel(devices).flatMap((g) => g.devices),
@@ -107,6 +134,14 @@ export function RevendaListagemClient ({
   const handleCatalogCopyImei = useCallback(async (d: CatalogDeviceRow) => {
     await copyImeiWithPortalToast(d.imei)
   }, [])
+
+  const handleMarkSold = useCallback((d: CatalogDeviceRow) => {
+    setSellTarget(d)
+  }, [])
+
+  const handleEditDevice = useCallback((d: CatalogDeviceRow) => {
+    router.push(revendaPath.device(d.id))
+  }, [router])
 
   const priceToggle = (
     <div className="flex items-center gap-2">
@@ -140,10 +175,36 @@ export function RevendaListagemClient ({
           Atacado
         </button>
       </div>
-      <WhatsAppTextModalButton
-        buildTexts={buildWhatsAppTexts}
-        className="h-10 w-10 shrink-0 touch-manipulation"
-      />
+      {!isBulkEdit ? (
+        <>
+          {isAdmin ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-10 shrink-0"
+              onClick={() => setIsBulkEdit(true)}
+            >
+              Edição em massa
+            </Button>
+          ) : null}
+          <WhatsAppTextModalButton
+            buildTexts={buildWhatsAppTexts}
+            className="h-10 w-10 shrink-0 touch-manipulation"
+          />
+          {isAdmin ? (
+            <Button
+              variant="default"
+              size="icon"
+              className="h-10 w-10 shrink-0 touch-manipulation"
+              asChild
+            >
+              <Link href={revendaPath.nova} aria-label="Cadastrar aparelho">
+                <Plus className="h-4 w-4" aria-hidden />
+              </Link>
+            </Button>
+          ) : null}
+        </>
+      ) : null}
     </div>
   )
 
@@ -161,11 +222,13 @@ export function RevendaListagemClient ({
           filterInitialValues.stockType,
           filterInitialValues.valueMin || '',
           filterInitialValues.valueMax || '',
+          filterInitialValues.includeSold ? '1' : '0',
         ].join('|')}
         initialValues={filterInitialValues}
         filterFormAction={revendaPath.listagem}
         distinctDeviceNames={distinctDeviceNames}
         catalogMode
+        showIncludeSoldFilter={isAdmin}
         trailingSlot={priceToggle}
         quickFilters={{
           notTested: false,
@@ -179,14 +242,29 @@ export function RevendaListagemClient ({
         }}
       />
 
-      {orderedDevices.length === 0 ? (
+      {isBulkEdit && isAdmin ? (
+        <ResaleBulkEditTable
+          devices={orderedDevices}
+          onCancel={() => setIsBulkEdit(false)}
+          onSaved={() => setIsBulkEdit(false)}
+          onEdit={handleEditDevice}
+          onMarkSold={handleMarkSold}
+          onAddCost={setCostTarget}
+          onDelete={setDeleteTarget}
+          onSimulate={openSimulateForDevice}
+          onPrintLabel={handleCatalogPrintLabel}
+          onCopyLojista={(d) => void handleCatalogCopyLojista(d)}
+          onCopyCliente={(d) => void handleCatalogCopyCliente(d)}
+          onCopyImei={(d) => void handleCatalogCopyImei(d)}
+        />
+      ) : orderedDevices.length === 0 ? (
         <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
           Nenhum aparelho disponível.
-          {!isRetailer ? (
+          {isAdmin ? (
             <>
               {' '}
-              <Link href={revendaPath.seminovos} className="text-primary underline">
-                Ver seminovos
+              <Link href={revendaPath.nova} className="text-primary underline">
+                Cadastrar aparelho
               </Link>
             </>
           ) : null}
@@ -221,8 +299,6 @@ export function RevendaListagemClient ({
               if (d.condition) propertySegments.push(d.condition)
             }
 
-            const priceHint = 'Cadastre valores de venda'
-
             return (
               <div
                 key={d.id}
@@ -234,7 +310,11 @@ export function RevendaListagemClient ({
               >
                 <Card className="h-full overflow-hidden border transition-shadow duration-200 hover:shadow-md hover:border-primary/30">
                   <div className="relative aspect-square overflow-hidden bg-muted">
-                    {isNovo ? (
+                    {d.sold ? (
+                      <span className="absolute left-2 top-2 z-[2] rounded bg-zinc-900/85 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white shadow">
+                        Vendido
+                      </span>
+                    ) : isNovo ? (
                       <span className="absolute left-2 top-2 z-[2] rounded bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white shadow">
                         Novo
                       </span>
@@ -283,26 +363,64 @@ export function RevendaListagemClient ({
                         {propertySegments.join(' · ')}
                       </p>
                     ) : null}
-                    <div className="space-y-2 border-t border-border/80 pt-3">
-                      <p className="text-2xl font-bold tabular-nums tracking-tight sm:text-[1.75rem]">
-                        {saleCents != null && saleCents > 0
-                          ? `R$ ${maskedFromCents(saleCents)}`
-                          : 'Sob consulta'}
-                      </p>
-                      {row12 ? (
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          ou 12x de{' '}
-                          <span className="font-semibold tabular-nums text-foreground">
-                            R$ {maskedFromCents(row12.installmentValueCents)}
+                    <ResaleDevicePriceDisplay
+                      saleCents={saleCents}
+                      row12={row12}
+                      className="space-y-2 border-t border-border/80 pt-3"
+                    />
+                    {isAdmin ? (
+                      <div className="mt-3 space-y-1 rounded-md border border-border/70 bg-muted/40 px-2.5 py-2 text-xs text-muted-foreground">
+                        <p>
+                          Compra:{' '}
+                          <span className="font-medium tabular-nums text-foreground">
+                            {d.purchase_value_cents != null && d.purchase_value_cents > 0
+                              ? `R$ ${maskedFromCents(d.purchase_value_cents)}`
+                              : '—'}
                           </span>
                         </p>
-                      ) : (
-                        <p className="text-sm text-muted-foreground">{priceHint}</p>
-                      )}
-                    </div>
+                        <p>
+                          Custos:{' '}
+                          <span className="font-medium tabular-nums text-foreground">
+                            {(() => {
+                              const costsSum = sumCostsCents(d)
+                              return costsSum > 0
+                                ? `R$ ${maskedFromCents(costsSum)}`
+                                : '—'
+                            })()}
+                          </span>
+                        </p>
+                        <p>
+                          Data da compra:{' '}
+                          <span className="font-medium text-foreground">
+                            {d.purchase_date
+                              ? formatDateBr(`${d.purchase_date}T12:00:00`)
+                              : '—'}
+                          </span>
+                        </p>
+                        {d.sold ? (
+                          <p>
+                            Data da venda:{' '}
+                            <span className="font-medium text-foreground">
+                              {d.sale_date
+                                ? formatDateBr(`${d.sale_date}T12:00:00`)
+                                : '—'}
+                            </span>
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </CardContent>
                 </Card>
               </Link>
+              {d.info?.trim() ? (
+                <ResaleDeviceInfoButton
+                  info={d.info}
+                  className={cn(
+                    'absolute left-2 z-[5]',
+                    d.sold || isNovo ? 'top-9' : 'top-2',
+                  )}
+                />
+              ) : null}
               <div
                 className="absolute right-2 top-2 z-[5] opacity-0 pointer-events-none transition-opacity duration-200 [@media(hover:none)]:opacity-100 [@media(hover:none)]:pointer-events-auto group-hover/card:opacity-100 group-hover/card:pointer-events-auto group-focus-within/card:opacity-100 group-focus-within/card:pointer-events-auto"
                 onClick={(e) => {
@@ -312,11 +430,18 @@ export function RevendaListagemClient ({
               >
                 <ResaleDeviceQuickActionsDropdown
                   device={d}
+                  includeSimulate={!d.sold}
                   onSimulate={() => openSimulateForDevice(d)}
                   onPrintLabel={() => handleCatalogPrintLabel(d)}
                   onCopyLojista={() => void handleCatalogCopyLojista(d)}
                   onCopyCliente={() => void handleCatalogCopyCliente(d)}
                   onCopyImei={() => void handleCatalogCopyImei(d)}
+                  isAdmin={isAdmin}
+                  deviceSold={d.sold}
+                  onEdit={() => handleEditDevice(d)}
+                  onMarkSold={() => handleMarkSold(d)}
+                  onAddCost={() => setCostTarget(d)}
+                  onDelete={() => setDeleteTarget(d)}
                 />
               </div>
               </div>
@@ -335,6 +460,69 @@ export function RevendaListagemClient ({
         }
         paymentMethods={paymentMethods}
         onClose={() => setSimulateDevice(null)}
+      />
+      <ResaleAddCostDialog
+        deviceId={costTarget?.id ?? null}
+        open={Boolean(costTarget)}
+        onOpenChange={(open) => {
+          if (!open) setCostTarget(null)
+        }}
+      />
+      <ResaleDeleteDeviceDialog
+        deviceId={deleteTarget?.id ?? null}
+        deviceLabel={
+          deleteTarget
+            ? (deleteTarget.device_name || deleteTarget.model || 'Aparelho')
+            : null
+        }
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null)
+        }}
+      />
+      <ResaleMarkSoldDialog
+        open={Boolean(sellTarget)}
+        onOpenChange={(open) => {
+          if (!open) setSellTarget(null)
+        }}
+        device={sellTarget as ResaleMarkSoldDevice | null}
+        mode="create"
+        isAdmin={isAdmin}
+        canViewPurchaseValue={isAdmin}
+        onSold={(updated, meta) => {
+          setSellTarget(null)
+          if (meta.generateWarrantyTerm) {
+            setTermsDevice(updated)
+            setShowTermsDialog(true)
+          }
+          router.refresh()
+        }}
+      />
+      <ResaleDeviceTermsDialog
+        open={showTermsDialog}
+        onOpenChange={setShowTermsDialog}
+        device={
+          termsDevice
+            ? {
+                id: termsDevice.id,
+                device_name: termsDevice.device_name,
+                model: termsDevice.model,
+                color: termsDevice.color,
+                storage_gb: termsDevice.storage_gb,
+                battery: termsDevice.battery,
+                imei: termsDevice.imei,
+                serial: termsDevice.serial ?? null,
+                sold_for_cents: termsDevice.sold_for_cents,
+                sale_date: termsDevice.sale_date,
+                buyer_name: termsDevice.buyer_name ?? null,
+                buyer_cpf: termsDevice.buyer_cpf ?? null,
+                sale_details: termsDevice.sale_details ?? null,
+                payment_method_id: termsDevice.payment_method_id ?? null,
+                payment_installments: termsDevice.payment_installments ?? null,
+                sale_payment_methods: termsDevice.sale_payment_methods ?? null,
+              }
+            : null
+        }
       />
     </div>
   )

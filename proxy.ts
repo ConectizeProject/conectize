@@ -158,9 +158,6 @@ export async function proxy(request: NextRequest) {
         pathname === '/portal/revendaaparelhos/listagem' ||
         pathname.startsWith('/portal/revendaaparelhos/listagem/') ||
         /^\/portal\/revendaaparelhos\/[^/]+\/vitrine\/?$/.test(pathname) ||
-        pathname === '/portal/seminovos/varejo' ||
-        pathname.startsWith('/portal/seminovos/varejo/') ||
-        /^\/portal\/seminovos\/[^/]+\/vitrine\/?$/.test(pathname) ||
         pathname === '/portal/financeiro-lojista' ||
         pathname.startsWith('/portal/financeiro-lojista/')
 
