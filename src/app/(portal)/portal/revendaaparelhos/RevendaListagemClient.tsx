@@ -247,15 +247,42 @@ export function RevendaListagemClient ({
           devices={orderedDevices}
           onCancel={() => setIsBulkEdit(false)}
           onSaved={() => setIsBulkEdit(false)}
-          onEdit={handleEditDevice}
-          onMarkSold={handleMarkSold}
-          onAddCost={setCostTarget}
-          onDelete={setDeleteTarget}
-          onSimulate={openSimulateForDevice}
-          onPrintLabel={handleCatalogPrintLabel}
-          onCopyLojista={(d) => void handleCatalogCopyLojista(d)}
-          onCopyCliente={(d) => void handleCatalogCopyCliente(d)}
-          onCopyImei={(d) => void handleCatalogCopyImei(d)}
+          onEdit={(d) => {
+            const row = orderedDevices.find((x) => x.id === d.id)
+            if (row) handleEditDevice(row)
+          }}
+          onMarkSold={(d) => {
+            const row = orderedDevices.find((x) => x.id === d.id)
+            if (row) handleMarkSold(row)
+          }}
+          onAddCost={(d) => {
+            const row = orderedDevices.find((x) => x.id === d.id)
+            if (row) setCostTarget(row)
+          }}
+          onDelete={(d) => {
+            const row = orderedDevices.find((x) => x.id === d.id)
+            if (row) setDeleteTarget(row)
+          }}
+          onSimulate={(d) => {
+            const row = orderedDevices.find((x) => x.id === d.id)
+            if (row) openSimulateForDevice(row)
+          }}
+          onPrintLabel={(d) => {
+            const row = orderedDevices.find((x) => x.id === d.id)
+            if (row) handleCatalogPrintLabel(row)
+          }}
+          onCopyLojista={(d) => {
+            const row = orderedDevices.find((x) => x.id === d.id)
+            if (row) void handleCatalogCopyLojista(row)
+          }}
+          onCopyCliente={(d) => {
+            const row = orderedDevices.find((x) => x.id === d.id)
+            if (row) void handleCatalogCopyCliente(row)
+          }}
+          onCopyImei={(d) => {
+            const row = orderedDevices.find((x) => x.id === d.id)
+            if (row) void handleCatalogCopyImei(row)
+          }}
         />
       ) : orderedDevices.length === 0 ? (
         <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
