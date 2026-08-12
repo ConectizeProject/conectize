@@ -33,7 +33,7 @@ export default async function CadastroEmpresaPage ({
           <CardHeader>
             <CardTitle>Cadastrar empresa</CardTitle>
             <CardDescription>
-              Você será o administrador da organização. Use um CNPJ válido e um e-mail ainda não cadastrado.
+              Você será o administrador da organização. Use CPF ou CNPJ e um e-mail ainda não cadastrado.
             </CardDescription>
           </CardHeader>
           <CardContent>

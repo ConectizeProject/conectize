@@ -7,13 +7,19 @@ import { Label } from '@/components/ui/label'
 import { DocumentMaskedInput } from '@/app/(portal)/portal/clientes/DocumentMaskedInput'
 import { DadosEmpresaSubmitButton } from './DadosEmpresaSubmitButton'
 import { DadosEmpresaToastClient } from './DadosEmpresaToastClient'
-import { formatCnpj } from '@/lib/utils/format-cpf-cnpj'
+import { OrganizationLogoFields } from './OrganizationLogoFields'
+import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { formatCepBr } from '@/lib/utils/format-cep'
 import { onlyDigits } from '@/lib/utils/strings'
 import {
 	ensurePortalOrganizationContext,
 	getPortalOrganizationId,
 } from '@/lib/organizations/portal-organization-context'
+import { createSupabaseServiceClient } from '@/lib/supabase/service'
+import {
+	removeOrganizationLogoFolder,
+	uploadOrganizationLogo,
+} from '@/lib/organizations/organization-logo-storage'
 
 async function canEditOrganizationData(
 	supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
@@ -65,7 +71,30 @@ async function updateCompanyAction(formData: FormData) {
 	const state = String(formData.get('state') || '').trim().slice(0, 2) || null
 	const phone = String(formData.get('phone') || '').trim() || null
 	const email = String(formData.get('email') || '').trim() || null
-	const logoUrl = String(formData.get('logoUrl') || '').trim() || null
+	const logoUrlField = String(formData.get('logoUrl') || '').trim() || null
+	const logoFileRaw = formData.get('logoFile')
+	const logoFile =
+		logoFileRaw && typeof logoFileRaw !== 'string' && logoFileRaw.size > 0
+			? logoFileRaw
+			: null
+
+	let nextLogoUrl = logoUrlField
+
+	if (logoFile) {
+		let svc
+		try {
+			svc = createSupabaseServiceClient()
+		} catch {
+			redirect('/portal/admin/dados-empresa?error=logo')
+		}
+
+		await removeOrganizationLogoFolder(svc, organizationId)
+		const upload = await uploadOrganizationLogo(svc, organizationId, logoFile)
+		if (!upload.ok) {
+			redirect('/portal/admin/dados-empresa?error=logo')
+		}
+		nextLogoUrl = upload.publicUrl
+	}
 
 	await supabase
 		.from('organizations')
@@ -79,7 +108,7 @@ async function updateCompanyAction(formData: FormData) {
 			state,
 			phone,
 			email,
-			logo_url: logoUrl,
+			logo_url: nextLogoUrl,
 			updated_at: new Date().toISOString(),
 		})
 		.eq('id', organizationId)
@@ -134,7 +163,7 @@ export default async function DadosEmpresaPage({
 						</CardDescription>
 					</CardHeader>
 					<CardContent>
-						<form action={updateCompanyAction} className="space-y-4">
+						<form action={updateCompanyAction} encType="multipart/form-data" className="space-y-4">
 							<div className="space-y-2">
 								<Label htmlFor="name">Nome da empresa</Label>
 								<Input
@@ -146,23 +175,15 @@ export default async function DadosEmpresaPage({
 							</div>
 
 							<div className="space-y-2">
-								<Label htmlFor="cnpj">CNPJ</Label>
+								<Label htmlFor="cnpj">CPF ou CNPJ</Label>
 								<DocumentMaskedInput
 									name="cnpj"
-									defaultValue={formatCnpj(String(c.cnpj ?? ''))}
-									placeholder="00.000.000/0001-00"
+									defaultValue={formatCpfCnpj(String(c.cnpj ?? ''))}
+									placeholder="000.000.000-00 ou 00.000.000/0000-00"
 								/>
 							</div>
 
-							<div className="space-y-2">
-								<Label htmlFor="logoUrl">URL do logo</Label>
-								<Input
-									id="logoUrl"
-									name="logoUrl"
-									defaultValue={String(c.logo_url || '')}
-									placeholder="/logo_conectize.svg ou URL completa"
-								/>
-							</div>
+							<OrganizationLogoFields initialLogoUrl={String(c.logo_url || '')} />
 
 							<div className="space-y-2">
 								<Label htmlFor="address">Endereço</Label>

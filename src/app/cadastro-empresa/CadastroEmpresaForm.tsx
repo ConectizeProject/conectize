@@ -1,13 +1,13 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Formik } from 'formik'
 import * as Yup from 'yup'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { formatCnpj } from '@/lib/utils/format-cpf-cnpj'
+import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { onlyDigits } from '@/lib/utils/strings'
 
 type Props = {
@@ -24,10 +24,19 @@ type FormValues = {
   logoUrl: string
 }
 
+const LOGO_MAX_BYTES = 2 * 1024 * 1024
+const LOGO_ACCEPT = 'image/jpeg,image/png,image/webp,image/svg+xml'
+
+function isValidDocumentLength (value: string) {
+  const length = onlyDigits(value).length
+  return length === 11 || length === 14
+}
+
 function mapErrorMessage (errorCode: string | null) {
-  if (errorCode === 'cnpj_em_uso') return 'Este CNPJ já está cadastrado.'
+  if (errorCode === 'cnpj_em_uso') return 'Este CPF/CNPJ já está cadastrado.'
   if (errorCode === 'email_em_uso') return 'Este e-mail já está em uso.'
   if (errorCode === 'dados_invalidos') return 'Preencha todos os campos obrigatórios corretamente.'
+  if (errorCode === 'logo_invalido') return 'Logo inválido. Use JPG, PNG, WebP ou SVG até 2 MB.'
   if (errorCode === 'config') return 'Serviço indisponível. Tente novamente em instantes.'
   if (errorCode === 'org_falhou') return 'Não foi possível criar a empresa. Tente novamente.'
   return 'Não foi possível concluir o cadastro agora.'
@@ -38,16 +47,32 @@ export function CadastroEmpresaForm ({ initialError }: Props) {
   const [serverError, setServerError] = useState<string | null>(
     initialError ? mapErrorMessage(initialError) : null
   )
+  const [logoFile, setLogoFile] = useState<File | null>(null)
+  const [logoPreviewUrl, setLogoPreviewUrl] = useState<string | null>(null)
+  const [logoFileError, setLogoFileError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!logoFile) {
+      setLogoPreviewUrl(null)
+      return
+    }
+
+    const objectUrl = URL.createObjectURL(logoFile)
+    setLogoPreviewUrl(objectUrl)
+    return () => {
+      URL.revokeObjectURL(objectUrl)
+    }
+  }, [logoFile])
 
   const validationSchema = useMemo(() => {
     return Yup.object({
       companyName: Yup.string()
         .trim()
-        .required('Informe a razão social.'),
+        .required('Informe o nome da empresa ou razão social.'),
       cnpj: Yup.string()
-        .required('Informe o CNPJ.')
-        .test('cnpj-length', 'Informe um CNPJ com 14 dígitos.', (value) => {
-          return onlyDigits(value || '').length === 14
+        .required('Informe o CPF ou CNPJ.')
+        .test('document-length', 'Informe um CPF (11 dígitos) ou CNPJ (14 dígitos).', (value) => {
+          return isValidDocumentLength(value || '')
         }),
       fullName: Yup.string()
         .trim()
@@ -64,8 +89,16 @@ export function CadastroEmpresaForm ({ initialError }: Props) {
         .oneOf([Yup.ref('password')], 'As senhas não conferem.'),
       logoUrl: Yup.string()
         .trim()
-        .url('Informe uma URL válida (http/https).')
-        .notRequired(),
+        .test('logo-url', 'Informe uma URL válida (http/https).', (value) => {
+          const trimmed = String(value || '').trim()
+          if (!trimmed) return true
+          try {
+            const parsed = new URL(trimmed)
+            return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+          } catch {
+            return false
+          }
+        }),
     })
   }, [])
 
@@ -81,26 +114,54 @@ export function CadastroEmpresaForm ({ initialError }: Props) {
     }
   }, [])
 
+  function onLogoFileChange (fileList: FileList | null) {
+    setLogoFileError(null)
+    const file = fileList?.[0] || null
+    if (!file) {
+      setLogoFile(null)
+      return
+    }
+
+    if (file.size > LOGO_MAX_BYTES) {
+      setLogoFile(null)
+      setLogoFileError('A imagem deve ter no máximo 2 MB.')
+      return
+    }
+
+    const allowed = LOGO_ACCEPT.split(',')
+    if (file.type && !allowed.includes(file.type)) {
+      setLogoFile(null)
+      setLogoFileError('Use JPG, PNG, WebP ou SVG.')
+      return
+    }
+
+    setLogoFile(file)
+  }
+
   return (
     <Formik
       initialValues={initialValues}
       validationSchema={validationSchema}
       onSubmit={async (values, formik) => {
         setServerError(null)
+        setLogoFileError(null)
 
         try {
+          const formData = new FormData()
+          formData.set('companyName', values.companyName.trim())
+          formData.set('cnpj', onlyDigits(values.cnpj))
+          formData.set('fullName', values.fullName.trim())
+          formData.set('email', values.email.trim().toLowerCase())
+          formData.set('password', values.password)
+          formData.set('passwordConfirm', values.passwordConfirm)
+          formData.set('logoUrl', logoFile ? '' : values.logoUrl.trim())
+          if (logoFile) {
+            formData.set('logoFile', logoFile)
+          }
+
           const response = await fetch('/api/public/register-organization', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              companyName: values.companyName.trim(),
-              cnpj: onlyDigits(values.cnpj),
-              fullName: values.fullName.trim(),
-              email: values.email.trim().toLowerCase(),
-              password: values.password,
-              passwordConfirm: values.passwordConfirm,
-              logoUrl: values.logoUrl.trim(),
-            }),
+            body: formData,
           })
 
           const payload = await response.json().catch(() => null)
@@ -121,11 +182,11 @@ export function CadastroEmpresaForm ({ initialError }: Props) {
       {(formik) => (
         <form onSubmit={formik.handleSubmit} className='space-y-4'>
           <div className='space-y-2'>
-            <Label htmlFor='companyName'>Razão social</Label>
+            <Label htmlFor='companyName'>Nome da empresa / razão social</Label>
             <Input
               id='companyName'
               name='companyName'
-              placeholder='Sua assistência Ltda'
+              placeholder='Sua assistência ou loja'
               value={formik.values.companyName}
               onChange={formik.handleChange}
               onBlur={formik.handleBlur}
@@ -137,20 +198,21 @@ export function CadastroEmpresaForm ({ initialError }: Props) {
           </div>
 
           <div className='space-y-2'>
-            <Label htmlFor='cnpj'>CNPJ (com máscara)</Label>
+            <Label htmlFor='cnpj'>CPF ou CNPJ</Label>
             <Input
               id='cnpj'
               name='cnpj'
               type='text'
               inputMode='numeric'
+              autoComplete='off'
               maxLength={18}
-              placeholder='00.000.000/0000-00'
+              placeholder='000.000.000-00 ou 00.000.000/0000-00'
               value={formik.values.cnpj}
               onChange={(event) => {
-                formik.setFieldValue('cnpj', formatCnpj(event.target.value))
+                formik.setFieldValue('cnpj', formatCpfCnpj(event.target.value))
               }}
               onBlur={(event) => {
-                formik.setFieldValue('cnpj', formatCnpj(event.target.value))
+                formik.setFieldValue('cnpj', formatCpfCnpj(event.target.value))
                 formik.handleBlur(event)
               }}
               aria-invalid={Boolean(formik.touched.cnpj && formik.errors.cnpj)}
@@ -227,28 +289,74 @@ export function CadastroEmpresaForm ({ initialError }: Props) {
             ) : null}
           </div>
 
-          <div className='space-y-2'>
-            <Label htmlFor='logoUrl'>URL do logo (opcional)</Label>
+          <div className='space-y-3 rounded-md border p-3'>
+            <div className='space-y-1'>
+              <Label htmlFor='logoFile'>Logo (opcional)</Label>
+              <p className='text-xs text-muted-foreground'>
+                Envie uma imagem (até 2 MB) ou informe uma URL. Se enviar arquivo, ele tem prioridade.
+              </p>
+            </div>
+
             <Input
-              id='logoUrl'
-              name='logoUrl'
-              type='url'
-              placeholder='https://...'
-              value={formik.values.logoUrl}
-              onChange={formik.handleChange}
-              onBlur={formik.handleBlur}
-              aria-invalid={Boolean(formik.touched.logoUrl && formik.errors.logoUrl)}
+              id='logoFile'
+              name='logoFile'
+              type='file'
+              accept={LOGO_ACCEPT}
+              onChange={(event) => {
+                onLogoFileChange(event.target.files)
+              }}
             />
-            {formik.touched.logoUrl && formik.errors.logoUrl ? (
-              <p className='text-sm text-destructive'>{formik.errors.logoUrl}</p>
+
+            {logoFileError ? (
+              <p className='text-sm text-destructive'>{logoFileError}</p>
             ) : null}
+
+            {logoPreviewUrl ? (
+              <div className='flex items-center gap-3'>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={logoPreviewUrl}
+                  alt='Prévia do logo'
+                  className='h-14 w-14 rounded-md border object-contain bg-background'
+                />
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  onClick={() => {
+                    setLogoFile(null)
+                    setLogoFileError(null)
+                  }}
+                >
+                  Remover imagem
+                </Button>
+              </div>
+            ) : null}
+
+            <div className='space-y-2'>
+              <Label htmlFor='logoUrl'>Ou URL do logo</Label>
+              <Input
+                id='logoUrl'
+                name='logoUrl'
+                type='url'
+                placeholder='https://...'
+                disabled={Boolean(logoFile)}
+                value={formik.values.logoUrl}
+                onChange={formik.handleChange}
+                onBlur={formik.handleBlur}
+                aria-invalid={Boolean(formik.touched.logoUrl && formik.errors.logoUrl)}
+              />
+              {formik.touched.logoUrl && formik.errors.logoUrl ? (
+                <p className='text-sm text-destructive'>{formik.errors.logoUrl}</p>
+              ) : null}
+            </div>
           </div>
 
           {serverError ? (
             <p className='text-sm text-destructive'>{serverError}</p>
           ) : null}
 
-          <Button type='submit' className='w-full' disabled={formik.isSubmitting}>
+          <Button type='submit' className='w-full' disabled={formik.isSubmitting || Boolean(logoFileError)}>
             {formik.isSubmitting ? 'Criando conta…' : 'Criar conta'}
           </Button>
         </form>

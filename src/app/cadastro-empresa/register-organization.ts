@@ -1,6 +1,7 @@
 import 'server-only'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { CONECTIZE_HOST_ORGANIZATION_ID } from '@/lib/organizations/constants'
+import { uploadOrganizationLogo, ORGANIZATION_LOGOS_BUCKET, removeOrganizationLogoFolder } from '@/lib/organizations/organization-logo-storage'
 import { stripAutoHostOrganizationMembership } from '@/lib/organizations/strip-auto-host-membership'
 import { onlyDigits } from '@/lib/utils/strings'
 
@@ -12,6 +13,7 @@ export type RegisterOrganizationPayload = {
   passwordConfirm: string
   fullName: string
   logoUrl?: string | null
+  logoFile?: File | Blob | null
 }
 
 export type RegisterOrganizationErrorCode =
@@ -21,6 +23,7 @@ export type RegisterOrganizationErrorCode =
   | 'email_em_uso'
   | 'senhas_nao_conferem'
   | 'org_falhou'
+  | 'logo_invalido'
 
 export type RegisterOrganizationResult =
   | { ok: true }
@@ -46,6 +49,7 @@ function normalizePayload (payload: RegisterOrganizationPayload) {
   const fullName = String(payload.fullName || '').trim()
   const rawLogoUrl = String(payload.logoUrl || '').trim()
   const logoUrl = rawLogoUrl || null
+  const logoFile = payload.logoFile && payload.logoFile.size > 0 ? payload.logoFile : null
 
   return {
     companyName,
@@ -55,7 +59,12 @@ function normalizePayload (payload: RegisterOrganizationPayload) {
     passwordConfirm,
     fullName,
     logoUrl,
+    logoFile,
   }
+}
+
+function isValidDocumentDigits (digits: string) {
+  return digits.length === 11 || digits.length === 14
 }
 
 function hasInvalidPayload (payload: ReturnType<typeof normalizePayload>) {
@@ -64,9 +73,10 @@ function hasInvalidPayload (payload: ReturnType<typeof normalizePayload>) {
   if (!payload.email) return true
   if (payload.password.length < 8) return true
   if (!payload.passwordConfirm) return true
-  if (payload.cnpj.length !== 14) return true
+  if (!isValidDocumentDigits(payload.cnpj)) return true
 
-  if (payload.logoUrl) {
+  // Arquivo de logo tem prioridade; URL só é validada se não houver arquivo.
+  if (!payload.logoFile && payload.logoUrl) {
     try {
       const parsed = new URL(payload.logoUrl)
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return true
@@ -156,7 +166,7 @@ export async function registerOrganization (payload: RegisterOrganizationPayload
       is_host: false,
       name: normalized.companyName,
       cnpj: normalized.cnpj,
-      logo_url: normalized.logoUrl,
+      logo_url: normalized.logoFile ? null : normalized.logoUrl,
     })
     .select('id')
     .single()
@@ -168,6 +178,30 @@ export async function registerOrganization (payload: RegisterOrganizationPayload
 
   const organizationId = String(orgRow.id)
 
+  if (normalized.logoFile) {
+    const upload = await uploadOrganizationLogo(svc, organizationId, normalized.logoFile)
+    if (!upload.ok) {
+      await svc.from('organizations').delete().eq('id', organizationId)
+      await svc.auth.admin.deleteUser(userId)
+      if (upload.error === 'invalid_type' || upload.error === 'file_too_large' || upload.error === 'no_file') {
+        return { ok: false, error: 'logo_invalido' }
+      }
+      return { ok: false, error: 'org_falhou' }
+    }
+
+    const { error: logoUpdErr } = await svc
+      .from('organizations')
+      .update({ logo_url: upload.publicUrl, updated_at: new Date().toISOString() })
+      .eq('id', organizationId)
+
+    if (logoUpdErr) {
+      await svc.storage.from(ORGANIZATION_LOGOS_BUCKET).remove([upload.storagePath])
+      await svc.from('organizations').delete().eq('id', organizationId)
+      await svc.auth.admin.deleteUser(userId)
+      return { ok: false, error: 'org_falhou' }
+    }
+  }
+
   const { error: memberErr } = await svc.from('organization_members').insert({
     organization_id: organizationId,
     user_id: userId,
@@ -175,6 +209,7 @@ export async function registerOrganization (payload: RegisterOrganizationPayload
   })
 
   if (memberErr) {
+    await removeOrganizationLogoFolder(svc, organizationId)
     await svc.from('organizations').delete().eq('id', organizationId)
     await svc.auth.admin.deleteUser(userId)
     return { ok: false, error: 'org_falhou' }
@@ -183,6 +218,7 @@ export async function registerOrganization (payload: RegisterOrganizationPayload
   const stripErr = await stripAutoHostOrganizationMembership(svc, userId)
   if (stripErr) {
     await svc.from('organization_members').delete().eq('organization_id', organizationId).eq('user_id', userId)
+    await removeOrganizationLogoFolder(svc, organizationId)
     await svc.from('organizations').delete().eq('id', organizationId)
     await svc.auth.admin.deleteUser(userId)
     return { ok: false, error: 'org_falhou' }
@@ -195,6 +231,7 @@ export async function registerOrganization (payload: RegisterOrganizationPayload
 
   if (portalErr) {
     await svc.from('organization_members').delete().eq('organization_id', organizationId).eq('user_id', userId)
+    await removeOrganizationLogoFolder(svc, organizationId)
     await svc.from('organizations').delete().eq('id', organizationId)
     await svc.auth.admin.deleteUser(userId)
     return { ok: false, error: 'org_falhou' }

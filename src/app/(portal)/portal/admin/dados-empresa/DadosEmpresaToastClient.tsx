@@ -9,15 +9,27 @@ export function DadosEmpresaToastClient() {
   const searchParams = useSearchParams()
 
   useEffect(() => {
-    if (searchParams.get('ok') !== '1') return
+    const ok = searchParams.get('ok')
+    const error = searchParams.get('error')
 
-    toast({
-      variant: 'success',
-      title: 'Dados salvos',
-      description: 'As informações da empresa foram atualizadas.',
-    })
+    if (ok === '1') {
+      toast({
+        variant: 'success',
+        title: 'Dados salvos',
+        description: 'As informações da empresa foram atualizadas.',
+      })
+      router.replace('/portal/admin/dados-empresa')
+      return
+    }
 
-    router.replace('/portal/admin/dados-empresa')
+    if (error === 'logo') {
+      toast({
+        variant: 'destructive',
+        title: 'Falha no logo',
+        description: 'Não foi possível enviar a imagem. Use JPG, PNG, WebP ou SVG até 2 MB.',
+      })
+      router.replace('/portal/admin/dados-empresa')
+    }
   }, [router, searchParams])
 
   return null
