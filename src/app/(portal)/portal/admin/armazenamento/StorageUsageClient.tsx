@@ -54,6 +54,7 @@ function formatPercent (value: number): string {
 function categoryDescription (key: string): string {
   if (key === 'os_entry') return 'Bucket order-entry-photos'
   if (key === 'os_exit') return 'Bucket order-exit-photos'
+  if (key === 'os_assistance') return 'Bucket order-assistance-photos'
   if (key === 'whatsapp') return 'Bucket whatsapp-media'
   if (key === 'resale') return 'Bucket resale-device-photos'
   return 'Mídias armazenadas'

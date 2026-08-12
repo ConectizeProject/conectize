@@ -73,6 +73,7 @@ type Props = {
 	sellerOptions: SellerOption[]
 	entryPhotoCount: number
 	exitPhotoCount: number
+	assistancePhotoCount: number
 	role: string
 	isAdmin: boolean
 	/** Abre o modal avançado de serviços quando `?servicesModal=1` */
@@ -96,6 +97,7 @@ export function OrdemDetalhePageContent (props: Props) {
 		sellerOptions,
 		entryPhotoCount,
 		exitPhotoCount,
+		assistancePhotoCount,
 		role,
 		isAdmin,
 		openServicesModalInitially,
@@ -257,8 +259,11 @@ export function OrdemDetalhePageContent (props: Props) {
 						<Card>
 							<CardHeader className="p-5">
 								<CardTitle>Informações sobre a assistência</CardTitle>
+								<CardDescription>
+									Comentários e fotos visíveis para o cliente no link público da OS.
+								</CardDescription>
 							</CardHeader>
-							<CardContent className="p-5 pt-0">
+							<CardContent className="space-y-6 p-5 pt-0">
 								<OrderAssistanceChat
 									orderId={order.id}
 									assistanceAiContext={{
@@ -266,6 +271,13 @@ export function OrdemDetalhePageContent (props: Props) {
 										customerDescription: String(order.customer_description || ''),
 										receivingNotes: String(order.receiving_notes || ''),
 									}}
+								/>
+								<OrderEntryPhotos
+									orderId={order.id}
+									portalPathSegment={getOrdemPortalPathSegment(order)}
+									initialPhotoCount={assistancePhotoCount}
+									disabled={formDisabled}
+									photoStage="assistance"
 								/>
 							</CardContent>
 						</Card>

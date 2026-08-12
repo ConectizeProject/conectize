@@ -7,7 +7,7 @@ import {
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 
 function parsePhotoKind (value: string | null): ServiceOrderPhotoKind | null {
-  if (value === 'entry' || value === 'exit') return value
+  if (value === 'entry' || value === 'exit' || value === 'assistance') return value
   return null
 }
 

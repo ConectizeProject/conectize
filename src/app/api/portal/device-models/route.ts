@@ -1,13 +1,18 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import { CONECTIZE_HOST_ORGANIZATION_ID } from '@/lib/organizations/constants'
+import {
+	deviceCatalogOrganizationIds,
+	preferHostCatalogRows,
+} from '@/lib/organizations/device-catalog'
 
-function cleanText(value: string) {
+function cleanText (value: string) {
 	return String(value || '').trim()
 }
 
 /** Evita `%` / `_` literais quebrarem o padrão do `ilike`. */
-function escapeIlikePattern(value: string) {
+function escapeIlikePattern (value: string) {
 	return String(value || '')
 		.replace(/\\/g, '\\\\')
 		.replace(/%/g, '\\%')
@@ -22,10 +27,11 @@ type ModelRow = {
 	id: string
 	model?: string | null
 	device_type_id?: string
+	organization_id?: string | null
 	device_types?: Dt | Dt[] | null
 }
 
-function mapDeviceModelRows(data: ModelRow[] | null) {
+function mapDeviceModelRows (data: ModelRow[] | null) {
 	return (data || []).map((row) => {
 		const dt = Array.isArray(row.device_types) ? row.device_types[0] : row.device_types
 		const br = dt?.device_brands
@@ -34,6 +40,7 @@ function mapDeviceModelRows(data: ModelRow[] | null) {
 			id: row.id,
 			model: row.model,
 			device_type_id: row.device_type_id,
+			organization_id: row.organization_id ?? null,
 			brand: brand?.name ?? null,
 			device_type: dt?.name ?? null,
 		}
@@ -41,14 +48,14 @@ function mapDeviceModelRows(data: ModelRow[] | null) {
 }
 
 const DEVICE_MODEL_LIST_SELECT =
-	'id, model, device_type_id, device_types ( id, name, device_brands ( id, name ) )'
+	'id, model, device_type_id, organization_id, device_types ( id, name, device_brands ( id, name ) )'
 
 /** Palavras comuns que sozinhas geram ruído em `ilike` (AND). */
 const MODEL_SEARCH_STOPWORDS = new Set([
 	'de', 'da', 'do', 'para', 'com', 'sem', 'celular', 'smartphone', 'aparelho', 'original',
 ])
 
-function modelSearchTokens(raw: string): string[] {
+function modelSearchTokens (raw: string): string[] {
 	const parts = String(raw || '')
 		.trim()
 		.toLowerCase()
@@ -62,9 +69,9 @@ function modelSearchTokens(raw: string): string[] {
  * Busca modelos por texto: frase inteira na coluna `model`, AND por tokens (ex.: iphone + 11),
  * string sem espaços, e OR modelo/marca (marca vem do join).
  */
-async function searchDeviceModelsByText(
+async function searchDeviceModelsByText (
 	supabase: SupabaseClient,
-	organizationId: string,
+	organizationIds: string[],
 	q: string,
 	deviceTypeId: string,
 	limit: number,
@@ -86,7 +93,7 @@ async function searchDeviceModelsByText(
 
 	const base = () => {
 		let qb = supabase.from('device_models').select(DEVICE_MODEL_LIST_SELECT)
-		qb = qb.eq('organization_id', organizationId)
+		qb = qb.in('organization_id', organizationIds)
 		if (deviceTypeId) qb = qb.eq('device_type_id', deviceTypeId)
 		return qb
 	}
@@ -117,9 +124,9 @@ async function searchDeviceModelsByText(
 	let qb4 = supabase
 		.from('device_models')
 		.select(
-			'id, model, device_type_id, device_types!inner ( id, name, device_brands!inner ( id, name ) )',
+			'id, model, device_type_id, organization_id, device_types!inner ( id, name, device_brands!inner ( id, name ) )',
 		)
-	qb4 = qb4.eq('organization_id', organizationId)
+	qb4 = qb4.in('organization_id', organizationIds)
 	if (deviceTypeId) qb4 = qb4.eq('device_type_id', deviceTypeId)
 	const { data: d4, error: e4 } = await qb4
 		.or(`model.ilike.%${safe}%,device_types.device_brands.name.ilike.%${safe}%`)
@@ -142,18 +149,24 @@ async function searchDeviceModelsByText(
 		merged = merged.filter((row) => narrowed.has(String(row.id)))
 	}
 
+	merged = preferHostCatalogRows(
+		merged,
+		(row) => `${row.device_type_id || ''}::${row.model || ''}`,
+	)
+
 	merged.sort((a, b) =>
 		String(a.model || '').localeCompare(String(b.model || ''), 'pt-BR', { sensitivity: 'base' }),
 	)
 	return merged.slice(0, limit)
 }
 
-export async function GET(request: Request) {
+export async function GET (request: Request) {
 	const auth = await requireStaffOrAdmin()
 	if (auth.ok === false) {
 		return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
 	}
 
+	const orgIds = deviceCatalogOrganizationIds(auth.organizationId)
 	const url = new URL(request.url)
 	const idsParam = cleanText(String(url.searchParams.get('ids') || ''))
 
@@ -172,8 +185,8 @@ export async function GET(request: Request) {
 
 		const { data, error } = await auth.supabase
 			.from('device_models')
-			.select('id, model, device_type_id, device_types ( id, name, device_brands ( id, name ) )')
-			.eq('organization_id', auth.organizationId)
+			.select(DEVICE_MODEL_LIST_SELECT)
+			.in('organization_id', orgIds)
 			.in('id', unique)
 
 		if (error) {
@@ -181,7 +194,11 @@ export async function GET(request: Request) {
 		}
 
 		const rows = mapDeviceModelRows(data as ModelRow[])
-		const res = NextResponse.json({ ok: true, deviceModels: rows })
+		const res = NextResponse.json({
+			ok: true,
+			deviceModels: rows,
+			currentOrganizationId: auth.organizationId,
+		})
 		res.headers.set('Cache-Control', 'private, max-age=300')
 		return res
 	}
@@ -196,15 +213,15 @@ export async function GET(request: Request) {
 	let rows: ReturnType<typeof mapDeviceModelRows>
 
 	if (q) {
-		const merged = await searchDeviceModelsByText(auth.supabase, auth.organizationId, q, deviceTypeId, limit)
+		const merged = await searchDeviceModelsByText(auth.supabase, orgIds, q, deviceTypeId, limit)
 		rows = mapDeviceModelRows(merged)
 	} else {
 		const query = auth.supabase
 			.from('device_models')
 			.select(DEVICE_MODEL_LIST_SELECT)
-			.eq('organization_id', auth.organizationId)
+			.in('organization_id', orgIds)
 			.order('model', { ascending: true })
-			.limit(limit)
+			.limit(Math.min(limit * 2, 8000))
 
 		if (deviceTypeId) query.eq('device_type_id', deviceTypeId)
 
@@ -213,15 +230,28 @@ export async function GET(request: Request) {
 			return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
 		}
 
-		rows = mapDeviceModelRows(data as ModelRow[])
+		const deduped = preferHostCatalogRows(
+			(data || []) as ModelRow[],
+			(row) => `${row.device_type_id || ''}::${row.model || ''}`,
+		)
+			.sort((a, b) =>
+				String(a.model || '').localeCompare(String(b.model || ''), 'pt-BR', { sensitivity: 'base' }),
+			)
+			.slice(0, limit)
+
+		rows = mapDeviceModelRows(deduped)
 	}
 
-	const res = NextResponse.json({ ok: true, deviceModels: rows })
+	const res = NextResponse.json({
+		ok: true,
+		deviceModels: rows,
+		currentOrganizationId: auth.organizationId,
+	})
 	res.headers.set('Cache-Control', 'private, max-age=300')
 	return res
 }
 
-export async function POST(request: Request) {
+export async function POST (request: Request) {
 	const auth = await requireStaffOrAdmin()
 	if (auth.ok === false) {
 		return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
@@ -235,13 +265,17 @@ export async function POST(request: Request) {
 		return NextResponse.json({ ok: false, error: 'invalid_payload' }, { status: 400 })
 	}
 
+	const orgIds = deviceCatalogOrganizationIds(auth.organizationId)
 	const { data: typeRow } = await auth.supabase
 		.from('device_types')
-		.select('id, name, device_brands ( id, name )')
+		.select('id, name, organization_id, device_brands ( id, name )')
 		.eq('id', deviceTypeId)
-		.eq('organization_id', auth.organizationId)
+		.in('organization_id', orgIds)
 		.maybeSingle()
-	const tr = typeRow as { name?: string | null; device_brands?: { name?: string | null } | { name?: string | null }[] | null } | null
+	const tr = typeRow as {
+		name?: string | null
+		device_brands?: { name?: string | null } | { name?: string | null }[] | null
+	} | null
 	const db = tr?.device_brands
 	const brandName = (Array.isArray(db) ? db[0]?.name : db?.name) ?? ''
 	const deviceTypeName = tr?.name ?? ''
@@ -249,9 +283,33 @@ export async function POST(request: Request) {
 		return NextResponse.json({ ok: false, error: 'invalid_device_type' }, { status: 400 })
 	}
 
+	if (auth.organizationId !== CONECTIZE_HOST_ORGANIZATION_ID) {
+		const { data: hostExisting } = await auth.supabase
+			.from('device_models')
+			.select('id, model, device_type_id, organization_id')
+			.eq('organization_id', CONECTIZE_HOST_ORGANIZATION_ID)
+			.eq('device_type_id', deviceTypeId)
+			.eq('model', model)
+			.maybeSingle()
+		if (hostExisting?.id) {
+			return NextResponse.json({
+				ok: true,
+				deviceModel: {
+					id: hostExisting.id,
+					model: hostExisting.model,
+					device_type_id: hostExisting.device_type_id,
+					organization_id: hostExisting.organization_id,
+					brand: brandName,
+					device_type: deviceTypeName,
+				},
+				existed: true,
+			})
+		}
+	}
+
 	const { data: existing } = await auth.supabase
 		.from('device_models')
-		.select('id, model, device_type_id')
+		.select('id, model, device_type_id, organization_id')
 		.eq('organization_id', auth.organizationId)
 		.eq('device_type_id', deviceTypeId)
 		.eq('model', model)
@@ -260,7 +318,14 @@ export async function POST(request: Request) {
 	if (existing?.id) {
 		return NextResponse.json({
 			ok: true,
-			deviceModel: { id: existing.id, model: existing.model, device_type_id: existing.device_type_id, brand: brandName, device_type: deviceTypeName },
+			deviceModel: {
+				id: existing.id,
+				model: existing.model,
+				device_type_id: existing.device_type_id,
+				organization_id: existing.organization_id,
+				brand: brandName,
+				device_type: deviceTypeName,
+			},
 			existed: true,
 		})
 	}
@@ -272,13 +337,13 @@ export async function POST(request: Request) {
 			model,
 			organization_id: auth.organizationId,
 		})
-		.select('id, model, device_type_id')
+		.select('id, model, device_type_id, organization_id')
 		.single()
 
 	if (error) {
 		const { data: after } = await auth.supabase
 			.from('device_models')
-			.select('id, model, device_type_id')
+			.select('id, model, device_type_id, organization_id')
 			.eq('organization_id', auth.organizationId)
 			.eq('device_type_id', deviceTypeId)
 			.eq('model', model)
@@ -286,7 +351,14 @@ export async function POST(request: Request) {
 		if (after?.id) {
 			return NextResponse.json({
 				ok: true,
-				deviceModel: { id: after.id, model: after.model, device_type_id: after.device_type_id, brand: brandName, device_type: deviceTypeName },
+				deviceModel: {
+					id: after.id,
+					model: after.model,
+					device_type_id: after.device_type_id,
+					organization_id: after.organization_id,
+					brand: brandName,
+					device_type: deviceTypeName,
+				},
 				existed: true,
 			})
 		}
@@ -295,8 +367,14 @@ export async function POST(request: Request) {
 
 	return NextResponse.json({
 		ok: true,
-		deviceModel: { id: inserted.id, model: inserted.model, device_type_id: inserted.device_type_id, brand: brandName, device_type: deviceTypeName },
+		deviceModel: {
+			id: inserted.id,
+			model: inserted.model,
+			device_type_id: inserted.device_type_id,
+			organization_id: inserted.organization_id,
+			brand: brandName,
+			device_type: deviceTypeName,
+		},
 		existed: false,
 	})
 }
-

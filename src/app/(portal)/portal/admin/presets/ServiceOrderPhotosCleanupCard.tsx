@@ -23,6 +23,7 @@ type PreviewResponse = {
   ok?: boolean
   entryCount?: number
   exitCount?: number
+  assistanceCount?: number
   totalCount?: number
   cutoffAt?: string
   retentionMonths?: number
@@ -32,6 +33,7 @@ type PreviewResponse = {
 type CleanupResponse = PreviewResponse & {
   entryDeleted?: number
   exitDeleted?: number
+  assistanceDeleted?: number
   storageRemoveErrors?: number
 }
 
@@ -51,6 +53,7 @@ export function ServiceOrderPhotosCleanupCard ({
 }: ServiceOrderPhotosCleanupCardProps) {
   const [entryCount, setEntryCount] = useState<number | null>(null)
   const [exitCount, setExitCount] = useState<number | null>(null)
+  const [assistanceCount, setAssistanceCount] = useState<number | null>(null)
   const [cutoffAt, setCutoffAt] = useState<string | null>(null)
   const [retentionMonths, setRetentionMonths] = useState(3)
   const [isLoadingPreview, setIsLoadingPreview] = useState(true)
@@ -67,6 +70,7 @@ export function ServiceOrderPhotosCleanupCard ({
       }
       setEntryCount(data.entryCount ?? 0)
       setExitCount(data.exitCount ?? 0)
+      setAssistanceCount(data.assistanceCount ?? 0)
       setCutoffAt(data.cutoffAt ?? null)
       setRetentionMonths(data.retentionMonths ?? 3)
     } catch (err) {
@@ -74,6 +78,7 @@ export function ServiceOrderPhotosCleanupCard ({
       toast({ variant: 'destructive', title: 'Erro', description: message })
       setEntryCount(null)
       setExitCount(null)
+      setAssistanceCount(null)
     } finally {
       setIsLoadingPreview(false)
     }
@@ -83,7 +88,7 @@ export function ServiceOrderPhotosCleanupCard ({
     void loadPreview()
   }, [loadPreview])
 
-  const totalCount = (entryCount ?? 0) + (exitCount ?? 0)
+  const totalCount = (entryCount ?? 0) + (exitCount ?? 0) + (assistanceCount ?? 0)
 
   async function handleCleanup () {
     if (isCleaning) return
@@ -97,7 +102,8 @@ export function ServiceOrderPhotosCleanupCard ({
         throw new Error(data?.error || 'Não foi possível excluir as fotos.')
       }
 
-      const deleted = (data.entryDeleted ?? 0) + (data.exitDeleted ?? 0)
+      const deleted =
+        (data.entryDeleted ?? 0) + (data.exitDeleted ?? 0) + (data.assistanceDeleted ?? 0)
       const storageErrors = data.storageRemoveErrors ?? 0
 
       toast({
@@ -106,7 +112,7 @@ export function ServiceOrderPhotosCleanupCard ({
         description:
           storageErrors > 0
             ? `${deleted} referência(s) removida(s); ${storageErrors} arquivo(s) no storage falharam.`
-            : `${deleted} foto(s) de OS removida(s) (entrada: ${data.entryDeleted ?? 0}, saída: ${data.exitDeleted ?? 0}).`,
+            : `${deleted} foto(s) de OS removida(s) (entrada: ${data.entryDeleted ?? 0}, saída: ${data.exitDeleted ?? 0}, assistência: ${data.assistanceDeleted ?? 0}).`,
       })
 
       setDialogOpen(false)
@@ -125,7 +131,7 @@ export function ServiceOrderPhotosCleanupCard ({
       <CardHeader>
         <CardTitle>Fotos de ordens de serviço</CardTitle>
         <CardDescription>
-          Remove fotos de entrada e saída com mais de {retentionMonths} meses, apagando o arquivo no
+          Remove fotos de entrada, saída e assistência com mais de {retentionMonths} meses, apagando o arquivo no
           storage e a referência no banco de dados.
         </CardDescription>
       </CardHeader>
@@ -146,7 +152,7 @@ export function ServiceOrderPhotosCleanupCard ({
             <>
               <p>
                 <span className="font-medium text-foreground">{totalCount}</span> foto(s) elegíveis
-                (entrada: {entryCount}, saída: {exitCount}).
+                (entrada: {entryCount}, saída: {exitCount}, assistência: {assistanceCount}).
               </p>
               <p>Criadas antes de {formatCutoffDate(cutoffAt ?? undefined)}.</p>
             </>

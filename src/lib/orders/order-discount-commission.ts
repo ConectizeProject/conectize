@@ -44,6 +44,34 @@ export function resolveOrderPayableCents (
   return Math.max(0, (Math.trunc(servicesTotalCents) || 0) - (Math.trunc(discountCents) || 0))
 }
 
+/** Valor da comissão da OS a partir da regra gravada (fixo ou % sobre o líquido). */
+export function resolveOrderCommissionCents (order: {
+  services_total_cents?: unknown
+  discount_cents?: unknown
+  commission_user_id?: unknown
+  commission_kind?: unknown
+  commission_fixed_cents?: unknown
+  commission_percent?: unknown
+} | null | undefined): number {
+  if (!order) return 0
+  const userId = String(order.commission_user_id || '').trim()
+  if (!userId) return 0
+
+  const kindRaw = String(order.commission_kind || 'percent').trim()
+  if (kindRaw === 'fixed') {
+    return Math.max(0, Math.trunc(Number(order.commission_fixed_cents) || 0))
+  }
+
+  const percent = parsePercent(order.commission_percent)
+  if (percent <= 0) return 0
+  const payable = resolveOrderPayableCents(
+    Number(order.services_total_cents) || 0,
+    Number(order.discount_cents) || 0,
+  )
+  if (payable <= 0) return 0
+  return Math.floor((payable * percent) / 100)
+}
+
 export type OrderDiscountCommissionDbPayload = {
   discount_cents: number
   discount_mode: OrderDiscountMode

@@ -121,7 +121,7 @@ export default async function OrdemDetalhePage ({
 		(order as { seller_user_id?: string | null }).seller_user_id ?? null
 	const isAdmin = role === 'admin' || role === 'platform_admin'
 
-	const [sellerUser, staffAdminUsers, entryPhotoCountRes, exitPhotoCountRes] = await Promise.all([
+	const [sellerUser, staffAdminUsers, entryPhotoCountRes, exitPhotoCountRes, assistancePhotoCountRes] = await Promise.all([
 		sellerUserId
 			? supabase
 				.from('users')
@@ -142,9 +142,14 @@ export default async function OrdemDetalhePage ({
 			.from('service_order_exit_photos')
 			.select('*', { count: 'exact', head: true })
 			.eq('service_order_id', order.id),
+		supabase
+			.from('service_order_assistance_photos')
+			.select('*', { count: 'exact', head: true })
+			.eq('service_order_id', order.id),
 	])
 	const entryPhotoCount = entryPhotoCountRes?.count ?? 0
 	const exitPhotoCount = exitPhotoCountRes?.count ?? 0
+	const assistancePhotoCount = assistancePhotoCountRes?.count ?? 0
 
 	const seller = sellerUser.data
 	const sellerDisplayName = seller
@@ -199,6 +204,7 @@ export default async function OrdemDetalhePage ({
 			sellerOptions={sellerOptions}
 			entryPhotoCount={entryPhotoCount}
 			exitPhotoCount={exitPhotoCount}
+			assistancePhotoCount={assistancePhotoCount}
 			role={role}
 			isAdmin={isAdmin}
 			openServicesModalInitially={openServicesModalInitially}

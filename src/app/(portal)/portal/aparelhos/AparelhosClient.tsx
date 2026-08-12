@@ -42,6 +42,7 @@ import {
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { portalFetch } from "@/lib/portal/portal-fetch";
+import { canManageDeviceCatalogItem } from "@/lib/organizations/device-catalog";
 import {
 	ChevronDown,
 	ChevronRight,
@@ -53,11 +54,17 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-type DeviceBrandRow = { id: string; name: string; created_at?: string | null };
+type DeviceBrandRow = {
+	id: string;
+	name: string;
+	organization_id?: string | null;
+	created_at?: string | null;
+};
 type DeviceTypeRow = {
 	id: string;
 	brand_id: string;
 	name: string;
+	organization_id?: string | null;
 	brand_name?: string | null;
 	created_at?: string | null;
 };
@@ -65,6 +72,7 @@ export type DeviceModelRow = {
 	id: string;
 	model: string;
 	device_type_id?: string | null;
+	organization_id?: string | null;
 	brand?: string | null;
 	device_type?: string | null;
 	created_at?: string | null;
@@ -74,14 +82,24 @@ function cleanText(value: string) {
 	return String(value || "").trim();
 }
 
+function SharedCatalogBadge() {
+	return (
+		<span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+			Conectize
+		</span>
+	);
+}
+
 function BrandCollapsible({
 	brand,
+	canManage,
 	deviceTypes,
 	isLoadingDevices,
 	onOpen,
 	getModelsForDeviceType,
 	onLoadModels,
 	loadingModelIds,
+	currentOrganizationId,
 	onAddDevice,
 	onAddAparelho,
 	onEditMarca,
@@ -92,6 +110,7 @@ function BrandCollapsible({
 	onDeleteModel,
 }: {
 	brand: DeviceBrandRow;
+	canManage: boolean;
 	deviceTypes: DeviceTypeRow[] | undefined;
 	isLoadingDevices: boolean;
 	onOpen: (brandId: string) => void;
@@ -100,6 +119,7 @@ function BrandCollapsible({
 	) => DeviceModelRow[] | undefined;
 	onLoadModels: (deviceTypeId: string) => void;
 	loadingModelIds: Set<string>;
+	currentOrganizationId: string | null;
 	onAddDevice: (brand: DeviceBrandRow) => void;
 	onAddAparelho: (deviceType: DeviceTypeRow) => void;
 	onEditMarca: () => void;
@@ -124,6 +144,7 @@ function BrandCollapsible({
 						<ChevronRight className="h-4 w-4 shrink-0" />
 					)}
 					<span className="truncate">{brand.name}</span>
+					{!canManage ? <SharedCatalogBadge /> : null}
 				</CollapsibleTrigger>
 				<Button
 					variant="ghost"
@@ -137,30 +158,32 @@ function BrandCollapsible({
 				>
 					<Plus className="h-4 w-4" />
 				</Button>
-				<DropdownMenu>
-					<DropdownMenuTrigger asChild>
-						<Button
-							variant="ghost"
-							size="icon"
-							className="h-8 w-8 shrink-0"
-							aria-label="Ações marca"
-							onClick={(e) => e.stopPropagation()}
-						>
-							<MoreHorizontal className="h-4 w-4" />
-						</Button>
-					</DropdownMenuTrigger>
-					<DropdownMenuContent align="end">
-						<DropdownMenuItem onClick={onEditMarca}>
-							<Pencil className="mr-2 h-4 w-4" /> Editar marca
-						</DropdownMenuItem>
-						<DropdownMenuItem
-							className="text-destructive focus:text-destructive"
-							onClick={onDeleteMarca}
-						>
-							<Trash2 className="mr-2 h-4 w-4" /> Excluir marca
-						</DropdownMenuItem>
-					</DropdownMenuContent>
-				</DropdownMenu>
+				{canManage ? (
+					<DropdownMenu>
+						<DropdownMenuTrigger asChild>
+							<Button
+								variant="ghost"
+								size="icon"
+								className="h-8 w-8 shrink-0"
+								aria-label="Ações marca"
+								onClick={(e) => e.stopPropagation()}
+							>
+								<MoreHorizontal className="h-4 w-4" />
+							</Button>
+						</DropdownMenuTrigger>
+						<DropdownMenuContent align="end">
+							<DropdownMenuItem onClick={onEditMarca}>
+								<Pencil className="mr-2 h-4 w-4" /> Editar marca
+							</DropdownMenuItem>
+							<DropdownMenuItem
+								className="text-destructive focus:text-destructive"
+								onClick={onDeleteMarca}
+							>
+								<Trash2 className="mr-2 h-4 w-4" /> Excluir marca
+							</DropdownMenuItem>
+						</DropdownMenuContent>
+					</DropdownMenu>
+				) : null}
 			</div>
 			<CollapsibleContent>
 				<div className="pl-4 pt-1 pb-1 space-y-1 border-l-2 border-border/40 ml-2">
@@ -179,9 +202,14 @@ function BrandCollapsible({
 								key={dt.id}
 								brandName={brand.name}
 								deviceType={dt}
+								canManage={canManageDeviceCatalogItem(
+									dt.organization_id,
+									currentOrganizationId,
+								)}
 								models={getModelsForDeviceType(dt.id)}
 								isLoadingModels={loadingModelIds.has(dt.id)}
 								onOpen={onLoadModels}
+								currentOrganizationId={currentOrganizationId}
 								onAddAparelho={onAddAparelho}
 								onEditDisp={() => onEditDisp(dt)}
 								onDeleteDisp={() => onDeleteDisp(dt)}
@@ -199,9 +227,11 @@ function BrandCollapsible({
 function DeviceTypeCollapsible({
 	brandName: _brandName,
 	deviceType,
+	canManage,
 	models,
 	isLoadingModels,
 	onOpen,
+	currentOrganizationId,
 	onAddAparelho,
 	onEditDisp,
 	onDeleteDisp,
@@ -210,9 +240,11 @@ function DeviceTypeCollapsible({
 }: {
 	brandName: string;
 	deviceType: DeviceTypeRow;
+	canManage: boolean;
 	models: DeviceModelRow[] | undefined;
 	isLoadingModels: boolean;
 	onOpen: (deviceTypeId: string) => void;
+	currentOrganizationId: string | null;
 	onAddAparelho: (deviceType: DeviceTypeRow) => void;
 	onEditDisp: () => void;
 	onDeleteDisp: () => void;
@@ -234,6 +266,7 @@ function DeviceTypeCollapsible({
 						<ChevronRight className="h-4 w-4 shrink-0" />
 					)}
 					<span className="truncate">{deviceType.name}</span>
+					{!canManage ? <SharedCatalogBadge /> : null}
 				</CollapsibleTrigger>
 				<Button
 					variant="ghost"
@@ -247,32 +280,34 @@ function DeviceTypeCollapsible({
 				>
 					<Plus className="h-3.5 w-3.5" />
 				</Button>
-				<DropdownMenu>
-					<DropdownMenuTrigger asChild>
-						<Button
-							variant="ghost"
-							size="icon"
-							className="h-7 w-7 shrink-0"
-							aria-label="Ações dispositivo"
-							onClick={(e) => e.stopPropagation()}
-						>
-							<MoreHorizontal className="h-3.5 w-3.5" />
-						</Button>
-					</DropdownMenuTrigger>
-					<DropdownMenuContent align="end">
-						<DropdownMenuItem onClick={onEditDisp}>
-							<Pencil className="mr-2 h-4 w-4" /> Editar
-							dispositivo
-						</DropdownMenuItem>
-						<DropdownMenuItem
-							className="text-destructive focus:text-destructive"
-							onClick={onDeleteDisp}
-						>
-							<Trash2 className="mr-2 h-4 w-4" /> Excluir
-							dispositivo
-						</DropdownMenuItem>
-					</DropdownMenuContent>
-				</DropdownMenu>
+				{canManage ? (
+					<DropdownMenu>
+						<DropdownMenuTrigger asChild>
+							<Button
+								variant="ghost"
+								size="icon"
+								className="h-7 w-7 shrink-0"
+								aria-label="Ações dispositivo"
+								onClick={(e) => e.stopPropagation()}
+							>
+								<MoreHorizontal className="h-3.5 w-3.5" />
+							</Button>
+						</DropdownMenuTrigger>
+						<DropdownMenuContent align="end">
+							<DropdownMenuItem onClick={onEditDisp}>
+								<Pencil className="mr-2 h-4 w-4" /> Editar
+								dispositivo
+							</DropdownMenuItem>
+							<DropdownMenuItem
+								className="text-destructive focus:text-destructive"
+								onClick={onDeleteDisp}
+							>
+								<Trash2 className="mr-2 h-4 w-4" /> Excluir
+								dispositivo
+							</DropdownMenuItem>
+						</DropdownMenuContent>
+					</DropdownMenu>
+				) : null}
 			</div>
 			<CollapsibleContent>
 				<div className="pl-4 pt-1 space-y-0 border-l-2 border-border/40 ml-2">
@@ -288,49 +323,69 @@ function DeviceTypeCollapsible({
 					) : (
 						<Table>
 							<TableBody>
-								{models.map((r) => (
-									<TableRow
-										key={r.id}
-										className="hover:bg-muted/20"
-									>
-										<TableCell className="font-medium py-1 h-auto text-sm">
-											{r.model}
-										</TableCell>
-										<TableCell className="text-right py-1 h-auto">
-											<DropdownMenu>
-												<DropdownMenuTrigger asChild>
-													<Button
-														variant="ghost"
-														size="icon"
-														className="h-7 w-7"
-														aria-label="Ações"
-													>
-														<MoreHorizontal className="h-4 w-4" />
-													</Button>
-												</DropdownMenuTrigger>
-												<DropdownMenuContent align="end">
-													<DropdownMenuItem
-														onClick={() =>
-															onEditModel(r)
-														}
-													>
-														<Pencil className="mr-2 h-4 w-4" />{" "}
-														Editar
-													</DropdownMenuItem>
-													<DropdownMenuItem
-														className="text-destructive focus:text-destructive"
-														onClick={() =>
-															onDeleteModel(r)
-														}
-													>
-														<Trash2 className="mr-2 h-4 w-4" />{" "}
-														Excluir
-													</DropdownMenuItem>
-												</DropdownMenuContent>
-											</DropdownMenu>
-										</TableCell>
-									</TableRow>
-								))}
+								{models.map((r) => {
+									const canManageModel =
+										canManageDeviceCatalogItem(
+											r.organization_id,
+											currentOrganizationId,
+										);
+									return (
+										<TableRow
+											key={r.id}
+											className="hover:bg-muted/20"
+										>
+											<TableCell className="font-medium py-1 h-auto text-sm">
+												<span className="inline-flex items-center gap-2">
+													{r.model}
+													{!canManageModel ? (
+														<SharedCatalogBadge />
+													) : null}
+												</span>
+											</TableCell>
+											<TableCell className="text-right py-1 h-auto">
+												{canManageModel ? (
+													<DropdownMenu>
+														<DropdownMenuTrigger
+															asChild
+														>
+															<Button
+																variant="ghost"
+																size="icon"
+																className="h-7 w-7"
+																aria-label="Ações"
+															>
+																<MoreHorizontal className="h-4 w-4" />
+															</Button>
+														</DropdownMenuTrigger>
+														<DropdownMenuContent align="end">
+															<DropdownMenuItem
+																onClick={() =>
+																	onEditModel(
+																		r,
+																	)
+																}
+															>
+																<Pencil className="mr-2 h-4 w-4" />{" "}
+																Editar
+															</DropdownMenuItem>
+															<DropdownMenuItem
+																className="text-destructive focus:text-destructive"
+																onClick={() =>
+																	onDeleteModel(
+																		r,
+																	)
+																}
+															>
+																<Trash2 className="mr-2 h-4 w-4" />{" "}
+																Excluir
+															</DropdownMenuItem>
+														</DropdownMenuContent>
+													</DropdownMenu>
+												) : null}
+											</TableCell>
+										</TableRow>
+									);
+								})}
 							</TableBody>
 						</Table>
 					)}
@@ -352,6 +407,9 @@ export function AparelhosClient({
 	initialModelQuery?: string;
 }) {
 	const [deviceBrands, setDeviceBrands] = useState<DeviceBrandRow[]>([]);
+	const [currentOrganizationId, setCurrentOrganizationId] = useState<
+		string | null
+	>(null);
 	const [deviceTypesByBrand, setDeviceTypesByBrand] = useState<
 		Record<string, DeviceTypeRow[]>
 	>({});
@@ -370,6 +428,9 @@ export function AparelhosClient({
 		const json = await res?.json().catch(() => null);
 		if (json?.ok && Array.isArray(json.deviceBrands)) {
 			setDeviceBrands(json.deviceBrands);
+			if (typeof json.currentOrganizationId === "string") {
+				setCurrentOrganizationId(json.currentOrganizationId);
+			}
 		}
 	}, []);
 
@@ -938,6 +999,11 @@ export function AparelhosClient({
 				<h2 className="text-sm font-medium text-muted-foreground mb-2">
 					Marcas
 				</h2>
+				<p className="text-xs text-muted-foreground mb-2 px-2">
+					Itens com selo Conectize vêm do catálogo compartilhado e
+					podem ser usados por todas as empresas. Novos cadastros
+					ficam só na sua companhia.
+				</p>
 				<div className="space-y-1">
 					{deviceBrands.length === 0 ? (
 						<p className="text-sm text-muted-foreground py-3 px-2">
@@ -949,12 +1015,17 @@ export function AparelhosClient({
 							<BrandCollapsible
 								key={b.id}
 								brand={b}
+								canManage={canManageDeviceCatalogItem(
+									b.organization_id,
+									currentOrganizationId,
+								)}
 								deviceTypes={deviceTypesByBrand[b.id]}
 								isLoadingDevices={loadingBrandIdsSet.has(b.id)}
 								onOpen={onBrandOpen}
 								getModelsForDeviceType={getModelsForDeviceType}
 								onLoadModels={onDeviceTypeOpen}
 								loadingModelIds={loadingModelIdsSet}
+								currentOrganizationId={currentOrganizationId}
 								onAddDevice={(brand) => {
 									setDispBrandId(brand.id);
 									setDispName("");

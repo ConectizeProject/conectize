@@ -193,25 +193,49 @@ export default async function OrdemPublicaPage({
 		: orderDeviceModels
 
 	let entryPhotos: Array<{ id: string; url: string | null; created_at: string }> = []
+	let exitPhotos: Array<{ id: string; url: string | null; created_at: string }> = []
+	let assistancePhotos: Array<{ id: string; url: string | null; created_at: string }> = []
 	if (order?.id) {
-		const { data: photoRows } = await supabase
-			.from('service_order_entry_photos')
-			.select('id, storage_path, created_at')
-			.eq('service_order_id', order.id)
-			.order('created_at', { ascending: true })
 		const expiresIn = 60 * 60
-		entryPhotos = await Promise.all(
-			(photoRows || []).map(async (row: { id: string; storage_path: string; created_at: string }) => {
+		const [entryRowsRes, exitRowsRes, assistanceRowsRes] = await Promise.all([
+			supabase
+				.from('service_order_entry_photos')
+				.select('id, storage_path, created_at')
+				.eq('service_order_id', order.id)
+				.order('created_at', { ascending: true }),
+			supabase
+				.from('service_order_exit_photos')
+				.select('id, storage_path, created_at')
+				.eq('service_order_id', order.id)
+				.order('created_at', { ascending: true }),
+			supabase
+				.from('service_order_assistance_photos')
+				.select('id, storage_path, created_at')
+				.eq('service_order_id', order.id)
+				.order('created_at', { ascending: true }),
+		])
+
+		const signRows = async (
+			photoRows: Array<{ id: string; storage_path: string; created_at: string }> | null,
+			bucket: string,
+		) => Promise.all(
+			(photoRows || []).map(async (row) => {
 				const { data: signed } = await supabase.storage
-					.from('order-entry-photos')
+					.from(bucket)
 					.createSignedUrl(row.storage_path, expiresIn)
 				return {
 					id: row.id,
 					url: signed?.signedUrl ?? null,
 					created_at: row.created_at,
 				}
-			})
+			}),
 		)
+
+		;[entryPhotos, exitPhotos, assistancePhotos] = await Promise.all([
+			signRows(entryRowsRes.data, 'order-entry-photos'),
+			signRows(exitRowsRes.data, 'order-exit-photos'),
+			signRows(assistanceRowsRes.data, 'order-assistance-photos'),
+		])
 	}
 
 	if (!order) {
@@ -292,6 +316,8 @@ export default async function OrdemPublicaPage({
 		notTestedExit ||
 		Object.keys(exitChecksData.checks).length > 0
 	const hasEntryPhotos = entryPhotos.length > 0
+	const hasExitPhotos = exitPhotos.length > 0
+	const hasAssistancePhotos = assistancePhotos.length > 0
 
 	const cadastroHref = isHostOrg
 		? '/portal/cadastro'
@@ -375,9 +401,16 @@ export default async function OrdemPublicaPage({
 
 								{hasExitChecks && (
 									<OsPublicDeviceChecksSection
-										title="Itens testados no momento da saída"
+										title="Situação de saída do aparelho"
 										momentShort="saída"
 										parsed={exitChecksData}
+									/>
+								)}
+
+								{hasExitPhotos && (
+									<OsPublicEntryPhotos
+										photos={exitPhotos}
+										title="Fotos do aparelho no momento de saída"
 									/>
 								)}
 
@@ -403,6 +436,13 @@ export default async function OrdemPublicaPage({
 											{assistanceInfoText}
 										</p>
 									</div>
+								)}
+
+								{hasAssistancePhotos && (
+									<OsPublicEntryPhotos
+										photos={assistancePhotos}
+										title="Fotos da assistência"
+									/>
 								)}
 
 								{hasPaymentMethods && (

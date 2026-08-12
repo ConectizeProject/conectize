@@ -17,7 +17,7 @@ export default async function FinanceiroLayout({
       <div>
         <h1 className="text-2xl font-bold">Financeiro</h1>
         <p className="text-sm text-muted-foreground">
-          Entradas, saídas e saldos por conta. Apenas administradores.
+          Entradas, saídas, comissões e saldos por conta. Apenas administradores.
         </p>
       </div>
 
