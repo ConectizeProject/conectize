@@ -37,6 +37,7 @@ import { portalFetch } from '@/lib/portal/portal-fetch'
 import { maskedFromCents, moneyToCentsFromMasked, formatMoneyInput } from '@/lib/utils/money'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { toast } from '@/hooks/use-toast'
+import { appConfirm, appPrompt } from '@/lib/ui/app-dialogs'
 import { cn } from '@/lib/utils'
 import {
   PAYMENT_METHOD_LABELS,
@@ -1393,15 +1394,21 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
     const isPaid = status === 'paid'
     let reason = 'Cancelado no PDV'
     if (isPaid) {
-      const typed = window.prompt('Motivo do estorno da venda paga:')
+      const typed = await appPrompt({
+        title: 'Estornar venda paga',
+        description: 'Estoque e financeiro serão revertidos.',
+        label: 'Motivo do estorno',
+        required: true,
+        destructive: true,
+        confirmLabel: 'Estornar',
+      })
       if (typed == null) return
-      reason = typed.trim()
-      if (!reason) {
-        toast({ title: 'Informe o motivo do estorno', variant: 'destructive' })
-        return
-      }
-      if (!confirm('Estornar esta venda paga? Estoque e financeiro serão revertidos.')) return
-    } else if (!confirm('Cancelar este pedido?')) {
+      reason = typed
+    } else if (!(await appConfirm({
+      title: 'Cancelar este pedido?',
+      confirmLabel: 'Cancelar',
+      destructive: true,
+    }))) {
       return
     }
 

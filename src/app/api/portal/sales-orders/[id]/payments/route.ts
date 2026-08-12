@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
-import { replaceSalesOrderPayments } from '@/lib/sales-orders/service'
+import { updateSalesOrderDraft, type SalesOrderPaymentInput } from '@/lib/sales-orders/service'
 
 type Params = Promise<{ id: string }>
 
@@ -12,22 +12,45 @@ export async function POST (request: NextRequest, { params }: { params: Params }
 
   const { id } = await params
   const body = await request.json().catch(() => null)
-  const payments = Array.isArray(body?.payments) ? body.payments : []
+  const payments = (Array.isArray(body?.payments) ? body.payments : [])
+    .map((payment: {
+      payment_method_id?: string | null
+      payment_method_type?: SalesOrderPaymentInput['payment_method_type']
+      amount_cents?: number
+      status?: SalesOrderPaymentInput['status']
+      installments?: number
+      metadata?: Record<string, unknown> | null
+    }) => ({
+      payment_method_id: payment?.payment_method_id ?? null,
+      payment_method_type: payment?.payment_method_type,
+      amount_cents: Number(payment?.amount_cents) || 0,
+      status: payment?.status ?? 'paid',
+      installments: Number(payment?.installments) || 1,
+      metadata: payment?.metadata && typeof payment.metadata === 'object' ? payment.metadata : null,
+    }))
+    .filter((payment: SalesOrderPaymentInput) => (
+      Boolean(payment.payment_method_type) && Number(payment.amount_cents) > 0
+    )) as SalesOrderPaymentInput[]
 
-  const { data: order } = await auth.supabase
-    .from('sales_orders')
-    .select('id, status')
-    .eq('organization_id', auth.organizationId)
-    .eq('id', id)
-    .maybeSingle()
-
-  if (!order) return NextResponse.json({ ok: false, error: 'not_found' }, { status: 404 })
-  if (order.status !== 'in_progress') {
-    return NextResponse.json({ ok: false, error: 'order_not_editable' }, { status: 400 })
+  const result = await updateSalesOrderDraft(auth, id, {}, undefined, payments)
+  if (!result.ok) {
+    const status = result.error === 'not_found'
+      ? 404
+      : result.error === 'order_not_editable'
+        || result.error === 'payment_insufficient'
+        || result.error === 'finance_sync_failed'
+        ? 400
+        : 500
+    return NextResponse.json({
+      ok: false,
+      error: result.error,
+      message: result.error === 'payment_insufficient'
+        ? 'O total ficou maior que o valor pago. Ajuste as formas de pagamento.'
+        : result.error === 'finance_sync_failed'
+          ? 'Pagamentos salvos, mas falhou ao atualizar o lançamento no financeiro. Verifique as carteiras das formas de pagamento.'
+          : undefined,
+    }, { status })
   }
-
-  const result = await replaceSalesOrderPayments(auth, id, payments)
-  if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: 500 })
 
   return NextResponse.json({ ok: true })
 }

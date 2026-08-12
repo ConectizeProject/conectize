@@ -6,13 +6,11 @@ import {
 	type CustomerHit,
 } from "@/components/customers";
 import {
-	OrderPaymentDiscountCommissionFields,
-	OrderPaymentMethodFields,
+	OrderPaymentMethodsCard,
 	OrderServicesCard,
 	OrderServicesTotalProvider,
 	OsAssistAiIconButton,
 	type DeviceModel,
-	type OrderPaymentMethodFieldsRef,
 	type OrderServicesCardRef,
 } from "@/components/orders";
 import { EMPTY_ORDER_DISCOUNT_COMMISSION } from "@/lib/orders/order-discount-commission";
@@ -40,10 +38,10 @@ import {
 	getMinPrevisaoNow,
 } from "@/lib/utils/previsao-ordem";
 import { Field, FieldArray, Form, Formik } from "formik";
-import { Loader2, Plus } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	OrderFormActionBar,
 	orderFormActionBarFlowSpacerClassName,
@@ -114,12 +112,7 @@ export function NovaOrdemClient(props: Props) {
 	const [duplicateLoaded, setDuplicateLoaded] = useState(false);
 
 	const servicesCardRef = useRef<OrderServicesCardRef>(null);
-	const paymentMethodsFieldsRef = useRef<OrderPaymentMethodFieldsRef>(null);
 	const initialErrorToastShownRef = useRef(false);
-	const [paymentDiscountCents, setPaymentDiscountCents] = useState(0);
-	const handlePaymentDiscountCentsChange = useCallback((cents: number) => {
-		setPaymentDiscountCents(cents);
-	}, []);
 
 	const [customerDevices, setCustomerDevices] = useState<
 		NovaOrdemCustomerDevice[]
@@ -515,6 +508,31 @@ export function NovaOrdemClient(props: Props) {
 									)}
 								</FieldArray>
 
+								<OrderPaymentMethodsCard
+									formik={{
+										values: {
+											paymentMethods: formik.values.paymentMethods ?? [],
+										},
+										setFieldValue: formik.setFieldValue,
+									}}
+									initialCatalog={props.paymentMethodsCatalog}
+									description="Defina como o cliente pagará a OS."
+									teamUsers={props.teamUsers}
+									discountCommissionFormik={{
+										values: {
+											discountMode: formik.values.discountMode,
+											discountFixedCents: formik.values.discountFixedCents,
+											discountPercent: formik.values.discountPercent,
+											commissionEnabled: formik.values.commissionEnabled,
+											commissionUserId: formik.values.commissionUserId,
+											commissionKind: formik.values.commissionKind,
+											commissionFixedCents: formik.values.commissionFixedCents,
+											commissionPercent: formik.values.commissionPercent,
+										},
+										setFieldValue: formik.setFieldValue,
+									}}
+								/>
+
 								<Card>
 									<CardHeader>
 										<CardTitle>Descrição interna</CardTitle>
@@ -568,58 +586,6 @@ export function NovaOrdemClient(props: Props) {
 									</CardContent>
 								</Card>
 
-								<Card>
-									<CardHeader>
-										<CardTitle>Formas de pagamento</CardTitle>
-										<CardDescription>
-											Defina como o cliente pagará a OS.
-										</CardDescription>
-									</CardHeader>
-									<CardContent className="relative space-y-3">
-										<OrderPaymentMethodFields
-											ref={paymentMethodsFieldsRef}
-											initialCatalog={props.paymentMethodsCatalog}
-											discountCents={paymentDiscountCents}
-											formik={{
-												values: {
-													paymentMethods: formik.values.paymentMethods ?? [],
-												},
-												setFieldValue: formik.setFieldValue,
-											}}
-										/>
-										<Button
-											type="button"
-											variant="outline"
-											size="sm"
-											className="w-full border-dashed border-green-600 bg-green-600/5 text-green-700 hover:bg-green-600/10 hover:text-green-800"
-											onClick={() =>
-												paymentMethodsFieldsRef.current?.addEntry()
-											}
-											aria-label="Incluir forma de pagamento"
-										>
-											<Plus className="h-4 w-4 mr-2" />
-											Incluir forma de pagamento
-										</Button>
-										<OrderPaymentDiscountCommissionFields
-											teamUsers={props.teamUsers}
-											onDiscountCentsChange={handlePaymentDiscountCentsChange}
-											formik={{
-												values: {
-													discountMode: formik.values.discountMode,
-													discountFixedCents: formik.values.discountFixedCents,
-													discountPercent: formik.values.discountPercent,
-													commissionEnabled: formik.values.commissionEnabled,
-													commissionUserId: formik.values.commissionUserId,
-													commissionKind: formik.values.commissionKind,
-													commissionFixedCents:
-														formik.values.commissionFixedCents,
-													commissionPercent: formik.values.commissionPercent,
-												},
-												setFieldValue: formik.setFieldValue,
-											}}
-										/>
-									</CardContent>
-								</Card>
 
 								<div
 									aria-hidden

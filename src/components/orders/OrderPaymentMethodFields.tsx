@@ -140,6 +140,12 @@ export const OrderPaymentMethodFields = forwardRef<OrderPaymentMethodFieldsRef, 
     }, [])
 
     useEffect(() => {
+      if (initialCatalog === undefined) return
+      setPaymentMethodsCatalog(initialCatalog)
+      setIsLoading(false)
+    }, [initialCatalog])
+
+    useEffect(() => {
       if (initialCatalog !== undefined) return
       loadPaymentMethods()
     }, [initialCatalog, loadPaymentMethods])

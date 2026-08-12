@@ -137,7 +137,7 @@ const steps = [
   {
     title: 'Crie sua conta',
     description:
-      'Informe razão social, CNPJ, seu nome e senha. Em segundos sua empresa é provisionada no sistema.',
+      'Informe nome da empresa, CPF ou CNPJ, seu nome e senha. Em segundos sua empresa é provisionada no sistema.',
   },
   {
     title: 'Personalize a operação',

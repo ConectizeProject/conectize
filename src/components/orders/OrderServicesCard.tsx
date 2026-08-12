@@ -24,6 +24,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from '@/components/ui/dialog'
+import { appConfirm } from '@/lib/ui/app-dialogs'
 
 export type ServiceItemDb = {
 	description?: string | null
@@ -182,12 +183,14 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 		setInternalServices((prev) => prev.concat(line))
 	}, [formik])
 
-	const addCatalogItem = useCallback((item: CatalogItem) => {
+	const addCatalogItem = useCallback(async (item: CatalogItem) => {
 		const isOutOfStockProduct = item.kind === 'product' && Number(item.currentStock ?? 0) <= 0
 		if (resolvedStatus === 'aprovado' && isOutOfStockProduct) {
-			const shouldSwitch = window.confirm(
-				'Este produto está com estoque 0. Deseja alterar a OS para "Aguardando peças"?',
-			)
+			const shouldSwitch = await appConfirm({
+				title: 'Produto sem estoque',
+				description: 'Este produto está com estoque 0. Deseja alterar a OS para "Aguardando peças"?',
+				confirmLabel: 'Alterar status',
+			})
 			if (shouldSwitch && statusInputName && formId) {
 				const input = document.querySelector(
 					`input[name="${statusInputName}"][form="${formId}"]`,

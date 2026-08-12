@@ -34,6 +34,7 @@ import type {
   StaffPricingTagsRetailerRow,
 } from '@/lib/pricing/staff-pricing-tags-tab-data'
 import { formatMoneyInput, maskedFromCents, moneyToCentsFromMasked } from '@/lib/utils/money'
+import { appConfirm } from '@/lib/ui/app-dialogs'
 
 type PricingTag = StaffPricingTagRow
 
@@ -171,7 +172,12 @@ function PricingTagOverridesStaffSection ({
   }
 
   async function deleteOverride (id: string) {
-    if (!window.confirm('Remover override desta tag para o lojista?')) return
+    if (!(await appConfirm({
+      title: 'Remover override?',
+      description: 'Remover override desta tag para o lojista?',
+      confirmLabel: 'Remover',
+      destructive: true,
+    }))) return
     const res = await fetch(`/api/portal/staff/pricing-tag-overrides/${id}`, { method: 'DELETE' })
     const json = await res.json().catch(() => null)
     if (!res.ok || !json?.ok) {
@@ -432,7 +438,12 @@ export function PricingTagsStaffTab ({
   }
 
   async function handleDelete (id: string) {
-    if (!window.confirm('Excluir esta tag de precificação?')) return
+    if (!(await appConfirm({
+      title: 'Excluir tag de precificação?',
+      description: 'Esta ação não pode ser desfeita.',
+      confirmLabel: 'Excluir',
+      destructive: true,
+    }))) return
     const res = await fetch(`/api/portal/staff/pricing-tags/${id}`, { method: 'DELETE' })
     const json = await res.json().catch(() => null)
     if (!res.ok || !json?.ok) {

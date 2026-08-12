@@ -1,6 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getOpenCashSession } from '@/lib/pdv/service'
-import { syncSalesOrderFinancialTransactions } from '@/lib/finance/service-order-financial-sync'
+import {
+  clearSalesOrderFinancialTransactions,
+  mapSalesOrdersWithFinancePosted,
+  syncSalesOrderFinancialTransactions,
+} from '@/lib/finance/service-order-financial-sync'
+
+export { mapSalesOrdersWithFinancePosted }
 import { toDbCustomerType } from '@/lib/sales-orders/customer-type'
 
 export type SalesOrderItemInput = {
@@ -38,6 +44,189 @@ function toInt (value: unknown, min = 0) {
   const n = Number(value)
   if (!Number.isFinite(n)) return min
   return Math.max(min, Math.round(n))
+}
+
+type SalesOrderStockItem = {
+  id?: string
+  product_id: string
+  quantity: number
+  unit_cost_cents?: number | null
+}
+
+type SalesOrderStockNetRow = {
+  product_id: string
+  net_exit: number
+  unit_value_cents: number
+}
+
+async function insertSalesOrderStockMovement (
+  auth: AuthCtx,
+  input: {
+    orderId: string
+    productId: string
+    type: 'entry' | 'exit'
+    quantity: number
+    unitValueCents: number
+    externalReference: string
+  },
+) {
+  const quantity = Math.max(1, toInt(input.quantity, 1))
+  const unitValueCents = toInt(input.unitValueCents, 0)
+  const { error } = await auth.supabase
+    .from('product_stock_movements')
+    .insert({
+      organization_id: auth.organizationId,
+      product_id: input.productId,
+      type: input.type,
+      quantity,
+      unit_value_cents: unitValueCents,
+      total_value_cents: unitValueCents * quantity,
+      source: 'sales_order',
+      external_reference: input.externalReference,
+      sales_order_id: input.orderId,
+      created_by: auth.userId,
+    })
+
+  if (error) return { ok: false as const, error: 'db_error' as const }
+  return { ok: true as const }
+}
+
+async function loadSalesOrderStockNets (
+  auth: AuthCtx,
+  orderId: string,
+): Promise<{ ok: true, rows: SalesOrderStockNetRow[] } | { ok: false, error: 'db_error' }> {
+  const { data, error } = await auth.supabase
+    .from('product_stock_movements')
+    .select('product_id, type, quantity, unit_value_cents')
+    .eq('organization_id', auth.organizationId)
+    .eq('source', 'sales_order')
+    .eq('sales_order_id', orderId)
+
+  if (error) return { ok: false as const, error: 'db_error' as const }
+
+  const byProduct = new Map<string, SalesOrderStockNetRow>()
+  for (const row of data ?? []) {
+    const productId = String(row.product_id || '')
+    if (!productId) continue
+    const quantity = toInt(row.quantity, 0)
+    if (quantity <= 0) continue
+    const current = byProduct.get(productId) ?? {
+      product_id: productId,
+      net_exit: 0,
+      unit_value_cents: toInt(row.unit_value_cents, 0),
+    }
+    if (row.type === 'exit') current.net_exit += quantity
+    else if (row.type === 'entry') current.net_exit -= quantity
+    if (toInt(row.unit_value_cents, 0) > 0) {
+      current.unit_value_cents = toInt(row.unit_value_cents, 0)
+    }
+    byProduct.set(productId, current)
+  }
+
+  return {
+    ok: true as const,
+    rows: [...byProduct.values()].filter((row) => row.net_exit > 0),
+  }
+}
+
+/** Retorna os IDs de vendas com baixa de estoque ainda efetiva (saídas líquidas > 0). */
+export async function mapSalesOrdersWithStockPosted (
+  auth: AuthCtx,
+  orderIds: string[],
+): Promise<Set<string>> {
+  const uniqueIds = [...new Set(orderIds.filter(Boolean))]
+  if (uniqueIds.length === 0) return new Set()
+
+  const { data, error } = await auth.supabase
+    .from('product_stock_movements')
+    .select('sales_order_id, type, quantity')
+    .eq('organization_id', auth.organizationId)
+    .eq('source', 'sales_order')
+    .in('sales_order_id', uniqueIds)
+
+  if (error) {
+    console.error('[mapSalesOrdersWithStockPosted] failed', error)
+    return new Set()
+  }
+
+  const netByOrder = new Map<string, number>()
+  for (const row of data ?? []) {
+    const orderId = String(row.sales_order_id || '')
+    if (!orderId) continue
+    const quantity = toInt(row.quantity, 0)
+    if (quantity <= 0) continue
+    const current = netByOrder.get(orderId) ?? 0
+    if (row.type === 'exit') netByOrder.set(orderId, current + quantity)
+    else if (row.type === 'entry') netByOrder.set(orderId, current - quantity)
+  }
+
+  const posted = new Set<string>()
+  for (const [orderId, net] of netByOrder.entries()) {
+    if (net > 0) posted.add(orderId)
+  }
+  return posted
+}
+
+async function applySalesOrderStockExits (
+  auth: AuthCtx,
+  orderId: string,
+  items: SalesOrderStockItem[],
+) {
+  for (const item of items) {
+    const itemId = String(item.id || '')
+    if (!itemId) return { ok: false as const, error: 'db_error' as const }
+    const quantity = toInt(item.quantity, 1)
+    const unitCost = toInt(item.unit_cost_cents ?? 0, 0)
+    const ref = `sales_order:${orderId}:item:${itemId}`
+    const inserted = await insertSalesOrderStockMovement(auth, {
+      orderId,
+      productId: item.product_id,
+      type: 'exit',
+      quantity,
+      unitValueCents: unitCost,
+      externalReference: ref,
+    })
+    if (!inserted.ok) return { ok: false as const, error: 'stock_apply_failed' as const }
+  }
+  return { ok: true as const }
+}
+
+async function reverseSalesOrderStockNets (
+  auth: AuthCtx,
+  orderId: string,
+  reason: 'cancel' | 'manual' | 'edit',
+  editToken?: number,
+) {
+  const nets = await loadSalesOrderStockNets(auth, orderId)
+  if (!nets.ok) return { ok: false as const, error: 'db_error' as const, hadReversal: false }
+
+  let hadReversal = false
+  const token = editToken ?? Date.now()
+  for (const row of nets.rows) {
+    const quantity = row.net_exit
+    if (quantity <= 0) continue
+
+    const externalReference = reason === 'cancel'
+      ? `sales_order_cancel:${orderId}:product:${row.product_id}:${token}`
+      : reason === 'edit'
+        ? `sales_order_edit_rev:${orderId}:product:${row.product_id}:${token}`
+        : `sales_order_stock_reverse:${orderId}:product:${row.product_id}:${token}`
+
+    const inserted = await insertSalesOrderStockMovement(auth, {
+      orderId,
+      productId: row.product_id,
+      type: 'entry',
+      quantity,
+      unitValueCents: row.unit_value_cents,
+      externalReference,
+    })
+    if (!inserted.ok) {
+      return { ok: false as const, error: 'stock_reverse_failed' as const, hadReversal }
+    }
+    hadReversal = true
+  }
+
+  return { ok: true as const, hadReversal }
 }
 
 export function calcItemSubtotal (item: SalesOrderItemInput) {
@@ -172,22 +361,28 @@ export async function updateSalesOrderDraft (
   orderId: string,
   draft: SalesOrderDraftInput,
   items?: SalesOrderItemInput[],
+  payments?: SalesOrderPaymentInput[],
 ) {
   const { data: existing, error: loadError } = await auth.supabase
     .from('sales_orders')
-    .select('id, status, discount_total_cents, surcharge_cents')
+    .select('id, status, order_number, discount_total_cents, surcharge_cents, paid_amount_cents, change_cents, total_cents')
     .eq('organization_id', auth.organizationId)
     .eq('id', orderId)
     .maybeSingle()
 
   if (loadError) return { ok: false as const, error: 'db_error' as const }
   if (!existing) return { ok: false as const, error: 'not_found' as const }
-  if (existing.status !== 'in_progress') return { ok: false as const, error: 'order_not_editable' as const }
+  if (existing.status !== 'in_progress' && existing.status !== 'paid') {
+    return { ok: false as const, error: 'order_not_editable' as const }
+  }
 
-  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
-  if (draft.customer_name !== undefined) patch.customer_name = draft.customer_name
-  if (draft.customer_type !== undefined) patch.customer_type = toDbCustomerType(draft.customer_type)
-  if (draft.customer_document !== undefined) patch.customer_document = draft.customer_document
+  const wasPaid = existing.status === 'paid'
+  let previousItems: Array<{
+    id: string
+    product_id: string
+    quantity: number
+    unit_cost_cents: number | null
+  }> = []
 
   const discountTotalCents = draft.discount_total_cents !== undefined
     ? toInt(draft.discount_total_cents, 0)
@@ -196,6 +391,46 @@ export async function updateSalesOrderDraft (
   const surchargeCents = draft.surcharge_cents !== undefined
     ? toInt(draft.surcharge_cents, 0)
     : toInt(existing.surcharge_cents, 0)
+
+  let nextItemInputs: SalesOrderItemInput[] | null = items ?? null
+  if (!nextItemInputs && (wasPaid || payments)) {
+    const currentItemsRes = await listSalesOrderItems(auth, orderId)
+    if (!currentItemsRes.ok) return currentItemsRes
+    nextItemInputs = currentItemsRes.items.map((row) => ({
+      product_id: String(row.product_id),
+      quantity: toInt(row.quantity, 1),
+      unit_price_cents: toInt(row.unit_price_cents, 0),
+      unit_cost_cents: toInt(row.unit_cost_cents ?? 0, 0),
+      discount_cents: toInt(row.discount_cents ?? 0, 0),
+    }))
+  }
+
+  const prospectivePaidAmount = payments
+    ? payments.reduce((sum, payment) => sum + toInt(payment.amount_cents, 0), 0)
+    : toInt(existing.paid_amount_cents, 0)
+
+  if ((wasPaid || payments) && nextItemInputs) {
+    const prospective = calcSalesOrderTotals(nextItemInputs, discountTotalCents, surchargeCents)
+    if (prospectivePaidAmount < prospective.totalCents) {
+      return { ok: false as const, error: 'payment_insufficient' as const }
+    }
+  }
+
+  if (wasPaid && items) {
+    const previousRes = await listSalesOrderItems(auth, orderId)
+    if (!previousRes.ok) return previousRes
+    previousItems = previousRes.items.map((row) => ({
+      id: String(row.id),
+      product_id: String(row.product_id),
+      quantity: toInt(row.quantity, 1),
+      unit_cost_cents: row.unit_cost_cents == null ? null : toInt(row.unit_cost_cents, 0),
+    }))
+  }
+
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
+  if (draft.customer_name !== undefined) patch.customer_name = draft.customer_name
+  if (draft.customer_type !== undefined) patch.customer_type = toDbCustomerType(draft.customer_type)
+  if (draft.customer_document !== undefined) patch.customer_document = draft.customer_document
 
   if (draft.discount_total_cents !== undefined) {
     patch.discount_total_cents = discountTotalCents
@@ -233,6 +468,78 @@ export async function updateSalesOrderDraft (
     }))
     const totals = await updateOrderTotals(auth, orderId, itemInputs, discountTotalCents, surchargeCents)
     if (!totals.ok) return totals
+  }
+
+  if (payments) {
+    const replacePayments = await replaceSalesOrderPayments(auth, orderId, payments)
+    if (!replacePayments.ok) return replacePayments
+  }
+
+  if (wasPaid || payments) {
+    const loaded = await loadSalesOrder(auth, orderId)
+    if (!loaded.ok) return loaded
+
+    const paidAmount = payments
+      ? prospectivePaidAmount
+      : toInt(loaded.order.paid_amount_cents, 0)
+    const total = toInt(loaded.order.total_cents, 0)
+
+    if (wasPaid && items && previousItems.length > 0) {
+      const editToken = Date.now()
+      const reversed = await reverseSalesOrderStockNets(auth, orderId, 'edit', editToken)
+      if (!reversed.ok) {
+        console.error('[updateSalesOrderDraft] stock reverse failed', reversed.error)
+        return { ok: false as const, error: 'stock_reverse_failed' as const }
+      }
+
+      const applied = await applySalesOrderStockExits(auth, orderId, loaded.items)
+      if (!applied.ok) {
+        console.error('[updateSalesOrderDraft] stock apply failed', applied.error)
+        return { ok: false as const, error: 'stock_apply_failed' as const }
+      }
+    }
+
+    const hasCash = loaded.payments.some((payment) => payment.payment_method_type === 'dinheiro')
+    const change = hasCash ? Math.max(0, paidAmount - total) : 0
+
+    const paidPatch: Record<string, unknown> = {
+      change_cents: change,
+      updated_at: new Date().toISOString(),
+    }
+    if (payments) {
+      paidPatch.paid_amount_cents = paidAmount
+    }
+
+    const { error: paidPatchError } = await auth.supabase
+      .from('sales_orders')
+      .update(paidPatch)
+      .eq('organization_id', auth.organizationId)
+      .eq('id', orderId)
+    if (paidPatchError) return { ok: false as const, error: 'db_error' as const }
+
+    // Pedido pago: qualquer alteração (principalmente pagamentos) re-sincroniza o financeiro
+    // com as formas/carteiras atuais, mantendo o vínculo sales_order_id.
+    if (wasPaid) {
+      try {
+        await syncSalesOrderFinancialTransactions({
+          supabase: auth.supabase,
+          organizationId: auth.organizationId,
+          orderId,
+          orderRow: {
+            id: loaded.order.id,
+            organization_id: auth.organizationId,
+            order_number: loaded.order.order_number ?? null,
+            status: 'paid',
+            updated_at: new Date().toISOString(),
+            change_cents: change,
+            total_cents: total,
+          },
+        })
+      } catch (err) {
+        console.error('[updateSalesOrderDraft] finance sync failed', err)
+        return { ok: false as const, error: 'finance_sync_failed' as const }
+      }
+    }
   }
 
   return { ok: true as const }
@@ -388,25 +695,8 @@ export async function finalizeSalesOrder (
     }
   }
 
-  for (const item of itemsResult.items) {
-    const quantity = toInt(item.quantity, 1)
-    const unitCost = toInt(item.unit_cost_cents ?? 0, 0)
-    const ref = `sales_order:${orderId}:item:${item.id}`
-    const { error: movError } = await auth.supabase
-      .from('product_stock_movements')
-      .insert({
-        organization_id: auth.organizationId,
-        product_id: item.product_id,
-        type: 'exit',
-        quantity,
-        unit_value_cents: unitCost,
-        total_value_cents: unitCost * quantity,
-        source: 'sales_order',
-        external_reference: ref,
-        created_by: auth.userId,
-      })
-    if (movError) return { ok: false as const, error: 'db_error' as const }
-  }
+  const stockApplied = await applySalesOrderStockExits(auth, orderId, itemsResult.items)
+  if (!stockApplied.ok) return { ok: false as const, error: 'db_error' as const }
 
   const { error: updError } = await auth.supabase
     .from('sales_orders')
@@ -542,43 +832,12 @@ export async function cancelSalesOrder (
   let hadStockReversal = false
 
   if (wasPaid) {
-    const itemsRes = await listSalesOrderItems(auth, orderId)
-    if (!itemsRes.ok) return { ok: false as const, error: 'db_error' as const }
-
-    for (const item of itemsRes.items) {
-      const quantity = toInt(item.quantity, 1)
-      const unitCost = toInt(item.unit_cost_cents ?? 0, 0)
-      const reverseRef = `sales_order_cancel:${orderId}:item:${item.id}`
-
-      const { data: alreadyReversed } = await auth.supabase
-        .from('product_stock_movements')
-        .select('id')
-        .eq('organization_id', auth.organizationId)
-        .eq('external_reference', reverseRef)
-        .maybeSingle()
-
-      if (alreadyReversed?.id) continue
-
-      const { error: movError } = await auth.supabase
-        .from('product_stock_movements')
-        .insert({
-          organization_id: auth.organizationId,
-          product_id: item.product_id,
-          type: 'entry',
-          quantity,
-          unit_value_cents: unitCost,
-          total_value_cents: unitCost * quantity,
-          source: 'sales_order',
-          external_reference: reverseRef,
-          created_by: auth.userId,
-        })
-
-      if (movError) {
-        console.error('[cancelSalesOrder] stock reverse failed', movError)
-        return { ok: false as const, error: 'stock_reverse_failed' as const }
-      }
-      hadStockReversal = true
+    const reversed = await reverseSalesOrderStockNets(auth, orderId, 'cancel')
+    if (!reversed.ok) {
+      console.error('[cancelSalesOrder] stock reverse failed', reversed.error)
+      return { ok: false as const, error: 'stock_reverse_failed' as const }
     }
+    hadStockReversal = reversed.hadReversal
   }
 
   const { error } = await auth.supabase
@@ -626,4 +885,158 @@ export async function cancelSalesOrder (
     blingWarning,
     hadStockReversal,
   }
+}
+
+async function assertPaidSalesOrder (auth: AuthCtx, orderId: string) {
+  const { data: existing, error: loadError } = await auth.supabase
+    .from('sales_orders')
+    .select('id, status, order_number, change_cents, total_cents, updated_at')
+    .eq('organization_id', auth.organizationId)
+    .eq('id', orderId)
+    .maybeSingle()
+
+  if (loadError) return { ok: false as const, error: 'db_error' as const }
+  if (!existing) return { ok: false as const, error: 'not_found' as const }
+  if (existing.status !== 'paid') {
+    return { ok: false as const, error: 'order_not_paid' as const }
+  }
+  return { ok: true as const, order: existing }
+}
+
+/** Lança baixa de estoque vinculada à venda (sem alterar status). */
+export async function postSalesOrderStock (
+  auth: AuthCtx,
+  orderId: string,
+): Promise<
+  | { ok: true }
+  | { ok: false, error: string }
+> {
+  const existing = await assertPaidSalesOrder(auth, orderId)
+  if (!existing.ok) return { ok: false as const, error: existing.error }
+
+  const nets = await loadSalesOrderStockNets(auth, orderId)
+  if (!nets.ok) return { ok: false as const, error: 'db_error' as const }
+  if (nets.rows.length > 0) {
+    return { ok: false as const, error: 'stock_already_posted' as const }
+  }
+
+  const itemsRes = await listSalesOrderItems(auth, orderId)
+  if (!itemsRes.ok) return { ok: false as const, error: 'db_error' as const }
+  if (itemsRes.items.length === 0) {
+    return { ok: false as const, error: 'empty_order' as const }
+  }
+
+  const applied = await applySalesOrderStockExits(auth, orderId, itemsRes.items)
+  if (!applied.ok) return { ok: false as const, error: 'stock_apply_failed' as const }
+  return { ok: true as const }
+}
+
+/** Estorna apenas a baixa de estoque vinculada à venda (sem cancelar a venda). */
+export async function reverseSalesOrderStock (
+  auth: AuthCtx,
+  orderId: string,
+): Promise<
+  | { ok: true, hadReversal: boolean }
+  | { ok: false, error: string }
+> {
+  const existing = await assertPaidSalesOrder(auth, orderId)
+  if (!existing.ok) return { ok: false as const, error: existing.error }
+
+  const nets = await loadSalesOrderStockNets(auth, orderId)
+  if (!nets.ok) return { ok: false as const, error: 'db_error' as const }
+  if (nets.rows.length === 0) {
+    return { ok: false as const, error: 'stock_not_posted' as const }
+  }
+
+  const reversed = await reverseSalesOrderStockNets(auth, orderId, 'manual')
+  if (!reversed.ok) return { ok: false as const, error: reversed.error }
+  return { ok: true as const, hadReversal: reversed.hadReversal }
+}
+
+/** Lança o valor faturado no financeiro, vinculado à venda. */
+export async function postSalesOrderFinance (
+  auth: AuthCtx,
+  orderId: string,
+): Promise<
+  | { ok: true }
+  | { ok: false, error: string }
+> {
+  const existing = await assertPaidSalesOrder(auth, orderId)
+  if (!existing.ok) return { ok: false as const, error: existing.error }
+
+  const financePosted = await mapSalesOrdersWithFinancePosted(
+    auth.supabase,
+    auth.organizationId,
+    [orderId],
+  )
+  if (financePosted.has(orderId)) {
+    return { ok: false as const, error: 'finance_already_posted' as const }
+  }
+
+  try {
+    await syncSalesOrderFinancialTransactions({
+      supabase: auth.supabase,
+      organizationId: auth.organizationId,
+      orderId,
+      orderRow: {
+        id: existing.order.id,
+        organization_id: auth.organizationId,
+        order_number: existing.order.order_number ?? null,
+        status: 'paid',
+        updated_at: existing.order.updated_at ?? new Date().toISOString(),
+        change_cents: toInt(existing.order.change_cents, 0),
+        total_cents: toInt(existing.order.total_cents, 0),
+      },
+    })
+  } catch (err) {
+    console.error('[postSalesOrderFinance] failed', err)
+    const message = err instanceof Error ? err.message : ''
+    if (message.includes('carteira') || message.includes('formas de pagamento')) {
+      return { ok: false as const, error: 'finance_wallet_missing' as const }
+    }
+    return { ok: false as const, error: 'finance_sync_failed' as const }
+  }
+
+  const confirmed = await mapSalesOrdersWithFinancePosted(
+    auth.supabase,
+    auth.organizationId,
+    [orderId],
+  )
+  if (!confirmed.has(orderId)) {
+    return { ok: false as const, error: 'finance_not_posted' as const }
+  }
+  return { ok: true as const }
+}
+
+/** Estorna o valor faturado no financeiro (sem cancelar a venda). */
+export async function reverseSalesOrderFinance (
+  auth: AuthCtx,
+  orderId: string,
+): Promise<
+  | { ok: true }
+  | { ok: false, error: string }
+> {
+  const existing = await assertPaidSalesOrder(auth, orderId)
+  if (!existing.ok) return { ok: false as const, error: existing.error }
+
+  const financePosted = await mapSalesOrdersWithFinancePosted(
+    auth.supabase,
+    auth.organizationId,
+    [orderId],
+  )
+  if (!financePosted.has(orderId)) {
+    return { ok: false as const, error: 'finance_not_posted' as const }
+  }
+
+  try {
+    await clearSalesOrderFinancialTransactions({
+      supabase: auth.supabase,
+      orderId,
+    })
+  } catch (err) {
+    console.error('[reverseSalesOrderFinance] failed', err)
+    return { ok: false as const, error: 'finance_reverse_failed' as const }
+  }
+
+  return { ok: true as const }
 }

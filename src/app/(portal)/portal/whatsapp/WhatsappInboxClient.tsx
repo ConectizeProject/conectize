@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { cn } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
+import { appConfirm } from '@/lib/ui/app-dialogs'
 import {
   Archive,
   Check,
@@ -712,7 +713,11 @@ export function WhatsappInboxClient () {
   async function handleArchiveConversation (id: string) {
     const conv = conversations.find((c) => c.id === id)
     const label = conv ? formatWaConversationLabel(conv.wa_from, conv.state) : 'esta conversa'
-    if (!confirm(`Arquivar "${label}"?\n\nRemove do portal e arquiva no WhatsApp.`)) return
+    if (!(await appConfirm({
+      title: `Arquivar "${label}"?`,
+      description: 'Remove do portal e arquiva no WhatsApp.',
+      confirmLabel: 'Arquivar',
+    }))) return
 
     setArchivingId(id)
     try {
@@ -737,13 +742,12 @@ export function WhatsappInboxClient () {
   async function handleDeleteConversation (id: string) {
     const conv = conversations.find((c) => c.id === id)
     const label = conv ? formatWaConversationLabel(conv.wa_from, conv.state) : 'esta conversa'
-    if (
-      !confirm(
-        `Remover "${label}" do portal?\n\nAs mensagens salvas aqui também serão apagadas.`,
-      )
-    ) {
-      return
-    }
+    if (!(await appConfirm({
+      title: `Remover "${label}" do portal?`,
+      description: 'As mensagens salvas aqui também serão apagadas.',
+      confirmLabel: 'Remover',
+      destructive: true,
+    }))) return
 
     setDeletingId(id)
     try {
@@ -781,7 +785,11 @@ export function WhatsappInboxClient () {
   const handleDeleteMessage = useCallback(
     async (messageId: string) => {
       if (!selectedId) return
-      if (!confirm('Remover esta mensagem do Conectize?')) return
+      if (!(await appConfirm({
+        title: 'Remover esta mensagem do Conectize?',
+        confirmLabel: 'Remover',
+        destructive: true,
+      }))) return
       setDeletingMessageId(messageId)
       try {
         const res = await fetch(
@@ -804,13 +812,12 @@ export function WhatsappInboxClient () {
   const handleBulkDeleteMessages = useCallback(async () => {
     if (!selectedId || selectedMessageIds.size === 0) return
     const ids = [...selectedMessageIds]
-    if (
-      !confirm(
-        `Remover ${ids.length} mensagem(ns) do Conectize?\n\nNão apaga no WhatsApp do cliente.`,
-      )
-    ) {
-      return
-    }
+    if (!(await appConfirm({
+      title: `Remover ${ids.length} mensagem(ns) do Conectize?`,
+      description: 'Não apaga no WhatsApp do cliente.',
+      confirmLabel: 'Remover',
+      destructive: true,
+    }))) return
     setBulkDeletingMessages(true)
     try {
       const res = await fetch(
@@ -959,13 +966,12 @@ export function WhatsappInboxClient () {
     if (selectedConvIds.size === 0) return
     const ids = [...selectedConvIds]
     const noun = activeListTab === 'contacts' ? 'contato(s)' : 'grupo(s)'
-    if (
-      !confirm(
-        `Remover ${ids.length} ${noun} do Conectize?\n\nTodas as mensagens salvas dessas conversas também serão apagadas.`,
-      )
-    ) {
-      return
-    }
+    if (!(await appConfirm({
+      title: `Remover ${ids.length} ${noun} do Conectize?`,
+      description: 'Todas as mensagens salvas dessas conversas também serão apagadas.',
+      confirmLabel: 'Remover',
+      destructive: true,
+    }))) return
     setBulkDeletingConvs(true)
     try {
       const res = await fetch('/api/portal/whatsapp/conversations/bulk-delete', {

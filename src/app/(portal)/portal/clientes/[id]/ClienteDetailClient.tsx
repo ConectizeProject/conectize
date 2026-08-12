@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { portalFetch } from "@/lib/portal/portal-fetch";
+import { appConfirm } from "@/lib/ui/app-dialogs";
 import { Pencil, Plus, Smartphone, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -170,8 +171,13 @@ export function ClienteDetailClient({ customerId, customerName }: Props) {
 			.finally(() => setSaving(false));
 	}
 
-	function handleDelete(deviceId: string) {
-		if (!confirm("Remover este aparelho do cliente?")) return;
+	async function handleDelete(deviceId: string) {
+		if (!(await appConfirm({
+			title: "Remover aparelho?",
+			description: "Remover este aparelho do cliente?",
+			confirmLabel: "Remover",
+			destructive: true,
+		}))) return;
 		setDeleteId(deviceId);
 		portalFetch(`/api/portal/customers/${customerId}/devices/${deviceId}`, {
 			method: "DELETE",

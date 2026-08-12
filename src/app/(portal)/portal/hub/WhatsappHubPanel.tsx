@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { toast } from '@/hooks/use-toast'
+import { appConfirm } from '@/lib/ui/app-dialogs'
 import { usePortalOrganizationName } from '@/lib/portal/portal-branding-context'
 import { Loader2, MessageCircle } from 'lucide-react'
 
@@ -104,7 +105,12 @@ export function WhatsappHubPanel () {
   }
 
   async function handleDisconnect () {
-    if (!confirm('Remover integração WhatsApp Business?')) return
+    if (!(await appConfirm({
+      title: 'Remover integração WhatsApp Business?',
+      description: 'A conexão com o WhatsApp será desfeita.',
+      confirmLabel: 'Remover',
+      destructive: true,
+    }))) return
     setSaving(true)
     try {
       const res = await fetch('/api/portal/hub/whatsapp-config', { method: 'DELETE' })

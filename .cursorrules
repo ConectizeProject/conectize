@@ -4,3 +4,4 @@
 - Use strict TypeScript, no `any`.
 - Ensure proper semantic HTML structure.
 - Prioritize CSS-based animations over JS-based animations.
+- Never use window.alert/confirm/prompt; use appConfirm/appPrompt/appAlert from @/lib/ui/app-dialogs or design-system modals/toasts.

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
-import { createSalesOrder } from '@/lib/sales-orders/service'
+import {
+  createSalesOrder,
+  mapSalesOrdersWithFinancePosted,
+  mapSalesOrdersWithStockPosted,
+} from '@/lib/sales-orders/service'
 import { getOpenCashSession } from '@/lib/pdv/service'
 
 export async function GET (request: NextRequest) {
@@ -39,7 +43,22 @@ export async function GET (request: NextRequest) {
   const { data, error, count } = await query
   if (error) return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
 
-  return NextResponse.json({ ok: true, orders: data ?? [], total: count ?? 0 })
+  const orders = data ?? []
+  const orderIds = orders.map((order) => String(order.id))
+  const [stockPostedIds, financePostedIds] = await Promise.all([
+    mapSalesOrdersWithStockPosted(auth, orderIds),
+    mapSalesOrdersWithFinancePosted(auth.supabase, auth.organizationId, orderIds),
+  ])
+
+  return NextResponse.json({
+    ok: true,
+    orders: orders.map((order) => ({
+      ...order,
+      has_stock_posted: stockPostedIds.has(String(order.id)),
+      has_finance_posted: financePostedIds.has(String(order.id)),
+    })),
+    total: count ?? 0,
+  })
 }
 
 export async function POST (request: NextRequest) {

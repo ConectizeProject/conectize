@@ -3,20 +3,24 @@
 import { Tag } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { getLabelWindowFeatures } from '@/lib/ordem-print'
+import { appAlert } from '@/lib/ui/app-dialogs'
 
 type Props = {
   orderId: string
 }
 
 export function OrdemLabelPrintButton({ orderId }: Props) {
-  function handlePrint() {
+  async function handlePrint() {
     const w = window.open(
       `/api/portal/ordens/${orderId}/label`,
       '_blank',
       getLabelWindowFeatures()
     )
     if (!w) {
-      alert('Permita pop-ups para imprimir a etiqueta.')
+      await appAlert({
+        title: 'Pop-up bloqueado',
+        description: 'Permita pop-ups para imprimir a etiqueta.',
+      })
     }
   }
 

@@ -37,6 +37,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
+import { appConfirm } from '@/lib/ui/app-dialogs'
 import { blingRefreshTokenErrorToMessage } from '@/lib/integrations/bling/refresh-token-errors'
 import {
   HubInboxViewersPicker,
@@ -668,7 +669,11 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
   }, [isAdmin, loadLojistasRoutineStatus])
 
   async function handleRunLojistasRoutine () {
-    if (!confirm('Enviar agora a lista de seminovos no grupo de lojistas do WhatsApp?')) return
+    if (!(await appConfirm({
+      title: 'Enviar lista de seminovos?',
+      description: 'Enviar agora a lista de seminovos no grupo de lojistas do WhatsApp.',
+      confirmLabel: 'Enviar agora',
+    }))) return
 
     setLojistasRoutineRunning(true)
     try {
@@ -918,7 +923,11 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
   }
 
   async function handleDisconnect(integration: Integration) {
-    if (!confirm(`Desconectar ${integration.name}?`)) return
+    if (!(await appConfirm({
+      title: `Desconectar ${integration.name}?`,
+      confirmLabel: 'Desconectar',
+      destructive: true,
+    }))) return
 
     setLoading(true)
     try {
@@ -980,7 +989,11 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
   }
 
   async function handleDisconnectBlingConnection(connectionId: string) {
-    if (!confirm('Desconectar esta conta do Bling?')) return
+    if (!(await appConfirm({
+      title: 'Desconectar esta conta do Bling?',
+      confirmLabel: 'Desconectar',
+      destructive: true,
+    }))) return
 
     setLoading(true)
     try {
@@ -1059,7 +1072,11 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
   }
 
   async function handleDisconnectWhatsappConfig () {
-    if (!confirm('Remover integração WhatsApp Business?')) return
+    if (!(await appConfirm({
+      title: 'Remover integração WhatsApp Business?',
+      confirmLabel: 'Remover',
+      destructive: true,
+    }))) return
 
     setWhatsappSaving(true)
     try {
@@ -1235,7 +1252,11 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
   async function handleDisconnectEvolutionConfig () {
     const id = evolutionEditingConnectionId
     if (!id) return
-    if (!confirm('Remover esta instância Evolution?')) return
+    if (!(await appConfirm({
+      title: 'Remover esta instância Evolution?',
+      confirmLabel: 'Remover',
+      destructive: true,
+    }))) return
     setEvolutionSaving(true)
     try {
       const res = await fetch(`/api/portal/hub/whatsapp-evolution-config/${id}`, { method: 'DELETE' })

@@ -1,0 +1,46 @@
+---
+description: Nunca usar alert/confirm/prompt nativos; preferir modais e toasts
+alwaysApply: true
+---
+
+# Sem alertas nativos do navegador
+
+Nunca use `window.alert`, `window.confirm`, `window.prompt`, nem `alert`/`confirm`/`prompt` globais.
+
+## O que usar
+
+- **Confirmação (sim/não):** `appConfirm` de `@/lib/ui/app-dialogs` (AlertDialog modal)
+- **Pedido de texto (ex.: motivo):** `appPrompt` de `@/lib/ui/app-dialogs` (Dialog modal)
+- **Aviso informativo sem decisão:** `appAlert` de `@/lib/ui/app-dialogs`, ou `toast` / Sonner quando for feedback rápido de sucesso/erro
+
+## Exemplos
+
+```ts
+import { appConfirm, appPrompt, appAlert } from '@/lib/ui/app-dialogs'
+
+if (!(await appConfirm({
+  title: 'Excluir item?',
+  description: 'Esta ação não pode ser desfeita.',
+  confirmLabel: 'Excluir',
+  destructive: true,
+}))) return
+
+const reason = await appPrompt({
+  title: 'Estornar venda',
+  description: 'Informe o motivo do estorno.',
+  label: 'Motivo',
+  required: true,
+  destructive: true,
+  confirmLabel: 'Estornar',
+})
+if (reason == null) return
+
+await appAlert({
+  title: 'Pop-up bloqueado',
+  description: 'Permita pop-ups para imprimir.',
+})
+```
+
+## UI dedicada
+
+Quando o fluxo já tem estado de modal próprio (formulário longo, vários campos), use `AlertDialog` / `Dialog` do design system diretamente — ainda assim, sem APIs nativas do browser.
