@@ -48,6 +48,7 @@ import {
   paymentEntriesToSalesPayload,
   paymentsTotalCents,
 } from '@/lib/payments/payment-method-entries'
+import type { PortalPaymentMethodCatalogItem } from '@/lib/portal/payment-methods-server'
 import { cn } from '@/lib/utils'
 
 type OrderDetail = {
@@ -139,12 +140,6 @@ type OrderPayment = {
   metadata?: { installments?: number } | null
 }
 
-type PaymentMethodCatalogItem = {
-  id: string
-  description: string
-  type: string
-}
-
 function statusLabel (status: string) {
   if (status === 'in_progress') return 'Em andamento'
   if (status === 'paid') return 'Pago'
@@ -190,7 +185,7 @@ export default function PedidoVendaDetailPage () {
   const [paymentEntries, setPaymentEntries] = useState<PaymentMethodEntry[]>([
     emptyPaymentEntry(),
   ])
-  const [paymentMethodsCatalog, setPaymentMethodsCatalog] = useState<PaymentMethodCatalogItem[]>([])
+  const [paymentMethodsCatalog, setPaymentMethodsCatalog] = useState<PortalPaymentMethodCatalogItem[]>([])
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerHit | null>(null)
   const [customerName, setCustomerName] = useState('Consumidor Final')
   const [customerType, setCustomerType] = useState<'pf' | 'pj'>('pf')
@@ -244,7 +239,7 @@ export default function PedidoVendaDetailPage () {
       const res = await portalFetch('/api/portal/payment-methods')
       const data = await res?.json().catch(() => null)
       if (data?.ok && Array.isArray(data.paymentMethods)) {
-        setPaymentMethodsCatalog(data.paymentMethods as PaymentMethodCatalogItem[])
+        setPaymentMethodsCatalog(data.paymentMethods as PortalPaymentMethodCatalogItem[])
       }
     }
     void loadPaymentMethods()

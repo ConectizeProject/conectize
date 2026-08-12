@@ -912,7 +912,7 @@ export async function postSalesOrderStock (
   | { ok: false, error: string }
 > {
   const existing = await assertPaidSalesOrder(auth, orderId)
-  if (!existing.ok) return existing
+  if (!existing.ok) return { ok: false as const, error: existing.error }
 
   const nets = await loadSalesOrderStockNets(auth, orderId)
   if (!nets.ok) return { ok: false as const, error: 'db_error' as const }
@@ -940,7 +940,7 @@ export async function reverseSalesOrderStock (
   | { ok: false, error: string }
 > {
   const existing = await assertPaidSalesOrder(auth, orderId)
-  if (!existing.ok) return existing
+  if (!existing.ok) return { ok: false as const, error: existing.error }
 
   const nets = await loadSalesOrderStockNets(auth, orderId)
   if (!nets.ok) return { ok: false as const, error: 'db_error' as const }
@@ -962,7 +962,7 @@ export async function postSalesOrderFinance (
   | { ok: false, error: string }
 > {
   const existing = await assertPaidSalesOrder(auth, orderId)
-  if (!existing.ok) return existing
+  if (!existing.ok) return { ok: false as const, error: existing.error }
 
   const financePosted = await mapSalesOrdersWithFinancePosted(
     auth.supabase,
@@ -1017,7 +1017,7 @@ export async function reverseSalesOrderFinance (
   | { ok: false, error: string }
 > {
   const existing = await assertPaidSalesOrder(auth, orderId)
-  if (!existing.ok) return existing
+  if (!existing.ok) return { ok: false as const, error: existing.error }
 
   const financePosted = await mapSalesOrdersWithFinancePosted(
     auth.supabase,

@@ -180,10 +180,11 @@ export async function registerOrganization (payload: RegisterOrganizationPayload
 
   if (normalized.logoFile) {
     const upload = await uploadOrganizationLogo(svc, organizationId, normalized.logoFile)
-    if (!upload.ok) {
+    if (upload.ok === false) {
+      const uploadError = upload.error
       await svc.from('organizations').delete().eq('id', organizationId)
       await svc.auth.admin.deleteUser(userId)
-      if (upload.error === 'invalid_type' || upload.error === 'file_too_large' || upload.error === 'no_file') {
+      if (uploadError === 'invalid_type' || uploadError === 'file_too_large' || uploadError === 'no_file') {
         return { ok: false, error: 'logo_invalido' }
       }
       return { ok: false, error: 'org_falhou' }
