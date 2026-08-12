@@ -25,6 +25,7 @@ import {
 	SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { useSidebar } from "@/components/ui/use-sidebar";
+import { SalesOrderCupomPrintHost } from "@/app/(portal)/portal/vendas/SalesOrderCupomPrint";
 import { PortalBrandingProvider } from "@/lib/portal/portal-branding-context";
 import type { SupabasePlatformStatusBanner } from "@/lib/supabase/platform-status";
 import { cn } from "@/lib/utils";
@@ -207,7 +208,8 @@ export function PortalShell(props: PortalShellProps) {
 							label: "Produtos e serviços",
 							icon: Package,
 						},
-						{ href: "/portal/pdv", label: "PDV", icon: DollarSign },
+						{ href: "/portal/pdv", label: "Frente de Caixa", icon: DollarSign },
+						{ href: "/portal/vendas", label: "Vendas", icon: ClipboardList },
 						{ href: "/portal/clientes", label: "Clientes", icon: Users },
 						{
 							href: "/portal/revendaaparelhos",
@@ -240,7 +242,8 @@ export function PortalShell(props: PortalShellProps) {
 							label: "Produtos e serviços",
 							icon: Package,
 						},
-						{ href: "/portal/pdv", label: "PDV", icon: DollarSign },
+						{ href: "/portal/pdv", label: "Frente de Caixa", icon: DollarSign },
+						{ href: "/portal/vendas", label: "Vendas", icon: ClipboardList },
 						{ href: "/portal/clientes", label: "Clientes", icon: Users },
 						{
 							href: "/portal/admin/usuarios",
@@ -421,6 +424,7 @@ export function PortalShell(props: PortalShellProps) {
 					</div>
 				</SidebarInset>
 			</SidebarProvider>
+			<SalesOrderCupomPrintHost />
 		</PortalBrandingProvider>
 	);
 }

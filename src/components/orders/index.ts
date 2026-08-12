@@ -6,6 +6,7 @@ export { OrderDeviceSelector, type DeviceModel } from './OrderDeviceSelector'
 export {
   OrderPaymentMethodFields,
   type OrderPaymentMethodFieldsRef,
+  type PaymentMethodEntry,
 } from './OrderPaymentMethodFields'
 export { OrderPaymentMethodsCard } from './OrderPaymentMethodsCard'
 export { OrderWarrantySelector } from './OrderWarrantySelector'
