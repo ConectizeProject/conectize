@@ -6,6 +6,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { OsAssistAiIconButton } from '@/components/orders'
 import { formatDateTimeBr } from '@/lib/utils/format-date'
 import { portalFetch } from '@/lib/portal/portal-fetch'
+import { appConfirm } from '@/lib/ui/app-dialogs'
 
 const INTERNAL_COMMENT_MAX_LENGTH = 6000
 
@@ -143,8 +144,12 @@ export function OrderInternalCommentsChat({ orderId, disabled = false, deviceCon
   const deleteComment = useCallback(async (commentId: string) => {
     if (disabled) return
 
-    const ok = window.confirm('Excluir este comentário da descrição interna?')
-    if (!ok) return
+    if (!(await appConfirm({
+      title: 'Excluir comentário?',
+      description: 'Excluir este comentário da descrição interna?',
+      confirmLabel: 'Excluir',
+      destructive: true,
+    }))) return
 
     const res = await portalFetch(`/api/portal/ordens/${orderId}/internal-comments/${commentId}`, {
       method: 'DELETE',

@@ -36,7 +36,9 @@ export async function POST (request: NextRequest, { params }: { params: Params }
   if (!result.ok) {
     const status = result.error === 'not_found'
       ? 404
-      : result.error === 'order_not_editable' || result.error === 'payment_insufficient'
+      : result.error === 'order_not_editable'
+        || result.error === 'payment_insufficient'
+        || result.error === 'finance_sync_failed'
         ? 400
         : 500
     return NextResponse.json({
@@ -44,7 +46,9 @@ export async function POST (request: NextRequest, { params }: { params: Params }
       error: result.error,
       message: result.error === 'payment_insufficient'
         ? 'O total ficou maior que o valor pago. Ajuste as formas de pagamento.'
-        : undefined,
+        : result.error === 'finance_sync_failed'
+          ? 'Pagamentos salvos, mas falhou ao atualizar o lançamento no financeiro. Verifique as carteiras das formas de pagamento.'
+          : undefined,
     }, { status })
   }
 

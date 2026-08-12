@@ -75,7 +75,9 @@ export async function PATCH (request: NextRequest, { params }: { params: Params 
         ? 'O total ficou maior que o valor pago. Ajuste desconto/itens ou as formas de pagamento.'
         : result.error === 'order_not_editable'
           ? 'Este pedido não pode ser editado.'
-          : undefined,
+          : result.error === 'finance_sync_failed'
+            ? 'Pedido salvo, mas falhou ao atualizar o lançamento no financeiro. Verifique as carteiras das formas de pagamento.'
+            : undefined,
     }, { status })
   }
 

@@ -1,6 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getOpenCashSession } from '@/lib/pdv/service'
-import { syncSalesOrderFinancialTransactions } from '@/lib/finance/service-order-financial-sync'
+import {
+  clearSalesOrderFinancialTransactions,
+  mapSalesOrdersWithFinancePosted,
+  syncSalesOrderFinancialTransactions,
+} from '@/lib/finance/service-order-financial-sync'
+
+export { mapSalesOrdersWithFinancePosted }
 import { toDbCustomerType } from '@/lib/sales-orders/customer-type'
 
 export type SalesOrderItemInput = {
@@ -511,6 +517,8 @@ export async function updateSalesOrderDraft (
       .eq('id', orderId)
     if (paidPatchError) return { ok: false as const, error: 'db_error' as const }
 
+    // Pedido pago: qualquer alteração (principalmente pagamentos) re-sincroniza o financeiro
+    // com as formas/carteiras atuais, mantendo o vínculo sales_order_id.
     if (wasPaid) {
       try {
         await syncSalesOrderFinancialTransactions({
@@ -879,17 +887,10 @@ export async function cancelSalesOrder (
   }
 }
 
-/** Estorna apenas a baixa de estoque vinculada à venda (sem cancelar a venda). */
-export async function reverseSalesOrderStock (
-  auth: AuthCtx,
-  orderId: string,
-): Promise<
-  | { ok: true, hadReversal: boolean }
-  | { ok: false, error: string }
-> {
+async function assertPaidSalesOrder (auth: AuthCtx, orderId: string) {
   const { data: existing, error: loadError } = await auth.supabase
     .from('sales_orders')
-    .select('id, status')
+    .select('id, status, order_number, change_cents, total_cents, updated_at')
     .eq('organization_id', auth.organizationId)
     .eq('id', orderId)
     .maybeSingle()
@@ -899,6 +900,47 @@ export async function reverseSalesOrderStock (
   if (existing.status !== 'paid') {
     return { ok: false as const, error: 'order_not_paid' as const }
   }
+  return { ok: true as const, order: existing }
+}
+
+/** Lança baixa de estoque vinculada à venda (sem alterar status). */
+export async function postSalesOrderStock (
+  auth: AuthCtx,
+  orderId: string,
+): Promise<
+  | { ok: true }
+  | { ok: false, error: string }
+> {
+  const existing = await assertPaidSalesOrder(auth, orderId)
+  if (!existing.ok) return existing
+
+  const nets = await loadSalesOrderStockNets(auth, orderId)
+  if (!nets.ok) return { ok: false as const, error: 'db_error' as const }
+  if (nets.rows.length > 0) {
+    return { ok: false as const, error: 'stock_already_posted' as const }
+  }
+
+  const itemsRes = await listSalesOrderItems(auth, orderId)
+  if (!itemsRes.ok) return { ok: false as const, error: 'db_error' as const }
+  if (itemsRes.items.length === 0) {
+    return { ok: false as const, error: 'empty_order' as const }
+  }
+
+  const applied = await applySalesOrderStockExits(auth, orderId, itemsRes.items)
+  if (!applied.ok) return { ok: false as const, error: 'stock_apply_failed' as const }
+  return { ok: true as const }
+}
+
+/** Estorna apenas a baixa de estoque vinculada à venda (sem cancelar a venda). */
+export async function reverseSalesOrderStock (
+  auth: AuthCtx,
+  orderId: string,
+): Promise<
+  | { ok: true, hadReversal: boolean }
+  | { ok: false, error: string }
+> {
+  const existing = await assertPaidSalesOrder(auth, orderId)
+  if (!existing.ok) return existing
 
   const nets = await loadSalesOrderStockNets(auth, orderId)
   if (!nets.ok) return { ok: false as const, error: 'db_error' as const }
@@ -909,4 +951,92 @@ export async function reverseSalesOrderStock (
   const reversed = await reverseSalesOrderStockNets(auth, orderId, 'manual')
   if (!reversed.ok) return { ok: false as const, error: reversed.error }
   return { ok: true as const, hadReversal: reversed.hadReversal }
+}
+
+/** Lança o valor faturado no financeiro, vinculado à venda. */
+export async function postSalesOrderFinance (
+  auth: AuthCtx,
+  orderId: string,
+): Promise<
+  | { ok: true }
+  | { ok: false, error: string }
+> {
+  const existing = await assertPaidSalesOrder(auth, orderId)
+  if (!existing.ok) return existing
+
+  const financePosted = await mapSalesOrdersWithFinancePosted(
+    auth.supabase,
+    auth.organizationId,
+    [orderId],
+  )
+  if (financePosted.has(orderId)) {
+    return { ok: false as const, error: 'finance_already_posted' as const }
+  }
+
+  try {
+    await syncSalesOrderFinancialTransactions({
+      supabase: auth.supabase,
+      organizationId: auth.organizationId,
+      orderId,
+      orderRow: {
+        id: existing.order.id,
+        organization_id: auth.organizationId,
+        order_number: existing.order.order_number ?? null,
+        status: 'paid',
+        updated_at: existing.order.updated_at ?? new Date().toISOString(),
+        change_cents: toInt(existing.order.change_cents, 0),
+        total_cents: toInt(existing.order.total_cents, 0),
+      },
+    })
+  } catch (err) {
+    console.error('[postSalesOrderFinance] failed', err)
+    const message = err instanceof Error ? err.message : ''
+    if (message.includes('carteira') || message.includes('formas de pagamento')) {
+      return { ok: false as const, error: 'finance_wallet_missing' as const }
+    }
+    return { ok: false as const, error: 'finance_sync_failed' as const }
+  }
+
+  const confirmed = await mapSalesOrdersWithFinancePosted(
+    auth.supabase,
+    auth.organizationId,
+    [orderId],
+  )
+  if (!confirmed.has(orderId)) {
+    return { ok: false as const, error: 'finance_not_posted' as const }
+  }
+  return { ok: true as const }
+}
+
+/** Estorna o valor faturado no financeiro (sem cancelar a venda). */
+export async function reverseSalesOrderFinance (
+  auth: AuthCtx,
+  orderId: string,
+): Promise<
+  | { ok: true }
+  | { ok: false, error: string }
+> {
+  const existing = await assertPaidSalesOrder(auth, orderId)
+  if (!existing.ok) return existing
+
+  const financePosted = await mapSalesOrdersWithFinancePosted(
+    auth.supabase,
+    auth.organizationId,
+    [orderId],
+  )
+  if (!financePosted.has(orderId)) {
+    return { ok: false as const, error: 'finance_not_posted' as const }
+  }
+
+  try {
+    await clearSalesOrderFinancialTransactions({
+      supabase: auth.supabase,
+      orderId,
+    })
+  } catch (err) {
+    console.error('[reverseSalesOrderFinance] failed', err)
+    return { ok: false as const, error: 'finance_reverse_failed' as const }
+  }
+
+  return { ok: true as const }
 }

@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/dialog'
 import { toast } from '@/hooks/use-toast'
 import { portalFetch } from '@/lib/portal/portal-fetch'
+import { appConfirm } from '@/lib/ui/app-dialogs'
 
 type WarrantyTemplate = {
   id: string
@@ -128,7 +129,12 @@ export function GarantiasClient({ initialTemplates }: Props) {
 
   async function handleDelete(id: string) {
     if (!id) return
-    if (!window.confirm('Excluir este modelo de garantia?')) return
+    if (!(await appConfirm({
+      title: 'Excluir modelo de garantia?',
+      description: 'Esta ação não pode ser desfeita.',
+      confirmLabel: 'Excluir',
+      destructive: true,
+    }))) return
 
     const res = await portalFetch(`/api/portal/admin/warranty-templates/${id}`, {
       method: 'DELETE',

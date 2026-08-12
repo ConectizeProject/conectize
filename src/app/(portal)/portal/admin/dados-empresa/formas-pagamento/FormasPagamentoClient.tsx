@@ -23,6 +23,7 @@ import {
 import { Plus, Pencil, Trash2, Loader2 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 import { portalFetch } from '@/lib/portal/portal-fetch'
+import { appConfirm } from '@/lib/ui/app-dialogs'
 
 const PAYMENT_TYPES = [
   { value: 'dinheiro', label: 'Dinheiro' },
@@ -178,7 +179,12 @@ export function FormasPagamentoClient({ initialPaymentMethods }: Props) {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Excluir esta forma de pagamento?')) return
+    if (!(await appConfirm({
+      title: 'Excluir forma de pagamento?',
+      description: 'Esta ação não pode ser desfeita.',
+      confirmLabel: 'Excluir',
+      destructive: true,
+    }))) return
 
     const res = await portalFetch(`/api/portal/admin/payment-methods/${id}`, {
       method: 'DELETE',

@@ -27,6 +27,7 @@ import {
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { onlyDigits } from '@/lib/utils/strings'
 import { toast } from '@/hooks/use-toast'
+import { appConfirm, appPrompt } from '@/lib/ui/app-dialogs'
 import { SalesOrderAfterSaleActions } from '@/app/(portal)/portal/vendas/SalesOrderAfterSaleActions'
 import { fromDbCustomerType } from '@/lib/sales-orders/customer-type'
 import {
@@ -390,15 +391,21 @@ export default function PedidoVendaDetailPage () {
     const isPaid = order.status === 'paid'
     let reason = 'Cancelado no detalhe do pedido'
     if (isPaid) {
-      const typed = window.prompt('Motivo do estorno da venda paga:')
+      const typed = await appPrompt({
+        title: 'Estornar venda paga',
+        description: 'Estoque e financeiro serão revertidos.',
+        label: 'Motivo do estorno',
+        required: true,
+        destructive: true,
+        confirmLabel: 'Estornar',
+      })
       if (typed == null) return
-      reason = typed.trim()
-      if (!reason) {
-        toast({ title: 'Informe o motivo do estorno', variant: 'destructive' })
-        return
-      }
-      if (!confirm('Estornar esta venda paga? Estoque e financeiro serão revertidos.')) return
-    } else if (!confirm(`Cancelar o pedido #${order.order_number}?`)) {
+      reason = typed
+    } else if (!(await appConfirm({
+      title: `Cancelar o pedido #${order.order_number}?`,
+      confirmLabel: 'Cancelar',
+      destructive: true,
+    }))) {
       return
     }
 

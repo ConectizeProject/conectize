@@ -789,6 +789,53 @@ function buildResaleDeviceLabel (device: ResaleDeviceFinanceRow) {
   return `Aparelho vendido #${device.id.slice(0, 8)}`
 }
 
+/** Remove lançamentos financeiros vinculados ao pedido (mantém a venda). */
+export async function clearSalesOrderFinancialTransactions ({
+  supabase,
+  orderId,
+}: {
+  supabase: SupabaseClient
+  orderId: string
+}) {
+  const financeSupabase = getFinanceWriteClient(supabase)
+  const { error: deleteError } = await financeSupabase
+    .from('financial_transactions')
+    .delete()
+    .eq('sales_order_id', orderId)
+  if (deleteError) {
+    throw new Error(`Erro ao estornar lançamentos financeiros do pedido: ${deleteError.message}`)
+  }
+}
+
+/** Pedidos com ao menos um lançamento financeiro ativo vinculado. */
+export async function mapSalesOrdersWithFinancePosted (
+  supabase: SupabaseClient,
+  organizationId: string,
+  orderIds: string[],
+): Promise<Set<string>> {
+  const uniqueIds = [...new Set(orderIds.filter(Boolean))]
+  if (uniqueIds.length === 0) return new Set()
+
+  const financeSupabase = getFinanceWriteClient(supabase)
+  const { data, error } = await financeSupabase
+    .from('financial_transactions')
+    .select('sales_order_id')
+    .eq('organization_id', organizationId)
+    .in('sales_order_id', uniqueIds)
+
+  if (error) {
+    console.error('[mapSalesOrdersWithFinancePosted] failed', error)
+    return new Set()
+  }
+
+  const posted = new Set<string>()
+  for (const row of data ?? []) {
+    const id = String((row as { sales_order_id?: string | null }).sales_order_id || '')
+    if (id) posted.add(id)
+  }
+  return posted
+}
+
 export async function syncSalesOrderFinancialTransactions ({
   supabase,
   organizationId,
@@ -805,15 +852,16 @@ export async function syncSalesOrderFinancialTransactions ({
 
   const financeSupabase = getFinanceWriteClient(supabase)
 
-  const { error: deleteError } = await financeSupabase
-    .from('financial_transactions')
-    .delete()
-    .eq('sales_order_id', order.id)
-  if (deleteError) {
-    throw new Error(`Erro ao limpar transações financeiras antigas do pedido: ${deleteError.message}`)
+  if (order.status !== 'paid') {
+    const { error: deleteError } = await financeSupabase
+      .from('financial_transactions')
+      .delete()
+      .eq('sales_order_id', order.id)
+    if (deleteError) {
+      throw new Error(`Erro ao limpar transações financeiras antigas do pedido: ${deleteError.message}`)
+    }
+    return
   }
-
-  if (order.status !== 'paid') return
 
   const { data: payments, error: paymentsError } = await supabase
     .from('sales_order_payments')
@@ -828,39 +876,63 @@ export async function syncSalesOrderFinancialTransactions ({
     const row = p as { status?: string | null, amount_cents?: number | null }
     return (row.status ?? 'paid') !== 'canceled' && Math.max(0, Number(row.amount_cents) || 0) > 0
   }) as SalesOrderPaymentFinanceRow[]
-  if (paidPayments.length === 0) return
 
   const changeCents = Math.max(0, Number(order.change_cents) || 0)
   const netPayments = netSalesOrderPaymentAmounts(paidPayments, changeCents)
-  if (netPayments.length === 0) return
 
-  const [methods, defaultContaId] = await Promise.all([
+  const [methods, defaultContaId, existingFinance] = await Promise.all([
     loadOrganizationPaymentMethods(supabase, organizationId),
     loadDefaultContaId(supabase, organizationId),
+    financeSupabase
+      .from('financial_transactions')
+      .select('id, occurred_at')
+      .eq('sales_order_id', order.id)
+      .order('occurred_at', { ascending: true })
+      .limit(1)
+      .maybeSingle(),
   ])
+
+  if (existingFinance.error) {
+    throw new Error(`Erro ao carregar lançamentos financeiros do pedido: ${existingFinance.error.message}`)
+  }
+
+  const preservedOccurredAt = existingFinance.data?.occurred_at
+    ? String(existingFinance.data.occurred_at)
+    : null
 
   const rows = netPayments
     .map((payment) => {
       const { contaId, label } = resolveContaForSalesOrderPayment(payment, methods, defaultContaId)
       if (!contaId) return null
-      const occurredAt = toSaoPauloDate(payment.created_at || order.updated_at || new Date().toISOString())
+      const occurredAt = preservedOccurredAt
+        || toSaoPauloDate(payment.created_at || order.updated_at || new Date().toISOString())
       return {
         organization_id: organizationId,
         conta_id: contaId,
         amount_cents: Math.max(0, Number(payment.amount_cents) || 0),
-        type: 'entrada',
+        type: 'entrada' as const,
         occurred_at: occurredAt,
         sales_order_id: order.id,
         description: `Pedido #${order.order_number ?? order.id.slice(0, 8)} - ${label}`,
       }
     })
-    .filter(Boolean)
+    .filter((row): row is NonNullable<typeof row> => Boolean(row))
 
-  if (rows.length === 0) {
+  if (paidPayments.length > 0 && netPayments.length > 0 && rows.length === 0) {
     throw new Error(
       'Nenhuma carteira vinculada às formas de pagamento. Configure em Financeiro > Formas de pagamento ou crie uma carteira.',
     )
   }
+
+  const { error: deleteError } = await financeSupabase
+    .from('financial_transactions')
+    .delete()
+    .eq('sales_order_id', order.id)
+  if (deleteError) {
+    throw new Error(`Erro ao limpar transações financeiras antigas do pedido: ${deleteError.message}`)
+  }
+
+  if (rows.length === 0) return
 
   const { error: insertError } = await financeSupabase
     .from('financial_transactions')

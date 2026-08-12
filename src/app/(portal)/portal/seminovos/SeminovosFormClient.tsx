@@ -22,6 +22,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { formatMoneyInput, maskedFromCents, moneyToCentsFromMasked } from '@/lib/utils/money'
 import { toast } from '@/hooks/use-toast'
 import { portalFetch } from '@/lib/portal/portal-fetch'
+import { appConfirm } from '@/lib/ui/app-dialogs'
 import { parse3utoolsText } from '@/lib/resale/parse-3utools'
 import {
   DropdownMenu,
@@ -651,7 +652,12 @@ export function SeminovosFormClient ({
 
   async function handleCancelSell() {
     if (!deviceId || isSavingSell) return
-    if (!confirm('Cancelar a venda deste aparelho? O valor e a data de venda serão removidos.')) return
+    if (!(await appConfirm({
+      title: 'Cancelar a venda?',
+      description: 'O valor e a data de venda serão removidos.',
+      confirmLabel: 'Cancelar venda',
+      destructive: true,
+    }))) return
     setIsSavingSell(true)
     try {
       const res = await portalFetch(`/api/portal/resale-devices/${deviceId}`, {

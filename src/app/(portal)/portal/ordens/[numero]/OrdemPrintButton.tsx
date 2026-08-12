@@ -3,20 +3,24 @@
 import { Printer } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { getPrintWindowFeatures } from '@/lib/ordem-print'
+import { appAlert } from '@/lib/ui/app-dialogs'
 
 type Props = {
   orderId: string
 }
 
 export function OrdemPrintButton({ orderId }: Props) {
-  function handlePrint() {
+  async function handlePrint() {
     const w = window.open(
       `/api/portal/ordens/${orderId}/print`,
       '_blank',
       getPrintWindowFeatures()
     )
     if (!w) {
-      alert('Permita pop-ups para imprimir a ordem.')
+      await appAlert({
+        title: 'Pop-up bloqueado',
+        description: 'Permita pop-ups para imprimir a ordem.',
+      })
     }
   }
 
