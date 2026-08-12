@@ -22,7 +22,7 @@ export default async function RevendaEditDevicePage ({ params }: Props) {
   ) redirect('/portal')
 
   const { id } = await params
-  if (!id) redirect('/portal/revendaaparelhos/seminovos')
+  if (!id) redirect(revendaPath.listagem)
 
   const supabase = await createSupabaseServerClient()
   const [{ data: device, error: deviceError }, { data: costs }] = await Promise.all([
@@ -39,8 +39,7 @@ export default async function RevendaEditDevicePage ({ params }: Props) {
     ? initialDevice
     : { ...initialDevice, purchase_value_cents: null }
 
-  const backHref =
-    initialDevice.stock_type === 'lacrado' ? revendaPath.novos : revendaPath.seminovos
+  const backHref = revendaPath.listagem
 
   return (
     <SeminovosFormClient

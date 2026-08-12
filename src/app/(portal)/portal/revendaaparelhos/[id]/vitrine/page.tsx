@@ -9,7 +9,7 @@ import {
   getInstallmentRowForCount,
 } from '@/lib/resale/credit-installment-max-fee'
 import { getResaleDeviceCoverDisplayUrl } from '@/lib/seminovos/resale-device-display-image'
-import { maskedFromCents } from '@/lib/utils/money'
+import { ceilCentsToWholeReais, maskedWholeReaisFromCents } from '@/lib/utils/money'
 import { getSeminovosColorEmoji } from '@/lib/seminovos/colors'
 import { revendaPath } from '@/lib/revenda/revenda-paths'
 import { Button } from '@/components/ui/button'
@@ -22,6 +22,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { ResaleDevicePriceDisplay } from '@/components/resale/ResaleDevicePriceDisplay'
+import { ResaleDeviceInfoButton } from '@/components/resale/ResaleDeviceInfoButton'
 import { VitrinePagamentoSimulator } from './VitrinePagamentoSimulator'
 
 type Props = {
@@ -51,7 +53,7 @@ export default async function RevendaVitrinePage ({ params }: Props) {
     supabase
       .from('resale_devices')
       .select(
-        'id, device_name, model, color, storage_gb, battery, condition, sale_value_cents, wholesale_value_cents, stock_type, sold, image_url, image_storage_path, image_gallery_paths',
+        'id, device_name, model, color, storage_gb, battery, condition, info, sale_value_cents, wholesale_value_cents, stock_type, sold, image_url, image_storage_path, image_gallery_paths',
       )
       .eq('id', id)
       .maybeSingle(),
@@ -75,6 +77,7 @@ export default async function RevendaVitrinePage ({ params }: Props) {
 
   const stockLabel = device.stock_type === 'lacrado' ? 'Novo' : 'Seminovo'
   const title = (device.device_name || device.model || 'Aparelho').trim() || 'Aparelho'
+  const infoText = typeof device.info === 'string' ? device.info.trim() : ''
   const displayImageUrl = await getResaleDeviceCoverDisplayUrl(supabase, device as {
     image_storage_path?: string | null
     image_url?: string | null
@@ -116,11 +119,14 @@ export default async function RevendaVitrinePage ({ params }: Props) {
                 <div className="flex h-full min-h-[240px] flex-col items-center justify-center gap-2 p-6 text-muted-foreground">
                   <Smartphone className="h-16 w-16 opacity-40" aria-hidden />
                   <p className="text-center text-sm">Sem foto cadastrada</p>
-                  <p className="text-center text-xs">
-                    Envie uma foto ou informe uma URL no cadastro do aparelho.
-                  </p>
                 </div>
               )}
+              {infoText ? (
+                <ResaleDeviceInfoButton
+                  info={infoText}
+                  className="absolute left-2 top-2 z-[5]"
+                />
+              ) : null}
             </div>
             <div className="space-y-4 p-5 sm:p-6 md:p-8">
               <div>
@@ -161,27 +167,12 @@ export default async function RevendaVitrinePage ({ params }: Props) {
               <div className="border-t border-border/80 pt-4">
                 {device.sold ? (
                   <p className="text-sm font-medium text-muted-foreground">Este aparelho já foi vendido.</p>
-                ) : saleCents != null && saleCents > 0 ? (
-                  <div className="space-y-2">
-                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                      À vista
-                    </p>
-                    <p className="text-2xl font-bold tabular-nums tracking-tight sm:text-[1.75rem]">
-                      R$ {maskedFromCents(saleCents)}
-                    </p>
-                    {row12 ? (
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        ou 12 x de{' '}
-                        <span className="font-semibold tabular-nums text-foreground">
-                          R$ {maskedFromCents(row12.installmentValueCents)}
-                        </span>
-                      </p>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">Cadastre valor de varejo</p>
-                    )}
-                  </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground">Valor de varejo não cadastrado.</p>
+                  <ResaleDevicePriceDisplay
+                    saleCents={saleCents}
+                    row12={row12}
+                    emptyHint="Valor de varejo não cadastrado."
+                  />
                 )}
               </div>
             </div>
@@ -214,9 +205,11 @@ export default async function RevendaVitrinePage ({ params }: Props) {
                   <TableRow key={row.installments}>
                     <TableCell className="font-medium">{row.installments}×</TableCell>
                     <TableCell>{row.feePercent > 0 ? `${row.feePercent}%` : '—'}</TableCell>
-                    <TableCell>R$ {maskedFromCents(row.totalChargeCents)}</TableCell>
+                    <TableCell>
+                      R$ {maskedWholeReaisFromCents(ceilCentsToWholeReais(row.totalChargeCents))}
+                    </TableCell>
                     <TableCell className="text-right">
-                      R$ {maskedFromCents(row.installmentValueCents)}
+                      R$ {maskedWholeReaisFromCents(ceilCentsToWholeReais(row.installmentValueCents))}
                     </TableCell>
                   </TableRow>
                 ))}
