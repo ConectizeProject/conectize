@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireRealAdmin } from '@/lib/auth/portal-api'
+import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 
 export async function GET (
@@ -17,7 +18,8 @@ export async function GET (
     return NextResponse.json({ ok: false, error: 'invalid_id' }, { status: 400 })
   }
 
-  const { data, error } = await auth.supabase
+  const supabase = createSupabaseServiceClient()
+  const { data, error } = await supabase
     .from('integration_webhooks')
     .select('id, platform_id, event_type, external_id, status, error_message, retry_count, processed_at, created_at, payload')
     .eq('id', webhookId)

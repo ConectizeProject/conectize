@@ -1,9 +1,9 @@
 import { requireRealAdminPage } from '@/lib/auth/portal-api'
+import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Pagination,
   PaginationContent,
-  PaginationEllipsis,
   PaginationItem,
   PaginationLink,
 } from '@/components/ui/pagination'
@@ -21,64 +21,23 @@ type SearchParams = Promise<{
   pageSize?: string
 }>
 
+/** Sem payload: listagem rápida. Detalhe carrega sob demanda. */
 const LIST_COLUMNS =
-  'id, platform_id, event_type, external_id, status, error_message, retry_count, processed_at, created_at'
+  'id, platform_id, event_type, external_id, status, error_message, retry_count, created_at'
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100] as const
 
 function parsePageSize (raw: string | undefined): number {
   const n = Number.parseInt(String(raw || ''), 10)
   if (PAGE_SIZE_OPTIONS.includes(n as (typeof PAGE_SIZE_OPTIONS)[number])) return n
-  return 50
-}
-
-function buildPageWindow (currentPage: number, totalPages: number): Array<number | 'ellipsis'> {
-  if (totalPages <= 7) {
-    return Array.from({ length: totalPages }, (_, i) => i + 1)
-  }
-
-  const pages = new Set<number>([1, totalPages, currentPage, currentPage - 1, currentPage + 1])
-  const sorted = [...pages]
-    .filter((page) => page >= 1 && page <= totalPages)
-    .sort((a, b) => a - b)
-
-  const window: Array<number | 'ellipsis'> = []
-  for (const page of sorted) {
-    const prev = window[window.length - 1]
-    if (typeof prev === 'number' && page - prev > 1) {
-      window.push('ellipsis')
-    }
-    window.push(page)
-  }
-  return window
-}
-
-function applyWebhookFilters<T extends {
-  eq: (column: string, value: string) => T
-  ilike: (column: string, pattern: string) => T
-}> (
-  query: T,
-  opts: {
-    organizationId: string
-    platformFilter: string
-    statusFilter: string
-    eventTypeFilter: string
-  },
-): T {
-  let next = query.eq('organization_id', opts.organizationId)
-  if (opts.platformFilter) next = next.eq('platform_id', opts.platformFilter)
-  if (opts.statusFilter && ['pending', 'processed', 'error'].includes(opts.statusFilter)) {
-    next = next.eq('status', opts.statusFilter)
-  }
-  if (opts.eventTypeFilter) {
-    next = next.ilike('event_type', `%${opts.eventTypeFilter}%`)
-  }
-  return next
+  return 25
 }
 
 export default async function AdminWebhooksPage ({ searchParams }: { searchParams: SearchParams }) {
   const auth = await requireRealAdminPage()
-  const { supabase, organizationId } = auth
+  const { organizationId } = auth
+  // Service role após auth: evita custo de RLS por linha em tabelas grandes.
+  const supabase = createSupabaseServiceClient()
 
   const { status, event_type, platform, page, pageSize: pageSizeRaw } = await searchParams
   const statusFilter = String(status || '').trim()
@@ -86,41 +45,37 @@ export default async function AdminWebhooksPage ({ searchParams }: { searchParam
   const platformFilter = String(platform || '').trim() || 'bling'
   const pageSize = parsePageSize(pageSizeRaw)
   const pageRaw = Number.parseInt(String(page || '1'), 10)
-  const requestedPage = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1
+  const currentPage = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1
+  const from = (currentPage - 1) * pageSize
+  // +1 para saber se existe próxima página sem COUNT(*)
+  const to = from + pageSize
 
-  const filters = {
-    organizationId,
-    platformFilter,
-    statusFilter,
-    eventTypeFilter,
+  let listQuery = supabase
+    .from('integration_webhooks')
+    .select(LIST_COLUMNS)
+    .eq('organization_id', organizationId)
+    .order('created_at', { ascending: false })
+    .range(from, to)
+
+  if (platformFilter) {
+    listQuery = listQuery.eq('platform_id', platformFilter)
+  }
+  if (statusFilter && ['pending', 'processed', 'error'].includes(statusFilter)) {
+    listQuery = listQuery.eq('status', statusFilter)
+  }
+  if (eventTypeFilter) {
+    // Prefixo é bem mais barato que %termo% em tabelas grandes.
+    listQuery = listQuery.ilike('event_type', `${eventTypeFilter}%`)
   }
 
-  const countRes = await applyWebhookFilters(
-    supabase
-      .from('integration_webhooks')
-      .select('id', { count: 'exact', head: true }),
-    filters,
-  )
-
-  const totalItems = countRes.count ?? 0
-  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize) || 1)
-  const currentPage = Math.min(requestedPage, totalPages)
-  const from = (currentPage - 1) * pageSize
-  const to = from + pageSize - 1
-
-  const listRes = await applyWebhookFilters(
-    supabase
-      .from('integration_webhooks')
-      .select(LIST_COLUMNS)
-      .order('created_at', { ascending: false }),
-    filters,
-  ).range(from, to)
-
-  const webhooks = (listRes.data ?? []) as WebhookRow[]
-  const listError = listRes.error?.message || countRes.error?.message || null
-  const rangeStart = totalItems === 0 ? 0 : from + 1
-  const rangeEnd = Math.min(from + webhooks.length, totalItems)
-  const pageWindow = buildPageWindow(currentPage, totalPages)
+  const listRes = await listQuery
+  const rows = (listRes.data ?? []) as WebhookRow[]
+  const listError = listRes.error?.message || null
+  const hasNextPage = rows.length > pageSize
+  const webhooks = hasNextPage ? rows.slice(0, pageSize) : rows
+  const hasPrevPage = currentPage > 1
+  const rangeStart = webhooks.length === 0 ? 0 : from + 1
+  const rangeEnd = from + webhooks.length
 
   const buildHref = (opts: { page?: number; pageSize?: number }) => {
     const qs = new URLSearchParams()
@@ -128,7 +83,7 @@ export default async function AdminWebhooksPage ({ searchParams }: { searchParam
     if (statusFilter) qs.set('status', statusFilter)
     if (eventTypeFilter) qs.set('event_type', eventTypeFilter)
     const nextPageSize = opts.pageSize ?? pageSize
-    if (nextPageSize !== 50) qs.set('pageSize', String(nextPageSize))
+    if (nextPageSize !== 25) qs.set('pageSize', String(nextPageSize))
     const nextPage = opts.page ?? currentPage
     if (nextPage > 1) qs.set('page', String(nextPage))
     const tail = qs.toString()
@@ -173,7 +128,7 @@ export default async function AdminWebhooksPage ({ searchParams }: { searchParam
                 name="event_type"
                 type="text"
                 defaultValue={eventTypeFilter}
-                placeholder="Ex: produto.updated"
+                placeholder="Ex: product.created"
                 className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
               />
             </div>
@@ -214,8 +169,8 @@ export default async function AdminWebhooksPage ({ searchParams }: { searchParam
           <CardDescription>
             {listError
               ? 'Não foi possível carregar os webhooks.'
-              : totalItems > 0
-                ? `Mostrando ${rangeStart}–${rangeEnd} de ${totalItems} · página ${currentPage} de ${totalPages}`
+              : webhooks.length > 0
+                ? `Mostrando ${rangeStart}–${rangeEnd} · página ${currentPage}${hasNextPage ? '+' : ''}`
                 : 'Nenhum webhook encontrado.'}
           </CardDescription>
         </CardHeader>
@@ -230,10 +185,11 @@ export default async function AdminWebhooksPage ({ searchParams }: { searchParam
               {webhooks.length === 0 ? (
                 <div className="text-sm text-muted-foreground">Nenhum registro.</div>
               ) : null}
-              {webhooks.length > 0 && totalPages > 1 ? (
+              {webhooks.length > 0 && (hasPrevPage || hasNextPage) ? (
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-xs text-muted-foreground">
-                    {rangeStart}–{rangeEnd} de {totalItems}
+                    Página {currentPage}
+                    {hasNextPage ? ' · há mais resultados' : ''}
                   </p>
                   <Pagination className="mx-0 w-auto justify-start sm:justify-end">
                     <PaginationContent>
@@ -242,38 +198,31 @@ export default async function AdminWebhooksPage ({ searchParams }: { searchParam
                           href={buildHref({ page: currentPage - 1 })}
                           size="default"
                           aria-label="Página anterior"
-                          aria-disabled={currentPage <= 1}
-                          className={cn('gap-1 pl-2.5', currentPage <= 1 && 'pointer-events-none opacity-50')}
-                          tabIndex={currentPage <= 1 ? -1 : undefined}
+                          aria-disabled={!hasPrevPage}
+                          className={cn('gap-1 pl-2.5', !hasPrevPage && 'pointer-events-none opacity-50')}
+                          tabIndex={!hasPrevPage ? -1 : undefined}
                         >
                           <ChevronLeft className="h-4 w-4" />
                           <span>Anterior</span>
                         </PaginationLink>
                       </PaginationItem>
-
-                      {pageWindow.map((item, index) => (
-                        <PaginationItem key={`${item}-${index}`}>
-                          {item === 'ellipsis' ? (
-                            <PaginationEllipsis />
-                          ) : (
-                            <PaginationLink
-                              href={buildHref({ page: item })}
-                              isActive={item === currentPage}
-                            >
-                              {item}
-                            </PaginationLink>
-                          )}
-                        </PaginationItem>
-                      ))}
-
+                      <PaginationItem>
+                        <PaginationLink
+                          href={buildHref({ page: currentPage })}
+                          isActive
+                          size="icon"
+                        >
+                          {currentPage}
+                        </PaginationLink>
+                      </PaginationItem>
                       <PaginationItem>
                         <PaginationLink
                           href={buildHref({ page: currentPage + 1 })}
                           size="default"
                           aria-label="Próxima página"
-                          aria-disabled={currentPage >= totalPages}
-                          className={cn('gap-1 pr-2.5', currentPage >= totalPages && 'pointer-events-none opacity-50')}
-                          tabIndex={currentPage >= totalPages ? -1 : undefined}
+                          aria-disabled={!hasNextPage}
+                          className={cn('gap-1 pr-2.5', !hasNextPage && 'pointer-events-none opacity-50')}
+                          tabIndex={!hasNextPage ? -1 : undefined}
                         >
                           <span>Próxima</span>
                           <ChevronRight className="h-4 w-4" />

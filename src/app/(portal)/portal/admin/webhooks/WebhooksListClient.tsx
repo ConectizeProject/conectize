@@ -269,72 +269,72 @@ export function WebhooksListClient ({ webhooks, platform = 'bling' }: Props) {
       </div>
 
       {webhooks.length > 0 ? (
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b text-xs text-muted-foreground">
-              <th className="py-2 pr-2 text-left font-medium">Data</th>
-              <th className="py-2 px-2 text-left font-medium">Tipo</th>
-              <th className="py-2 px-2 text-left font-medium">Recurso</th>
-              <th className="py-2 px-2 text-center font-medium">Status</th>
-              <th className="py-2 px-2 text-left font-medium">Erro</th>
-              <th className="py-2 px-2 text-center font-medium">Tentativas</th>
-              <th className="py-2 pl-2 text-right font-medium">Ações</th>
-            </tr>
-          </thead>
-          <tbody>
-            {webhooks.map((row) => (
-              <tr key={row.id} className="border-b last:border-0">
-                <td className="py-2 pr-2 align-top whitespace-nowrap">
-                  {row.created_at ? new Date(row.created_at).toLocaleString('pt-BR') : '-'}
-                </td>
-                <td className="py-2 px-2 align-top">{row.event_type || '-'}</td>
-                <td className="py-2 px-2 align-top font-mono text-xs">{row.external_id || '-'}</td>
-                <td className="py-2 px-2 align-top text-center">
-                  <span
-                    className={
-                      row.status === 'processed'
-                        ? 'rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] font-medium uppercase text-green-600 dark:text-green-400'
-                        : row.status === 'error'
-                          ? 'rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-medium uppercase text-destructive'
-                          : 'rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium uppercase text-amber-600 dark:text-amber-400'
-                    }
-                  >
-                    {row.status}
-                  </span>
-                </td>
-                <td className="py-2 px-2 align-top max-w-[200px] truncate" title={row.error_message ?? undefined}>
-                  {row.error_message ? String(row.error_message).slice(0, 80) + (row.error_message.length > 80 ? '…' : '') : '-'}
-                </td>
-                <td className="py-2 px-2 align-top text-center">{row.retry_count ?? 0}</td>
-                <td className="py-2 pl-2 align-top text-right">
-                  <div className="flex items-center justify-end gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => void openDetail(row)}
-                    >
-                      Ver detalhes
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      disabled={reprocessingId === row.id}
-                      onClick={() => handleReprocess(row.id)}
-                      title="Reprocessar webhook"
-                      aria-label="Reprocessar webhook"
-                    >
-                      {reprocessingId === row.id
-                        ? <Loader2 className="h-4 w-4 animate-spin" />
-                        : <RotateCcw className="h-4 w-4" />}
-                    </Button>
-                  </div>
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-xs text-muted-foreground">
+                <th className="py-2 pr-2 text-left font-medium">Data</th>
+                <th className="py-2 px-2 text-left font-medium">Tipo</th>
+                <th className="py-2 px-2 text-left font-medium">Recurso</th>
+                <th className="py-2 px-2 text-center font-medium">Status</th>
+                <th className="py-2 px-2 text-left font-medium">Erro</th>
+                <th className="py-2 px-2 text-center font-medium">Tentativas</th>
+                <th className="py-2 pl-2 text-right font-medium">Ações</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {webhooks.map((row) => (
+                <tr key={row.id} className="border-b last:border-0">
+                  <td className="py-2 pr-2 align-top whitespace-nowrap">
+                    {row.created_at ? new Date(row.created_at).toLocaleString('pt-BR') : '-'}
+                  </td>
+                  <td className="py-2 px-2 align-top">{row.event_type || '-'}</td>
+                  <td className="py-2 px-2 align-top font-mono text-xs">{row.external_id || '-'}</td>
+                  <td className="py-2 px-2 align-top text-center">
+                    <span
+                      className={
+                        row.status === 'processed'
+                          ? 'rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] font-medium uppercase text-green-600 dark:text-green-400'
+                          : row.status === 'error'
+                            ? 'rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-medium uppercase text-destructive'
+                            : 'rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium uppercase text-amber-600 dark:text-amber-400'
+                      }
+                    >
+                      {row.status}
+                    </span>
+                  </td>
+                  <td className="py-2 px-2 align-top max-w-[200px] truncate" title={row.error_message ?? undefined}>
+                    {row.error_message ? String(row.error_message).slice(0, 80) + (row.error_message.length > 80 ? '…' : '') : '-'}
+                  </td>
+                  <td className="py-2 px-2 align-top text-center">{row.retry_count ?? 0}</td>
+                  <td className="py-2 pl-2 align-top text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => void openDetail(row)}
+                      >
+                        Ver detalhes
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        disabled={reprocessingId === row.id}
+                        onClick={() => handleReprocess(row.id)}
+                        title="Reprocessar webhook"
+                        aria-label="Reprocessar webhook"
+                      >
+                        {reprocessingId === row.id
+                          ? <Loader2 className="h-4 w-4 animate-spin" />
+                          : <RotateCcw className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : null}
 
       <Dialog open={!!detail} onOpenChange={(open) => !open && setDetail(null)}>
