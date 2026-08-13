@@ -3,25 +3,50 @@ import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { parseBlingWebhook, getBlingResourceKeyFromWebhook } from '@/lib/integrations/bling/webhooks'
 import crypto from 'crypto'
 
+export const dynamic = 'force-dynamic'
+
 const PLATFORM_ID = 'bling'
 
-function verifyBlingSignature (rawBody: string, signatureHeader: string | null): boolean {
-  const secret = process.env.BLING_WEBHOOK_SECRET ?? process.env.BLING_CLIENT_SECRET
-  if (!secret || !signatureHeader) return false
-  try {
-    const expected = crypto
-      .createHmac('sha256', secret)
-      .update(rawBody, 'utf8')
-      .digest('hex')
-    const match = signatureHeader.replace(/^sha256=/i, '').trim().toLowerCase()
-    if (!/^[0-9a-f]+$/.test(match) || match.length !== expected.length) return false
-    return crypto.timingSafeEqual(
-      Buffer.from(match, 'hex'),
-      Buffer.from(expected, 'hex'),
-    )
-  } catch {
-    return false
+function uniqueSecrets (): string[] {
+  return [...new Set(
+    [process.env.BLING_CLIENT_SECRET, process.env.BLING_WEBHOOK_SECRET]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean),
+  )]
+}
+
+function hmacHex (secret: string, rawBody: string): string {
+  return crypto.createHmac('sha256', secret).update(rawBody, 'utf8').digest('hex')
+}
+
+function hmacBase64 (secret: string, rawBody: string): string {
+  return crypto.createHmac('sha256', secret).update(rawBody, 'utf8').digest('base64')
+}
+
+function timingEqual (a: string, b: string): boolean {
+  const left = Buffer.from(a)
+  const right = Buffer.from(b)
+  if (left.length !== right.length) return false
+  return crypto.timingSafeEqual(left, right)
+}
+
+/**
+ * Bling: header `X-Bling-Signature-256` = `sha256=` + HMAC-SHA256(body, client_secret) em hex.
+ * Aceita hex/base64, com ou sem prefixo, e tenta client secret + webhook secret.
+ */
+function verifyBlingSignature (rawBody: string, signatureHeader: string | null, secrets: string[]): boolean {
+  if (!signatureHeader || secrets.length === 0) return false
+  const received = signatureHeader.replace(/^sha256=/i, '').trim()
+  if (!received) return false
+
+  for (const secret of secrets) {
+    const hex = hmacHex(secret, rawBody)
+    const b64 = hmacBase64(secret, rawBody)
+    if (timingEqual(received.toLowerCase(), hex.toLowerCase())) return true
+    if (timingEqual(received, b64)) return true
+    if (timingEqual(signatureHeader.trim(), `sha256=${hex}`)) return true
   }
+  return false
 }
 
 function extractCompanyId (payload: unknown): string | null {
@@ -66,6 +91,11 @@ async function resolveOrganizationId (
   return blingConn?.organization_id ? String(blingConn.organization_id) : null
 }
 
+/** Health-check da URL cadastrada no Bling (alguns pings usam GET). */
+export async function GET () {
+  return NextResponse.json({ ok: true, endpoint: 'bling-webhook' }, { status: 200 })
+}
+
 export async function POST (request: Request) {
   let rawBody: string
   try {
@@ -74,15 +104,20 @@ export async function POST (request: Request) {
     return NextResponse.json({ error: 'invalid_body' }, { status: 400 })
   }
 
+  const secrets = uniqueSecrets()
   const signatureHeader = request.headers.get('x-bling-signature-256') ?? request.headers.get('X-Bling-Signature-256')
-  if (process.env.BLING_WEBHOOK_SECRET || process.env.BLING_CLIENT_SECRET) {
-    if (!verifyBlingSignature(rawBody, signatureHeader)) {
+
+  if (secrets.length > 0 && signatureHeader) {
+    if (!verifyBlingSignature(rawBody, signatureHeader, secrets)) {
       console.warn('[bling webhook] invalid_signature', {
-        hasHeader: Boolean(signatureHeader),
+        hasHeader: true,
         bodyBytes: rawBody.length,
       })
       return NextResponse.json({ error: 'invalid_signature' }, { status: 401 })
     }
+  } else if (secrets.length > 0 && !signatureHeader) {
+    // Bling v1 às vezes omite o header; rejeitar 401 faz o Bling parar de entregar.
+    console.warn('[bling webhook] missing_signature_header_accepted', { bodyBytes: rawBody.length })
   }
 
   let payload: unknown
@@ -130,7 +165,6 @@ export async function POST (request: Request) {
   }
 
   const webhookId = String(row.id)
-  // Bling exige HTTP 2xx em até ~5s. Processamos depois da resposta.
   after(async () => {
     try {
       const { processBlingWebhook } = await import('@/lib/integrations/bling/webhook-service')
