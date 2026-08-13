@@ -8,7 +8,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { DollarSign, MoreHorizontal, Pencil, Trash2, Wallet } from 'lucide-react'
+import { DollarSign, History, MoreHorizontal, Pencil, RotateCcw, Trash2, Wallet } from 'lucide-react'
 
 import { ResaleDeviceStandardActionItems } from './ResaleDeviceStandardActionItems'
 
@@ -24,13 +24,18 @@ type Props = {
   onCopyLojista: () => void
   onCopyCliente: () => void
   onCopyImei: () => void
-  /** Ações exclusivas de administrador. */
+  /** Editar aparelho, custos e excluir. */
   isAdmin?: boolean
+  /** Marcar / editar / cancelar venda e ver histórico (staff + admin). */
+  canManageSale?: boolean
   deviceSold?: boolean
   onEdit?: () => void
   onMarkSold?: () => void
+  onEditSale?: () => void
+  onCancelSale?: () => void
   onAddCost?: () => void
   onDelete?: () => void
+  onViewHistory?: () => void
   triggerClassName?: string
   contentClassName?: string
   align?: 'start' | 'center' | 'end'
@@ -45,15 +50,28 @@ export function ResaleDeviceQuickActionsDropdown ({
   onCopyCliente,
   onCopyImei,
   isAdmin = false,
+  canManageSale = false,
   deviceSold = false,
   onEdit,
   onMarkSold,
+  onEditSale,
+  onCancelSale,
   onAddCost,
   onDelete,
+  onViewHistory,
   triggerClassName,
   contentClassName,
   align = 'end',
 }: Props) {
+  const hasSaleActions = canManageSale && (
+    (!deviceSold && onMarkSold)
+    || (deviceSold && onEditSale)
+    || (deviceSold && onCancelSale)
+    || onViewHistory
+  )
+  const hasAdminActions = isAdmin && (onEdit || onAddCost || onDelete)
+  const hasManageBlock = hasSaleActions || hasAdminActions
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -76,27 +94,48 @@ export function ResaleDeviceQuickActionsDropdown ({
         className={contentClassName}
         onCloseAutoFocus={(e) => e.preventDefault()}
       >
-        {isAdmin ? (
+        {hasManageBlock ? (
           <>
-            {onEdit ? (
+            {isAdmin && onEdit ? (
               <DropdownMenuItem onClick={onEdit}>
                 <Pencil className="mr-1.5 h-3.5 w-3.5" />
                 Editar
               </DropdownMenuItem>
             ) : null}
-            {!deviceSold && onMarkSold ? (
+            {canManageSale && !deviceSold && onMarkSold ? (
               <DropdownMenuItem onClick={onMarkSold}>
                 <DollarSign className="mr-1.5 h-3.5 w-3.5" />
                 Vendido
               </DropdownMenuItem>
             ) : null}
-            {onAddCost ? (
+            {canManageSale && deviceSold && onEditSale ? (
+              <DropdownMenuItem onClick={onEditSale}>
+                <DollarSign className="mr-1.5 h-3.5 w-3.5" />
+                Editar venda
+              </DropdownMenuItem>
+            ) : null}
+            {canManageSale && deviceSold && onCancelSale ? (
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onClick={onCancelSale}
+              >
+                <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                Cancelar venda
+              </DropdownMenuItem>
+            ) : null}
+            {canManageSale && onViewHistory ? (
+              <DropdownMenuItem onClick={onViewHistory}>
+                <History className="mr-1.5 h-3.5 w-3.5" />
+                Histórico
+              </DropdownMenuItem>
+            ) : null}
+            {isAdmin && onAddCost ? (
               <DropdownMenuItem onClick={onAddCost}>
                 <Wallet className="mr-1.5 h-3.5 w-3.5" />
                 Adicionar custo
               </DropdownMenuItem>
             ) : null}
-            {onDelete ? (
+            {isAdmin && onDelete ? (
               <DropdownMenuItem
                 className="text-destructive focus:text-destructive"
                 onClick={onDelete}

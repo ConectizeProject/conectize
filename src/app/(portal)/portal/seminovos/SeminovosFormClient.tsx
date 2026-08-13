@@ -41,6 +41,7 @@ import {
   ResaleMarkSoldDialog,
   type ResaleMarkSoldDevice,
 } from '@/components/resale/ResaleMarkSoldDialog'
+import { ResaleDeviceEditHistoryDialog } from '@/components/resale/ResaleDeviceEditHistoryDialog'
 import { ArrowLeft, DollarSign, Eye, FileInput, Loader2, MoreHorizontal, Plus, Smartphone, Store, Tag, Trash2, Undo2, UserRound } from 'lucide-react'
 import { ResaleDeviceTermsDialog } from './ResaleDeviceTermsDialog'
 import { isSaleDerivedCostDescription } from '@/lib/resale/resale-sale-costs'
@@ -910,6 +911,12 @@ export function SeminovosFormClient ({
                   </Button>
                 </>
               )}
+              {!isCreate && deviceId ? (
+                <ResaleDeviceEditHistoryDialog
+                  deviceId={deviceId}
+                  isAdmin={isAdmin}
+                />
+              ) : null}
               <Button
                 type="button"
                 variant="outline"

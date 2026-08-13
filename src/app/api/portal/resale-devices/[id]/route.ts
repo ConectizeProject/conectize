@@ -17,6 +17,12 @@ import {
   parseTradeInDevices,
 } from '@/lib/resale/resale-trade-in'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
+import {
+  buildResaleCostsEditDiff,
+  buildResaleDeviceEditDiff,
+  enrichResaleCommissionUserHistoryValues,
+  type ResaleEditDiffRow,
+} from '@/lib/resale/resale-device-edit-history'
 
 type PortalSupabase = Awaited<ReturnType<typeof createSupabaseServerClient>>
 
@@ -366,6 +372,18 @@ export async function PATCH (
 
   const row = buildPatchRow(b, existing)
 
+  let existingCostsForHistory: Array<{ description: string | null; value_cents: number | null }> | null = null
+  if (Array.isArray(b.costs) || b.sold === false) {
+    const { data: costRows } = await auth.supabase
+      .from('resale_device_costs')
+      .select('description, value_cents')
+      .eq('resale_device_id', deviceId)
+    existingCostsForHistory = (costRows ?? []) as Array<{
+      description: string | null
+      value_cents: number | null
+    }>
+  }
+
   const RESALE_PHOTO_BUCKET = 'resale-device-photos'
   if (b.image_url !== undefined) {
     const newUrl = cleanText(b.image_url) || null
@@ -382,6 +400,7 @@ export async function PATCH (
       payment_method_id: null,
       payment_installments: null,
       sale_commission_user_id: null,
+      commission_paid_at: null,
       actual_profit_cents: null,
     })
   }
@@ -408,6 +427,11 @@ export async function PATCH (
     row.actual_profit_cents = (row.sold_for_cents as number) - purchaseCents - costsTotal
   }
 
+  const historyDiffs: ResaleEditDiffRow[] = []
+  if (Object.keys(row).length > 0) {
+    historyDiffs.push(...buildResaleDeviceEditDiff(existing, row))
+  }
+
   if (Object.keys(row).length > 0) {
     const { error: upErr } = await auth.supabase
       .from('resale_devices')
@@ -422,6 +446,12 @@ export async function PATCH (
 
   if (b.sold === false && !Array.isArray(b.costs)) {
     await rewriteResaleCostsKeepingBaseOnly(auth.supabase, deviceId, auth.organizationId)
+    const { data: nextCostRows } = await auth.supabase
+      .from('resale_device_costs')
+      .select('description, value_cents')
+      .eq('resale_device_id', deviceId)
+    const costsDiff = buildResaleCostsEditDiff(existingCostsForHistory, nextCostRows ?? [])
+    if (costsDiff) historyDiffs.push(costsDiff)
   }
 
   if (Array.isArray(b.costs)) {
@@ -440,6 +470,9 @@ export async function PATCH (
       })
     }
 
+    const costsDiff = buildResaleCostsEditDiff(existingCostsForHistory, b.costs)
+    if (costsDiff) historyDiffs.push(costsDiff)
+
     const soldForRaw = row.sold_for_cents ?? existing.sold_for_cents
     const soldFor =
       typeof soldForRaw === 'number' && Number.isFinite(soldForRaw) ? soldForRaw : null
@@ -451,10 +484,19 @@ export async function PATCH (
         const line = typeof vc === 'number' ? vc : toCents(co.value ?? vc) ?? 0
         return acc + line
       }, 0)
+      const nextProfit = soldFor - purchaseCents - costsTotal
+      const prevProfit = existing.actual_profit_cents
       await auth.supabase
         .from('resale_devices')
-        .update({ actual_profit_cents: soldFor - purchaseCents - costsTotal })
+        .update({ actual_profit_cents: nextProfit })
         .eq('id', deviceId)
+      if (row.actual_profit_cents === undefined) {
+        const profitDiff = buildResaleDeviceEditDiff(
+          { actual_profit_cents: prevProfit },
+          { actual_profit_cents: nextProfit },
+        )
+        historyDiffs.push(...profitDiff)
+      }
     }
   }
 
@@ -536,6 +578,27 @@ export async function PATCH (
   } catch (err) {
     console.error('[resale-device finance-sync]', { deviceId, err })
     return NextResponse.json({ ok: false, error: 'finance_sync_error' }, { status: 500 })
+  }
+
+  if (historyDiffs.length > 0) {
+    const enriched = await enrichResaleCommissionUserHistoryValues(auth.supabase, historyDiffs)
+    const editedAt = new Date().toISOString()
+    const { error: histErr } = await auth.supabase
+      .from('resale_device_edit_history')
+      .insert(
+        enriched.map((r) => ({
+          resale_device_id: deviceId,
+          organization_id: auth.organizationId,
+          edited_by: auth.userId,
+          edited_at: editedAt,
+          field_key: r.field_key,
+          old_value: r.old_value,
+          new_value: r.new_value,
+        })),
+      )
+    if (histErr) {
+      console.error('[resale-device-edit-history]', histErr)
+    }
   }
 
   const loaded = await loadDeviceWithCosts(auth.supabase, deviceId)
