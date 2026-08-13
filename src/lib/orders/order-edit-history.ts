@@ -426,5 +426,6 @@ export const ORDER_EDIT_FIELD_LABELS: Record<string, string> = {
   device_entry_checks: 'Checklist de entrada',
   device_exit_checks: 'Checklist de saída',
   seller_user_id: 'Vendedor',
+  customer_id: 'Cliente',
   closed_at: 'Data de fechamento',
 }
