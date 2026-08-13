@@ -28,7 +28,7 @@ type BlingTokenResponse = {
 type BlingRequestOptions = {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   path: string
-  query?: Record<string, string | number | boolean | undefined | null>
+  query?: Record<string, string | number | boolean | string[] | number[] | undefined | null>
   body?: unknown
 }
 
@@ -284,6 +284,7 @@ async function requestBlingTokenRefresh (refreshToken: string) {
       'Content-Type': 'application/json',
       Accept: '1.0',
       Authorization: `Basic ${credentials}`,
+      'enable-jwt': '1',
     },
     body: JSON.stringify({
       grant_type: 'refresh_token',
@@ -441,6 +442,18 @@ export async function createBlingClientFromConnection (rawConnection: HubConnect
     if (options.query) {
       for (const [key, value] of Object.entries(options.query)) {
         if (value === undefined || value === null) continue
+        if (Array.isArray(value)) {
+          // Bling: `codigos` costuma ir como CSV; demais arrays repetem a chave.
+          if (key === 'codigos' || key === 'idsProdutos' || key === 'gtins') {
+            const joined = value.map((item) => String(item).trim()).filter(Boolean).join(',')
+            if (joined) url.searchParams.set(key, joined)
+          } else {
+            for (const item of value) {
+              url.searchParams.append(key, String(item))
+            }
+          }
+          continue
+        }
         url.searchParams.set(key, String(value))
       }
     }

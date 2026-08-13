@@ -2,12 +2,12 @@
 
 type Params = Promise<{ id: string }>
 
-/** Legado pos_sales removido — redireciona para a listagem de pedidos. */
+/** Legado — detalhe unificado em /portal/vendas/[id]. */
 export default async function PdvVendaDetailRedirectPage ({
   params,
 }: {
   params: Params
 }) {
-  await params
-  redirect('/portal/pedidos-venda')
+  const { id } = await params
+  redirect(`/portal/vendas/${id}`)
 }

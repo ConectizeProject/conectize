@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Copy, Loader2, RotateCcw } from 'lucide-react'
+import { Copy, Loader2, RotateCcw, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { toast } from '@/hooks/use-toast'
+import { appConfirm } from '@/lib/ui/app-dialogs'
 
 export type WebhookRow = {
   id: string
@@ -28,6 +29,7 @@ export type WebhookRow = {
 
 type Props = {
   webhooks: WebhookRow[]
+  platform?: string
 }
 
 function safeJsonStringify (value: unknown, space?: number): string {
@@ -50,13 +52,45 @@ function safeJsonStringify (value: unknown, space?: number): string {
   }
 }
 
-export function WebhooksListClient ({ webhooks }: Props) {
+export function WebhooksListClient ({ webhooks, platform = 'bling' }: Props) {
   const router = useRouter()
   const [detail, setDetail] = useState<WebhookRow | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
   const [reprocessingId, setReprocessingId] = useState<string | null>(null)
   const [isReprocessingAllErrors, setIsReprocessingAllErrors] = useState(false)
+  const [isPurgingOld, setIsPurgingOld] = useState(false)
   const [copyingPayload, setCopyingPayload] = useState(false)
   const errorRows = webhooks.filter((row) => row.status === 'error' && row.platform_id === 'bling')
+
+  async function openDetail (row: WebhookRow) {
+    setDetail(row)
+    setDetailLoading(true)
+    try {
+      const res = await fetch(`/api/portal/admin/webhooks/${row.id}`, {
+        method: 'GET',
+        credentials: 'include',
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok || !data?.webhook) {
+        toast({
+          title: 'Falha ao carregar detalhe',
+          description: String(data?.message || data?.error || 'Tente novamente.'),
+          variant: 'destructive',
+        })
+        return
+      }
+      setDetail(data.webhook as WebhookRow)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Falha de rede.'
+      toast({
+        title: 'Falha ao carregar detalhe',
+        description: message,
+        variant: 'destructive',
+      })
+    } finally {
+      setDetailLoading(false)
+    }
+  }
 
   async function handleReprocess (id: string) {
     setReprocessingId(id)
@@ -154,15 +188,77 @@ export function WebhooksListClient ({ webhooks }: Props) {
     }
   }
 
+  async function handlePurgeOlderThanThreeMonths () {
+    if (isPurgingOld) return
+    if (!(await appConfirm({
+      title: 'Excluir histórico antigo?',
+      description: 'Remove permanentemente os webhooks desta plataforma com mais de 3 meses. Esta ação não pode ser desfeita.',
+      confirmLabel: 'Excluir',
+      destructive: true,
+    }))) return
+
+    setIsPurgingOld(true)
+    try {
+      const res = await fetch('/api/portal/admin/webhooks/purge-old', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platform }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        toast({
+          title: 'Falha ao excluir histórico',
+          description: String(data?.message || data?.error || 'Tente novamente.'),
+          variant: 'destructive',
+        })
+        return
+      }
+
+      const deleted = Number(data.deleted || 0)
+      toast({
+        variant: 'success',
+        title: deleted > 0 ? 'Histórico antigo excluído' : 'Nada para excluir',
+        description:
+          deleted > 0
+            ? `${deleted} webhook(s) com mais de 3 meses removido(s).`
+            : 'Não havia webhooks com mais de 3 meses.',
+      })
+      router.refresh()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Falha de rede.'
+      toast({
+        title: 'Falha ao excluir histórico',
+        description: message,
+        variant: 'destructive',
+      })
+    } finally {
+      setIsPurgingOld(false)
+    }
+  }
+
   return (
     <>
-      <div className="mb-3 flex items-center justify-end">
+      <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => void handlePurgeOlderThanThreeMonths()}
+          disabled={isPurgingOld || isReprocessingAllErrors}
+          className="gap-1.5"
+        >
+          {isPurgingOld
+            ? <Loader2 className="h-4 w-4 animate-spin" />
+            : <Trash2 className="h-4 w-4" />}
+          Excluir &gt; 3 meses
+        </Button>
         <Button
           type="button"
           variant="outline"
           size="sm"
           onClick={() => void handleReprocessAllErrors()}
-          disabled={isReprocessingAllErrors || errorRows.length === 0}
+          disabled={isReprocessingAllErrors || isPurgingOld || errorRows.length === 0}
           className="gap-1.5"
         >
           {isReprocessingAllErrors
@@ -172,6 +268,7 @@ export function WebhooksListClient ({ webhooks }: Props) {
         </Button>
       </div>
 
+      {webhooks.length > 0 ? (
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -215,7 +312,7 @@ export function WebhooksListClient ({ webhooks }: Props) {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => setDetail(row)}
+                      onClick={() => void openDetail(row)}
                     >
                       Ver detalhes
                     </Button>
@@ -238,6 +335,7 @@ export function WebhooksListClient ({ webhooks }: Props) {
           </tbody>
         </table>
       </div>
+      ) : null}
 
       <Dialog open={!!detail} onOpenChange={(open) => !open && setDetail(null)}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
@@ -269,7 +367,7 @@ export function WebhooksListClient ({ webhooks }: Props) {
                     variant="outline"
                     size="sm"
                     className="shrink-0 gap-1.5"
-                    disabled={copyingPayload}
+                    disabled={copyingPayload || detailLoading}
                     onClick={() => void copyWebhookPayload()}
                   >
                     {copyingPayload
@@ -278,9 +376,16 @@ export function WebhooksListClient ({ webhooks }: Props) {
                     Copiar payload
                   </Button>
                 </div>
-                <pre className="rounded-md border bg-muted/50 p-3 text-xs overflow-auto max-h-[40vh] whitespace-pre-wrap break-all">
-                  {safeJsonStringify(detail.payload ?? {}, 2)}
-                </pre>
+                {detailLoading ? (
+                  <div className="flex items-center gap-2 rounded-md border bg-muted/50 p-3 text-xs text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Carregando payload…
+                  </div>
+                ) : (
+                  <pre className="rounded-md border bg-muted/50 p-3 text-xs overflow-auto max-h-[40vh] whitespace-pre-wrap break-all">
+                    {safeJsonStringify(detail.payload ?? {}, 2)}
+                  </pre>
+                )}
               </div>
             </div>
           )}

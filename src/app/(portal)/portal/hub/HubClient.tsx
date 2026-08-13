@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
@@ -30,15 +30,16 @@ import {
   Play,
   QrCode,
   RefreshCw,
-  Settings,
   ShoppingCart,
   Smartphone,
   Store,
+  X,
   Zap,
 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 import { appConfirm } from '@/lib/ui/app-dialogs'
 import { blingRefreshTokenErrorToMessage } from '@/lib/integrations/bling/refresh-token-errors'
+import { cn } from '@/lib/utils'
 import {
   HubInboxViewersPicker,
   type InboxAccessState,
@@ -266,6 +267,29 @@ function formatConnectionLabel(connection: BlingConnection, index: number) {
   return `Conta ${index + 1}`
 }
 
+function getBlingAccountPresentation (connection: BlingConnection, index: number) {
+  const meta = connection.metadata && typeof connection.metadata === 'object'
+    ? connection.metadata
+    : null
+  const nome = meta?.nome != null ? String(meta.nome).trim() : ''
+  const email = meta?.email != null ? String(meta.email).trim() : ''
+  const logoUrl = meta?.logoUrl != null ? String(meta.logoUrl).trim() : ''
+  const label = nome || formatConnectionLabel(connection, index)
+  const initials = label
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || '')
+    .join('') || 'B'
+
+  return {
+    nome: label,
+    email: email || null,
+    logoUrl: logoUrl && /^https?:\/\//i.test(logoUrl) ? logoUrl : null,
+    initials,
+  }
+}
+
 function getBlingReconnectStatus (connection: BlingConnection) {
   const metadata = connection.metadata
   if (!metadata || typeof metadata !== 'object') return null
@@ -355,93 +379,57 @@ function LojistasRoutinePanel ({
   )
 }
 
-function IntegrationCard({
-  integration,
-  isConnected,
-  isAdmin,
-  onConnect,
-  onDisconnect,
-  onConfigure,
-  blingConnections = [],
+function BlingConnectionsPanel ({
+  blingConnections,
   onDisconnectBlingConnection,
   onRefreshBlingToken,
   refreshingBlingId,
-  onConfigureWhatsapp,
-  whatsappConfig,
-  onConfigureWhatsappEvolution,
-  whatsappEvolutionConfig,
-  lojistasRoutine,
-  onRunLojistasRoutine,
-  lojistasRoutineRunning,
+  oauthUrl,
 }: {
-  integration: Integration
-  isConnected: boolean
-  isAdmin: boolean
-  onConnect: () => void
-  onDisconnect: () => void
-  onConfigure?: () => void
-  blingConnections?: BlingConnection[]
+  blingConnections: BlingConnection[]
   onDisconnectBlingConnection?: (connectionId: string) => void
   onRefreshBlingToken?: (connectionId: string) => void
   refreshingBlingId?: string | null
-  onConfigureWhatsapp?: () => void
-  whatsappConfig?: WhatsappConfig | null
-  onConfigureWhatsappEvolution?: () => void
-  whatsappEvolutionConfig?: WhatsappEvolutionConfig | null
-  lojistasRoutine?: LojistasRoutineStatus | null
-  onRunLojistasRoutine?: () => void
-  lojistasRoutineRunning?: boolean
+  oauthUrl?: string
 }) {
-  const Icon = integration.icon
-  const isComingSoon = integration.status === 'coming_soon'
-  const canConnectApiKey = isAdmin && !isComingSoon && integration.authType === 'api_key'
-  const canConnectOAuth = isAdmin && !isComingSoon && integration.authType === 'oauth' && integration.oauthUrl
-  const isBling = integration.id === 'bling'
-  const isWhatsapp = integration.id === 'whatsapp_business'
-  const isWhatsappEvolution = integration.id === 'whatsapp_evolution'
-  const canConnect = !isWhatsapp && !isWhatsappEvolution && (canConnectApiKey || canConnectOAuth)
-
   return (
-    <Card className="overflow-hidden transition-colors hover:bg-muted/50">
-      <CardHeader className="flex flex-row items-start gap-4 pb-2">
-        <div className={`rounded-lg p-3 ${integration.color}`}>
-          <Icon className="h-6 w-6" />
-        </div>
-        <div className="flex-1 space-y-1">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <CardTitle className="text-base">{integration.name}</CardTitle>
-            <div className="flex items-center gap-2">
-              {isConnected && (
-                <Badge variant="default" className="bg-green-600 hover:bg-green-600 shrink-0">
-                  <Check className="h-3 w-3 mr-1" />
-                  Conectado
-                </Badge>
-              )}
-              {isComingSoon && (
-                <Badge variant="secondary" className="shrink-0">
-                  Em breve
-                </Badge>
-              )}
-            </div>
-          </div>
-          <CardDescription className="text-sm">{integration.description}</CardDescription>
-        </div>
-      </CardHeader>
-      <CardContent className="pt-0 space-y-3">
-        {isBling && blingConnections.length > 0 && (
-          <div className="rounded-md border bg-muted/30 p-3 space-y-2">
-            <p className="text-xs font-medium text-muted-foreground">Contas conectadas</p>
-            <ul className="space-y-3">
-              {blingConnections.map((conn, index) => {
-                const reconnectStatus = getBlingReconnectStatus(conn)
+    <div className="space-y-3">
+      {blingConnections.length > 0 ? (
+        <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+          <p className="text-xs font-medium text-muted-foreground">Contas conectadas</p>
+          <ul className="space-y-3">
+            {blingConnections.map((conn, index) => {
+              const reconnectStatus = getBlingReconnectStatus(conn)
+              const account = getBlingAccountPresentation(conn, index)
 
-                return (
-                  <li
-                    key={conn.id}
-                    className="flex flex-col gap-2 rounded-md border border-border/60 bg-background/50 p-2 sm:flex-row sm:items-center sm:justify-between"
-                  >
+              return (
+                <li
+                  key={conn.id}
+                  className="flex flex-col gap-2 rounded-md border border-border/60 bg-background/50 p-2 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="flex min-w-0 flex-1 items-start gap-3">
+                    {account.logoUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={account.logoUrl}
+                        alt=""
+                        className="h-10 w-10 shrink-0 rounded-md border bg-background object-contain"
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border bg-blue-500/10 text-xs font-semibold text-blue-700 dark:text-blue-300"
+                        aria-hidden="true"
+                      >
+                        {account.initials}
+                      </div>
+                    )}
                     <div className="min-w-0 flex-1 space-y-0.5">
-                      <span className="block truncate font-medium">{formatConnectionLabel(conn, index)}</span>
+                      <span className="block truncate font-medium">{account.nome}</span>
+                      {account.email ? (
+                        <span className="block truncate text-xs text-muted-foreground">{account.email}</span>
+                      ) : null}
                       <span className="text-xs text-muted-foreground">{formatTokenExpiry(conn.token_expires_at)}</span>
                       {reconnectStatus ? (
                         <div className="mt-1 space-y-1">
@@ -464,134 +452,113 @@ function IntegrationCard({
                         </Badge>
                       )}
                     </div>
-                    <div className="flex shrink-0 flex-wrap items-center gap-1 sm:justify-end">
-                      {onRefreshBlingToken && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7"
-                          disabled={refreshingBlingId === conn.id}
-                          onClick={() => onRefreshBlingToken(conn.id)}
-                        >
-                          {refreshingBlingId === conn.id ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <RefreshCw className="h-3.5 w-3.5" />
-                          )}
-                          <span className="ml-1">Renovar token</span>
-                        </Button>
-                      )}
-                      {onDisconnectBlingConnection && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 text-destructive hover:text-destructive hover:bg-destructive/10"
-                          onClick={() => onDisconnectBlingConnection(conn.id)}
-                        >
-                          Desconectar
-                        </Button>
-                      )}
-                    </div>
-                  </li>
-                )
-              })}
-            </ul>
-          </div>
-        )}
-        {isWhatsapp && whatsappConfig?.connected ? (
-          <div className="rounded-md border bg-muted/30 p-3 space-y-1">
-            <p className="text-xs text-muted-foreground">
-              Número conectado: <span className="font-medium text-foreground">{whatsappConfig.phone_number_id || '—'}</span>
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Automação IA: <span className="font-medium text-foreground">{whatsappConfig.automation_enabled ? 'Ativa' : 'Desativada'}</span>
-            </p>
-          </div>
-        ) : null}
-        {isWhatsappEvolution && whatsappEvolutionConfig?.connected ? (
-          <div className="rounded-md border bg-muted/30 p-3 space-y-1">
-            <p className="text-xs text-muted-foreground">
-              Instâncias Evolution:{' '}
-              <span className="font-medium text-foreground">
-                {whatsappEvolutionConfig.instances?.length ?? 0}
-              </span>
-            </p>
-            {(whatsappEvolutionConfig.instances || []).slice(0, 4).map((inst) => (
-              <p key={inst.connection_id} className="text-xs text-muted-foreground">
-                · {inst.display_label}
-                {inst.preferred_for_messages ? ' (preferida)' : ''}
-              </p>
-            ))}
-          </div>
-        ) : null}
-        {isWhatsappEvolution && lojistasRoutine?.available ? (
-          <LojistasRoutinePanel
-            routine={lojistasRoutine}
-            onRun={onRunLojistasRoutine}
-            isRunning={lojistasRoutineRunning === true}
-          />
-        ) : null}
-        <div className="flex items-center gap-2 flex-wrap">
-          {isWhatsapp && isAdmin && onConfigureWhatsapp ? (
-            <Button size="sm" onClick={onConfigureWhatsapp}>
-              <Settings className="h-4 w-4 mr-1" />
-              {whatsappConfig?.connected ? 'Editar informações' : 'Incluir informações'}
-            </Button>
-          ) : null}
-          {isWhatsappEvolution && isAdmin && onConfigureWhatsappEvolution ? (
-            <Button size="sm" onClick={onConfigureWhatsappEvolution}>
-              <Settings className="h-4 w-4 mr-1" />
-              {whatsappEvolutionConfig?.connected ? 'Editar Evolution' : 'Configurar Evolution'}
-            </Button>
-          ) : null}
-          {canConnect && (
-            <>
-              {isConnected ? (
-                <>
-                  {integration.id === 'chatgpt' && onConfigure ? (
-                    <Button size="sm" variant="outline" onClick={onConfigure}>
-                      <Settings className="h-4 w-4 mr-1" />
-                      Configurar
-                    </Button>
-                  ) : null}
-                  {isBling && integration.oauthUrl ? (
-                    <Button size="sm" asChild>
-                      <a href={integration.oauthUrl}>Conectar outra conta</a>
-                    </Button>
-                  ) : !isBling && !isWhatsapp && !isWhatsappEvolution ? (
-                    <Button size="sm" variant="outline" onClick={onDisconnect}>
-                      Desconectar
-                    </Button>
-                  ) : null}
-                </>
-              ) : integration.oauthUrl ? (
-                <Button size="sm" asChild>
-                  <a href={integration.oauthUrl}>Conectar</a>
-                </Button>
-              ) : (
-                <Button size="sm" onClick={onConnect}>
-                  Conectar
-                </Button>
-              )}
-            </>
-          )}
-          {integration.docsUrl && (
-            <Button size="sm" variant="ghost" asChild>
-              <a href={integration.docsUrl} target="_blank" rel="noopener noreferrer">
-                Documentação
-              </a>
-            </Button>
-          )}
-          {isBling && isAdmin && (
-            <Button size="sm" variant="ghost" asChild>
-              <Link href="/portal/admin/webhooks?platform=bling" prefetch={false} className="inline-flex items-center gap-1.5">
-                <History className="h-4 w-4" />
-                Histórico de webhooks
-              </Link>
-            </Button>
-          )}
+                  </div>
+                  <div className="flex shrink-0 flex-wrap items-center gap-1 sm:justify-end">
+                    {onRefreshBlingToken ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7"
+                        disabled={refreshingBlingId === conn.id}
+                        onClick={() => onRefreshBlingToken(conn.id)}
+                      >
+                        {refreshingBlingId === conn.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3.5 w-3.5" />
+                        )}
+                        <span className="ml-1">Renovar token</span>
+                      </Button>
+                    ) : null}
+                    {onDisconnectBlingConnection ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => onDisconnectBlingConnection(conn.id)}
+                      >
+                        Desconectar
+                      </Button>
+                    ) : null}
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
         </div>
-      </CardContent>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          Nenhuma conta Bling conectada ainda.
+        </p>
+      )}
+      {oauthUrl ? (
+        <Button size="sm" asChild>
+          <a href={oauthUrl}>
+            {blingConnections.length > 0 ? 'Conectar outra conta' : 'Conectar conta Bling'}
+          </a>
+        </Button>
+      ) : null}
+    </div>
+  )
+}
+
+function IntegrationCard({
+  integration,
+  isConnected,
+  onOpenDetails,
+}: {
+  integration: Integration
+  isConnected: boolean
+  onOpenDetails?: () => void
+}) {
+  const Icon = integration.icon
+  const isComingSoon = integration.status === 'coming_soon'
+  const isInteractive = Boolean(onOpenDetails)
+
+  return (
+    <Card
+      className={cn(
+        'overflow-hidden transition-colors border-2',
+        isConnected ? 'border-green-300 dark:border-green-700/60' : 'border-gray-200 dark:border-gray-700',
+        isInteractive && 'cursor-pointer hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        isComingSoon && 'opacity-90',
+      )}
+      role={isInteractive ? 'button' : undefined}
+      tabIndex={isInteractive ? 0 : undefined}
+      onClick={() => {
+        if (!isInteractive) return
+        onOpenDetails?.()
+      }}
+      onKeyDown={(e) => {
+        if (!isInteractive) return
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onOpenDetails?.()
+        }
+      }}
+    >
+      <CardHeader className="flex flex-row items-center gap-3 space-y-0 p-4">
+        <div className={`rounded-lg p-3 shrink-0 ${integration.color}`}>
+          <Icon className="h-6 w-6" />
+        </div>
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <CardTitle className="text-base leading-tight truncate">{integration.name}</CardTitle>
+          <div>
+            {isConnected ? (
+              <Badge variant="default" className="bg-green-600 hover:bg-green-600">
+                <Check className="h-3 w-3 mr-1" />
+                Conectado
+              </Badge>
+            ) : isComingSoon ? (
+              <Badge variant="secondary">Em breve</Badge>
+            ) : (
+              <Badge variant="outline" className="text-muted-foreground">
+                Não configurado
+              </Badge>
+            )}
+          </div>
+        </div>
+      </CardHeader>
     </Card>
   )
 }
@@ -606,6 +573,8 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
     setBlingConnections(initialBlingConnections)
   }, [initialBlingConnections])
   const [connectDialog, setConnectDialog] = useState<Integration | null>(null)
+  const [blingDialogOpen, setBlingDialogOpen] = useState(false)
+  const [infoDialog, setInfoDialog] = useState<Integration | null>(null)
   const [apiKey, setApiKey] = useState('')
   const [selectedModel, setSelectedModel] = useState<string>(chatgptModel)
   const [loading, setLoading] = useState(false)
@@ -667,6 +636,28 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
     if (!isAdmin) return
     void loadLojistasRoutineStatus()
   }, [isAdmin, loadLojistasRoutineStatus])
+
+  useEffect(() => {
+    if (!isAdmin) return
+    void (async () => {
+      try {
+        const [waRes, evoRes] = await Promise.all([
+          fetch('/api/portal/hub/whatsapp-config'),
+          fetch('/api/portal/hub/whatsapp-evolution-config'),
+        ])
+        const waData = await waRes.json().catch(() => null)
+        if (waRes.ok && waData?.ok) {
+          setWhatsappConfig(waData as WhatsappConfig)
+        }
+        const evoData = await evoRes.json().catch(() => null)
+        if (evoRes.ok && evoData?.ok) {
+          setEvolutionConfig(evoData as WhatsappEvolutionConfig)
+        }
+      } catch {
+        // badge usa fallback de connections do SSR
+      }
+    })()
+  }, [isAdmin])
 
   async function handleRunLojistasRoutine () {
     if (!(await appConfirm({
@@ -822,8 +813,10 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
     }
   }
 
-  const [blingLookupMode, setBlingLookupMode] = useState<'sku' | 'barcode'>('sku')
-  const [blingLookupQuery, setBlingLookupQuery] = useState('')
+  const [blingLookupSkus, setBlingLookupSkus] = useState<string[]>([])
+  const [blingLookupDraft, setBlingLookupDraft] = useState('')
+  const [blingLookupGtins, setBlingLookupGtins] = useState<string[]>([])
+  const [blingLookupGtinDraft, setBlingLookupGtinDraft] = useState('')
   const [blingLookupLoading, setBlingLookupLoading] = useState(false)
 
   async function loadWhatsappConfig () {
@@ -944,6 +937,8 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
         next.delete(integration.id)
         return next
       })
+      setConnectDialog(null)
+      setApiKey('')
       toast({ variant: 'success', title: 'Desconectado', description: `${integration.name} desconectado.` })
       router.refresh()
     } finally {
@@ -1406,10 +1401,77 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
     }
   }
 
+  function addBlingLookupSku (raw: string) {
+    const parts = String(raw || '')
+      .split(/[,;\n]+/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+    if (parts.length === 0) return
+    setBlingLookupSkus((prev) => {
+      const seen = new Set(prev.map((sku) => sku.toLowerCase()))
+      const next = [...prev]
+      for (const sku of parts) {
+        const key = sku.toLowerCase()
+        if (seen.has(key)) continue
+        seen.add(key)
+        next.push(sku)
+        if (next.length >= 50) break
+      }
+      return next
+    })
+    setBlingLookupDraft('')
+  }
+
+  function removeBlingLookupSku (sku: string) {
+    setBlingLookupSkus((prev) => prev.filter((item) => item !== sku))
+  }
+
+  function addBlingLookupGtin (raw: string) {
+    const parts = String(raw || '')
+      .split(/[,;\n]+/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+    if (parts.length === 0) return
+    setBlingLookupGtins((prev) => {
+      const seen = new Set(prev.map((gtin) => gtin.replace(/\D/g, '')))
+      const next = [...prev]
+      for (const gtin of parts) {
+        const key = gtin.replace(/\D/g, '')
+        if (!key || seen.has(key)) continue
+        seen.add(key)
+        next.push(gtin)
+        if (next.length >= 50) break
+      }
+      return next
+    })
+    setBlingLookupGtinDraft('')
+  }
+
+  function removeBlingLookupGtin (gtin: string) {
+    setBlingLookupGtins((prev) => prev.filter((item) => item !== gtin))
+  }
+
   async function handleBlingSearchSync () {
-    const query = blingLookupQuery.trim()
-    if (!query) {
-      toast({ title: 'Informe um valor para busca', variant: 'destructive' })
+    const draft = blingLookupDraft.trim()
+    const skus = [...blingLookupSkus]
+    if (draft) {
+      const key = draft.toLowerCase()
+      if (!skus.some((sku) => sku.toLowerCase() === key)) {
+        skus.push(draft)
+      }
+    }
+
+    const gtinDraft = blingLookupGtinDraft.trim()
+    const gtins = [...blingLookupGtins]
+    if (gtinDraft) {
+      const key = gtinDraft.replace(/\D/g, '')
+      if (key && !gtins.some((gtin) => gtin.replace(/\D/g, '') === key)) {
+        gtins.push(gtinDraft)
+      }
+    }
+
+    if (skus.length === 0 && gtins.length === 0) {
+      toast({ title: 'Informe ao menos um SKU ou GTIN', variant: 'destructive' })
       return
     }
 
@@ -1418,32 +1480,91 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
       const res = await fetch('/api/portal/hub/bling/search-sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mode: blingLookupMode,
-          query,
-        }),
+        body: JSON.stringify({ skus, gtins }),
       })
       const data = await res.json().catch(() => null)
       if (!res.ok || !data?.ok) {
         const error = String(data?.error || '')
+        const onlyGtins = skus.length === 0 && gtins.length > 0
         toast({
           title: 'Falha ao sincronizar produto',
           description:
             error === 'product_not_found'
-              ? 'Produto não encontrado no Bling com esse identificador.'
+              ? onlyGtins
+                ? gtins.length > 1
+                  ? 'Nenhum dos GTINs foi encontrado no Bling.'
+                  : 'Produto não encontrado no Bling com esse GTIN.'
+                : skus.length > 1 || gtins.length > 0
+                  ? 'Nenhum dos códigos foi encontrado no Bling.'
+                  : 'Produto não encontrado no Bling com esse SKU.'
               : String(data?.message || 'Tente novamente.'),
           variant: 'destructive',
         })
         return
       }
 
-      const action = data?.action === 'created' ? 'criado' : 'atualizado'
+      const created = Number(data?.created || 0)
+      const updated = Number(data?.updated || 0)
+      const notFound = Number(data?.notFound || 0)
+      const parts = [
+        created > 0 ? `${created} criado(s)` : null,
+        updated > 0 ? `${updated} atualizado(s)` : null,
+        notFound > 0 ? `${notFound} não encontrado(s)` : null,
+      ].filter(Boolean)
+
+      const lookupCount = skus.length + gtins.length
       toast({
         variant: 'success',
-        title: `Produto ${action}`,
-        description: `${String(data?.productName || 'Produto')} sincronizado do Bling.`,
+        title: lookupCount === 1 ? 'Produto sincronizado' : 'Produtos sincronizados',
+        description: parts.length > 0
+          ? parts.join(' · ')
+          : String(data?.productName || 'Sincronização concluída.'),
       })
-      setBlingLookupQuery('')
+      setBlingLookupSkus([])
+      setBlingLookupDraft('')
+      setBlingLookupGtins([])
+      setBlingLookupGtinDraft('')
+      router.refresh()
+    } finally {
+      setBlingLookupLoading(false)
+    }
+  }
+
+  async function handleBlingSyncLatest () {
+    if (!(await appConfirm({
+      title: 'Sincronizar os últimos 50 criados?',
+      description: 'Busca no Bling os 50 produtos mais recentemente incluídos e cria/atualiza no catálogo desta empresa.',
+      confirmLabel: 'Sincronizar',
+    }))) return
+
+    setBlingLookupLoading(true)
+    try {
+      const res = await fetch('/api/portal/hub/bling/search-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'latest', limit: 50 }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        toast({
+          title: 'Falha ao sincronizar',
+          description:
+            String(data?.error || '') === 'product_not_found'
+              ? 'Nenhum produto recente encontrado no Bling.'
+              : String(data?.message || 'Tente novamente.'),
+          variant: 'destructive',
+        })
+        return
+      }
+
+      const created = Number(data?.created || 0)
+      const updated = Number(data?.updated || 0)
+      const fetched = Number(data?.fetched || created + updated)
+      toast({
+        variant: 'success',
+        title: 'Últimos produtos sincronizados',
+        description: `${fetched} processado(s) · ${created} criado(s) · ${updated} atualizado(s)`,
+      })
       router.refresh()
     } finally {
       setBlingLookupLoading(false)
@@ -1465,92 +1586,83 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
       <div>
         <h2 className="text-lg font-semibold mb-4">Integrações disponíveis</h2>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {integrations.map((integration) => (
-            <IntegrationCard
-              key={integration.id}
-              integration={integration}
-              isConnected={
-                integration.id === 'bling'
-                  ? blingConnections.length > 0
-                  : integration.id === 'whatsapp_business'
-                    ? Boolean(whatsappConfig?.connected || connections.has('whatsapp_business'))
-                    : integration.id === 'whatsapp_evolution'
-                      ? Boolean(evolutionConfig?.connected || connections.has('whatsapp_evolution'))
-                      : connections.has(integration.id)
-              }
-              isAdmin={isAdmin}
-              onConnect={() => {
-                setSelectedModel(integration.id === 'chatgpt' ? chatgptModel : 'gpt-5-mini')
-                setConnectDialog(integration)
-              }}
-              onDisconnect={() => handleDisconnect(integration)}
-              onConfigure={
-                integration.id === 'chatgpt' && connections.has('chatgpt')
-                  ? () => {
-                      setSelectedModel(chatgptModel)
-                      setConnectDialog(integration)
-                    }
-                  : undefined
-              }
-              blingConnections={integration.id === 'bling' ? blingConnections : undefined}
-              onDisconnectBlingConnection={
-                integration.id === 'bling' ? handleDisconnectBlingConnection : undefined
-              }
-              onRefreshBlingToken={integration.id === 'bling' && isAdmin ? handleRefreshBlingToken : undefined}
-              refreshingBlingId={integration.id === 'bling' ? refreshingBlingId : undefined}
-              onConfigureWhatsapp={integration.id === 'whatsapp_business' ? handleOpenWhatsappConfig : undefined}
-              whatsappConfig={integration.id === 'whatsapp_business' ? whatsappConfig : undefined}
-              onConfigureWhatsappEvolution={integration.id === 'whatsapp_evolution' ? handleOpenEvolutionConfig : undefined}
-              whatsappEvolutionConfig={integration.id === 'whatsapp_evolution' ? evolutionConfig : undefined}
-              lojistasRoutine={integration.id === 'whatsapp_evolution' && isAdmin ? lojistasRoutine : undefined}
-              onRunLojistasRoutine={
-                integration.id === 'whatsapp_evolution' && isAdmin
-                  ? () => void handleRunLojistasRoutine()
-                  : undefined
-              }
-              lojistasRoutineRunning={integration.id === 'whatsapp_evolution' ? lojistasRoutineRunning : undefined}
-            />
-          ))}
+          {integrations.map((integration) => {
+            const isConnected =
+              integration.id === 'bling'
+                ? blingConnections.length > 0
+                : integration.id === 'whatsapp_business'
+                  ? Boolean(whatsappConfig?.connected || connections.has('whatsapp_business'))
+                  : integration.id === 'whatsapp_evolution'
+                    ? Boolean(evolutionConfig?.connected || connections.has('whatsapp_evolution'))
+                    : connections.has(integration.id)
+
+            return (
+              <IntegrationCard
+                key={integration.id}
+                integration={integration}
+                isConnected={isConnected}
+                onOpenDetails={() => {
+                  if (integration.status === 'coming_soon') {
+                    setInfoDialog(integration)
+                    return
+                  }
+                  if (integration.id === 'bling') {
+                    setBlingDialogOpen(true)
+                    return
+                  }
+                  if (integration.id === 'whatsapp_business') {
+                    void handleOpenWhatsappConfig()
+                    return
+                  }
+                  if (integration.id === 'whatsapp_evolution') {
+                    void handleOpenEvolutionConfig()
+                    return
+                  }
+                  if (integration.id === 'chatgpt') {
+                    setSelectedModel(chatgptModel)
+                    setConnectDialog(integration)
+                    return
+                  }
+                  setSelectedModel('gpt-5-mini')
+                  setConnectDialog(integration)
+                }}
+              />
+            )
+          })}
         </div>
       </div>
 
-      {isAdmin && blingConnections.length > 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Bling: buscar produto e sincronizar</CardTitle>
-            <CardDescription>
-              Busque por SKU ou código de barras. Se encontrar no Bling, o produto será criado ou atualizado no catálogo desta empresa.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-[170px_1fr_auto]">
-            <Select
-              value={blingLookupMode}
-              onValueChange={(value) => setBlingLookupMode(value === 'barcode' ? 'barcode' : 'sku')}
-              disabled={blingLookupLoading}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="sku">SKU</SelectItem>
-                <SelectItem value="barcode">Código de barras</SelectItem>
-              </SelectContent>
-            </Select>
-            <Input
-              value={blingLookupQuery}
-              onChange={(e) => setBlingLookupQuery(e.target.value)}
-              placeholder={blingLookupMode === 'sku' ? 'Ex: SKU-IPHONE-15' : 'Ex: 7890000000000'}
-              disabled={blingLookupLoading}
-            />
-            <Button
-              onClick={() => void handleBlingSearchSync()}
-              disabled={blingLookupLoading}
-            >
-              {blingLookupLoading ? 'Buscando…' : 'Buscar e sincronizar'}
+      <Dialog
+        open={!!infoDialog}
+        onOpenChange={(open) => {
+          if (!open) setInfoDialog(null)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{infoDialog?.name}</DialogTitle>
+            <DialogDescription>
+              {infoDialog?.description}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-2">
+            <Badge variant="secondary">Em breve</Badge>
+          </div>
+          <DialogFooter className="flex-wrap gap-2 sm:justify-between">
+            {infoDialog?.docsUrl ? (
+              <Button type="button" variant="outline" asChild>
+                <a href={infoDialog.docsUrl} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="h-4 w-4 mr-1" />
+                  Documentação
+                </a>
+              </Button>
+            ) : <span />}
+            <Button type="button" variant="outline" onClick={() => setInfoDialog(null)}>
+              Fechar
             </Button>
-          </CardContent>
-        </Card>
-      ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={!!connectDialog}
@@ -1576,6 +1688,26 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
+            {connectDialog && connections.has(connectDialog.id) ? (
+              <div className="rounded-md border border-green-200 bg-green-50/60 dark:border-green-900/50 dark:bg-green-950/20 p-3 space-y-1">
+                <p className="text-xs font-medium text-foreground">Status da conexão</p>
+                <p className="text-xs text-muted-foreground">
+                  Integração ativa
+                  {connectDialog.id === 'chatgpt' ? (
+                    <>
+                      {' · '}Modelo:{' '}
+                      <span className="font-medium text-foreground">{selectedModel}</span>
+                    </>
+                  ) : null}
+                </p>
+              </div>
+            ) : connectDialog ? (
+              <div className="rounded-md border border-gray-200 bg-muted/30 p-3">
+                <p className="text-xs text-muted-foreground">
+                  Integração ainda não configurada. Siga os passos abaixo para conectar.
+                </p>
+              </div>
+            ) : null}
             {connectDialog?.id === 'chatgpt' && (
               <div className="space-y-2">
                 <Label htmlFor="model">Modelo do GPT</Label>
@@ -1645,23 +1777,245 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
               </div>
             )}
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConnectDialog(null)} disabled={loading}>
-              Cancelar
-            </Button>
-            <Button
-              onClick={
-                connectDialog?.id === 'chatgpt' && connections.has('chatgpt')
-                  ? handleUpdateModel
-                  : handleConnect
-              }
-              disabled={loading}
-            >
-              {loading
-                ? 'Salvando…'
-                : connectDialog?.id === 'chatgpt' && connections.has('chatgpt')
-                  ? 'Salvar'
-                  : 'Conectar'}
+          <DialogFooter className="flex-wrap gap-2 sm:justify-between">
+            <div className="flex flex-wrap gap-2">
+              {connectDialog?.docsUrl ? (
+                <Button type="button" variant="outline" asChild>
+                  <a href={connectDialog.docsUrl} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="h-4 w-4 mr-1" />
+                    Documentação
+                  </a>
+                </Button>
+              ) : null}
+              {connectDialog && connections.has(connectDialog.id) ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="text-destructive hover:text-destructive"
+                  disabled={loading}
+                  onClick={() => void handleDisconnect(connectDialog)}
+                >
+                  Desconectar
+                </Button>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => setConnectDialog(null)} disabled={loading}>
+                Cancelar
+              </Button>
+              <Button
+                onClick={
+                  connectDialog?.id === 'chatgpt' && connections.has('chatgpt')
+                    ? handleUpdateModel
+                    : handleConnect
+                }
+                disabled={loading}
+              >
+                {loading
+                  ? 'Salvando…'
+                  : connectDialog?.id === 'chatgpt' && connections.has('chatgpt')
+                    ? 'Salvar'
+                    : 'Conectar'}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={blingDialogOpen}
+        onOpenChange={setBlingDialogOpen}
+      >
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Configurar Bling</DialogTitle>
+            <DialogDescription>
+              ERP Bling: contas conectadas, sincronização de produtos e status do token.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5 py-2">
+            <BlingConnectionsPanel
+              blingConnections={blingConnections}
+              onDisconnectBlingConnection={handleDisconnectBlingConnection}
+              onRefreshBlingToken={isAdmin ? handleRefreshBlingToken : undefined}
+              refreshingBlingId={refreshingBlingId}
+              oauthUrl={isAdmin ? '/api/portal/hub/oauth/bling' : undefined}
+            />
+
+            {isAdmin && blingConnections.length > 0 ? (
+              <div className="rounded-md border p-3 space-y-3">
+                <div>
+                  <p className="text-sm font-medium">Buscar produto e sincronizar</p>
+                  <p className="text-xs text-muted-foreground">
+                    Adicione SKUs e/ou GTINs (Enter ou sair do campo). SKU usa <code className="rounded bg-muted px-1">codigo/codigos</code>; GTIN usa <code className="rounded bg-muted px-1">gtins</code>.
+                  </p>
+                </div>
+                <div className="rounded-md border border-dashed bg-muted/20 p-2.5 text-xs text-muted-foreground space-y-1">
+                  <p className="font-medium text-foreground">URL do webhook (cadastre no app Bling → Webhooks)</p>
+                  <code className="block break-all text-[11px] text-foreground">
+                    https://www.conectize.com.br/api/portal/bling/webhook
+                  </code>
+                  <p>
+                    Confira se o servidor &quot;Prod&quot; no Bling aponta exatamente para essa URL. O portal confirma o recebimento na hora e processa o produto em seguida.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <p className="text-xs font-medium text-muted-foreground">SKUs</p>
+                  <div
+                    className={cn(
+                      'flex min-h-10 flex-wrap items-center gap-1.5 rounded-md border border-input bg-background px-2 py-1.5',
+                      blingLookupLoading && 'opacity-70',
+                    )}
+                  >
+                    {blingLookupSkus.map((sku) => (
+                      <span
+                        key={sku}
+                        className="inline-flex max-w-full items-center gap-1 rounded-md border bg-muted/60 px-2 py-0.5 text-xs font-medium"
+                      >
+                        <span className="truncate">{sku}</span>
+                        <button
+                          type="button"
+                          className="rounded-sm p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
+                          aria-label={`Remover ${sku}`}
+                          disabled={blingLookupLoading}
+                          onClick={() => removeBlingLookupSku(sku)}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                    <Input
+                      value={blingLookupDraft}
+                      onChange={(e) => setBlingLookupDraft(e.target.value)}
+                      onBlur={() => {
+                        if (blingLookupDraft.trim()) addBlingLookupSku(blingLookupDraft)
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          addBlingLookupSku(blingLookupDraft)
+                          return
+                        }
+                        if (e.key === 'Backspace' && !blingLookupDraft && blingLookupSkus.length > 0) {
+                          e.preventDefault()
+                          removeBlingLookupSku(blingLookupSkus[blingLookupSkus.length - 1])
+                        }
+                      }}
+                      placeholder={blingLookupSkus.length > 0 ? 'Outro SKU + Enter' : 'Ex: SKU-IPHONE-15 + Enter'}
+                      disabled={blingLookupLoading}
+                      className="h-7 min-w-[10rem] flex-1 border-0 bg-transparent px-1 shadow-none focus-visible:ring-0"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <p className="text-xs font-medium text-muted-foreground">GTINs / códigos de barras</p>
+                  <div
+                    className={cn(
+                      'flex min-h-10 flex-wrap items-center gap-1.5 rounded-md border border-input bg-background px-2 py-1.5',
+                      blingLookupLoading && 'opacity-70',
+                    )}
+                  >
+                    {blingLookupGtins.map((gtin) => (
+                      <span
+                        key={gtin}
+                        className="inline-flex max-w-full items-center gap-1 rounded-md border bg-muted/60 px-2 py-0.5 text-xs font-medium"
+                      >
+                        <span className="truncate">{gtin}</span>
+                        <button
+                          type="button"
+                          className="rounded-sm p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
+                          aria-label={`Remover ${gtin}`}
+                          disabled={blingLookupLoading}
+                          onClick={() => removeBlingLookupGtin(gtin)}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                    <Input
+                      value={blingLookupGtinDraft}
+                      onChange={(e) => setBlingLookupGtinDraft(e.target.value)}
+                      onBlur={() => {
+                        if (blingLookupGtinDraft.trim()) addBlingLookupGtin(blingLookupGtinDraft)
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          addBlingLookupGtin(blingLookupGtinDraft)
+                          return
+                        }
+                        if (e.key === 'Backspace' && !blingLookupGtinDraft && blingLookupGtins.length > 0) {
+                          e.preventDefault()
+                          removeBlingLookupGtin(blingLookupGtins[blingLookupGtins.length - 1])
+                        }
+                      }}
+                      placeholder={blingLookupGtins.length > 0 ? 'Outro GTIN + Enter' : 'Ex: 7891234567890 + Enter'}
+                      disabled={blingLookupLoading}
+                      inputMode="numeric"
+                      className="h-7 min-w-[10rem] flex-1 border-0 bg-transparent px-1 shadow-none focus-visible:ring-0"
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs text-muted-foreground">
+                    {blingLookupSkus.length === 0 && blingLookupGtins.length === 0
+                      ? 'Nenhum SKU ou GTIN adicionado'
+                      : [
+                        blingLookupSkus.length > 0
+                          ? `${blingLookupSkus.length} SKU(s)`
+                          : null,
+                        blingLookupGtins.length > 0
+                          ? `${blingLookupGtins.length} GTIN(s)`
+                          : null,
+                      ].filter(Boolean).join(' · ')}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void handleBlingSyncLatest()}
+                      disabled={blingLookupLoading}
+                    >
+                      {blingLookupLoading ? 'Buscando…' : 'Últimos 50 criados'}
+                    </Button>
+                    <Button
+                      onClick={() => void handleBlingSearchSync()}
+                      disabled={
+                        blingLookupLoading
+                        || (
+                          blingLookupSkus.length === 0
+                          && !blingLookupDraft.trim()
+                          && blingLookupGtins.length === 0
+                          && !blingLookupGtinDraft.trim()
+                        )
+                      }
+                    >
+                      {blingLookupLoading ? 'Buscando…' : 'Sincronizar'}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+          <DialogFooter className="flex-wrap gap-2 sm:justify-between">
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" asChild>
+                <a href="https://developer.bling.com.br/" target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="h-4 w-4 mr-1" />
+                  Documentação
+                </a>
+              </Button>
+              {isAdmin ? (
+                <Button type="button" variant="outline" asChild>
+                  <Link href="/portal/admin/webhooks?platform=bling" prefetch={false}>
+                    <History className="h-4 w-4 mr-1" />
+                    Histórico de webhooks
+                  </Link>
+                </Button>
+              ) : null}
+            </div>
+            <Button type="button" variant="outline" onClick={() => setBlingDialogOpen(false)}>
+              Fechar
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1693,6 +2047,28 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
             </div>
           ) : (
             <div className="space-y-4 py-2">
+              {whatsappConfig?.connected ? (
+                <div className="rounded-md border border-green-200 bg-green-50/60 dark:border-green-900/50 dark:bg-green-950/20 p-3 space-y-1">
+                  <p className="text-xs font-medium text-foreground">Status da conexão</p>
+                  <p className="text-xs text-muted-foreground">
+                    Número conectado:{' '}
+                    <span className="font-medium text-foreground">{whatsappConfig.phone_number_id || '—'}</span>
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Automação IA:{' '}
+                    <span className="font-medium text-foreground">
+                      {whatsappConfig.automation_enabled ? 'Ativa' : 'Desativada'}
+                    </span>
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-md border border-gray-200 bg-muted/30 p-3">
+                  <p className="text-xs text-muted-foreground">
+                    WhatsApp Business ainda não configurado. Preencha os dados abaixo para conectar.
+                  </p>
+                </div>
+              )}
+
               {whatsappConfig?.webhook_url ? (
                 <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
                   <span className="font-medium">URL do callback: </span>
@@ -1801,33 +2177,47 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
             </div>
           )}
 
-          <DialogFooter className="flex-wrap gap-2">
-            {whatsappConfig?.connected ? (
+          <DialogFooter className="flex-wrap gap-2 sm:justify-between">
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" asChild>
+                <a
+                  href="https://developers.facebook.com/docs/whatsapp/cloud-api"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <ExternalLink className="h-4 w-4 mr-1" />
+                  Documentação
+                </a>
+              </Button>
+              {whatsappConfig?.connected ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="text-destructive hover:text-destructive"
+                  disabled={whatsappSaving}
+                  onClick={() => void handleDisconnectWhatsappConfig()}
+                >
+                  Desconectar
+                </Button>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap gap-2">
               <Button
                 type="button"
                 variant="outline"
-                className="text-destructive hover:text-destructive"
                 disabled={whatsappSaving}
-                onClick={() => void handleDisconnectWhatsappConfig()}
+                onClick={() => setWhatsappDialogOpen(false)}
               >
-                Desconectar
+                Fechar
               </Button>
-            ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              disabled={whatsappSaving}
-              onClick={() => setWhatsappDialogOpen(false)}
-            >
-              Fechar
-            </Button>
-            <Button
-              type="button"
-              disabled={whatsappSaving || whatsappLoading}
-              onClick={() => void handleSaveWhatsappConfig()}
-            >
-              {whatsappSaving ? 'Salvando…' : 'Salvar'}
-            </Button>
+              <Button
+                type="button"
+                disabled={whatsappSaving || whatsappLoading}
+                onClick={() => void handleSaveWhatsappConfig()}
+              >
+                {whatsappSaving ? 'Salvando…' : 'Salvar'}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1858,6 +2248,38 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
             </div>
           ) : (
             <div className="space-y-4 py-2">
+              {evolutionConfig?.connected ? (
+                <div className="rounded-md border border-green-200 bg-green-50/60 dark:border-green-900/50 dark:bg-green-950/20 p-3 space-y-1">
+                  <p className="text-xs font-medium text-foreground">Status da conexão</p>
+                  <p className="text-xs text-muted-foreground">
+                    Instâncias Evolution:{' '}
+                    <span className="font-medium text-foreground">
+                      {evolutionConfig.instances?.length ?? 0}
+                    </span>
+                  </p>
+                  {(evolutionConfig.instances || []).map((inst) => (
+                    <p key={inst.connection_id} className="text-xs text-muted-foreground">
+                      · {inst.display_label}
+                      {inst.preferred_for_messages ? ' (preferida)' : ''}
+                    </p>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-md border border-gray-200 bg-muted/30 p-3">
+                  <p className="text-xs text-muted-foreground">
+                    Nenhuma instância Evolution configurada. Crie ou conecte uma instância abaixo.
+                  </p>
+                </div>
+              )}
+
+              {isAdmin && lojistasRoutine?.available ? (
+                <LojistasRoutinePanel
+                  routine={lojistasRoutine}
+                  onRun={() => void handleRunLojistasRoutine()}
+                  isRunning={lojistasRoutineRunning}
+                />
+              ) : null}
+
               {evolutionConfig?.webhook_url ? (
                 <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm space-y-1">
                   <div>
@@ -2128,33 +2550,47 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
             </div>
           )}
 
-          <DialogFooter className="flex-wrap gap-2">
-            {evolutionEditingConnectionId ? (
+          <DialogFooter className="flex-wrap gap-2 sm:justify-between">
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" asChild>
+                <a
+                  href="https://doc.evolution-api.com/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <ExternalLink className="h-4 w-4 mr-1" />
+                  Documentação
+                </a>
+              </Button>
+              {evolutionEditingConnectionId ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="text-destructive hover:text-destructive"
+                  disabled={evolutionSaving}
+                  onClick={() => void handleDisconnectEvolutionConfig()}
+                >
+                  Remover instância
+                </Button>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap gap-2">
               <Button
                 type="button"
                 variant="outline"
-                className="text-destructive hover:text-destructive"
                 disabled={evolutionSaving}
-                onClick={() => void handleDisconnectEvolutionConfig()}
+                onClick={() => setEvolutionDialogOpen(false)}
               >
-                Remover instância
+                Fechar
               </Button>
-            ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              disabled={evolutionSaving}
-              onClick={() => setEvolutionDialogOpen(false)}
-            >
-              Fechar
-            </Button>
-            <Button
-              type="button"
-              disabled={evolutionSaving || evolutionLoading}
-              onClick={() => void handleSaveEvolutionConfig()}
-            >
-              {evolutionSaving ? 'Salvando…' : 'Salvar'}
-            </Button>
+              <Button
+                type="button"
+                disabled={evolutionSaving || evolutionLoading}
+                onClick={() => void handleSaveEvolutionConfig()}
+              >
+                {evolutionSaving ? 'Salvando…' : 'Salvar'}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

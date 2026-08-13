@@ -7,6 +7,10 @@ import {
   truncateBlingHubQueryDetail,
 } from '@/lib/integrations/bling/hub-oauth-query'
 import { requireAdmin } from '@/lib/auth/portal-api'
+import {
+  fetchBlingCompanyProfile,
+  mergeBlingCompanyProfileMetadata,
+} from '@/lib/integrations/bling/company-profile'
 
 const BLING_TOKEN_URL = `${BLING_API_V3_BASE_URL}/oauth/token`
 const PLATFORM_ID = 'bling'
@@ -108,6 +112,7 @@ export async function GET(request: NextRequest) {
       'Content-Type': 'application/json',
       Accept: '1.0',
       Authorization: `Basic ${credentials}`,
+      'enable-jwt': '1',
     },
     body: JSON.stringify({
       grant_type: 'authorization_code',
@@ -157,7 +162,21 @@ export async function GET(request: NextRequest) {
   const expiresIn = Number(tokenData.expires_in) || 3600
   const tokenExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString()
 
+  const companyProfile = await fetchBlingCompanyProfile(String(tokenData.access_token))
   const now = new Date().toISOString()
+
+  const { data: existing } = await supabase
+    .from('hub_connections')
+    .select('id, metadata')
+    .eq('platform_id', PLATFORM_ID)
+    .eq('organization_id', auth.organizationId)
+    .maybeSingle()
+
+  const previousMetadata =
+    existing?.metadata && typeof existing.metadata === 'object'
+      ? (existing.metadata as Record<string, unknown>)
+      : {}
+
   const connectionPayload = {
     platform_id: PLATFORM_ID,
     organization_id: auth.organizationId,
@@ -165,16 +184,21 @@ export async function GET(request: NextRequest) {
     refresh_token: tokenData.refresh_token || null,
     token_expires_at: tokenExpiresAt,
     api_key: null,
-    metadata: { scope: tokenData.scope || null },
+    metadata: mergeBlingCompanyProfileMetadata(
+      {
+        ...previousMetadata,
+        scope: tokenData.scope || previousMetadata.scope || null,
+      },
+      companyProfile ?? {
+        empresaId: null,
+        nome: null,
+        email: null,
+        cnpj: null,
+        logoUrl: null,
+      },
+    ),
     updated_at: now,
   }
-
-  const { data: existing } = await supabase
-    .from('hub_connections')
-    .select('id')
-    .eq('platform_id', PLATFORM_ID)
-    .eq('organization_id', auth.organizationId)
-    .maybeSingle()
 
   const dbError = existing?.id
     ? (await supabase
