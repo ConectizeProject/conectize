@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import Script from 'next/script'
 import { Outfit } from 'next/font/google'
 import { GoogleAnalyticsSafe } from '@/components/GoogleAnalyticsSafe'
-import { business, getLocalBusinessJsonLd } from '@/lib/data/business'
+import { business } from '@/lib/data/business'
 import { THEME_BOOT_SCRIPT } from '@/lib/theme-boot-script'
 import './globals.css'
 
@@ -98,10 +98,6 @@ export default function RootLayout ({
           dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }}
         />
         <GoogleAnalyticsSafe />
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(getLocalBusinessJsonLd()) }}
-        />
         {children}
       </body>
     </html>

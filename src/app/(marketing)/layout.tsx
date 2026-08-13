@@ -1,5 +1,6 @@
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
+import { getLocalBusinessJsonLd } from '@/lib/data/business'
 
 export default function MarketingLayout ({
   children,
@@ -8,6 +9,10 @@ export default function MarketingLayout ({
 }) {
   return (
     <div className="min-h-screen flex flex-col">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(getLocalBusinessJsonLd()) }}
+      />
       <Header />
       <a
         href="#conteudo-principal"
