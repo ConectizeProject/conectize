@@ -36,6 +36,7 @@ type BlingProductDto = {
 	nome?: string;
 	codigo?: string;
 	gtin?: string;
+	gtinEmbalagem?: string;
 	codigoBarras?: string;
 	descricao?: string;
 	descricaoCurta?: string;
@@ -193,7 +194,7 @@ function resolveProductDataSlice(
 }
 
 function getBarcode(dto: BlingProductDto): string | null {
-	const v = dto.gtin ?? dto.codigoBarras;
+	const v = dto.gtin ?? dto.codigoBarras ?? dto.gtinEmbalagem;
 	if (v == null || v === "") return null;
 	const s = String(v).trim();
 	return s || null;

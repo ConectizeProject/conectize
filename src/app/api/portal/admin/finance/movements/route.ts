@@ -132,7 +132,7 @@ export async function GET(request: NextRequest) {
       service_order_href: serviceOrderHref,
       resale_device_id: resaleDeviceId,
       sales_order_id: salesOrderId,
-      sales_order_href: salesOrderId ? `/portal/pedidos-venda/${salesOrderId}` : null,
+      sales_order_href: salesOrderId ? `/portal/vendas/${salesOrderId}` : null,
       editable,
     }
   }).sort((a, b) => {
