@@ -45,6 +45,8 @@ type Props = {
   onSaved: () => void
   onEdit: (device: ResaleBulkEditDevice) => void
   onMarkSold: (device: ResaleBulkEditDevice) => void
+  onEditSale?: (device: ResaleBulkEditDevice) => void
+  onCancelSale?: (device: ResaleBulkEditDevice) => void
   onAddCost: (device: ResaleBulkEditDevice) => void
   onDelete: (device: ResaleBulkEditDevice) => void
   onSimulate: (device: ResaleBulkEditDevice) => void
@@ -121,6 +123,8 @@ export function ResaleBulkEditTable ({
   onSaved,
   onEdit,
   onMarkSold,
+  onEditSale,
+  onCancelSale,
   onAddCost,
   onDelete,
   onSimulate,
@@ -456,9 +460,12 @@ export function ResaleBulkEditTable ({
                       onCopyCliente={() => onCopyCliente(d)}
                       onCopyImei={() => onCopyImei(d)}
                       isAdmin
+                      canManageSale
                       deviceSold={d.sold}
                       onEdit={() => onEdit(d)}
                       onMarkSold={() => onMarkSold(d)}
+                      onEditSale={onEditSale ? () => onEditSale(d) : undefined}
+                      onCancelSale={onCancelSale ? () => onCancelSale(d) : undefined}
                       onAddCost={() => onAddCost(d)}
                       onDelete={() => onDelete(d)}
                     />

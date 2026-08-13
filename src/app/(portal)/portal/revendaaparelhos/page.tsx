@@ -85,7 +85,8 @@ async function RevendaListagemInner ({
     valueMaxParsed != null && valueMaxParsed > 0 ? valueMaxParsed : null
 
   const q = String(params?.q || '').trim()
-  const includeSoldByFilter = isAdmin && params?.sold === '1'
+  const canManageSale = !isRetailer
+  const includeSoldByFilter = canManageSale && params?.sold === '1'
   const includeSold = includeSoldByFilter || looksLikeImeiSearch(q)
 
   const filters = {
@@ -146,6 +147,7 @@ async function RevendaListagemInner ({
       paymentMethods={paymentMethods}
       isRetailer={isRetailer}
       isAdmin={isAdmin}
+      canManageSale={canManageSale}
       filterInitialValues={filterInitialValues}
       distinctDeviceNames={distinctDeviceNames}
     />

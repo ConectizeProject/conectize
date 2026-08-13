@@ -12,6 +12,7 @@ import {
   type ResaleMarkSoldDevice,
 } from '@/components/resale/ResaleMarkSoldDialog'
 import { ResaleDeviceTermsDialog } from '../seminovos/ResaleDeviceTermsDialog'
+import { ResaleDeviceEditHistoryDialog } from '@/components/resale/ResaleDeviceEditHistoryDialog'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { WhatsAppTextModalButton } from '@/components/whatsapp-text-modal'
@@ -33,6 +34,9 @@ import { buildConectizeStockWhatsAppTexts } from '@/lib/seminovos/whatsapp-stock
 import { cn } from '@/lib/utils'
 import { formatDateBr } from '@/lib/utils/format-date'
 import { maskedFromCents } from '@/lib/utils/money'
+import { toast } from '@/hooks/use-toast'
+import { appConfirm } from '@/lib/ui/app-dialogs'
+import { portalFetch } from '@/lib/portal/portal-fetch'
 import { Plus, Smartphone } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -67,6 +71,8 @@ type Props = {
   paymentMethods: PaymentMethod[]
   isRetailer: boolean
   isAdmin?: boolean
+  /** Staff e admin: marcar/editar/cancelar venda e histórico. */
+  canManageSale?: boolean
   filterInitialValues: FilterInitial
   distinctDeviceNames: string[]
 }
@@ -90,6 +96,7 @@ export function RevendaListagemClient ({
   paymentMethods,
   isRetailer,
   isAdmin = false,
+  canManageSale = false,
   filterInitialValues,
   distinctDeviceNames,
 }: Props) {
@@ -100,7 +107,10 @@ export function RevendaListagemClient ({
   )
   const [costTarget, setCostTarget] = useState<CatalogDeviceRow | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<CatalogDeviceRow | null>(null)
-  const [sellTarget, setSellTarget] = useState<CatalogDeviceRow | null>(null)
+  const [sellTarget, setSellTarget] = useState<ResaleMarkSoldDevice | null>(null)
+  const [sellDialogMode, setSellDialogMode] = useState<'create' | 'edit'>('create')
+  const [isCancellingSaleId, setIsCancellingSaleId] = useState<string | null>(null)
+  const [historyDeviceId, setHistoryDeviceId] = useState<string | null>(null)
   const [termsDevice, setTermsDevice] = useState<ResaleMarkSoldDevice | null>(null)
   const [showTermsDialog, setShowTermsDialog] = useState(false)
   const [isBulkEdit, setIsBulkEdit] = useState(false)
@@ -135,9 +145,107 @@ export function RevendaListagemClient ({
     await copyImeiWithPortalToast(d.imei)
   }, [])
 
-  const handleMarkSold = useCallback((d: CatalogDeviceRow) => {
-    setSellTarget(d)
+  const toMarkSoldDevice = useCallback((d: CatalogDeviceRow | ResaleMarkSoldDevice): ResaleMarkSoldDevice => {
+    return {
+      id: d.id,
+      device_name: d.device_name ?? null,
+      model: d.model ?? null,
+      color: d.color ?? null,
+      storage_gb: d.storage_gb ?? null,
+      battery: d.battery ?? null,
+      info: 'info' in d ? (d.info ?? null) : null,
+      imei: d.imei ?? null,
+      serial: 'serial' in d ? (d.serial ?? null) : null,
+      purchase_value_cents: d.purchase_value_cents ?? null,
+      wholesale_value_cents: d.wholesale_value_cents ?? null,
+      sale_value_cents: d.sale_value_cents ?? null,
+      sold_for_cents: d.sold_for_cents ?? null,
+      sale_date: d.sale_date ?? null,
+      costs: ('costs' in d && Array.isArray(d.costs) ? d.costs : []).map((c) => ({
+        id: c.id,
+        description: c.description ?? '',
+        value_cents: c.value_cents ?? 0,
+      })),
+      payment_method_id: 'payment_method_id' in d ? (d.payment_method_id ?? null) : null,
+      payment_installments:
+        'payment_installments' in d ? (d.payment_installments ?? null) : null,
+      sale_payment_methods:
+        'sale_payment_methods' in d ? (d.sale_payment_methods ?? null) : null,
+      buyer_name: 'buyer_name' in d ? (d.buyer_name ?? null) : null,
+      buyer_cpf: 'buyer_cpf' in d ? (d.buyer_cpf ?? null) : null,
+      sale_details: 'sale_details' in d ? (d.sale_details ?? null) : null,
+      sale_commission_user_id:
+        'sale_commission_user_id' in d ? (d.sale_commission_user_id ?? null) : null,
+    }
   }, [])
+
+  const handleMarkSold = useCallback((d: CatalogDeviceRow) => {
+    setSellDialogMode('create')
+    setSellTarget(toMarkSoldDevice(d))
+  }, [toMarkSoldDevice])
+
+  const handleEditSale = useCallback(async (d: CatalogDeviceRow) => {
+    try {
+      const res = await portalFetch(`/api/portal/resale-devices/${d.id}`)
+      const data = await res?.json().catch(() => null)
+      if (data?.ok && data.device) {
+        setSellDialogMode('edit')
+        setSellTarget(toMarkSoldDevice(data.device as ResaleMarkSoldDevice))
+        return
+      }
+      toast({
+        variant: 'destructive',
+        title: 'Erro',
+        description: 'Não foi possível carregar os dados da venda.',
+      })
+    } catch {
+      toast({
+        variant: 'destructive',
+        title: 'Erro',
+        description: 'Não foi possível carregar os dados da venda.',
+      })
+    }
+  }, [toMarkSoldDevice])
+
+  const handleCancelSale = useCallback(async (d: CatalogDeviceRow) => {
+    if (isCancellingSaleId) return
+    if (!(await appConfirm({
+      title: 'Cancelar a venda?',
+      description: 'O valor, a data e os dados da venda serão removidos. O aparelho volta para o estoque.',
+      confirmLabel: 'Cancelar venda',
+      destructive: true,
+    }))) return
+
+    setIsCancellingSaleId(d.id)
+    try {
+      const res = await portalFetch(`/api/portal/resale-devices/${d.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sold: false,
+          sold_for_cents: null,
+          sale_date: null,
+          payment_method_id: null,
+          payment_installments: null,
+          sale_payment_methods: [],
+          buyer_name: null,
+          buyer_cpf: null,
+          sale_details: null,
+        }),
+      })
+      const data = await res?.json().catch(() => null)
+      if (!res?.ok || data?.ok !== true) {
+        throw new Error(data?.message || 'Não foi possível cancelar a venda.')
+      }
+      toast({ description: 'Venda cancelada', duration: 2000 })
+      router.refresh()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Erro ao cancelar a venda.'
+      toast({ variant: 'destructive', title: 'Erro', description: message })
+    } finally {
+      setIsCancellingSaleId(null)
+    }
+  }, [isCancellingSaleId, router])
 
   const handleEditDevice = useCallback((d: CatalogDeviceRow) => {
     router.push(revendaPath.device(d.id))
@@ -228,7 +336,7 @@ export function RevendaListagemClient ({
         filterFormAction={revendaPath.listagem}
         distinctDeviceNames={distinctDeviceNames}
         catalogMode
-        showIncludeSoldFilter={isAdmin}
+        showIncludeSoldFilter={canManageSale}
         trailingSlot={priceToggle}
         quickFilters={{
           notTested: false,
@@ -254,6 +362,14 @@ export function RevendaListagemClient ({
           onMarkSold={(d) => {
             const row = orderedDevices.find((x) => x.id === d.id)
             if (row) handleMarkSold(row)
+          }}
+          onEditSale={(d) => {
+            const row = orderedDevices.find((x) => x.id === d.id)
+            if (row) void handleEditSale(row)
+          }}
+          onCancelSale={(d) => {
+            const row = orderedDevices.find((x) => x.id === d.id)
+            if (row) void handleCancelSale(row)
           }}
           onAddCost={(d) => {
             const row = orderedDevices.find((x) => x.id === d.id)
@@ -464,9 +580,13 @@ export function RevendaListagemClient ({
                   onCopyCliente={() => void handleCatalogCopyCliente(d)}
                   onCopyImei={() => void handleCatalogCopyImei(d)}
                   isAdmin={isAdmin}
+                  canManageSale={canManageSale}
                   deviceSold={d.sold}
                   onEdit={() => handleEditDevice(d)}
                   onMarkSold={() => handleMarkSold(d)}
+                  onEditSale={() => void handleEditSale(d)}
+                  onCancelSale={() => void handleCancelSale(d)}
+                  onViewHistory={() => setHistoryDeviceId(d.id)}
                   onAddCost={() => setCostTarget(d)}
                   onDelete={() => setDeleteTarget(d)}
                 />
@@ -510,14 +630,18 @@ export function RevendaListagemClient ({
       <ResaleMarkSoldDialog
         open={Boolean(sellTarget)}
         onOpenChange={(open) => {
-          if (!open) setSellTarget(null)
+          if (!open) {
+            setSellTarget(null)
+            setSellDialogMode('create')
+          }
         }}
-        device={sellTarget as ResaleMarkSoldDevice | null}
-        mode="create"
+        device={sellTarget}
+        mode={sellDialogMode}
         isAdmin={isAdmin}
         canViewPurchaseValue={isAdmin}
         onSold={(updated, meta) => {
           setSellTarget(null)
+          setSellDialogMode('create')
           if (meta.generateWarrantyTerm) {
             setTermsDevice(updated)
             setShowTermsDialog(true)
@@ -525,6 +649,16 @@ export function RevendaListagemClient ({
           router.refresh()
         }}
       />
+      {historyDeviceId ? (
+        <ResaleDeviceEditHistoryDialog
+          deviceId={historyDeviceId}
+          isAdmin={isAdmin}
+          open={Boolean(historyDeviceId)}
+          onOpenChange={(open) => {
+            if (!open) setHistoryDeviceId(null)
+          }}
+        />
+      ) : null}
       <ResaleDeviceTermsDialog
         open={showTermsDialog}
         onOpenChange={setShowTermsDialog}

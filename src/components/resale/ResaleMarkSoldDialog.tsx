@@ -813,9 +813,11 @@ export function ResaleMarkSoldDialog ({
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="max-w-3xl sm:max-w-5xl w-[min(96vw,72rem)] max-h-[90vh] overflow-y-auto gap-0">
         <DialogHeader className="pb-2">
-          <DialogTitle>Marcar como vendido</DialogTitle>
+          <DialogTitle>{mode === 'edit' ? 'Editar venda' : 'Marcar como vendido'}</DialogTitle>
           <DialogDescription>
-            Informe data, formas de pagamento, troca, comissão, extras e termo de garantia.
+            {mode === 'edit'
+              ? 'Atualize data, formas de pagamento, troca, comissão, extras e termo de garantia.'
+              : 'Informe data, formas de pagamento, troca, comissão, extras e termo de garantia.'}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-5 py-4 lg:grid-cols-2 lg:gap-6 lg:items-start">
