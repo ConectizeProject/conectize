@@ -44,7 +44,7 @@ import {
   type CashCloseSummary,
   type PaymentMethodType,
 } from '@/lib/pdv/cash-close-summary'
-import { salesOrderCupomPrintLabel } from '@/app/(portal)/portal/pedidos-venda/SalesOrderCupomPrint'
+import { salesOrderCupomPrintLabel } from '@/app/(portal)/portal/vendas/SalesOrderCupomPrint'
 import type {
   CartItem,
   CatalogProduct,
@@ -88,7 +88,7 @@ import {
 } from './PdvFormControls'
 
 const SalesOrderAfterSaleDialog = dynamic(
-  () => import('@/app/(portal)/portal/pedidos-venda/SalesOrderAfterSaleActions').then((m) => ({
+  () => import('@/app/(portal)/portal/vendas/SalesOrderAfterSaleActions').then((m) => ({
     default: m.SalesOrderAfterSaleDialog,
   })),
   { ssr: false },
@@ -102,7 +102,7 @@ async function openCashClosePrintLazy (
 }
 
 async function openSalesOrderCupomPrintLazy (orderId: string) {
-  const { openSalesOrderCupomPrint } = await import('@/app/(portal)/portal/pedidos-venda/SalesOrderCupomPrint')
+  const { openSalesOrderCupomPrint } = await import('@/app/(portal)/portal/vendas/SalesOrderCupomPrint')
   return openSalesOrderCupomPrint(orderId)
 }
 
@@ -1645,7 +1645,7 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
           >
             Nova venda
           </Button>
-          <Link href='/portal/pedidos-venda'>
+          <Link href='/portal/vendas'>
             <Button variant='secondary' size='sm'>Pedidos</Button>
           </Link>
           {cashOpen ? (
