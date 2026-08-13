@@ -29,7 +29,7 @@ import { OrdemActionsMenu } from './OrdemActionsMenu'
 import { OrdemDetalheToastClient } from './OrdemDetalheToastClient'
 import { OrdemLabelPrintButton } from './OrdemLabelPrintButton'
 import { OrderAssistanceChat } from './OrderAssistanceChat'
-import { OrderCustomerCard } from './OrderCustomerCard'
+import { OrderCustomerCard, type OrderCustomer } from './OrderCustomerCard'
 import { OrderDeviceEntryChecksEditor } from './OrderDeviceEntryChecksEditor'
 import { OrderEntryPhotos } from './OrderEntryPhotos'
 import { OrderInternalCommentsChat } from './OrderInternalCommentsChat'
@@ -180,7 +180,11 @@ export function OrdemDetalhePageContent (props: Props) {
 				</div>
 			</div>
 
-			<OrderCustomerCard customer={customer} />
+			<OrderCustomerCard
+				orderId={order.id}
+				customer={(customer as OrderCustomer | null) ?? null}
+				disabled={formDisabled}
+			/>
 
 			<OrderDeviceInfoSection
 				key={`device-${order.id}-${order.updated_at ?? ''}`}
