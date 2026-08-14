@@ -11,7 +11,6 @@ import {
 	Tablet,
 } from 'lucide-react'
 import type { Metadata } from 'next'
-import { Button } from '@/components/ui/button'
 import { business, getFormattedOpeningHours } from '@/lib/data/business'
 import {
 	getLojaFaqJsonLd,
@@ -25,9 +24,10 @@ import {
 	lojaWhatsAppHref,
 } from '@/lib/data/hotsite-loja'
 import { getSiteUrl } from '@/lib/utils/site-url'
+import { HeroBrokenPhone } from './HeroBrokenPhone'
+import { HeroVideo } from './HeroVideo'
 import { LojaShell } from './LojaShell'
 import styles from './loja.module.css'
-import { PhoneScrollScene } from './PhoneScrollScene'
 import { WhatsAppIcon } from './WhatsAppIcon'
 
 const productIcons = [
@@ -77,21 +77,22 @@ export default function LojaPage() {
 
 			<main id="conteudo-principal">
 				<section className={styles.hero} aria-labelledby="loja-titulo">
-					<div className={styles.heroGlow} aria-hidden="true" />
-					<div className={styles.wrap}>
-						<p className={styles.eyebrow}>{lojaCopy.heroEyebrow}</p>
-						<h1 id="loja-titulo" className={styles.display}>
-							{lojaCopy.heroTitle}
-						</h1>
-						<p className={styles.lead}>{lojaCopy.heroLead}</p>
-						<div className={styles.actions}>
-							<Button
-								variant="whatsapp"
-								size="lg"
-								className={styles.press}
-								asChild
-							>
+					<div className={styles.heroStage}>
+						<HeroVideo />
+						<div className={styles.heroScrim} aria-hidden="true" />
+					</div>
+
+					<div className={styles.heroInner}>
+						<div className={styles.heroCopy}>
+							<p className={styles.heroIntro}>{lojaCopy.heroIntro}</p>
+							<h1 id="loja-titulo" className={styles.display}>
+								<span className={styles.heroLine}>{lojaCopy.heroLine}</span>
+								<span className={styles.shine}>{lojaCopy.heroShine}</span>
+							</h1>
+							<p className={styles.lead}>{lojaCopy.heroLead}</p>
+							<div className={styles.actions}>
 								<a
+									className={styles.ctaPrimary}
 									href={lojaWhatsAppHref}
 									target="_blank"
 									rel="noopener noreferrer"
@@ -99,21 +100,20 @@ export default function LojaPage() {
 									<WhatsAppIcon className="h-5 w-5" />
 									Pedir orçamento
 								</a>
-							</Button>
-							<Button
-								variant="outline"
-								size="lg"
-								className={styles.press}
-								asChild
-							>
-								<a href="#unidade">Ver a loja</a>
-							</Button>
+								<a className={styles.ctaGhost} href="#unidade">
+									Ver a loja
+								</a>
+							</div>
 						</div>
-
+						<HeroBrokenPhone
+							imageSrc={`/loja/iphone-quebrado.png?v=${
+								process.env.NODE_ENV === 'development' ? Date.now() : '1'
+							}`}
+						/>
 						<ul className={styles.trust}>
 							<li className={styles.trustItem}>
 								<MapPin
-									className="mt-0.5 h-5 w-5 shrink-0 text-primary-accessible"
+									className={`${styles.accentIcon} h-5 w-5`}
 									aria-hidden="true"
 								/>
 								<p>
@@ -123,7 +123,7 @@ export default function LojaPage() {
 							</li>
 							<li className={styles.trustItem}>
 								<Clock
-									className="mt-0.5 h-5 w-5 shrink-0 text-primary-accessible"
+									className={`${styles.accentIcon} h-5 w-5`}
 									aria-hidden="true"
 								/>
 								<p>
@@ -133,7 +133,7 @@ export default function LojaPage() {
 							</li>
 							<li className={styles.trustItem}>
 								<Shield
-									className="mt-0.5 h-5 w-5 shrink-0 text-primary-accessible"
+									className={`${styles.accentIcon} h-5 w-5`}
 									aria-hidden="true"
 								/>
 								<p>
@@ -143,7 +143,7 @@ export default function LojaPage() {
 							</li>
 							<li className={styles.trustItem}>
 								<Store
-									className="mt-0.5 h-5 w-5 shrink-0 text-primary-accessible"
+									className={`${styles.accentIcon} h-5 w-5`}
 									aria-hidden="true"
 								/>
 								<p>
@@ -154,8 +154,6 @@ export default function LojaPage() {
 						</ul>
 					</div>
 				</section>
-
-				<PhoneScrollScene />
 
 				<section
 					id="produtos"
@@ -190,7 +188,7 @@ export default function LojaPage() {
 
 				<section
 					id="linhas"
-					className={`${styles.section} ${styles.sectionMuted}`}
+					className={`${styles.section} ${styles.sectionAlt}`}
 					aria-labelledby="linhas-titulo"
 				>
 					<div className={styles.wrap}>
@@ -207,7 +205,10 @@ export default function LojaPage() {
 								const Icon = lineIcons[index] ?? Smartphone
 								return (
 									<article key={line.title} className={styles.line}>
-										<Icon className="mb-4 h-6 w-6" aria-hidden="true" />
+										<Icon
+											className={`${styles.accentIcon} mb-4 h-6 w-6`}
+											aria-hidden="true"
+										/>
 										<h3>{line.title}</h3>
 										<p>{line.description}</p>
 									</article>
@@ -247,7 +248,7 @@ export default function LojaPage() {
 
 				<section
 					id="unidade"
-					className={`${styles.section} ${styles.sectionMuted}`}
+					className={`${styles.section} ${styles.sectionAlt}`}
 					aria-labelledby="unidade-titulo"
 				>
 					<div className={styles.wrap}>
@@ -263,11 +264,11 @@ export default function LojaPage() {
 							<ul className={styles.storeMeta}>
 								<li className={styles.metaRow}>
 									<MapPin
-										className="mt-0.5 h-5 w-5 shrink-0 text-primary-accessible"
+										className={`${styles.accentIcon} h-5 w-5`}
 										aria-hidden="true"
 									/>
 									<div>
-										<p className="m-0 font-semibold text-foreground">
+										<p className={styles.metaTitle}>
 											{business.address.streetAddress}
 										</p>
 										<p className="mt-1">
@@ -287,7 +288,7 @@ export default function LojaPage() {
 								</li>
 								<li className={styles.metaRow}>
 									<Clock
-										className="mt-0.5 h-5 w-5 shrink-0 text-primary-accessible"
+										className={`${styles.accentIcon} h-5 w-5`}
 										aria-hidden="true"
 									/>
 									<div>
@@ -331,31 +332,18 @@ export default function LojaPage() {
 								Respondemos pelo WhatsApp com as opções da loja.
 							</p>
 							<div className={styles.ctaActions}>
-								<Button
-									variant="whatsapp"
-									size="lg"
-									className={styles.press}
-									asChild
+								<a
+									className={styles.ctaPrimary}
+									href={lojaWhatsAppHref}
+									target="_blank"
+									rel="noopener noreferrer"
 								>
-									<a
-										href={lojaWhatsAppHref}
-										target="_blank"
-										rel="noopener noreferrer"
-									>
-										<WhatsAppIcon className="h-5 w-5" />
-										Falar no WhatsApp
-									</a>
-								</Button>
-								<Button
-									variant="outline"
-									size="lg"
-									className={styles.press}
-									asChild
-								>
-									<a href={`tel:${business.phone}`}>
-										Ligar {business.phoneDisplay}
-									</a>
-								</Button>
+									<WhatsAppIcon className="h-5 w-5" />
+									Falar no WhatsApp
+								</a>
+								<a className={styles.ctaGhost} href={`tel:${business.phone}`}>
+									Ligar {business.phoneDisplay}
+								</a>
 							</div>
 						</div>
 					</div>

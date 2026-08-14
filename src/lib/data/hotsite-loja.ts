@@ -25,7 +25,6 @@ export const lojaCopy = {
 export const lojaWhatsAppHref = buildWhatsAppUrl(lojaCopy.whatsappMessage)
 
 export const lojaNav = [
-	{ href: '#cena', label: 'Antes e depois' },
 	{ href: '#produtos', label: 'Produtos' },
 	{ href: '#linhas', label: 'Linhas' },
 	{ href: '#diferenciais', label: 'Diferenciais' },

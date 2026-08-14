@@ -1,6 +1,5 @@
 import Image from 'next/image'
 import Link from 'next/link'
-import { Button } from '@/components/ui/button'
 import { business } from '@/lib/data/business'
 import {
 	lojaCopy,
@@ -36,7 +35,7 @@ export function LojaShell({
 							alt="Conectize Store"
 							width={120}
 							height={118}
-							className="h-8 w-auto"
+							className="h-7 w-auto"
 							priority
 							sizes="120px"
 						/>
@@ -54,23 +53,15 @@ export function LojaShell({
 						))}
 					</nav>
 
-					<div className={styles.headerCta}>
-						<Button
-							variant="whatsapp"
-							size="sm"
-							className={styles.press}
-							asChild
-						>
-							<a
-								href={lojaWhatsAppHref}
-								target="_blank"
-								rel="noopener noreferrer"
-							>
-								<WhatsAppIcon className="h-4 w-4" />
-								WhatsApp
-							</a>
-						</Button>
-					</div>
+					<a
+						className={`${styles.ctaGhost} ${styles.headerCta}`}
+						href={lojaWhatsAppHref}
+						target="_blank"
+						rel="noopener noreferrer"
+					>
+						<WhatsAppIcon className="h-4 w-4" />
+						WhatsApp
+					</a>
 				</div>
 			</header>
 
