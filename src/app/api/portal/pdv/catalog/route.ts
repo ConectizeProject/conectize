@@ -20,10 +20,9 @@ export async function GET (request: NextRequest) {
 
   let query = auth.supabase
     .from('products')
-    .select('id, name, sku, barcode, sale_price_cents, cost_price_cents, image_url')
+    .select('id, name, sku, barcode, sale_price_cents, cost_price_cents, image_url, kind')
     .eq('organization_id', auth.organizationId)
     .eq('is_active', true)
-    .eq('kind', 'product')
     .limit(limit)
     .order('name', { ascending: true })
 
@@ -40,11 +39,13 @@ export async function GET (request: NextRequest) {
   const { data, error } = await query
   if (error) return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
 
-  const ids = (data ?? []).map((row) => String(row.id))
+  const stockIds = (data ?? [])
+    .filter((row) => row.kind !== 'service')
+    .map((row) => String(row.id))
   let stockById = new Map<string, number>()
-  if (includeStock && ids.length > 0) {
+  if (includeStock && stockIds.length > 0) {
     const { data: stockRows } = await auth.supabase.rpc('portal_products_list_stock_summary', {
-      p_product_ids: ids,
+      p_product_ids: stockIds,
     })
     stockById = new Map((stockRows ?? []).map((row: { product_id: string, current_stock: number | string }) => {
       const raw = row.current_stock
@@ -55,7 +56,9 @@ export async function GET (request: NextRequest) {
 
   const products = (data ?? []).map((row) => ({
     ...row,
-    stock: includeStock ? (stockById.get(String(row.id)) ?? 0) : null,
+    stock: row.kind === 'service'
+      ? null
+      : (includeStock ? (stockById.get(String(row.id)) ?? 0) : null),
   }))
 
   return NextResponse.json({

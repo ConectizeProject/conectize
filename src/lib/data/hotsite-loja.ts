@@ -13,10 +13,11 @@ export const lojaCopy = {
 		'loja de celular belo horizonte, pecas iphone bh, acessorios celular bh, pelicula celular bh, capinha iphone bh, bateria celular bh, tela celular bh, carregador iphone bh',
 	whatsappMessage:
 		'Olá! Quero um orçamento de peças e acessórios para o meu aparelho.',
-	heroEyebrow: 'Loja em Santa Efigênia · BH',
-	heroTitle: 'Peças e acessórios para o seu celular em Belo Horizonte',
+	heroIntro: 'Loja em Santa Efigênia, Belo Horizonte.',
+	heroLine: 'Peças e',
+	heroShine: 'acessórios.',
 	heroLead:
-		'Na Conectize Store você encontra telas, baterias, capinhas, películas e carregadores para iPhone, Android e tablets. Atendimento na loja, com orçamento rápido pelo WhatsApp.',
+		'Telas, baterias, capinhas e películas para iPhone, Android e tablets. Orçamento no WhatsApp.',
 	disclaimer:
 		'A Conectize é uma loja independente. Não somos Apple, Samsung nem autorizados oficiais. As marcas citadas pertencem aos respectivos fabricantes.',
 } as const

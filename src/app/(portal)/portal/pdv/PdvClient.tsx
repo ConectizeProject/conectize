@@ -60,6 +60,7 @@ import {
   clampPaymentLineAmount,
   createCartLineId,
   customerTypeFromDocument,
+  isCatalogService,
   isLikelyBarcode,
   mapCatalogProduct,
   maxCreditInstallments,
@@ -968,6 +969,7 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
       cost_price_cents: item.unitCostCents,
       image_url: null,
       stock: 0,
+      kind: 'product',
     })
     setInsertQty(item.quantity)
     setInsertUnitPriceMasked(maskedFromCents(item.unitPriceCents))
@@ -1789,7 +1791,11 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
                       >
                         <div className='font-medium'>{product.name}</div>
                         <div className='text-xs text-muted-foreground'>
-                          {product.sku || '—'} · {maskedFromCents(product.sale_price_cents || 0)}
+                          {[
+                            isCatalogService(product) ? 'Serviço' : null,
+                            product.sku || (isCatalogService(product) ? null : '—'),
+                            maskedFromCents(product.sale_price_cents || 0),
+                          ].filter(Boolean).join(' · ')}
                         </div>
                       </button>
                     ))}

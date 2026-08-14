@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 
-const PRODUCT_SELECT = 'id, name, sku, barcode, sale_price_cents, cost_price_cents, image_url'
+const PRODUCT_SELECT = 'id, name, sku, barcode, sale_price_cents, cost_price_cents, image_url, kind'
 /** Janela recente de pedidos pagos para ranking (evita varrer centenas de pedidos + todos os itens). */
 const RECENT_PAID_ORDERS = 80
 const MAX_ITEMS_SCAN = 400
@@ -32,7 +32,7 @@ export async function GET (request: NextRequest) {
   if (orderIds.length > 0) {
     const { data: items, error: itemsError } = await auth.supabase
       .from('sales_order_items')
-      .select('product_id, quantity, products(id, name, sku, barcode, sale_price_cents, cost_price_cents, image_url)')
+      .select('product_id, quantity, products(id, name, sku, barcode, sale_price_cents, cost_price_cents, image_url, kind)')
       .eq('organization_id', auth.organizationId)
       .in('sales_order_id', orderIds)
       .limit(MAX_ITEMS_SCAN)
@@ -72,7 +72,6 @@ export async function GET (request: NextRequest) {
       .select(PRODUCT_SELECT)
       .eq('organization_id', auth.organizationId)
       .eq('is_active', true)
-      .eq('kind', 'product')
       .order('name', { ascending: true })
       .limit(limit + seenIds.size)
 
@@ -87,7 +86,10 @@ export async function GET (request: NextRequest) {
     }
   }
 
-  const productIds = ranked.map((entry) => String(entry.product.id || '')).filter(Boolean)
+  const productIds = ranked
+    .filter((entry) => entry.product.kind !== 'service')
+    .map((entry) => String(entry.product.id || ''))
+    .filter(Boolean)
   let stockById = new Map<string, number>()
   if (productIds.length > 0) {
     const { data: stockRows } = await auth.supabase.rpc('portal_products_list_stock_summary', {
@@ -103,7 +105,7 @@ export async function GET (request: NextRequest) {
   const products = ranked.map(({ product, qty }) => ({
     ...product,
     sold_qty: qty,
-    stock: stockById.get(String(product.id)) ?? 0,
+    stock: product.kind === 'service' ? null : (stockById.get(String(product.id)) ?? 0),
   }))
 
   return NextResponse.json({ ok: true, products, limit })
