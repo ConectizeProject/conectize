@@ -46,7 +46,7 @@ export function LojaShell({
 						{lojaNav.map((item) => (
 							<a
 								key={item.href}
-								href={`${lojaPath}${item.href}`}
+								href={`${navBase}${item.href}`}
 								className={styles.navLink}
 							>
 								{item.label}

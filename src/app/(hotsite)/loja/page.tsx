@@ -27,6 +27,7 @@ import {
 import { getSiteUrl } from '@/lib/utils/site-url'
 import { LojaShell } from './LojaShell'
 import styles from './loja.module.css'
+import { PhoneScrollScene } from './PhoneScrollScene'
 import { WhatsAppIcon } from './WhatsAppIcon'
 
 const productIcons = [
@@ -153,6 +154,8 @@ export default function LojaPage() {
 						</ul>
 					</div>
 				</section>
+
+				<PhoneScrollScene />
 
 				<section
 					id="produtos"
