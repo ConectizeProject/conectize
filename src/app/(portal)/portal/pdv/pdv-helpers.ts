@@ -144,7 +144,12 @@ export function orderStatusChromeClass (status: OrderSummary['status'], isSelect
   return 'border-zinc-300/80 bg-zinc-100/90 text-zinc-600 dark:border-zinc-600/60 dark:bg-zinc-800/50 dark:text-zinc-300'
 }
 
+export function isCatalogService (product: Pick<CatalogProduct, 'kind'> | null | undefined) {
+  return product?.kind === 'service'
+}
+
 export function mapCatalogProduct (raw: Record<string, unknown>): CatalogProduct {
+  const kind = raw.kind === 'service' ? 'service' as const : 'product' as const
   return {
     id: String(raw.id || ''),
     name: String(raw.name || ''),
@@ -153,7 +158,8 @@ export function mapCatalogProduct (raw: Record<string, unknown>): CatalogProduct
     sale_price_cents: raw.sale_price_cents != null ? Number(raw.sale_price_cents) : null,
     cost_price_cents: raw.cost_price_cents != null ? Number(raw.cost_price_cents) : null,
     image_url: raw.image_url != null ? String(raw.image_url) : null,
-    stock: Number(raw.stock) || 0,
+    stock: kind === 'service' ? 0 : Number(raw.stock) || 0,
+    kind,
   }
 }
 

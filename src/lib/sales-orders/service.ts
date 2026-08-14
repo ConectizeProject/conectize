@@ -167,12 +167,40 @@ export async function mapSalesOrdersWithStockPosted (
   return posted
 }
 
+async function loadServiceProductIds (
+  auth: AuthCtx,
+  productIds: string[],
+) {
+  const uniqueIds = [...new Set(productIds.filter(Boolean))]
+  if (uniqueIds.length === 0) return { ok: true as const, serviceIds: new Set<string>() }
+
+  const { data, error } = await auth.supabase
+    .from('products')
+    .select('id')
+    .eq('organization_id', auth.organizationId)
+    .in('id', uniqueIds)
+    .eq('kind', 'service')
+
+  if (error) return { ok: false as const, error: 'db_error' as const }
+  return {
+    ok: true as const,
+    serviceIds: new Set((data ?? []).map((row) => String(row.id))),
+  }
+}
+
 async function applySalesOrderStockExits (
   auth: AuthCtx,
   orderId: string,
   items: SalesOrderStockItem[],
 ) {
+  const services = await loadServiceProductIds(
+    auth,
+    items.map((item) => item.product_id),
+  )
+  if (!services.ok) return { ok: false as const, error: 'db_error' as const }
+
   for (const item of items) {
+    if (services.serviceIds.has(item.product_id)) continue
     const itemId = String(item.id || '')
     if (!itemId) return { ok: false as const, error: 'db_error' as const }
     const quantity = toInt(item.quantity, 1)

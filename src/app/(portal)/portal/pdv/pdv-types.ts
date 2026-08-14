@@ -7,6 +7,7 @@ export type CatalogProduct = {
   cost_price_cents?: number | null
   image_url: string | null
   stock: number
+  kind?: 'product' | 'service'
 }
 
 export type PdvCustomerMatch = {

@@ -1,11 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Barcode, Hash, Package } from 'lucide-react'
+import { Barcode, Hash, Package, Wrench } from 'lucide-react'
 import { isSafeProductListImageUrl } from '@/app/(portal)/portal/produtos/product-list-shared'
 import { maskedFromCents } from '@/lib/utils/money'
 import { cn } from '@/lib/utils'
 import type { CatalogProduct } from './pdv-types'
+import { isCatalogService } from './pdv-helpers'
 
 export function ProductThumbImage ({ src, alt, eager }: { src: string, alt: string, eager?: boolean }) {
   const [hasError, setHasError] = useState(false)
@@ -49,7 +50,8 @@ export function ProductPreview ({ product }: { product: CatalogProduct | null })
   const imageUrl = product.image_url && isSafeProductListImageUrl(product.image_url)
     ? product.image_url
     : null
-  const stockLow = product.stock <= 0
+  const isService = isCatalogService(product)
+  const stockLow = !isService && product.stock <= 0
   const showPreviewImage = Boolean(imageUrl) && !previewImageError
 
   return (
@@ -67,8 +69,10 @@ export function ProductPreview ({ product }: { product: CatalogProduct | null })
           />
         ) : (
           <div className='flex h-full w-full flex-col items-center justify-center gap-2 p-4 text-center text-muted-foreground'>
-            <Package className='h-10 w-10 opacity-40' />
-            <span className='text-xs'>Sem foto</span>
+            {isService
+              ? <Wrench className='h-10 w-10 opacity-40' />
+              : <Package className='h-10 w-10 opacity-40' />}
+            <span className='text-xs'>{isService ? 'Serviço' : 'Sem foto'}</span>
           </div>
         )}
       </div>
@@ -78,12 +82,19 @@ export function ProductPreview ({ product }: { product: CatalogProduct | null })
           R$ {maskedFromCents(product.sale_price_cents || 0)}
         </p>
         <div className='mt-auto space-y-1'>
-          <div className='flex items-center gap-1.5 rounded-md border border-border bg-white px-2 py-1 text-[10px]'>
-            <Package className={cn('h-3 w-3 shrink-0', stockLow ? 'text-destructive' : 'text-muted-foreground')} />
-            <span className={cn('min-w-0 truncate text-left font-medium', stockLow ? 'text-destructive' : 'text-foreground')}>
-              {product.stock}
-            </span>
-          </div>
+          {isService ? (
+            <div className='flex items-center gap-1.5 rounded-md border border-border bg-white px-2 py-1 text-[10px]'>
+              <Wrench className='h-3 w-3 shrink-0 text-muted-foreground' />
+              <span className='min-w-0 truncate text-left font-medium'>Serviço</span>
+            </div>
+          ) : (
+            <div className='flex items-center gap-1.5 rounded-md border border-border bg-white px-2 py-1 text-[10px]'>
+              <Package className={cn('h-3 w-3 shrink-0', stockLow ? 'text-destructive' : 'text-muted-foreground')} />
+              <span className={cn('min-w-0 truncate text-left font-medium', stockLow ? 'text-destructive' : 'text-foreground')}>
+                {product.stock}
+              </span>
+            </div>
+          )}
           <div className='flex items-center gap-1.5 rounded-md border border-border bg-white px-2 py-1 text-[10px]'>
             <Hash className='h-3 w-3 shrink-0 text-muted-foreground' />
             <span className='min-w-0 truncate text-left font-medium'>{product.sku || '—'}</span>
