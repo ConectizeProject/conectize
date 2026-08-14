@@ -5,6 +5,7 @@ export type ProductRow = {
 	bling_id?: string | null
 	bling_sync_pending?: boolean
 	parent_bling_id?: string | null
+	parent_product_id?: string | null
 	kind?: 'product' | 'service' | null
 	name: string
 	sku?: string | null
@@ -17,7 +18,14 @@ export type ProductRow = {
 	current_stock?: number
 	has_stock_movements?: boolean
 	is_variation?: boolean
+	has_variations?: boolean
 	parent_name?: string | null
+}
+
+export function productListShowsStock (product: ProductRow): boolean {
+	if (product.kind === 'service') return false
+	if (product.has_variations) return false
+	return Boolean(product.has_stock_movements)
 }
 
 const MAX_PRODUCT_LIST_IMAGE_URL_LEN = 2048

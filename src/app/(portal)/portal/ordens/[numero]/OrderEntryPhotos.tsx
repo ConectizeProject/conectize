@@ -12,8 +12,8 @@ import { Label } from "@/components/ui/label";
 import { compressImageForEntry } from "@/lib/image/compress-image";
 import { portalFetch } from "@/lib/portal/portal-fetch";
 import { cn } from "@/lib/utils";
+import { PhotoPreviewImg, PhotoFullImg } from "@/components/media/photo-preview-img";
 import { Check, ChevronLeft, ChevronRight, ImagePlus, Loader2, Trash2, X } from "lucide-react";
-import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import QRCode from "qrcode";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -29,6 +29,7 @@ type UploadQueueItem = {
 export type EntryPhotoItem = {
 	id: string;
 	url: string | null;
+	thumbUrl?: string | null;
 	created_at: string;
 };
 
@@ -241,7 +242,7 @@ export function OrderEntryPhotos({
 			);
 			if (imageFiles.length === 0) return;
 
-			const compressed: { key: string; previewUrl: string; blob: Blob; file: File }[] = [];
+			const compressed: { key: string; previewUrl: string; blob: Blob }[] = [];
 			for (let i = 0; i < imageFiles.length; i++) {
 				const file = imageFiles[i];
 				const blob = await compressImageForEntry(file);
@@ -250,7 +251,6 @@ export function OrderEntryPhotos({
 					key,
 					previewUrl: URL.createObjectURL(blob),
 					blob,
-					file,
 				});
 			}
 
@@ -267,9 +267,9 @@ export function OrderEntryPhotos({
 				);
 			};
 
-			for (const { key, blob, file } of compressed) {
+			for (const { key, blob } of compressed) {
 				const formData = new FormData();
-				formData.append("files", blob, file.name || "image.jpg");
+				formData.append("files", blob, "image.jpg");
 
 				try {
 					const res = await portalFetch(
@@ -455,15 +455,8 @@ export function OrderEntryPhotos({
 								className="relative block w-full aspect-square rounded-lg border border-border bg-muted overflow-hidden hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 cursor-pointer"
 								aria-label="Ver foto em tamanho maior"
 							>
-								{photo.url ? (
-									<Image
-										src={photo.url}
-										alt=""
-										fill
-										className="object-cover pointer-events-none"
-										sizes="(max-width: 640px) 14vw, 11vw"
-										unoptimized
-									/>
+								{photo.url || photo.thumbUrl ? (
+									<PhotoPreviewImg previewSrc={photo.thumbUrl} fullSrc={photo.url} />
 								) : (
 									<span className="absolute inset-0 flex items-center justify-center text-muted-foreground text-xs pointer-events-none">
 										<Loader2 className="h-5 w-5 animate-spin" />
@@ -508,15 +501,8 @@ export function OrderEntryPhotos({
 										onClick={() => openLightbox(index)}
 										aria-label="Ver foto em tamanho maior"
 									>
-										{photo.url ? (
-											<Image
-												src={photo.url}
-												alt=""
-												fill
-												className="object-cover"
-												sizes="(max-width: 640px) 14vw, 11vw"
-												unoptimized
-											/>
+										{photo.url || photo.thumbUrl ? (
+											<PhotoPreviewImg previewSrc={photo.thumbUrl} fullSrc={photo.url} />
 										) : (
 											<div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
 												<Loader2 className="h-6 w-6 animate-spin" />
@@ -604,14 +590,11 @@ export function OrderEntryPhotos({
 							</Button>
 						)}
 						<div className="relative w-full h-[70vh] min-h-[200px] max-w-4xl mx-auto flex items-center justify-center">
-							{photos[lightboxIndex]?.url ? (
-								<Image
-									src={photos[lightboxIndex].url!}
+							{photos[lightboxIndex]?.url || photos[lightboxIndex]?.thumbUrl ? (
+								<PhotoFullImg
+									src={photos[lightboxIndex].url}
+									fallbackSrc={photos[lightboxIndex].thumbUrl}
 									alt=""
-									fill
-									className="object-contain"
-									sizes="95vw"
-									unoptimized
 								/>
 							) : (
 								<div className="absolute inset-0 flex items-center justify-center text-muted-foreground">

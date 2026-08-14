@@ -203,6 +203,19 @@ export function ProductFormDialog ({
   }, [loadedProduct?.id, loadedProduct?.kind])
 
   useEffect(() => {
+    const isVar = Boolean(loadedProduct?.parentBlingId || loadedProduct?.parentProductId)
+    const isParent = loadedProduct?.kind !== 'service' && !isVar && variations.length > 0
+    if (!isParent) return
+    if (editTab === 'estoque') setEditTab('dados')
+  }, [
+    loadedProduct?.kind,
+    loadedProduct?.parentBlingId,
+    loadedProduct?.parentProductId,
+    variations.length,
+    editTab,
+  ])
+
+  useEffect(() => {
     const pid = loadedProduct?.parentProductId
     if (!open || mode !== 'edit' || !pid) {
       setParentAttrKeysForVariation([])
@@ -497,6 +510,9 @@ export function ProductFormDialog ({
   const isVariationChild = Boolean(
     loadedProduct?.parentBlingId || loadedProduct?.parentProductId,
   )
+  const isParentWithVariations = Boolean(
+    isEditProductWithStock && !isVariationChild && variations.length > 0,
+  )
   const canManageVariationsTab = Boolean(
     loadedProduct && !isVariationChild && onCreateVariationFromParent,
   )
@@ -639,7 +655,9 @@ export function ProductFormDialog ({
                     {isEditProductWithStock ? (
                       <>
                         <TabsTrigger value="variacoes">Variações</TabsTrigger>
-                        <TabsTrigger value="estoque">Estoque</TabsTrigger>
+                        {!isParentWithVariations ? (
+                          <TabsTrigger value="estoque">Estoque</TabsTrigger>
+                        ) : null}
                       </>
                     ) : null}
                   </TabsList>
@@ -683,7 +701,7 @@ export function ProductFormDialog ({
                             >
                               {syncingProduct ? 'Atualizando...' : 'Atualizar dados pelo Bling'}
                             </Button>
-                            {loadedProduct.kind !== 'service' ? (
+                            {loadedProduct.kind !== 'service' && !isParentWithVariations ? (
                               <Button
                                 type="button"
                                 variant="outline"
@@ -927,7 +945,7 @@ export function ProductFormDialog ({
                         {...productEditTabMountProps}
                         className={variationTabPanelClass}
                       >
-                        {productId ? (
+                        {productId && !isParentWithVariations ? (
                           <ProductStockPanel
                             key={productId}
                             productId={productId}

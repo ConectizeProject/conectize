@@ -70,6 +70,16 @@ async function insertSalesOrderStockMovement (
     externalReference: string
   },
 ) {
+  const { data: productRow } = await auth.supabase
+    .from('products')
+    .select('kind')
+    .eq('organization_id', auth.organizationId)
+    .eq('id', input.productId)
+    .maybeSingle()
+  if (String((productRow as { kind?: string | null } | null)?.kind || '').toLowerCase() === 'service') {
+    return { ok: true as const }
+  }
+
   const quantity = Math.max(1, toInt(input.quantity, 1))
   const unitValueCents = toInt(input.unitValueCents, 0)
   const { error } = await auth.supabase
@@ -176,16 +186,18 @@ async function loadServiceProductIds (
 
   const { data, error } = await auth.supabase
     .from('products')
-    .select('id')
+    .select('id, kind')
     .eq('organization_id', auth.organizationId)
     .in('id', uniqueIds)
-    .eq('kind', 'service')
 
   if (error) return { ok: false as const, error: 'db_error' as const }
-  return {
-    ok: true as const,
-    serviceIds: new Set((data ?? []).map((row) => String(row.id))),
+  const serviceIds = new Set<string>()
+  for (const row of data ?? []) {
+    if (String((row as { kind?: string | null }).kind || '').toLowerCase() === 'service') {
+      serviceIds.add(String((row as { id: string }).id))
+    }
   }
+  return { ok: true as const, serviceIds }
 }
 
 async function applySalesOrderStockExits (

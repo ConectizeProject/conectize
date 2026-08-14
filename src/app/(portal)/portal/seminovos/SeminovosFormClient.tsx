@@ -361,7 +361,7 @@ export function SeminovosFormClient ({
     try {
       const blob = await compressImageForEntry(file)
       const fd = new FormData()
-      fd.append('files', blob, file.name || 'photo.jpg')
+      fd.append('files', blob, 'photo.jpg')
       const res = await portalFetch(`/api/portal/resale-devices/${deviceId}/photo`, {
         method: 'POST',
         body: fd,
@@ -412,7 +412,7 @@ export function SeminovosFormClient ({
     try {
       const blob = await compressImageForEntry(file)
       const fd = new FormData()
-      fd.append('files', blob, file.name || 'photo.jpg')
+      fd.append('files', blob, 'photo.jpg')
       const res = await portalFetch(`/api/portal/resale-devices/${deviceId}/gallery`, {
         method: 'POST',
         body: fd,

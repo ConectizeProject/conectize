@@ -1,11 +1,14 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { formatCurrency } from '@/lib/utils'
 import { useToast } from '@/hooks/use-toast'
+
+const PAGE_SIZE = 20
 
 type Movement = {
   id: string
@@ -16,19 +19,40 @@ type Movement = {
   totalValueCents: number
   source: string
   externalReference: string | null
+  salesOrderId?: string | null
+  salesOrderNumber?: number | null
   createdAt: string
 }
 
 type StockData = {
   currentStock: number
   movements: Movement[]
+  total: number
+  page: number
+  pageSize: number
 }
 
-function originLabel (m: Movement) {
+function originCell (m: Movement) {
   const ref = String(m.externalReference || '')
-  if (m.source === 'sales_order' && ref.startsWith('sales_order:')) {
-    const orderId = ref.split(':')[1] || ''
-    return `Pedido de venda (${orderId.slice(0, 8)})`
+  if (m.source === 'sales_order' || m.salesOrderId) {
+    const orderId = m.salesOrderId || (ref.startsWith('sales_order') ? ref.split(':')[1] : '')
+    const numberLabel = typeof m.salesOrderNumber === 'number'
+      ? String(m.salesOrderNumber)
+      : null
+    const label = numberLabel
+      ? `Pedido nº ${numberLabel}`
+      : 'Pedido de venda'
+    if (orderId) {
+      return (
+        <Link
+          href={`/portal/vendas/${orderId}`}
+          className="text-primary underline-offset-2 hover:underline"
+        >
+          {label}
+        </Link>
+      )
+    }
+    return label
   }
   if (m.source === 'pdv_sale' && ref.startsWith('pdv_sale:')) {
     const saleId = ref.split(':')[1] || ''
@@ -68,20 +92,36 @@ export function ProductStockPanel ({
   const [type, setType] = useState<'entry' | 'exit' | 'loss' | 'balance'>('entry')
   const [quantity, setQuantity] = useState('1')
   const [unitValue, setUnitValue] = useState('')
+  const [page, setPage] = useState(1)
 
-  const fetchStock = useCallback(async () => {
+  const fetchStock = useCallback(async (pageToLoad = 1) => {
     if (!productId || !active) return
     setLoading(true)
     try {
-      const res = await fetch(`/api/portal/produtos/${productId}/estoque`)
+      const res = await fetch(
+        `/api/portal/produtos/${productId}/estoque?page=${pageToLoad}&pageSize=${PAGE_SIZE}`,
+      )
       if (res.ok) {
-        const json = await res.json()
-        setData({ currentStock: json.currentStock ?? 0, movements: json.movements ?? [] })
+        const json = await res.json() as {
+          currentStock?: number
+          movements?: Movement[]
+          total?: number
+          page?: number
+          pageSize?: number
+        }
+        setData({
+          currentStock: json.currentStock ?? 0,
+          movements: json.movements ?? [],
+          total: json.total ?? 0,
+          page: json.page ?? pageToLoad,
+          pageSize: json.pageSize ?? PAGE_SIZE,
+        })
+        setPage(json.page ?? pageToLoad)
       } else {
-        setData({ currentStock: initialStock, movements: [] })
+        setData({ currentStock: initialStock, movements: [], total: 0, page: 1, pageSize: PAGE_SIZE })
       }
     } catch {
-      setData({ currentStock: initialStock, movements: [] })
+      setData({ currentStock: initialStock, movements: [], total: 0, page: 1, pageSize: PAGE_SIZE })
     } finally {
       setLoading(false)
     }
@@ -89,7 +129,8 @@ export function ProductStockPanel ({
 
   useEffect(() => {
     if (!active || !productId) return
-    void fetchStock()
+    setPage(1)
+    void fetchStock(1)
   }, [active, productId, fetchStock])
 
   useEffect(() => {
@@ -102,9 +143,30 @@ export function ProductStockPanel ({
   async function handleSubmit (e: React.FormEvent) {
     e.preventDefault()
     const qty = Number(quantity.replace(',', '.'))
-    if (!Number.isFinite(qty)) return
-    if (type !== 'balance' && qty <= 0) return
-    if (type === 'balance' && qty < 0) return
+    if (!Number.isFinite(qty)) {
+      toast({
+        variant: 'destructive',
+        title: 'Quantidade inválida',
+        description: 'Informe um número.',
+      })
+      return
+    }
+    if (type !== 'balance' && qty <= 0) {
+      toast({
+        variant: 'destructive',
+        title: 'Quantidade inválida',
+        description: 'Informe uma quantidade a partir de 1.',
+      })
+      return
+    }
+    if (type === 'balance' && qty < 0) {
+      toast({
+        variant: 'destructive',
+        title: 'Saldo inválido',
+        description: 'O balanço pode ser 0 ou mais.',
+      })
+      return
+    }
     const uv = Number(String(unitValue || '0').replace(',', '.'))
     const unitValueCents = uv > 0 ? Math.round(uv * 100) : 0
 
@@ -143,12 +205,8 @@ export function ProductStockPanel ({
                   : 'Perda registrada'
           toast({ title: successTitle })
         }
-        setData((prev) => ({
-          currentStock: json.currentStock ?? prev?.currentStock ?? 0,
-          movements: prev?.movements ?? [],
-        }))
         setQuantity('1')
-        await fetchStock()
+        await fetchStock(1)
         onSuccess?.()
       } else {
         let description = 'Não foi possível salvar o movimento.'
@@ -183,6 +241,9 @@ export function ProductStockPanel ({
 
   const currentStock = data?.currentStock ?? initialStock
   const movements = data?.movements ?? []
+  const total = data?.total ?? 0
+  const pageSize = data?.pageSize ?? PAGE_SIZE
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   return (
     <div className="space-y-4">
@@ -196,7 +257,7 @@ export function ProductStockPanel ({
         unidade(s)
       </p>
 
-      <form onSubmit={handleSubmit} className="space-y-3 rounded-lg border p-4">
+      <form onSubmit={handleSubmit} noValidate className="space-y-3 rounded-lg border p-4">
         <p className="text-sm font-medium">Registrar movimento</p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div className="space-y-1">
@@ -218,10 +279,11 @@ export function ProductStockPanel ({
             <Input
               id="product-stock-qty"
               type="number"
+              inputMode="numeric"
+              step={1}
               min={type === 'balance' ? 0 : 1}
               value={quantity}
               onChange={(e) => setQuantity(e.target.value)}
-              required
             />
           </div>
           <div className="space-y-1">
@@ -242,52 +304,92 @@ export function ProductStockPanel ({
       </form>
 
       <div>
-        <p className="text-sm font-medium mb-2">Histórico recente</p>
+        <p className="text-sm font-medium mb-2">Histórico</p>
         {loading ? (
           <p className="text-sm text-muted-foreground">Carregando...</p>
         ) : movements.length === 0 ? (
           <p className="text-sm text-muted-foreground">Nenhum movimento registrado.</p>
         ) : (
-          <div className="overflow-x-auto max-h-64 overflow-y-auto rounded border">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50 text-xs text-muted-foreground">
-                  <th className="py-2 pr-2 text-left font-medium">Data</th>
-                  <th className="py-2 px-2 text-left font-medium">Tipo</th>
-                  <th className="py-2 px-2 text-right font-medium">Qtd</th>
-                  <th className="py-2 px-2 text-right font-medium">Total</th>
-                  <th className="py-2 pl-2 text-left font-medium">Origem</th>
-                </tr>
-              </thead>
-              <tbody>
-                {movements.slice(0, 20).map((m) => (
-                  <tr key={m.id} className="border-b last:border-0">
-                    <td className="py-2 pr-2">
-                      {m.createdAt
-                        ? new Date(m.createdAt).toLocaleString('pt-BR')
-                        : '-'}
-                    </td>
-                    <td className="py-2 px-2">
-                      {m.type === 'entry'
-                        ? 'Entrada'
-                        : m.type === 'exit'
-                          ? 'Saída'
-                          : m.type === 'balance'
-                            ? 'Balanço'
-                            : 'Perda'}
-                    </td>
-                    <td className="py-2 px-2 text-right">{m.quantity}</td>
-                    <td className="py-2 px-2 text-right">
-                      {m.totalValueCents ? formatCurrency(m.totalValueCents / 100) : '-'}
-                    </td>
-                    <td className="py-2 pl-2 text-muted-foreground">
-                      {originLabel(m)}
-                    </td>
+          <>
+            <div className="overflow-x-auto rounded border">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/50 text-xs text-muted-foreground">
+                    <th className="py-2 pr-2 text-left font-medium">Data</th>
+                    <th className="py-2 px-2 text-left font-medium">Tipo</th>
+                    <th className="py-2 px-2 text-right font-medium">Qtd</th>
+                    <th className="py-2 px-2 text-right font-medium">Total</th>
+                    <th className="py-2 pl-2 text-left font-medium">Origem</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {movements.map((m) => (
+                    <tr key={m.id} className="border-b last:border-0">
+                      <td className="py-2 pr-2">
+                        {m.createdAt
+                          ? new Date(m.createdAt).toLocaleString('pt-BR')
+                          : '-'}
+                      </td>
+                      <td className="py-2 px-2">
+                        {m.type === 'entry'
+                          ? 'Entrada'
+                          : m.type === 'exit'
+                            ? 'Saída'
+                            : m.type === 'balance'
+                              ? 'Balanço'
+                              : 'Perda'}
+                      </td>
+                      <td className="py-2 px-2 text-right">{m.quantity}</td>
+                      <td className="py-2 px-2 text-right">
+                        {m.totalValueCents ? formatCurrency(m.totalValueCents / 100) : '-'}
+                      </td>
+                      <td className="py-2 pl-2">
+                        {originCell(m)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {totalPages > 1 && (
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground">
+                  {total} movimento(s)
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const next = Math.max(1, page - 1)
+                      setPage(next)
+                      void fetchStock(next)
+                    }}
+                    disabled={page <= 1 || loading}
+                  >
+                    Anterior
+                  </Button>
+                  <span className="text-sm tabular-nums">
+                    Página {page} de {totalPages}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const next = Math.min(totalPages, page + 1)
+                      setPage(next)
+                      void fetchStock(next)
+                    }}
+                    disabled={page >= totalPages || loading}
+                  >
+                    Próxima
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

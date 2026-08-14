@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { randomUUID } from 'crypto'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
+import {
+  createSignedPhotoUrls,
+  removeStoragePathsWithThumbs,
+  uploadCompressedImageWithThumb,
+} from '@/lib/image/upload-compressed-image'
 
 const BUCKET = 'resale-device-photos'
 const MAX_GALLERY = 9
@@ -45,24 +49,18 @@ export async function POST (
     return NextResponse.json({ ok: false, error: 'no_file' }, { status: 400 })
   }
 
-  const mime = (file as File).type || 'image/jpeg'
-  const ext =
-    mime.includes('png') ? 'png'
-      : mime.includes('webp') ? 'webp'
-        : mime.includes('heic') ? 'heic'
-          : 'jpg'
-  const path = `${deviceId}/${randomUUID()}.${ext}`
-  const buf = Buffer.from(await file.arrayBuffer())
-
-  const { error: upErr } = await auth.supabase.storage
-    .from(BUCKET)
-    .upload(path, buf, { contentType: mime, upsert: false })
-
-  if (upErr) {
-    console.error('[resale-device gallery upload]', upErr)
-    return NextResponse.json({ ok: false, error: 'upload_failed' }, { status: 500 })
+  const bytes = Buffer.from(await file.arrayBuffer())
+  const uploaded = await uploadCompressedImageWithThumb({
+    supabase: auth.supabase,
+    bucket: BUCKET,
+    folder: deviceId,
+    bytes,
+  })
+  if ('error' in uploaded) {
+    return NextResponse.json({ ok: false, error: uploaded.error }, { status: 500 })
   }
 
+  const path = uploaded.path
   const next = [...cur, path]
   const { error: updErr } = await auth.supabase
     .from('resale_devices')
@@ -71,18 +69,17 @@ export async function POST (
 
   if (updErr) {
     console.error('[resale-device gallery db]', updErr)
-    await auth.supabase.storage.from(BUCKET).remove([path])
+    await removeStoragePathsWithThumbs(auth.supabase, BUCKET, [path])
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
   }
 
-  const { data: signed } = await auth.supabase.storage
-    .from(BUCKET)
-    .createSignedUrl(path, 3600)
+  const signed = await createSignedPhotoUrls(auth.supabase, BUCKET, path, 3600)
 
   return NextResponse.json({
     ok: true,
     image_gallery_paths: next,
-    signed_url: signed?.signedUrl ?? null,
+    signed_url: signed.thumbUrl ?? signed.url,
+    signed_full_url: signed.url,
     path,
   })
 }
@@ -125,7 +122,7 @@ export async function DELETE (
     return NextResponse.json({ ok: false, error: 'path_not_in_gallery' }, { status: 400 })
   }
 
-  await auth.supabase.storage.from(BUCKET).remove([path])
+  await removeStoragePathsWithThumbs(auth.supabase, BUCKET, [path])
   const next = cur.filter((p) => p !== path)
 
   const { error: updErr } = await auth.supabase

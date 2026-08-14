@@ -1052,7 +1052,7 @@ export function ProductForm ({
         </DialogContent>
       </Dialog>
 
-      {mode === 'create' && (
+      {mode === 'create' && kind !== 'service' && (
         <div className="space-y-2">
           <Label htmlFor="initialStock">Estoque inicial (quantidade)</Label>
           <Input

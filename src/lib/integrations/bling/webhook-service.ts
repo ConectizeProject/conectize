@@ -4,6 +4,7 @@ import { mapBlingProductToLocal } from '@/lib/integrations/bling/mappers'
 import { blingProdutoApiPath, createBlingClientFromConnection } from '@/lib/integrations/bling/api'
 import { createProductSyncSnapshot } from '@/lib/products/bling-sync'
 import { allocateCatalogSortKeyForInsert } from '@/lib/products/catalog-sort-key'
+import { fetchProductIsStockless } from '@/lib/products/parent-has-variations'
 
 const PLATFORM_ID = 'bling'
 
@@ -365,16 +366,19 @@ async function upsertProductFromBlingWebhook (
   const newId = inserted && typeof (inserted as { id?: string }).id === 'string'
     ? (inserted as { id: string }).id
     : null
-  if (newId && estoqueAtual > 0) {
-    await insertInitialStockFromBlingWebhook(
-      supabase,
-      params.organizationId,
-      newId,
-      estoqueAtual,
-      unitCents,
-      params.actorUserId,
-      `bling:webhook:${params.webhookId}:product_initial_stock`,
-    )
+  if (newId && estoqueAtual > 0 && local.kind !== 'service') {
+    const skipStock = await fetchProductIsStockless(supabase, newId)
+    if (!skipStock) {
+      await insertInitialStockFromBlingWebhook(
+        supabase,
+        params.organizationId,
+        newId,
+        estoqueAtual,
+        unitCents,
+        params.actorUserId,
+        `bling:webhook:${params.webhookId}:product_initial_stock`,
+      )
+    }
   }
   return newId
 }
@@ -509,6 +513,9 @@ export async function processBlingWebhook (
         throw new Error('product_not_found')
       }
 
+      if (await fetchProductIsStockless(supabase, productId)) {
+        // Serviço ou pai: estoque só em produto simples / variações.
+      } else {
       const { data: existingMov } = await supabase
         .from('product_stock_movements')
         .select('id')
@@ -568,6 +575,7 @@ export async function processBlingWebhook (
           if (movError) throw movError
         }
       }
+      }
     }
 
     if (effect.action === 'syncStock') {
@@ -575,6 +583,7 @@ export async function processBlingWebhook (
       if (!productId) {
         throw new Error('product_not_found')
       }
+      if (!(await fetchProductIsStockless(supabase, productId))) {
       const currentStock = await getProductCurrentStockLocal(supabase, productId)
       const diff = effect.estoqueAtual - currentStock
       if (diff !== 0 && actorUserId) {
@@ -598,6 +607,7 @@ export async function processBlingWebhook (
             created_by: actorUserId,
           })
         if (movError) throw movError
+      }
       }
     }
 

@@ -8,7 +8,8 @@ import {
   buildInstallmentTableRows,
   getInstallmentRowForCount,
 } from '@/lib/resale/credit-installment-max-fee'
-import { getResaleDeviceCoverDisplayUrl } from '@/lib/seminovos/resale-device-display-image'
+import { getResaleDeviceCoverSignedUrls } from '@/lib/seminovos/resale-device-display-image'
+import { VitrineCoverPhoto } from './VitrineCoverPhoto'
 import { ceilCentsToWholeReais, maskedWholeReaisFromCents } from '@/lib/utils/money'
 import { getSeminovosColorEmoji } from '@/lib/seminovos/colors'
 import { revendaPath } from '@/lib/revenda/revenda-paths'
@@ -78,11 +79,13 @@ export default async function RevendaVitrinePage ({ params }: Props) {
   const stockLabel = device.stock_type === 'lacrado' ? 'Novo' : 'Seminovo'
   const title = (device.device_name || device.model || 'Aparelho').trim() || 'Aparelho'
   const infoText = typeof device.info === 'string' ? device.info.trim() : ''
-  const displayImageUrl = await getResaleDeviceCoverDisplayUrl(supabase, device as {
+  const coverSigned = await getResaleDeviceCoverSignedUrls(supabase, device as {
     image_storage_path?: string | null
     image_url?: string | null
     image_gallery_paths?: string[] | null
   })
+  const displayImageUrl = coverSigned.thumbUrl ?? coverSigned.url
+  const displayImageFullUrl = coverSigned.url ?? coverSigned.thumbUrl
   const imageOk = Boolean(displayImageUrl) && !device.sold
 
   return (
@@ -110,10 +113,9 @@ export default async function RevendaVitrinePage ({ params }: Props) {
           <div className="grid gap-0 md:grid-cols-[minmax(200px,320px)_1fr]">
             <div className="relative aspect-square w-full overflow-hidden bg-muted md:min-h-[320px] md:aspect-auto">
               {imageOk ? (
-                <img
-                  src={displayImageUrl!}
-                  alt=""
-                  className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
+                <VitrineCoverPhoto
+                  thumbUrl={displayImageUrl}
+                  fullUrl={displayImageFullUrl}
                 />
               ) : (
                 <div className="flex h-full min-h-[240px] flex-col items-center justify-center gap-2 p-6 text-muted-foreground">

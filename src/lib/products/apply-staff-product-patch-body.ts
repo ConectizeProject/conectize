@@ -12,7 +12,10 @@ import {
   type Product,
   type UpdateProductInput,
 } from '@/lib/products/service'
-import { updateProductAndSyncBling } from '@/lib/products/update-product-with-bling'
+import {
+  syncProductToBling,
+  updateProductAndSyncBling,
+} from '@/lib/products/update-product-with-bling'
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -61,6 +64,8 @@ export type StaffProductPatchSuccess = {
   syncedToBling: boolean
   pendingSyncToBling: boolean
   blingFieldsChanged?: PortalFieldForBling[]
+  message?: string
+  syncError?: string
 }
 
 export type StaffProductPatchFailure = {
@@ -232,6 +237,8 @@ export async function applyStaffProductPatchFromBody (
     ]
   }
 
+  const wantSyncToBling = body.syncToBling === true
+
   const hasProductPatch = Object.keys(patch).length > 0
   const hasCompatUpdate = compatibleIds !== null
 
@@ -278,7 +285,26 @@ export async function applyStaffProductPatchFromBody (
   }
 
   const fresh = await getProductById(id)
-  const productOut = fresh.ok && 'product' in fresh ? fresh.product : midProduct
+  let productOut = fresh.ok && 'product' in fresh ? fresh.product : midProduct
+
+  if (wantSyncToBling && productOut.blingId) {
+    const sync = await syncProductToBling(id, {
+      portalFieldsChanged: blingFieldsChanged ?? [],
+    })
+    if (!sync.ok) {
+      return {
+        ok: true,
+        product: productOut,
+        syncedToBling: false,
+        pendingSyncToBling: true,
+        blingFieldsChanged,
+        syncError: 'error' in sync ? sync.error : 'db_error',
+        message: 'error' in sync ? sync.message : undefined,
+      }
+    }
+    syncedToBling = sync.syncedToBling
+    productOut = sync.product
+  }
 
   return {
     ok: true,

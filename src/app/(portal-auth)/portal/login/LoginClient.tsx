@@ -13,6 +13,8 @@ import { AuthCardLayout } from '@/components/auth/AuthCardLayout'
 import { AuthDivider } from '@/components/auth/AuthDivider'
 import { AuthFormMessages } from '@/components/auth/AuthFormMessages'
 import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton'
+import { SupabaseLoginStatusNotice } from '@/components/auth/SupabaseLoginStatusNotice'
+import type { SupabasePlatformStatusBanner } from '@/lib/supabase/platform-status'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -22,9 +24,13 @@ import { Loader2, Mail } from 'lucide-react'
 type LoginClientProps = {
   /** Fallback quando a query `redirectTo` some no primeiro paint (servidor sem param). */
   fallbackReturnPath?: string
+  supabasePlatformStatus?: SupabasePlatformStatusBanner | null
 }
 
-export function LoginClient ({ fallbackReturnPath = '/portal' }: LoginClientProps) {
+export function LoginClient ({
+  fallbackReturnPath = '/portal',
+  supabasePlatformStatus = null,
+}: LoginClientProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -282,6 +288,10 @@ export function LoginClient ({ fallbackReturnPath = '/portal' }: LoginClientProp
     <>
       {redirectOverlay}
       <AuthCardLayout>
+        <div className="flex w-full max-w-md flex-col">
+          {supabasePlatformStatus ? (
+            <SupabaseLoginStatusNotice status={supabasePlatformStatus} />
+          ) : null}
         <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle>Área do cliente</CardTitle>
@@ -375,6 +385,7 @@ export function LoginClient ({ fallbackReturnPath = '/portal' }: LoginClientProp
             </div>
           </CardContent>
         </Card>
+        </div>
       </AuthCardLayout>
     </>
   )

@@ -27,8 +27,10 @@ export type ResaleDeviceRow = {
   image_storage_path?: string | null
   /** Até 9 caminhos extras no Storage (capa: image_storage_path ou image_url). */
   image_gallery_paths?: string[] | null
-  /** Preenchido no servidor (URL assinada ou externa) para listagens. */
+  /** Preenchido no servidor (URL assinada da thumb, ou externa) para listagens. */
   display_image_url?: string | null
+  /** JPEG maior para lightbox / detalhe. */
+  display_image_full_url?: string | null
   sold: boolean
   actual_profit_cents: number | null
   purchase_date: string | null

@@ -7,12 +7,13 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { PhotoPreviewImg, PhotoFullImg } from '@/components/media/photo-preview-img'
 import { useCallback, useEffect, useState } from 'react'
 
 export type OsPublicPhotoItem = {
   id: string
   url: string | null
+  thumbUrl?: string | null
   created_at: string
 }
 
@@ -76,15 +77,8 @@ export function OsPublicEntryPhotos ({
                 className="relative block w-full aspect-square rounded-lg border border-border bg-muted overflow-hidden hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 cursor-pointer"
                 aria-label="Ver foto em tamanho maior"
               >
-                {photo.url ? (
-                  <img
-                    src={photo.url}
-                    alt=""
-                    loading="lazy"
-                    decoding="async"
-                    className="absolute inset-0 size-full object-cover pointer-events-none"
-                    draggable={false}
-                  />
+                {photo.url || photo.thumbUrl ? (
+                  <PhotoPreviewImg previewSrc={photo.thumbUrl} fullSrc={photo.url} />
                 ) : (
                   <span className="absolute inset-0 flex items-center justify-center text-muted-foreground text-xs pointer-events-none">
                     —
@@ -119,13 +113,11 @@ export function OsPublicEntryPhotos ({
               </Button>
             )}
             <div className="relative w-full h-[70vh] min-h-[200px] max-w-4xl mx-auto flex items-center justify-center">
-              {current?.url ? (
-                <img
+              {current?.url || current?.thumbUrl ? (
+                <PhotoFullImg
                   src={current.url}
+                  fallbackSrc={current.thumbUrl}
                   alt={`Foto ${selectedIndex + 1} de ${total}`}
-                  loading="eager"
-                  decoding="async"
-                  className="max-w-full max-h-full w-auto h-auto object-contain"
                 />
               ) : (
                 <span className="text-muted-foreground">—</span>
