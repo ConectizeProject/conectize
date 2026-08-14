@@ -96,6 +96,11 @@ export async function GET () {
   return NextResponse.json({ ok: true, endpoint: 'bling-webhook' }, { status: 200 })
 }
 
+function isBlingConnectivityPing (rawBody: string): boolean {
+  const trimmed = String(rawBody || '').trim()
+  return trimmed === '' || trimmed === '{}' || trimmed === '[]' || trimmed === 'ok' || trimmed === '""'
+}
+
 export async function POST (request: Request) {
   let rawBody: string
   try {
@@ -104,8 +109,21 @@ export async function POST (request: Request) {
     return NextResponse.json({ error: 'invalid_body' }, { status: 400 })
   }
 
+  const contentType = request.headers.get('content-type')
+  const userAgent = request.headers.get('user-agent')
   const secrets = uniqueSecrets()
   const signatureHeader = request.headers.get('x-bling-signature-256') ?? request.headers.get('X-Bling-Signature-256')
+
+  if (isBlingConnectivityPing(rawBody)) {
+    console.info('[bling webhook] connectivity_ping', {
+      bodyBytes: rawBody.length,
+      preview: JSON.stringify(rawBody).slice(0, 80),
+      contentType,
+      userAgent,
+      hasSignature: Boolean(signatureHeader),
+    })
+    return NextResponse.json({ ok: true, ping: true }, { status: 200 })
+  }
 
   if (secrets.length > 0 && signatureHeader) {
     if (!verifyBlingSignature(rawBody, signatureHeader, secrets)) {
@@ -116,8 +134,12 @@ export async function POST (request: Request) {
       return NextResponse.json({ error: 'invalid_signature' }, { status: 401 })
     }
   } else if (secrets.length > 0 && !signatureHeader) {
-    // Bling v1 às vezes omite o header; rejeitar 401 faz o Bling parar de entregar.
-    console.warn('[bling webhook] missing_signature_header_accepted', { bodyBytes: rawBody.length })
+    console.warn('[bling webhook] missing_signature_header_accepted', {
+      bodyBytes: rawBody.length,
+      preview: rawBody.slice(0, 120),
+      contentType,
+      userAgent,
+    })
   }
 
   let payload: unknown

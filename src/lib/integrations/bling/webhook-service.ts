@@ -7,6 +7,27 @@ import { allocateCatalogSortKeyForInsert } from '@/lib/products/catalog-sort-key
 
 const PLATFORM_ID = 'bling'
 
+function formatUnknownError (err: unknown): string {
+  if (err instanceof Error && err.message) return err.message
+  if (typeof err === 'string' && err.trim()) return err
+  if (err && typeof err === 'object') {
+    const rec = err as { message?: unknown; error?: unknown; code?: unknown; details?: unknown }
+    const parts = [
+      rec.message != null ? String(rec.message) : '',
+      rec.error != null && typeof rec.error !== 'object' ? String(rec.error) : '',
+      rec.code != null ? `code:${String(rec.code)}` : '',
+      rec.details != null ? String(rec.details) : '',
+    ].map((part) => part.trim()).filter(Boolean)
+    if (parts.length > 0) return parts.join(' | ').slice(0, 500)
+    try {
+      return JSON.stringify(err).slice(0, 500)
+    } catch {
+      return 'unknown_error'
+    }
+  }
+  return 'unknown_error'
+}
+
 type ServiceClient = ReturnType<typeof createSupabaseServiceClient>
 type HubConnectionRow = {
   id: string
@@ -592,7 +613,7 @@ export async function processBlingWebhook (
 
     return { ok: true, status: 'processed' }
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
+    const message = formatUnknownError(err)
     if (message === 'product_not_found' && !options?.hasTriedImportOnMissingProduct) {
       try {
         let blingId = ''
@@ -611,7 +632,7 @@ export async function processBlingWebhook (
           return processBlingWebhook(id, { hasTriedImportOnMissingProduct: true })
         }
       } catch (importErr) {
-        const importMessage = importErr instanceof Error ? importErr.message : String(importErr)
+        const importMessage = formatUnknownError(importErr)
         await supabase
           .from('integration_webhooks')
           .update({
