@@ -1,5 +1,6 @@
 import { Suspense } from 'react'
 import { assertSafePortalPath } from '@/lib/auth/safe-redirect'
+import { getSupabasePlatformStatus } from '@/lib/supabase/platform-status'
 import { LoginClient } from './LoginClient'
 
 type SearchParams = Promise<{ redirectTo?: string }>
@@ -11,10 +12,14 @@ type SearchParams = Promise<{ redirectTo?: string }>
 export default async function PortalLoginPage ({ searchParams }: { searchParams: SearchParams }) {
   const { redirectTo } = await searchParams
   const resolvedReturnPath = assertSafePortalPath(redirectTo)
+  const supabasePlatformStatus = await getSupabasePlatformStatus()
 
   return (
     <Suspense fallback={<div className="min-h-screen pt-32 pb-20" />}>
-      <LoginClient fallbackReturnPath={resolvedReturnPath} />
+      <LoginClient
+        fallbackReturnPath={resolvedReturnPath}
+        supabasePlatformStatus={supabasePlatformStatus}
+      />
     </Suspense>
   )
 }

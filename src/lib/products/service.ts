@@ -6,6 +6,7 @@ import {
 	parseVariationAttributeValues,
 } from "@/lib/products/variation-display-name";
 import { createProductSyncSnapshot } from "@/lib/products/bling-sync";
+import { fetchProductHasVariationChildren } from "@/lib/products/parent-has-variations";
 import {
 	ensurePortalOrganizationContext,
 	getPortalOrganizationId,
@@ -105,6 +106,8 @@ export type StockMovement = {
 	totalValueCents: number;
 	source: "manual" | "bling" | "system" | "pdv_sale" | "service_order" | "sales_order";
 	externalReference: string | null;
+	salesOrderId: string | null;
+	salesOrderNumber: number | null;
 	createdAt: string;
 };
 
@@ -161,10 +164,16 @@ type ListProductsResult =
 type AddStockMovementResult =
 	| { ok: true; movement: StockMovement; currentStock: number | null }
 	| AuthFailure
-	| { ok: false; error: "quantity_invalid" | "type_invalid" | "db_error" };
+	| { ok: false; error: "quantity_invalid" | "type_invalid" | "db_error" | "parent_product_no_stock" | "service_no_stock" };
 
 type ListStockMovementsResult =
-	| { ok: true; items: StockMovement[] }
+	| {
+			ok: true;
+			items: StockMovement[];
+			total: number;
+			page: number;
+			pageSize: number;
+	  }
 	| AuthFailure
 	| { ok: false; error: "db_error" };
 
@@ -963,6 +972,19 @@ export async function addStockMovement(
 		return { ok: false as const, error: "type_invalid" as const };
 	}
 
+	const { data: kindRow } = await auth.supabase
+		.from("products")
+		.select("kind")
+		.eq("id", productId)
+		.maybeSingle();
+	if (String((kindRow as { kind?: string | null } | null)?.kind || "").toLowerCase() === "service") {
+		return { ok: false as const, error: "service_no_stock" as const };
+	}
+
+	if (await fetchProductHasVariationChildren(auth.supabase, productId)) {
+		return { ok: false as const, error: "parent_product_no_stock" as const };
+	}
+
 	const unitValueCents = normalizeMoney(input.unitValueCents ?? 0) ?? 0;
 	const totalValueCents = unitValueCents * quantity;
 
@@ -1001,23 +1023,38 @@ export async function addStockMovement(
 
 export async function listStockMovements(
 	productId: string,
+	options?: { page?: number; pageSize?: number },
 ): Promise<ListStockMovementsResult> {
 	const auth = await requireAuth();
 	if (!auth.ok) return { ok: false, error: "not_authenticated" };
 
-	const { data, error } = await auth.supabase
+	const pageSize = Math.min(50, Math.max(1, Math.trunc(options?.pageSize ?? 20)));
+	const page = Math.max(1, Math.trunc(options?.page ?? 1));
+	const from = (page - 1) * pageSize;
+	const to = from + pageSize - 1;
+
+	const { data, error, count } = await auth.supabase
 		.from("product_stock_movements")
-		.select("*")
+		.select("*", { count: "exact" })
 		.eq("product_id", productId)
-		.order("created_at", { ascending: false });
+		.order("created_at", { ascending: false })
+		.range(from, to);
 
 	if (error || !data) {
 		return { ok: false as const, error: "db_error" as const };
 	}
 
+	const items = await enrichStockMovementsWithSalesOrders(
+		auth.supabase,
+		data.map(mapRowToMovement),
+	);
+
 	return {
 		ok: true as const,
-		items: data.map(mapRowToMovement),
+		items,
+		total: count ?? items.length,
+		page,
+		pageSize,
 	};
 }
 
@@ -1193,6 +1230,51 @@ function mapRowToProductSyncSnapshot(
 	};
 }
 
+function parseSalesOrderIdFromReference(ref: string | null): string | null {
+	if (!ref) return null;
+	const match = ref.match(
+		/^sales_order(?:_cancel|_edit_rev|_stock_reverse)?:([0-9a-fA-F-]{36})(?::|$)/,
+	);
+	const id = match?.[1]?.toLowerCase() ?? "";
+	return UUID_RE.test(id) ? id : null;
+}
+
+async function enrichStockMovementsWithSalesOrders(
+	supabase: SupabaseServerClient,
+	items: StockMovement[],
+): Promise<StockMovement[]> {
+	const orderIds = [
+		...new Set(
+			items
+				.map((item) => item.salesOrderId)
+				.filter((id): id is string => Boolean(id)),
+		),
+	];
+	if (orderIds.length === 0) return items;
+
+	const { data, error } = await supabase
+		.from("sales_orders")
+		.select("id, order_number")
+		.in("id", orderIds);
+
+	if (error || !data) return items;
+
+	const numbersById = new Map<string, number>();
+	for (const row of data) {
+		const id = String(row.id);
+		const n = Number(row.order_number);
+		if (id && Number.isFinite(n)) numbersById.set(id, n);
+	}
+
+	return items.map((item) => {
+		if (!item.salesOrderId) return item;
+		return {
+			...item,
+			salesOrderNumber: numbersById.get(item.salesOrderId) ?? null,
+		};
+	});
+}
+
 function mapRowToMovement(row: Record<string, unknown>): StockMovement {
 	const source =
 		row.source === "bling"
@@ -1204,6 +1286,10 @@ function mapRowToMovement(row: Record<string, unknown>): StockMovement {
 			? row.source
 			: "manual";
 	const createdAt = typeof row.created_at === "string" ? row.created_at : "";
+	const salesOrderIdFromCol = normalizeOptionalUuid(row.sales_order_id) ?? null;
+	const externalReference = row.external_reference
+		? String(row.external_reference)
+		: null;
 
 	return {
 		id: String(row.id),
@@ -1213,9 +1299,9 @@ function mapRowToMovement(row: Record<string, unknown>): StockMovement {
 		unitValueCents: Number(row.unit_value_cents) || 0,
 		totalValueCents: Number(row.total_value_cents) || 0,
 		source,
-		externalReference: row.external_reference
-			? String(row.external_reference)
-			: null,
+		externalReference,
+		salesOrderId: salesOrderIdFromCol ?? parseSalesOrderIdFromReference(externalReference),
+		salesOrderNumber: null,
 		createdAt,
 	};
 }

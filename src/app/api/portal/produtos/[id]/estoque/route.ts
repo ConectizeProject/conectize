@@ -8,11 +8,12 @@ import {
   type StockMovementType,
 } from '@/lib/products/service'
 import { pushStockMovementToBling } from '@/lib/integrations/bling/push-stock-movement'
+import { fetchProductHasVariationChildren } from '@/lib/products/parent-has-variations'
 
 type Params = Promise<{ id: string }>
 
 export async function GET (
-  _request: Request,
+  request: Request,
   { params }: { params: Params },
 ) {
   const { id } = await params
@@ -21,9 +22,15 @@ export async function GET (
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
 
+  const url = new URL(request.url)
+  const pageRaw = Number(url.searchParams.get('page') || '1')
+  const pageSizeRaw = Number(url.searchParams.get('pageSize') || '20')
+  const page = Number.isFinite(pageRaw) ? pageRaw : 1
+  const pageSize = Number.isFinite(pageSizeRaw) ? pageSizeRaw : 20
+
   const [stockRes, movementsRes] = await Promise.all([
     getProductCurrentStock(id),
-    listStockMovements(id),
+    listStockMovements(id, { page, pageSize }),
   ])
 
   if (!stockRes.ok) {
@@ -36,6 +43,9 @@ export async function GET (
   return NextResponse.json({
     currentStock: stockRes.currentStock ?? 0,
     movements: movementsRes.items,
+    total: movementsRes.total,
+    page: movementsRes.page,
+    pageSize: movementsRes.pageSize,
   })
 }
 
@@ -72,6 +82,24 @@ export async function POST (
   }
 
   const product = productRes.product
+  if (product.kind === 'service') {
+    return NextResponse.json(
+      {
+        error: 'service_no_stock',
+        message: 'Serviço não possui estoque.',
+      },
+      { status: 400 },
+    )
+  }
+  if (await fetchProductHasVariationChildren(auth.supabase, id)) {
+    return NextResponse.json(
+      {
+        error: 'parent_product_no_stock',
+        message: 'Produto pai não possui estoque. O saldo fica nas variações.',
+      },
+      { status: 400 },
+    )
+  }
   const source = product.blingId ? 'bling' : 'manual'
 
   let blingPushError: string | null = null

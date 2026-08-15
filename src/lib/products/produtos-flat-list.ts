@@ -11,7 +11,7 @@ export async function expandSearchVisibleProductIds (
 
   let matchQuery = supabase
     .from('products')
-    .select('id, parent_bling_id, bling_id')
+    .select('id, parent_bling_id, parent_product_id, bling_id')
     .eq('is_active', true)
 
   for (const token of searchTokens) {
@@ -22,6 +22,7 @@ export async function expandSearchVisibleProductIds (
 
   const { data: matchRows } = await matchQuery
   const parentBlingToResolve = new Set<string>()
+  const parentUuidToResolve = new Set<string>()
 
   for (const row of matchRows ?? []) {
     ids.add(String((row as { id: string }).id))
@@ -29,6 +30,14 @@ export async function expandSearchVisibleProductIds (
     if (pb != null && String(pb).trim() !== '') {
       parentBlingToResolve.add(String(pb).trim())
     }
+    const pp = (row as { parent_product_id?: string | null }).parent_product_id
+    if (pp != null && String(pp).trim() !== '') {
+      parentUuidToResolve.add(String(pp).trim())
+    }
+  }
+
+  for (const parentId of parentUuidToResolve) {
+    ids.add(parentId)
   }
 
   if (parentBlingToResolve.size > 0) {
@@ -92,10 +101,175 @@ export async function expandSearchVisibleProductIds (
   return ids
 }
 
+export const PRODUCT_SORT_ROW_SELECT =
+  'id, bling_id, parent_bling_id, parent_product_id, catalog_sort_key, created_at, updated_at, kind, sku, barcode'
+
 export type IdSortRow = {
   id: string
   catalog_sort_key: string | null
   created_at: string
+  updated_at: string
+  bling_id: string | null
+  parent_bling_id: string | null
+  parent_product_id: string | null
+  kind?: string | null
+  sku?: string | null
+  barcode?: string | null
+}
+
+function trimOrNull (value: unknown): string | null {
+  if (value == null) return null
+  const s = String(value).trim()
+  return s === '' ? null : s
+}
+
+export function mapProductRowToIdSortRow (raw: Record<string, unknown>): IdSortRow {
+  const createdAt = typeof raw.created_at === 'string' ? raw.created_at : ''
+  const updatedAt = typeof raw.updated_at === 'string' ? raw.updated_at : createdAt
+  return {
+    id: String(raw.id),
+    catalog_sort_key: trimOrNull(raw.catalog_sort_key),
+    created_at: createdAt,
+    updated_at: updatedAt,
+    bling_id: trimOrNull(raw.bling_id),
+    parent_bling_id: trimOrNull(raw.parent_bling_id),
+    parent_product_id: trimOrNull(raw.parent_product_id),
+    kind: raw.kind == null ? null : String(raw.kind),
+    sku: trimOrNull(raw.sku),
+    barcode: trimOrNull(raw.barcode),
+  }
+}
+
+export function isChildSortRow (row: IdSortRow): boolean {
+  return Boolean(row.parent_bling_id || row.parent_product_id)
+}
+
+function activityMs (row: IdSortRow): number {
+  const updated = row.updated_at ? new Date(row.updated_at).getTime() : 0
+  const created = row.created_at ? new Date(row.created_at).getTime() : 0
+  const u = Number.isFinite(updated) ? updated : 0
+  const c = Number.isFinite(created) ? created : 0
+  return Math.max(u, c)
+}
+
+function compareChildrenWithinFamily (a: IdSortRow, b: IdSortRow): number {
+  const ak = a.catalog_sort_key ?? '\uffff'
+  const bk = b.catalog_sort_key ?? '\uffff'
+  if (ak !== bk) return ak < bk ? -1 : 1
+  const at = a.created_at ? new Date(a.created_at).getTime() : 0
+  const bt = b.created_at ? new Date(b.created_at).getTime() : 0
+  return at - bt
+}
+
+function familyIdForRow (
+  row: IdSortRow,
+  parentIdByBling: Map<string, string>,
+): string {
+  if (row.parent_product_id) return row.parent_product_id
+  if (row.parent_bling_id) {
+    return parentIdByBling.get(row.parent_bling_id) ?? `bling:${row.parent_bling_id}`
+  }
+  return row.id
+}
+
+/**
+ * Agrupa pai + filhos e ordena famílias pela atividade mais recente (criação/edição).
+ * Dentro da família: pai primeiro, depois filhos.
+ */
+export function groupProductRowsAsFamilies (rows: IdSortRow[]): IdSortRow[][] {
+  const parentIdByBling = new Map<string, string>()
+  for (const row of rows) {
+    if (!isChildSortRow(row) && row.bling_id) {
+      parentIdByBling.set(row.bling_id, row.id)
+    }
+  }
+
+  const byFamily = new Map<string, IdSortRow[]>()
+  for (const row of rows) {
+    const key = familyIdForRow(row, parentIdByBling)
+    const list = byFamily.get(key)
+    if (list) list.push(row)
+    else byFamily.set(key, [row])
+  }
+
+  const families = [...byFamily.entries()].map(([key, members]) => {
+    const parents = members.filter((m) => !isChildSortRow(m))
+    const children = members.filter((m) => isChildSortRow(m))
+    children.sort(compareChildrenWithinFamily)
+    const ordered = [...parents, ...children]
+    const activity = Math.max(...members.map(activityMs), 0)
+    return { key, activity, ordered }
+  })
+
+  families.sort((a, b) => {
+    if (a.activity !== b.activity) return b.activity - a.activity
+    return a.key < b.key ? -1 : a.key > b.key ? 1 : 0
+  })
+
+  return families.map((f) => f.ordered)
+}
+
+export function includeParentsForChildren (
+  allRows: IdSortRow[],
+  filtered: IdSortRow[],
+): IdSortRow[] {
+  const allById = new Map(allRows.map((r) => [r.id, r]))
+  const parentByBling = new Map<string, IdSortRow>()
+  for (const row of allRows) {
+    if (!isChildSortRow(row) && row.bling_id) parentByBling.set(row.bling_id, row)
+  }
+
+  const out = new Map<string, IdSortRow>()
+  for (const row of filtered) out.set(row.id, row)
+
+  for (const row of filtered) {
+    if (!isChildSortRow(row)) continue
+    if (row.parent_product_id) {
+      const parent = allById.get(row.parent_product_id)
+      if (parent) out.set(parent.id, parent)
+    }
+    if (row.parent_bling_id) {
+      const parent = parentByBling.get(row.parent_bling_id)
+      if (parent) out.set(parent.id, parent)
+    }
+  }
+
+  return [...out.values()]
+}
+
+/**
+ * Fatia famílias inteiras (nunca começa uma página só com filho órfão).
+ * `offset` conta linhas já exibidas na lista agrupada.
+ */
+export function sliceProductFamilies (
+  families: IdSortRow[][],
+  offset: number,
+  limit: number,
+): { rows: IdSortRow[]; totalCount: number } {
+  const totalCount = families.reduce((n, family) => n + family.length, 0)
+  const safeOffset = Math.max(0, offset)
+  const safeLimit = Math.max(1, limit)
+
+  let skipped = 0
+  let i = 0
+  while (i < families.length && skipped + families[i].length <= safeOffset) {
+    skipped += families[i].length
+    i += 1
+  }
+  if (i < families.length && skipped < safeOffset) {
+    skipped += families[i].length
+    i += 1
+  }
+
+  const rows: IdSortRow[] = []
+  let taken = 0
+  while (i < families.length && taken < safeLimit) {
+    rows.push(...families[i])
+    taken += families[i].length
+    i += 1
+  }
+
+  return { rows, totalCount }
 }
 
 export async function fetchIdSortRowsInChunks (
@@ -107,24 +281,40 @@ export async function fetchIdSortRowsInChunks (
     const chunk = ids.slice(i, i + IN_CHUNK)
     const { data } = await supabase
       .from('products')
-      .select('id, catalog_sort_key, created_at')
+      .select(PRODUCT_SORT_ROW_SELECT)
       .in('id', chunk)
 
     for (const r of data ?? []) {
-      const row = r as {
-        id: string
-        catalog_sort_key?: string | null
-        created_at?: string
-      }
-      out.push({
-        id: String(row.id),
-        catalog_sort_key:
-          row.catalog_sort_key != null && String(row.catalog_sort_key).trim() !== ''
-            ? String(row.catalog_sort_key).trim()
-            : null,
-        created_at: typeof row.created_at === 'string' ? row.created_at : '',
-      })
+      out.push(mapProductRowToIdSortRow(r as Record<string, unknown>))
     }
+  }
+  return out
+}
+
+const ACTIVE_SORT_PAGE = 1000
+
+export async function fetchActiveProductSortRows (
+  supabase: SupabaseClient,
+  kindFilter: 'product' | 'service' | 'all',
+): Promise<IdSortRow[]> {
+  const out: IdSortRow[] = []
+  let from = 0
+  for (;;) {
+    let query = supabase
+      .from('products')
+      .select(PRODUCT_SORT_ROW_SELECT)
+      .eq('is_active', true)
+      .range(from, from + ACTIVE_SORT_PAGE - 1)
+
+    if (kindFilter === 'service') query = query.eq('kind', 'service')
+    else if (kindFilter === 'product') query = query.neq('kind', 'service')
+
+    const { data, error } = await query
+    if (error) throw error
+    const chunk = (data ?? []).map((r) => mapProductRowToIdSortRow(r as Record<string, unknown>))
+    out.push(...chunk)
+    if (chunk.length < ACTIVE_SORT_PAGE) break
+    from += ACTIVE_SORT_PAGE
   }
   return out
 }

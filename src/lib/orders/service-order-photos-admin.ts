@@ -1,4 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { createSignedPhotoUrls } from '@/lib/image/signed-photo-urls'
+import { expandStoragePathsWithThumbs, toThumbStoragePath } from '@/lib/image/storage-paths'
 import {
   SERVICE_ORDER_ASSISTANCE_PHOTOS_BUCKET,
   SERVICE_ORDER_ENTRY_PHOTOS_BUCKET,
@@ -135,9 +137,16 @@ async function mapRowsToListItems (
 
   return Promise.all(rows.map(async (row) => {
     const storagePath = String(row.storage_path || '').trim()
-    const { data: signed } = storagePath
-      ? await supabase.storage.from(bucket).createSignedUrl(storagePath, expiresIn)
-      : { data: null }
+    const signed = storagePath
+      ? await createSignedPhotoUrls(supabase, bucket, storagePath, expiresIn)
+      : { url: null, thumbUrl: null }
+    const thumbPath = storagePath ? toThumbStoragePath(storagePath) : ''
+    const fullBytes = sizeMap.get(storagePath)
+    const thumbBytes = thumbPath ? sizeMap.get(thumbPath) : undefined
+    const sizeBytes =
+      fullBytes == null && thumbBytes == null
+        ? null
+        : (fullBytes ?? 0) + (thumbBytes ?? 0)
 
     return {
       id: row.id,
@@ -146,8 +155,8 @@ async function mapRowsToListItems (
       orderNumber: resolveOrderNumber(row.service_orders),
       storagePath,
       createdAt: row.created_at,
-      sizeBytes: sizeMap.get(storagePath) ?? null,
-      url: signed?.signedUrl ?? null,
+      sizeBytes,
+      url: signed.thumbUrl ?? signed.url,
     }
   }))
 }
@@ -167,9 +176,9 @@ export async function listServiceOrderPhotosWithSizes (
   const assistancePaths = assistanceRows.map((row) => String(row.storage_path || '').trim()).filter(Boolean)
 
   const [entrySizes, exitSizes, assistanceSizes] = await Promise.all([
-    buildStorageSizeMap(supabase, SERVICE_ORDER_ENTRY_PHOTOS_BUCKET, entryPaths),
-    buildStorageSizeMap(supabase, SERVICE_ORDER_EXIT_PHOTOS_BUCKET, exitPaths),
-    buildStorageSizeMap(supabase, SERVICE_ORDER_ASSISTANCE_PHOTOS_BUCKET, assistancePaths),
+    buildStorageSizeMap(supabase, SERVICE_ORDER_ENTRY_PHOTOS_BUCKET, expandStoragePathsWithThumbs(entryPaths)),
+    buildStorageSizeMap(supabase, SERVICE_ORDER_EXIT_PHOTOS_BUCKET, expandStoragePathsWithThumbs(exitPaths)),
+    buildStorageSizeMap(supabase, SERVICE_ORDER_ASSISTANCE_PHOTOS_BUCKET, expandStoragePathsWithThumbs(assistancePaths)),
   ])
 
   const [entryItems, exitItems, assistanceItems] = await Promise.all([
@@ -217,7 +226,9 @@ export async function deleteServiceOrderPhoto (
 
   const storagePath = String(row.storage_path || '').trim()
   if (storagePath) {
-    const { error: rmErr } = await supabase.storage.from(bucket).remove([storagePath])
+    const { error: rmErr } = await supabase.storage
+      .from(bucket)
+      .remove(expandStoragePathsWithThumbs([storagePath]))
     if (rmErr) {
       console.warn('[service-order-photos-admin delete] storage', rmErr.message)
     }

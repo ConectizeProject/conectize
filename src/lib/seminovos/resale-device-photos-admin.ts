@@ -1,4 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { createSignedPhotoUrls } from '@/lib/image/signed-photo-urls'
+import { expandStoragePathsWithThumbs, toThumbStoragePath } from '@/lib/image/storage-paths'
 
 export const RESALE_DEVICE_PHOTOS_BUCKET = 'resale-device-photos'
 
@@ -74,7 +76,7 @@ function normalizeGalleryPaths (paths: string[] | null | undefined): string[] {
 }
 
 async function removeStoragePaths (supabase: SupabaseClient, paths: string[]): Promise<number> {
-  const unique = [...new Set(paths.map((path) => String(path || '').trim()).filter(Boolean))]
+  const unique = [...new Set(expandStoragePathsWithThumbs(paths))]
   if (unique.length === 0) return 0
 
   const { error } = await supabase.storage
@@ -187,7 +189,7 @@ export async function listResaleDevicePhotosWithSizes (
     ...normalizeGalleryPaths(row.image_gallery_paths),
   ]).filter(Boolean)
 
-  const sizeMap = await buildStorageSizeMap(supabase, paths)
+  const sizeMap = await buildStorageSizeMap(supabase, expandStoragePathsWithThumbs(paths))
   const items = collectPhotoRows(rows, sizeMap).sort((a, b) => {
     const sizeA = a.sizeBytes ?? -1
     const sizeB = b.sizeBytes ?? -1
@@ -198,12 +200,23 @@ export async function listResaleDevicePhotosWithSizes (
   if (items.length === 0) return items
 
   return Promise.all(items.map(async (item) => {
-    const { data: signed } = await supabase.storage
-      .from(RESALE_DEVICE_PHOTOS_BUCKET)
-      .createSignedUrl(item.storagePath, SIGNED_URL_EXPIRES_SECONDS)
+    const signed = await createSignedPhotoUrls(
+      supabase,
+      RESALE_DEVICE_PHOTOS_BUCKET,
+      item.storagePath,
+      SIGNED_URL_EXPIRES_SECONDS,
+    )
+    const thumbPath = toThumbStoragePath(item.storagePath)
+    const fullBytes = sizeMap.get(item.storagePath)
+    const thumbBytes = sizeMap.get(thumbPath)
+    const sizeBytes =
+      fullBytes == null && thumbBytes == null
+        ? item.sizeBytes
+        : (fullBytes ?? 0) + (thumbBytes ?? 0)
     return {
       ...item,
-      url: signed?.signedUrl ?? null,
+      sizeBytes,
+      url: signed.thumbUrl ?? signed.url,
     }
   }))
 }
@@ -246,7 +259,7 @@ export async function deleteResaleDevicePhoto (
 
   const { error: rmErr } = await supabase.storage
     .from(RESALE_DEVICE_PHOTOS_BUCKET)
-    .remove([storagePath])
+    .remove(expandStoragePathsWithThumbs([storagePath]))
   if (rmErr) {
     console.warn('[resale-device-photos-admin delete] storage', rmErr.message)
   }

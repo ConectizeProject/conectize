@@ -9,7 +9,8 @@ import {
 	getProductById,
 	getProductCurrentStock,
 } from "@/lib/products/service";
-import { getPortalAuth } from "@/lib/supabase/server";
+import { createSupabaseServerClient, getPortalAuth } from "@/lib/supabase/server";
+import { fetchProductHasVariationChildren } from "@/lib/products/parent-has-variations";
 import { NextResponse } from "next/server";
 
 /** Evita CMV espelhando preço de venda. */
@@ -85,6 +86,16 @@ export async function POST(request: Request) {
 				ok: true,
 				adjustedBy: 0,
 				skipped: "service" as const,
+			});
+		}
+
+		const supabase = await createSupabaseServerClient();
+		if (await fetchProductHasVariationChildren(supabase, productId)) {
+			return NextResponse.json({
+				ok: true,
+				adjustedBy: 0,
+				skipped: "parent_product" as const,
+				message: "Produto pai não possui estoque. O saldo fica nas variações.",
 			});
 		}
 

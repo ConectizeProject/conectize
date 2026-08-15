@@ -10,6 +10,7 @@ import Header from '@/components/Header'
 import Footer from '@/components/Footer'
 import { OsPublicEntryPhotos } from './OsPublicEntryPhotos'
 import { OsPublicDeviceChecksSection } from './OsPublicDeviceChecksSection'
+import { signServiceOrderPhotoRows } from '@/lib/orders/service-order-photo-storage'
 
 export const dynamic = 'force-dynamic'
 
@@ -192,9 +193,9 @@ export default async function OrdemPublicaPage({
 		? (orderDeviceModels[0] ?? null)
 		: orderDeviceModels
 
-	let entryPhotos: Array<{ id: string; url: string | null; created_at: string }> = []
-	let exitPhotos: Array<{ id: string; url: string | null; created_at: string }> = []
-	let assistancePhotos: Array<{ id: string; url: string | null; created_at: string }> = []
+	let entryPhotos: Array<{ id: string; url: string | null; thumbUrl: string | null; created_at: string }> = []
+	let exitPhotos: Array<{ id: string; url: string | null; thumbUrl: string | null; created_at: string }> = []
+	let assistancePhotos: Array<{ id: string; url: string | null; thumbUrl: string | null; created_at: string }> = []
 	if (order?.id) {
 		const expiresIn = 60 * 60
 		const [entryRowsRes, exitRowsRes, assistanceRowsRes] = await Promise.all([
@@ -215,26 +216,10 @@ export default async function OrdemPublicaPage({
 				.order('created_at', { ascending: true }),
 		])
 
-		const signRows = async (
-			photoRows: Array<{ id: string; storage_path: string; created_at: string }> | null,
-			bucket: string,
-		) => Promise.all(
-			(photoRows || []).map(async (row) => {
-				const { data: signed } = await supabase.storage
-					.from(bucket)
-					.createSignedUrl(row.storage_path, expiresIn)
-				return {
-					id: row.id,
-					url: signed?.signedUrl ?? null,
-					created_at: row.created_at,
-				}
-			}),
-		)
-
 		;[entryPhotos, exitPhotos, assistancePhotos] = await Promise.all([
-			signRows(entryRowsRes.data, 'order-entry-photos'),
-			signRows(exitRowsRes.data, 'order-exit-photos'),
-			signRows(assistanceRowsRes.data, 'order-assistance-photos'),
+			signServiceOrderPhotoRows(supabase, 'order-entry-photos', entryRowsRes.data, expiresIn),
+			signServiceOrderPhotoRows(supabase, 'order-exit-photos', exitRowsRes.data, expiresIn),
+			signServiceOrderPhotoRows(supabase, 'order-assistance-photos', assistanceRowsRes.data, expiresIn),
 		])
 	}
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { RadixAfterHydration } from "@/components/radix-after-hydration";
-import { SupabaseStatusBanner } from "@/components/SupabaseStatusBanner";
+import { PortalNotificationsMenu } from "@/components/portal/PortalNotificationsMenu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
 	DropdownMenu,
@@ -32,6 +32,7 @@ import type { SupabasePlatformStatusBanner } from "@/lib/supabase/platform-statu
 import { cn } from "@/lib/utils";
 import {
 	BarChart3,
+	Bell,
 	Building2,
 	ChevronDown,
 	ClipboardList,
@@ -377,6 +378,29 @@ export function PortalShell(props: PortalShellProps) {
 
 							<RadixAfterHydration
 								fallback={
+									<button
+										type="button"
+										className="relative rounded-md p-2"
+										aria-label="Notificações"
+										disabled
+									>
+										<Bell className="h-4 w-4" />
+										{props.supabasePlatformStatus ? (
+											<span
+												className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-amber-500 ring-2 ring-background"
+												aria-hidden
+											/>
+										) : null}
+									</button>
+								}
+							>
+								<PortalNotificationsMenu
+									supabasePlatformStatus={props.supabasePlatformStatus ?? null}
+								/>
+							</RadixAfterHydration>
+
+							<RadixAfterHydration
+								fallback={
 									<div
 										className="flex items-center gap-2 rounded-md px-2 py-1.5"
 										aria-hidden
@@ -451,12 +475,6 @@ export function PortalShell(props: PortalShellProps) {
 							</RadixAfterHydration>
 						</div>
 					</header>
-
-					{props.supabasePlatformStatus ? (
-						<div className="shrink-0 px-4">
-							<SupabaseStatusBanner status={props.supabasePlatformStatus} />
-						</div>
-					) : null}
 
 					<div className="flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-y-auto px-4 pb-8 pt-6 [scrollbar-gutter:stable]">
 						{props.children}

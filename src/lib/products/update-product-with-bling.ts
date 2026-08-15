@@ -85,6 +85,8 @@ const PRODUCT_PATCH_FIELDS_EXCLUDED_FROM_BLING_PENDING = new Set<keyof UpdatePro
   'imageUrl',
   'variationAttributeKeys',
   'variationAttributeValues',
+  'costPriceCents',
+  'costPriceManuallyEdited',
 ])
 
 function isOnlyBlingExcludedProductPatch (patch: UpdateProductInput): boolean {

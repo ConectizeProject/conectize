@@ -9,6 +9,7 @@ import {
 	getVirtualStockTargetFromMappedProduct,
 } from "@/lib/integrations/bling/stock-reconcile";
 import { createProductSyncSnapshot } from "@/lib/products/bling-sync";
+import { fetchProductHasVariationChildren } from "@/lib/products/parent-has-variations";
 import {
 	addStockMovement,
 	countProductsWithParentBlingId,
@@ -17,7 +18,7 @@ import {
 	getProductCurrentStock,
 	updateProduct,
 } from "@/lib/products/service";
-import { getPortalAuth } from "@/lib/supabase/server";
+import { createSupabaseServerClient, getPortalAuth } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 
 /** Evita gravar CMV igual ao preço de venda (espelho Bling ou entrada antiga errada). */
@@ -125,7 +126,13 @@ export async function POST(request: Request) {
 			? lastEntryBeforeRes.unitValueCents
 			: null;
 
-		if (effectiveKind !== "service") {
+		const supabase = await createSupabaseServerClient();
+		const isParentWithVariations = await fetchProductHasVariationChildren(
+			supabase,
+			productId,
+		);
+
+		if (effectiveKind !== "service" && !isParentWithVariations) {
 			let targetVirtual = getVirtualStockTargetFromMappedProduct(local);
 			if (targetVirtual === null) {
 				try {
@@ -219,7 +226,8 @@ export async function POST(request: Request) {
 			current.product.blingId,
 		);
 		const isPortalParentWithVariations =
-			variationCountRes.ok && variationCountRes.count > 0;
+			isParentWithVariations ||
+			(variationCountRes.ok && variationCountRes.count > 0);
 
 		const incomingParentBling =
 			local.parentBlingId != null && String(local.parentBlingId).trim() !== ""

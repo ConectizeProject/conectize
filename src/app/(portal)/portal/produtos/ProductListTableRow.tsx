@@ -14,6 +14,7 @@ import {
 import { toast } from '@/hooks/use-toast'
 import {
 	getProductTableCheckboxColumnStyle,
+	productListShowsStock,
 	productTableCheckboxClass,
 	productTableCheckboxColumnClass,
 	type ProductRow,
@@ -210,7 +211,7 @@ export const ProductListTableRow = memo(function ProductListTableRow ({
 			</td>
 			{isProductTab && (
 				<td className="min-w-0 px-2 py-2 align-top text-right">
-					{product.has_stock_movements
+					{productListShowsStock(product)
 						? (
 							<button
 								type="button"

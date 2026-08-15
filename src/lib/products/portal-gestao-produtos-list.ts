@@ -1,10 +1,13 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { effectiveSearchTokens, sanitizeIlikeToken } from '@/lib/products/product-search'
 import {
-  compareFlatCatalogSort,
   expandSearchVisibleProductIds,
+  fetchActiveProductSortRows,
   fetchIdSortRowsInChunks,
   fetchProductsByIdsOrdered,
+  groupProductRowsAsFamilies,
+  includeParentsForChildren,
+  sliceProductFamilies,
   type IdSortRow,
 } from '@/lib/products/produtos-flat-list'
 import { resolveListDisplayCostCents } from '@/lib/products/list-display-cost'
@@ -14,12 +17,13 @@ export const GESTAO_LIST_CHUNK = 20
 export const GESTAO_LIST_MAX_LOADED = 2000
 
 export const GESTAO_PRODUCT_LIST_SELECT =
-  'id, bling_id, bling_sync_pending, kind, name, sku, barcode, image_url, sale_price_cents, cost_price_cents, cost_price_manual_edited_at, is_active, created_at, catalog_sort_key, parent_bling_id'
+  'id, bling_id, bling_sync_pending, kind, name, sku, barcode, image_url, sale_price_cents, cost_price_cents, cost_price_manual_edited_at, is_active, created_at, catalog_sort_key, parent_bling_id, parent_product_id'
 
 export type GestaoListRawRow = {
   id: string
   bling_id?: string | null
   parent_bling_id?: string | null
+  parent_product_id?: string | null
   bling_sync_pending?: boolean | null
   kind?: 'product' | 'service' | null
   name: string
@@ -81,54 +85,42 @@ function normalizeGestaoSkuBarcodeFilter (raw: string | undefined): string {
   return sanitizeIlikeToken(String(raw || '').trim())
 }
 
-async function filterSortRowsBySkuBarcode (
-  supabase: SupabaseClient,
+function filterSortRowsBySkuBarcode (
   sortRows: IdSortRow[],
   skuTrim: string,
   barcodeTrim: string,
-): Promise<IdSortRow[]> {
+): IdSortRow[] {
   if (!skuTrim && !barcodeTrim) return sortRows
-  const CHUNK = 80
-  const allowed = new Set<string>()
-  const ids = sortRows.map((r) => r.id)
   const skuLower = skuTrim.toLowerCase()
   const bcLower = barcodeTrim.toLowerCase()
-  for (let i = 0; i < ids.length; i += CHUNK) {
-    const chunk = ids.slice(i, i + CHUNK)
-    const { data } = await supabase.from('products').select('id, sku, barcode').in('id', chunk)
-    for (const raw of data ?? []) {
-      const row = raw as { id?: string; sku?: string | null; barcode?: string | null }
-      const id = String(row.id || '')
-      if (!id) continue
-      const skuVal = String(row.sku || '').toLowerCase()
-      const bcVal = String(row.barcode || '').toLowerCase()
-      if (skuTrim && !skuVal.includes(skuLower)) continue
-      if (barcodeTrim && !bcVal.includes(bcLower)) continue
-      allowed.add(id)
-    }
-  }
-  return sortRows.filter((r) => allowed.has(r.id))
+  const matched = sortRows.filter((row) => {
+    const skuVal = String(row.sku || '').toLowerCase()
+    const bcVal = String(row.barcode || '').toLowerCase()
+    if (skuTrim && !skuVal.includes(skuLower)) return false
+    if (barcodeTrim && !bcVal.includes(bcLower)) return false
+    return true
+  })
+  return includeParentsForChildren(sortRows, matched)
 }
 
-async function filterSortRowsExcludeServices (
+function filterSortRowsExcludeServices (sortRows: IdSortRow[]): IdSortRow[] {
+  return sortRows.filter((row) => row.kind !== 'service')
+}
+
+async function loadGroupedGestaoPage (
   supabase: SupabaseClient,
   sortRows: IdSortRow[],
-): Promise<IdSortRow[]> {
-  const CHUNK = 80
-  const keep = new Set<string>()
-  const ids = sortRows.map((r) => r.id)
-  for (let i = 0; i < ids.length; i += CHUNK) {
-    const chunk = ids.slice(i, i + CHUNK)
-    const { data } = await supabase.from('products').select('id, kind').in('id', chunk)
-    for (const raw of data ?? []) {
-      const row = raw as { id?: string; kind?: string | null }
-      const id = String(row.id || '')
-      if (!id) continue
-      if (row.kind === 'service') continue
-      keep.add(id)
-    }
+  offset: number,
+  limit: number,
+): Promise<{ flatRows: GestaoListRawRow[]; totalCount: number }> {
+  const families = groupProductRowsAsFamilies(sortRows)
+  const sliced = sliceProductFamilies(families, offset, limit)
+  const orderedIds = sliced.rows.map((r) => r.id)
+  const full = await fetchProductsByIdsOrdered(supabase, orderedIds, GESTAO_PRODUCT_LIST_SELECT)
+  return {
+    flatRows: full as GestaoListRawRow[],
+    totalCount: sliced.totalCount,
   }
-  return sortRows.filter((r) => keep.has(r.id))
 }
 
 /**
@@ -157,92 +149,65 @@ export async function fetchGestaoListRawSlice (
   let listLoadError = false
 
   if (hasSearchButNoValidTokens) {
+    return { flatRows: [], totalCount: 0, listLoadError: false, hasSearchButNoValidTokens }
+  }
+
+  try {
+    if (searchTokens.length > 0 && kindFilter === 'service') {
+      const visibleIds = new Set<string>()
+      let matchQuery = supabase
+        .from('products')
+        .select('id')
+        .eq('is_active', true)
+        .eq('kind', 'service')
+      for (const token of searchTokens) {
+        matchQuery = matchQuery.or(
+          `name.ilike.%${token}%,sku.ilike.%${token}%,barcode.ilike.%${token}%`,
+        )
+      }
+      const { data: matchRows, error } = await matchQuery
+      if (error) throw error
+      for (const row of matchRows ?? []) {
+        if ((row as { id?: string }).id) visibleIds.add(String((row as { id: string }).id))
+      }
+      let sortRows = await fetchIdSortRowsInChunks(supabase, [...visibleIds])
+      if (skuTrim || barcodeTrim) {
+        sortRows = filterSortRowsBySkuBarcode(sortRows, skuTrim, barcodeTrim)
+      }
+      const page = await loadGroupedGestaoPage(supabase, sortRows, offset, limit)
+      flatRows = page.flatRows
+      totalCount = page.totalCount
+    } else if (searchTokens.length > 0) {
+      const visibleIds = await expandSearchVisibleProductIds(supabase, searchTokens)
+      if (visibleIds.size === 0) {
+        flatRows = []
+        totalCount = 0
+      } else {
+        let sortRows = await fetchIdSortRowsInChunks(supabase, [...visibleIds])
+        if (skuTrim || barcodeTrim) {
+          sortRows = filterSortRowsBySkuBarcode(sortRows, skuTrim, barcodeTrim)
+        }
+        if (kindFilter === 'product') {
+          sortRows = filterSortRowsExcludeServices(sortRows)
+        }
+        const page = await loadGroupedGestaoPage(supabase, sortRows, offset, limit)
+        flatRows = page.flatRows
+        totalCount = page.totalCount
+      }
+    } else {
+      let sortRows = await fetchActiveProductSortRows(supabase, kindFilter)
+      if (skuTrim || barcodeTrim) {
+        sortRows = filterSortRowsBySkuBarcode(sortRows, skuTrim, barcodeTrim)
+      }
+      const page = await loadGroupedGestaoPage(supabase, sortRows, offset, limit)
+      flatRows = page.flatRows
+      totalCount = page.totalCount
+    }
+  } catch (err) {
+    console.error('[produtos-flat-list]', err)
+    listLoadError = true
     flatRows = []
     totalCount = 0
-  } else if (searchTokens.length > 0 && (kindFilter === 'product' || kindFilter === 'all')) {
-    const visibleIds = await expandSearchVisibleProductIds(supabase, searchTokens)
-    if (visibleIds.size === 0) {
-      flatRows = []
-      totalCount = 0
-    } else {
-      let sortRows = await fetchIdSortRowsInChunks(supabase, [...visibleIds])
-      sortRows.sort(compareFlatCatalogSort)
-      if (skuTrim || barcodeTrim) {
-        sortRows = await filterSortRowsBySkuBarcode(supabase, sortRows, skuTrim, barcodeTrim)
-      }
-      if (kindFilter === 'product') {
-        sortRows = await filterSortRowsExcludeServices(supabase, sortRows)
-      }
-      totalCount = sortRows.length
-      const pageSlice = sortRows.slice(offset, offset + limit)
-      const orderedIds = pageSlice.map((r) => r.id)
-      const full = await fetchProductsByIdsOrdered(supabase, orderedIds, GESTAO_PRODUCT_LIST_SELECT)
-      flatRows = full as GestaoListRawRow[]
-    }
-  } else if (searchTokens.length > 0 && kindFilter === 'service') {
-    let serviceQuery = supabase
-      .from('products')
-      .select(GESTAO_PRODUCT_LIST_SELECT, { count: 'exact' })
-      .eq('is_active', true)
-      .eq('kind', 'service')
-      .order('catalog_sort_key', { ascending: true, nullsFirst: false })
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1)
-
-    for (const token of searchTokens) {
-      serviceQuery = serviceQuery.or(
-        `name.ilike.%${token}%,sku.ilike.%${token}%,barcode.ilike.%${token}%`,
-      )
-    }
-    if (skuTrim) {
-      serviceQuery = serviceQuery.ilike('sku', `%${skuTrim}%`)
-    }
-    if (barcodeTrim) {
-      serviceQuery = serviceQuery.ilike('barcode', `%${barcodeTrim}%`)
-    }
-
-    const { data, count, error } = await serviceQuery
-    if (error) {
-      console.error('[servicos-flat-list]', error)
-      listLoadError = true
-      flatRows = []
-      totalCount = 0
-    } else {
-      flatRows = (data ?? []) as GestaoListRawRow[]
-      totalCount = typeof count === 'number' ? count : flatRows.length
-    }
-  } else {
-    let queryBuilder = supabase
-      .from('products')
-      .select(GESTAO_PRODUCT_LIST_SELECT, { count: 'exact' })
-      .eq('is_active', true)
-      .order('catalog_sort_key', { ascending: true, nullsFirst: false })
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1)
-
-    if (kindFilter === 'service') {
-      queryBuilder = queryBuilder.eq('kind', 'service')
-    } else if (kindFilter === 'product') {
-      queryBuilder = queryBuilder.neq('kind', 'service')
-    }
-    if (skuTrim) {
-      queryBuilder = queryBuilder.ilike('sku', `%${skuTrim}%`)
-    }
-    if (barcodeTrim) {
-      queryBuilder = queryBuilder.ilike('barcode', `%${barcodeTrim}%`)
-    }
-
-    const { data, count, error } = await queryBuilder
-
-    if (error) {
-      console.error('[produtos-flat-list]', error)
-      listLoadError = true
-      flatRows = []
-      totalCount = 0
-    } else {
-      flatRows = (data ?? []) as GestaoListRawRow[]
-      totalCount = typeof count === 'number' ? count : flatRows.length
-    }
   }
 
   return { flatRows, totalCount, listLoadError, hasSearchButNoValidTokens }
@@ -252,13 +217,21 @@ export async function enrichGestaoRawRowsToProductRows (
   supabase: SupabaseClient,
   flatRows: GestaoListRawRow[],
 ): Promise<ProductRow[]> {
+  const parentNameByBling = new Map<string, string>()
+  const parentNameById = new Map<string, string>()
+  for (const p of flatRows) {
+    const pb = p.parent_bling_id != null ? String(p.parent_bling_id).trim() : ''
+    const pp = p.parent_product_id != null ? String(p.parent_product_id).trim() : ''
+    if (pb || pp) continue
+    parentNameById.set(p.id, String(p.name || '').trim())
+    if (p.bling_id) parentNameByBling.set(String(p.bling_id).trim(), String(p.name || '').trim())
+  }
+
   const parentBlingKeysOnPage = new Set<string>()
   for (const p of flatRows) {
     const pb = p.parent_bling_id != null ? String(p.parent_bling_id).trim() : ''
-    if (pb) parentBlingKeysOnPage.add(pb)
+    if (pb && !parentNameByBling.has(pb)) parentBlingKeysOnPage.add(pb)
   }
-
-  const parentNameByBling = new Map<string, string>()
   if (parentBlingKeysOnPage.size > 0) {
     const keys = [...parentBlingKeysOnPage]
     const CHUNK = 80
@@ -349,6 +322,49 @@ export async function enrichGestaoRawRowsToProductRows (
     }
   }
 
+  const parentIdsWithChildren = new Set<string>()
+  const parentCandidates = flatRows.filter((p) => {
+    const pb = p.parent_bling_id != null ? String(p.parent_bling_id).trim() : ''
+    const pp = p.parent_product_id != null ? String(p.parent_product_id).trim() : ''
+    return !pb && !pp
+  })
+  if (parentCandidates.length > 0) {
+    const parentIds = parentCandidates.map((p) => p.id)
+    const parentBlingIds = parentCandidates
+      .map((p) => (p.bling_id != null ? String(p.bling_id).trim() : ''))
+      .filter(Boolean)
+    const CHUNK = 80
+    for (let i = 0; i < parentIds.length; i += CHUNK) {
+      const chunk = parentIds.slice(i, i + CHUNK)
+      const { data: kids } = await supabase
+        .from('products')
+        .select('parent_product_id')
+        .in('parent_product_id', chunk)
+      for (const row of kids ?? []) {
+        const pid = (row as { parent_product_id?: string | null }).parent_product_id
+        if (pid) parentIdsWithChildren.add(String(pid))
+      }
+    }
+    const blingToParentId = new Map<string, string>()
+    for (const p of parentCandidates) {
+      const bid = p.bling_id != null ? String(p.bling_id).trim() : ''
+      if (bid) blingToParentId.set(bid, p.id)
+    }
+    for (let i = 0; i < parentBlingIds.length; i += CHUNK) {
+      const chunk = parentBlingIds.slice(i, i + CHUNK)
+      const { data: kids } = await supabase
+        .from('products')
+        .select('parent_bling_id')
+        .in('parent_bling_id', chunk)
+      for (const row of kids ?? []) {
+        const pb = (row as { parent_bling_id?: string | null }).parent_bling_id
+        if (!pb) continue
+        const parentId = blingToParentId.get(String(pb).trim())
+        if (parentId) parentIdsWithChildren.add(parentId)
+      }
+    }
+  }
+
   const normalize = (p: GestaoListRawRow) => ({
     id: p.id,
     bling_id: p.bling_id ?? null,
@@ -375,11 +391,16 @@ export async function enrichGestaoRawRowsToProductRows (
   return flatRows.map((p) => {
     const normalized = normalize(p)
     const pb = p.parent_bling_id != null ? String(p.parent_bling_id).trim() : ''
-    const isVar = pb.length > 0
+    const pp = p.parent_product_id != null ? String(p.parent_product_id).trim() : ''
+    const isVar = pb.length > 0 || pp.length > 0
+    const parentName = isVar
+      ? (pp && parentNameById.get(pp)) || (pb && parentNameByBling.get(pb)) || null
+      : null
     return {
       ...normalized,
       is_variation: isVar,
-      parent_name: isVar ? (parentNameByBling.get(pb) || null) : null,
+      has_variations: parentIdsWithChildren.has(p.id),
+      parent_name: parentName,
     }
   })
 }

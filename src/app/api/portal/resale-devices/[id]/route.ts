@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 import { attachResaleDeviceDisplayImage } from '@/lib/seminovos/resale-device-display-image'
+import { expandStoragePathsWithThumbs } from '@/lib/image/storage-paths'
 import { normalizeSalePaymentMethodsForPersistence } from '@/lib/resale/sale-payment-methods'
 import { stripSaleDerivedCosts } from '@/lib/resale/resale-sale-costs'
 import {
@@ -389,7 +390,7 @@ export async function PATCH (
     const newUrl = cleanText(b.image_url) || null
     const oldPath = (existing.image_storage_path as string | null | undefined)?.trim()
     if (newUrl && oldPath) {
-      await auth.supabase.storage.from(RESALE_PHOTO_BUCKET).remove([oldPath])
+      await auth.supabase.storage.from(RESALE_PHOTO_BUCKET).remove(expandStoragePathsWithThumbs([oldPath]))
       row.image_storage_path = null
     }
   }
@@ -632,7 +633,9 @@ export async function DELETE (
   const b = before as { image_storage_path?: string | null; image_gallery_paths?: string[] | null } | null
   const photoPath = b?.image_storage_path?.trim()
   const extras = Array.isArray(b?.image_gallery_paths) ? b.image_gallery_paths.filter(Boolean) : []
-  const toRemove = [photoPath, ...extras].filter(Boolean) as string[]
+  const toRemove = expandStoragePathsWithThumbs(
+    [photoPath, ...extras].filter(Boolean) as string[],
+  )
   if (toRemove.length > 0) {
     await auth.supabase.storage.from('resale-device-photos').remove(toRemove)
   }

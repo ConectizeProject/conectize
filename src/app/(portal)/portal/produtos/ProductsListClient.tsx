@@ -628,6 +628,7 @@ export function ProductsListClient({
 	}, [])
 
 	const handleOpenProductStock = useCallback((p: ProductRow) => {
+		if (p.has_variations || p.kind === 'service') return
 		setCreateDialogOpen(false)
 		setProductEditInitialTab('estoque')
 		setEditingProduct({

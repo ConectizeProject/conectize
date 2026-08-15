@@ -103,6 +103,8 @@ export async function PATCH (
     syncedToBling: result.syncedToBling,
     pendingSyncToBling: result.pendingSyncToBling,
     blingFieldsChanged: result.blingFieldsChanged,
+    ...(result.message ? { message: result.message } : {}),
+    ...(result.syncError ? { syncError: result.syncError } : {}),
   })
 }
 

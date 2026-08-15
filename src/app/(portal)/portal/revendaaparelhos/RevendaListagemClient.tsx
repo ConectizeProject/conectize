@@ -13,6 +13,7 @@ import {
 } from '@/components/resale/ResaleMarkSoldDialog'
 import { ResaleDeviceTermsDialog } from '../seminovos/ResaleDeviceTermsDialog'
 import { ResaleDeviceEditHistoryDialog } from '@/components/resale/ResaleDeviceEditHistoryDialog'
+import { ResaleCoverPhotoPreview } from '@/components/resale/ResaleCoverPhotoPreview'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { WhatsAppTextModalButton } from '@/components/whatsapp-text-modal'
@@ -67,7 +68,10 @@ type FilterInitial = {
 }
 
 type Props = {
-  devices: Array<ResaleDeviceRow & { display_image_url: string | null }>
+  devices: Array<ResaleDeviceRow & {
+    display_image_url: string | null
+    display_image_full_url?: string | null
+  }>
   paymentMethods: PaymentMethod[]
   isRetailer: boolean
   isAdmin?: boolean
@@ -419,6 +423,7 @@ export function RevendaListagemClient ({
               (d.device_name || d.model || 'Aparelho').trim() || 'Aparelho'
             const storageLabel = formatStorageLabel(d.storage_gb)
             const displayUrl = d.display_image_url
+            const displayFullUrl = d.display_image_full_url || displayUrl
             const imgOk = Boolean(displayUrl)
             const isNovo = d.stock_type === 'lacrado'
             const saleCents =
@@ -447,26 +452,22 @@ export function RevendaListagemClient ({
                 key={d.id}
                 className="group/card relative h-full"
               >
-              <Link
-                href={revendaPath.vitrine(d.id)}
-                className="group block h-full rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              >
                 <Card className="h-full overflow-hidden border transition-shadow duration-200 hover:shadow-md hover:border-primary/30">
                   <div className="relative aspect-square overflow-hidden bg-muted">
                     {d.sold ? (
-                      <span className="absolute left-2 top-2 z-[2] rounded bg-zinc-900/85 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white shadow">
+                      <span className="pointer-events-none absolute left-2 top-2 z-[2] rounded bg-zinc-900/85 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white shadow">
                         Vendido
                       </span>
                     ) : isNovo ? (
-                      <span className="absolute left-2 top-2 z-[2] rounded bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white shadow">
+                      <span className="pointer-events-none absolute left-2 top-2 z-[2] rounded bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white shadow">
                         Novo
                       </span>
                     ) : null}
                     {imgOk ? (
-                      <img
-                        src={displayUrl!}
+                      <ResaleCoverPhotoPreview
+                        thumbUrl={displayUrl}
+                        fullUrl={displayFullUrl}
                         alt=""
-                        className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
                       />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center text-muted-foreground">
@@ -477,7 +478,7 @@ export function RevendaListagemClient ({
                       </div>
                     )}
                     <div
-                      className="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-[38%] backdrop-blur-[11px] sm:h-[34%]"
+                      className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] h-[38%] backdrop-blur-[11px] sm:h-[34%]"
                       style={{
                         maskImage:
                           'linear-gradient(to top, black 0%, black 35%, transparent 100%)',
@@ -487,20 +488,24 @@ export function RevendaListagemClient ({
                       aria-hidden
                     />
                     <div
-                      className="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-[52%] sm:h-[48%]"
+                      className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] h-[52%] sm:h-[48%]"
                       style={{
                         background:
                           'linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.72) 12%, rgba(0,0,0,0.42) 32%, rgba(0,0,0,0.18) 58%, rgba(0,0,0,0.05) 82%, transparent 100%)',
                       }}
                       aria-hidden
                     />
-                    <div className="absolute inset-x-0 bottom-0 z-[1] p-3 pt-10 sm:p-3.5 sm:pt-12">
+                    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] p-3 pt-10 sm:p-3.5 sm:pt-12">
                       <h2 className="text-lg font-bold leading-snug text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.85)] line-clamp-3 sm:text-xl">
                         {title}
                       </h2>
                     </div>
                   </div>
-                  <CardContent className="flex flex-col gap-3 p-4 pt-3">
+                  <Link
+                    href={revendaPath.vitrine(d.id)}
+                    className="group block rounded-b-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  >
+                    <CardContent className="flex flex-col gap-3 p-4 pt-3">
                     {propertySegments.length > 0 ? (
                       <p className="text-xs leading-snug text-muted-foreground">
                         {propertySegments.join(' · ')}
@@ -553,8 +558,8 @@ export function RevendaListagemClient ({
                       </div>
                     ) : null}
                   </CardContent>
+                  </Link>
                 </Card>
-              </Link>
               {d.info?.trim() ? (
                 <ResaleDeviceInfoButton
                   info={d.info}

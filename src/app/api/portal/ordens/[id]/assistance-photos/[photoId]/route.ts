@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
+import { deleteServiceOrderPhotoFile } from '@/lib/orders/service-order-photo-storage'
 
 const BUCKET = 'order-assistance-photos'
 
@@ -33,7 +34,7 @@ export async function DELETE (
 
   const storagePath = String(row.storage_path || '')
   if (storagePath) {
-    await auth.supabase.storage.from(BUCKET).remove([storagePath])
+    await deleteServiceOrderPhotoFile(auth.supabase, BUCKET, storagePath)
   }
 
   const { error: delErr } = await auth.supabase

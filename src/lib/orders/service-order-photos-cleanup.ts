@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { expandStoragePathsWithThumbs } from '@/lib/image/storage-paths'
 
 export const SERVICE_ORDER_ENTRY_PHOTOS_BUCKET = 'order-entry-photos'
 export const SERVICE_ORDER_EXIT_PHOTOS_BUCKET = 'order-exit-photos'
@@ -110,9 +111,11 @@ async function cleanupPhotoTable (
     const batch = (rows || []) as PhotoRow[]
     if (batch.length === 0) break
 
-    const storagePaths = batch
-      .map((row) => String(row.storage_path || '').trim())
-      .filter(Boolean)
+    const storagePaths = expandStoragePathsWithThumbs(
+      batch
+        .map((row) => String(row.storage_path || '').trim())
+        .filter(Boolean),
+    )
 
     if (storagePaths.length > 0) {
       const { error: rmErr } = await supabase.storage.from(bucket).remove(storagePaths)

@@ -14,6 +14,7 @@ import {
 import { cn } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
 import {
+	productListShowsStock,
 	productTableCheckboxClass,
 	productTableCheckboxColumnClass,
 	productTableCheckboxColumnWidthPx,
@@ -280,7 +281,7 @@ export const ProductListCard = memo(function ProductListCard({
 								<div className="min-w-0">
 									<dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Estoque</dt>
 									<dd className="mt-0.5">
-										{product.has_stock_movements
+										{productListShowsStock(product)
 											? (
 												<button
 													type="button"
