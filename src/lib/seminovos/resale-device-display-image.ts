@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   createSignedPhotoUrls,
   type SignedPhotoUrls,
-} from '@/lib/image/upload-compressed-image'
+} from '@/lib/image/signed-photo-urls'
 
 const BUCKET = 'resale-device-photos'
 

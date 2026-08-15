@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
+import { uploadCompressedImageWithThumb } from '@/lib/image/upload-compressed-image'
 import {
   createSignedPhotoUrls,
   removeStoragePathsWithThumbs,
-  uploadCompressedImageWithThumb,
-} from '@/lib/image/upload-compressed-image'
+} from '@/lib/image/signed-photo-urls'
 
 const BUCKET = 'resale-device-photos'
 const MAX_GALLERY = 9

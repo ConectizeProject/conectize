@@ -33,8 +33,8 @@ import {
 } from '@/components/ui/table'
 import { toast } from '@/hooks/use-toast'
 import { portalFetch } from '@/lib/portal/portal-fetch'
+import { formatBytes } from '@/lib/utils/format-bytes'
 import {
-  formatPhotoSizeBytes,
   type ServiceOrderPhotoKind,
   type ServiceOrderPhotoListItem,
 } from '@/lib/orders/service-order-photos-admin'
@@ -134,7 +134,7 @@ export function ServiceOrderPhotosBrowserDialog ({
             <DialogTitle>Fotos de ordens de serviço</DialogTitle>
             <DialogDescription>
               Listadas por tamanho (maior primeiro). Total: {photos.length} foto(s)
-              {totalBytes > 0 ? ` · ${formatPhotoSizeBytes(totalBytes)}` : ''}.
+              {totalBytes > 0 ? ` · ${formatBytes(totalBytes)}` : ''}.
             </DialogDescription>
           </DialogHeader>
 
@@ -202,7 +202,7 @@ export function ServiceOrderPhotosBrowserDialog ({
                         <TableCell>{kindLabel(photo.kind)}</TableCell>
                         <TableCell>{formatPhotoDate(photo.createdAt)}</TableCell>
                         <TableCell className="text-right font-medium">
-                          {formatPhotoSizeBytes(photo.sizeBytes)}
+                          {formatBytes(photo.sizeBytes)}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1">
@@ -256,7 +256,7 @@ export function ServiceOrderPhotosBrowserDialog ({
             <AlertDialogTitle>Excluir esta foto?</AlertDialogTitle>
             <AlertDialogDescription>
               {pendingDelete
-                ? `A foto de ${kindLabel(pendingDelete.kind).toLowerCase()} da OS ${pendingDelete.orderNumber ? `#${pendingDelete.orderNumber}` : 'sem número'} (${formatPhotoSizeBytes(pendingDelete.sizeBytes)}) será removida permanentemente.`
+                ? `A foto de ${kindLabel(pendingDelete.kind).toLowerCase()} da OS ${pendingDelete.orderNumber ? `#${pendingDelete.orderNumber}` : 'sem número'} (${formatBytes(pendingDelete.sizeBytes)}) será removida permanentemente.`
                 : 'Esta ação não pode ser desfeita.'}
             </AlertDialogDescription>
           </AlertDialogHeader>

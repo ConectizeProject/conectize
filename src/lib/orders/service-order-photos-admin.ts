@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { createSignedPhotoUrls } from '@/lib/image/upload-compressed-image'
+import { createSignedPhotoUrls } from '@/lib/image/signed-photo-urls'
 import { expandStoragePathsWithThumbs, toThumbStoragePath } from '@/lib/image/storage-paths'
 import {
   SERVICE_ORDER_ASSISTANCE_PHOTOS_BUCKET,

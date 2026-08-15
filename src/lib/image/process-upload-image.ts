@@ -1,3 +1,4 @@
+import 'server-only'
 import sharp from 'sharp'
 
 const FULL_MAX_DIMENSION = 1600

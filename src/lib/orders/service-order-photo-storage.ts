@@ -1,9 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { uploadCompressedImageWithThumb } from '@/lib/image/upload-compressed-image'
 import {
   createSignedPhotoUrls,
   removeStoragePathsWithThumbs,
-  uploadCompressedImageWithThumb,
-} from '@/lib/image/upload-compressed-image'
+} from '@/lib/image/signed-photo-urls'
 
 export type ServiceOrderPhotoTable =
   | 'service_order_entry_photos'
