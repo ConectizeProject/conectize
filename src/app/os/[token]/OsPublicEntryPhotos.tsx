@@ -8,6 +8,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { PhotoPreviewImg, PhotoFullImg } from '@/components/media/photo-preview-img'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
 export type OsPublicPhotoItem = {

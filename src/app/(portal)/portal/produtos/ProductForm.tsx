@@ -1061,7 +1061,7 @@ export function ProductForm ({
             type="number"
             min="0"
             defaultValue="0"
-            disabled={pending || kind === 'service'}
+            disabled={pending}
           />
         </div>
       )}
