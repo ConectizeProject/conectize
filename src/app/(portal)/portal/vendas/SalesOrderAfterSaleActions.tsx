@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { ExternalLink, Loader2, Printer, Send } from 'lucide-react'
+import { ExternalLink, FileCheck2, Loader2, Printer, Send } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -29,6 +29,20 @@ export type SalesOrderBlingLinkState = {
   nfceUrl: string | null
   nfceGenerated?: boolean
   nfceError?: string | null
+}
+
+type FiscalDocumentState = {
+  id: string
+  status: 'pending' | 'authorized' | 'rejected' | 'canceled' | 'denied'
+  access_key?: string | null
+  protocol?: string | null
+  sefaz_status_code?: string | null
+  sefaz_status_message?: string | null
+}
+
+type SalesOrderNfceState = {
+  fiscalDocument: FiscalDocumentState | null
+  danfeUrl: string | null
 }
 
 type SalesOrderAfterSaleDialogProps = {
@@ -77,6 +91,8 @@ export function SalesOrderAfterSaleActions (props: {
 }) {
   const [busyPrint, setBusyPrint] = useState(false)
   const [busyBling, setBusyBling] = useState(false)
+  const [busyNfce, setBusyNfce] = useState(false)
+  const [nfce, setNfce] = useState<SalesOrderNfceState>({ fiscalDocument: null, danfeUrl: null })
   const [bling, setBling] = useState<SalesOrderBlingLinkState>(() =>
     buildInitialBlingState(props)
   )
@@ -88,6 +104,30 @@ export function SalesOrderAfterSaleActions (props: {
   const isPaid = props.status === 'paid' || props.status == null
   const canSendBling = props.status === 'paid' || props.status == null
   const viewUrl = bling.preferredUrl || bling.pedidoUrl
+  const nfceStatus = nfce.fiscalDocument?.status ?? null
+  const canPrintFiscal = nfceStatus === 'authorized' && nfce.danfeUrl
+
+  useEffect(() => {
+    let cancelled = false
+    if (!isPaid) {
+      setNfce({ fiscalDocument: null, danfeUrl: null })
+      return
+    }
+
+    void (async () => {
+      const res = await portalFetch(`/api/portal/sales-orders/${encodeURIComponent(props.orderId)}/emit-nfce`)
+      const data = await res?.json().catch(() => null)
+      if (cancelled || !data?.ok) return
+      setNfce({
+        fiscalDocument: data.fiscal_document ?? null,
+        danfeUrl: data.danfe_url ?? null,
+      })
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [isPaid, props.orderId])
 
   async function handlePrint () {
     setBusyPrint(true)
@@ -157,12 +197,70 @@ export function SalesOrderAfterSaleActions (props: {
     }
   }
 
+  async function handleNfce () {
+    if (canPrintFiscal && nfce.danfeUrl) {
+      window.open(nfce.danfeUrl, '_blank', 'noopener,noreferrer')
+      return
+    }
+
+    setBusyNfce(true)
+    try {
+      const endpoint = nfce.fiscalDocument?.id && nfce.fiscalDocument.status !== 'authorized'
+        ? `/api/portal/fiscal/documents/${encodeURIComponent(nfce.fiscalDocument.id)}/retry`
+        : `/api/portal/sales-orders/${encodeURIComponent(props.orderId)}/emit-nfce`
+      const res = await portalFetch(endpoint, { method: 'POST' })
+      const data = await res?.json().catch(() => null)
+      if (!data?.ok) {
+        toast({
+          title: 'NFC-e não autorizada',
+          description: data?.message || data?.error || 'Não foi possível emitir a NFC-e.',
+          variant: 'destructive',
+        })
+        return
+      }
+
+      const next = {
+        fiscalDocument: data.fiscal_document ?? null,
+        danfeUrl: data.danfe_url ?? null,
+      }
+      setNfce(next)
+
+      if (next.danfeUrl) {
+        toast({
+          variant: 'success',
+          title: data.already_authorized ? 'NFC-e já autorizada' : 'NFC-e autorizada',
+          description: 'Abrindo o cupom fiscal para impressão.',
+        })
+        window.open(next.danfeUrl, '_blank', 'noopener,noreferrer')
+        return
+      }
+
+      const reason = next.fiscalDocument?.sefaz_status_message
+      toast({
+        title: 'NFC-e enviada',
+        description: reason || 'A SEFAZ retornou a nota sem autorização.',
+        variant: 'destructive',
+      })
+    } finally {
+      setBusyNfce(false)
+    }
+  }
+
   return (
     <div className={props.className || 'flex flex-wrap gap-2'}>
       <Button type='button' variant='outline' disabled={busyPrint} onClick={() => void handlePrint()}>
         {busyPrint ? <Loader2 className='h-4 w-4 animate-spin' /> : <Printer className='h-4 w-4' />}
         <span className='ml-2'>Imprimir cupom</span>
       </Button>
+
+      {isPaid ? (
+        <Button type='button' variant={canPrintFiscal ? 'outline' : 'secondary'} disabled={busyNfce} onClick={() => void handleNfce()}>
+          {busyNfce ? <Loader2 className='h-4 w-4 animate-spin' /> : <FileCheck2 className='h-4 w-4' />}
+          <span className='ml-2'>
+            {canPrintFiscal ? 'Imprimir cupom fiscal' : 'NFC-e + imprimir cupom fiscal'}
+          </span>
+        </Button>
+      ) : null}
 
       {canSendBling ? (
         viewUrl ? (
@@ -180,6 +278,11 @@ export function SalesOrderAfterSaleActions (props: {
             <span className='ml-2'>Enviar ao Bling</span>
           </Button>
         )
+      ) : null}
+      {nfceStatus === 'rejected' || nfceStatus === 'denied' ? (
+        <p className='basis-full text-sm text-destructive'>
+          NFC-e rejeitada: {nfce.fiscalDocument?.sefaz_status_message || nfce.fiscalDocument?.sefaz_status_code || 'verifique os dados fiscais.'}
+        </p>
       ) : null}
     </div>
   )
@@ -240,7 +343,7 @@ export function SalesOrderAfterSaleDialog ({
               ? error
               : saving
                 ? 'Salvando a venda em segundo plano. A impressão será liberada em instantes.'
-                : 'O cupom será enviado à impressora automaticamente. Você também pode imprimir de novo ou enviar ao Bling.'}
+                : 'O cupom será enviado à impressora automaticamente. Você também pode emitir NFC-e ou enviar ao Bling.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -278,6 +381,10 @@ export function SalesOrderAfterSaleDialog ({
               <Button type='button' variant='outline' disabled className='justify-start'>
                 <Loader2 className='h-4 w-4 animate-spin' />
                 <span className='ml-2'>Imprimir cupom</span>
+              </Button>
+              <Button type='button' disabled className='justify-start'>
+                <FileCheck2 className='h-4 w-4' />
+                <span className='ml-2'>NFC-e + imprimir cupom fiscal</span>
               </Button>
               <Button type='button' disabled className='justify-start'>
                 <Send className='h-4 w-4' />

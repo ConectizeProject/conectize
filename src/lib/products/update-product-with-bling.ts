@@ -87,6 +87,15 @@ const PRODUCT_PATCH_FIELDS_EXCLUDED_FROM_BLING_PENDING = new Set<keyof UpdatePro
   'variationAttributeValues',
   'costPriceCents',
   'costPriceManuallyEdited',
+  'ncm',
+  'cest',
+  'cfop',
+  'fiscalOrigin',
+  'fiscalUnit',
+  'icmsCsosn',
+  'icmsCst',
+  'pisCst',
+  'cofinsCst',
 ])
 
 function isOnlyBlingExcludedProductPatch (patch: UpdateProductInput): boolean {
@@ -164,6 +173,16 @@ function normalizePatch (input: UpdateProductInput): NormalizePatchResult {
       patch.pricingTagId = s
     }
   }
+
+  if (input.ncm !== undefined) patch.ncm = input.ncm
+  if (input.cest !== undefined) patch.cest = input.cest
+  if (input.cfop !== undefined) patch.cfop = input.cfop
+  if (input.fiscalOrigin !== undefined) patch.fiscalOrigin = input.fiscalOrigin
+  if (input.fiscalUnit !== undefined) patch.fiscalUnit = input.fiscalUnit
+  if (input.icmsCsosn !== undefined) patch.icmsCsosn = input.icmsCsosn
+  if (input.icmsCst !== undefined) patch.icmsCst = input.icmsCst
+  if (input.pisCst !== undefined) patch.pisCst = input.pisCst
+  if (input.cofinsCst !== undefined) patch.cofinsCst = input.cofinsCst
 
   if (Object.keys(patch).length === 0) {
     return { ok: false as const, error: 'nothing_to_update' }

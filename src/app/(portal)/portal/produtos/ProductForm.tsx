@@ -41,6 +41,15 @@ export type ProductFormProduct = {
   pricingTagId: string | null
   isActive: boolean
   kind?: 'product' | 'service' | null
+  ncm?: string | null
+  cest?: string | null
+  cfop?: string | null
+  fiscalOrigin?: number | null
+  fiscalUnit?: string | null
+  icmsCsosn?: string | null
+  icmsCst?: string | null
+  pisCst?: string | null
+  cofinsCst?: string | null
   variationAttributeKeys?: string[]
   variationAttributeValues?: Record<string, string>
 }
@@ -58,6 +67,15 @@ export type ProductFormSubmitPayload = {
   pricingTagId: string | null
   compatibleModelIds: string[]
   initialStock: number
+  ncm: string | null
+  cest: string | null
+  cfop: string | null
+  fiscalOrigin: number | null
+  fiscalUnit: string | null
+  icmsCsosn: string | null
+  icmsCst: string | null
+  pisCst: string | null
+  cofinsCst: string | null
   variationAttributeKeys?: string[]
   variationAttributeValues?: Record<string, string>
 }
@@ -529,6 +547,11 @@ export function ProductForm ({
       ? Math.floor(initialStockRaw)
       : 0
 
+    const fiscalOriginRaw = Number(formData.get('fiscalOrigin') || '')
+    const fiscalOrigin = kind === 'product' && Number.isFinite(fiscalOriginRaw)
+      ? Math.min(8, Math.max(0, Math.round(fiscalOriginRaw)))
+      : null
+
     const payload: ProductFormSubmitPayload = {
       name,
       sku: String(formData.get('sku') || '').trim() || null,
@@ -542,6 +565,15 @@ export function ProductForm ({
       pricingTagId: pricingTagId || null,
       compatibleModelIds: compatibleModels.map((m) => m.id),
       initialStock,
+      ncm: kind === 'product' ? String(formData.get('ncm') || '').trim() || null : null,
+      cest: kind === 'product' ? String(formData.get('cest') || '').trim() || null : null,
+      cfop: kind === 'product' ? String(formData.get('cfop') || '').trim() || null : null,
+      fiscalOrigin,
+      fiscalUnit: kind === 'product' ? String(formData.get('fiscalUnit') || '').trim() || null : null,
+      icmsCsosn: kind === 'product' ? String(formData.get('icmsCsosn') || '').trim() || null : null,
+      icmsCst: kind === 'product' ? String(formData.get('icmsCst') || '').trim() || null : null,
+      pisCst: kind === 'product' ? String(formData.get('pisCst') || '').trim() || null : null,
+      cofinsCst: kind === 'product' ? String(formData.get('cofinsCst') || '').trim() || null : null,
     }
 
     if (showVariationKeyEditor) {
@@ -962,6 +994,69 @@ export function ProductForm ({
           disabled={pending}
         />
       </div>
+
+      {kind === 'product' ? (
+        <section className="space-y-3 rounded-md border border-border/70 bg-muted/15 p-4">
+          <div>
+            <h3 className="text-sm font-semibold tracking-tight text-foreground">Fiscal</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Usado na NFC-e. Itens sem NCM serão bloqueados na emissão fiscal.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="space-y-2">
+              <Label htmlFor="ncm">NCM</Label>
+              <Input id="ncm" name="ncm" inputMode="numeric" maxLength={8} defaultValue={product?.ncm || ''} disabled={pending} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cest">CEST</Label>
+              <Input id="cest" name="cest" inputMode="numeric" maxLength={7} defaultValue={product?.cest || ''} disabled={pending} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cfop">CFOP</Label>
+              <Input id="cfop" name="cfop" inputMode="numeric" maxLength={4} defaultValue={product?.cfop || '5102'} disabled={pending} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="fiscalOrigin">Origem</Label>
+              <Input
+                id="fiscalOrigin"
+                name="fiscalOrigin"
+                type="number"
+                min={0}
+                max={8}
+                defaultValue={product?.fiscalOrigin ?? 0}
+                disabled={pending}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="fiscalUnit">Unidade</Label>
+              <Input id="fiscalUnit" name="fiscalUnit" maxLength={6} defaultValue={product?.fiscalUnit || 'UN'} disabled={pending} />
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="space-y-2">
+              <Label htmlFor="icmsCsosn">CSOSN</Label>
+              <Input id="icmsCsosn" name="icmsCsosn" inputMode="numeric" maxLength={3} defaultValue={product?.icmsCsosn || '102'} disabled={pending} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="icmsCst">ICMS CST</Label>
+              <Input id="icmsCst" name="icmsCst" inputMode="numeric" maxLength={3} defaultValue={product?.icmsCst || ''} disabled={pending} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="pisCst">PIS CST</Label>
+              <Input id="pisCst" name="pisCst" inputMode="numeric" maxLength={2} defaultValue={product?.pisCst || '49'} disabled={pending} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cofinsCst">COFINS CST</Label>
+              <Input id="cofinsCst" name="cofinsCst" inputMode="numeric" maxLength={2} defaultValue={product?.cofinsCst || '49'} disabled={pending} />
+            </div>
+          </div>
+        </section>
+      ) : (
+        <div className="rounded-md border border-border/70 bg-muted/15 px-3 py-2.5 text-sm text-muted-foreground">
+          Nota de serviço (NFS-e) fica para uma fase futura; serviços não entram na emissão de NFC-e.
+        </div>
+      )}
 
       {showVariationKeyEditor ? (
         embedVariationKeysInVariationsTab && mode === 'edit' ? (

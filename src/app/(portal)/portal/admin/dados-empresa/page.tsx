@@ -163,7 +163,7 @@ export default async function DadosEmpresaPage({
 						</CardDescription>
 					</CardHeader>
 					<CardContent>
-						<form action={updateCompanyAction} encType="multipart/form-data" className="space-y-4">
+						<form action={updateCompanyAction} className="space-y-4">
 							<div className="space-y-2">
 								<Label htmlFor="name">Nome da empresa</Label>
 								<Input

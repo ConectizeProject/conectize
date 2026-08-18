@@ -222,6 +222,38 @@ export async function applyStaffProductPatchFromBody (
     }
   }
 
+  for (const [bodyKey, patchKey] of [
+    ['ncm', 'ncm'],
+    ['cest', 'cest'],
+    ['cfop', 'cfop'],
+    ['fiscalUnit', 'fiscalUnit'],
+    ['icmsCsosn', 'icmsCsosn'],
+    ['icmsCst', 'icmsCst'],
+    ['pisCst', 'pisCst'],
+    ['cofinsCst', 'cofinsCst'],
+  ] as const) {
+    const field = parseTextField(body, bodyKey)
+    if ('error' in field) {
+      return { ok: false, error: field.error, status: 400 }
+    }
+    if (field.hasValue) {
+      patch[patchKey] = field.value
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'fiscalOrigin')) {
+    const raw = body.fiscalOrigin
+    if (raw === null || raw === '') {
+      patch.fiscalOrigin = null
+    } else {
+      const value = Number(raw)
+      if (!Number.isFinite(value) || value < 0 || value > 8) {
+        return { ok: false, error: 'fiscalOrigin_invalid', status: 400 }
+      }
+      patch.fiscalOrigin = Math.round(value)
+    }
+  }
+
   let compatibleIds: string[] | null = null
   if (Object.prototype.hasOwnProperty.call(body, 'compatibleModelIds')) {
     const raw = body.compatibleModelIds

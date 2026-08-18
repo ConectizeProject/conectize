@@ -49,6 +49,15 @@ export type Product = {
 	costPriceCents: number | null;
 	/** Quando o custo foi alterado pelo cadastro no portal (não por sync/import). */
 	costPriceManualEditedAt: string | null;
+	ncm: string | null;
+	cest: string | null;
+	cfop: string | null;
+	fiscalOrigin: number | null;
+	fiscalUnit: string | null;
+	icmsCsosn: string | null;
+	icmsCst: string | null;
+	pisCst: string | null;
+	cofinsCst: string | null;
 	isActive: boolean;
 	/** Ordenação do catálogo: raiz (12 dígitos) ou variação `raiz` + `.` + sufixo (6 dígitos). */
 	catalogSortKey: string | null;
@@ -87,6 +96,15 @@ export type CreateProductInput = {
 	salePriceCents?: number | null;
 	pricingTagId?: string | null;
 	costPriceCents?: number | null;
+	ncm?: string | null;
+	cest?: string | null;
+	cfop?: string | null;
+	fiscalOrigin?: number | null;
+	fiscalUnit?: string | null;
+	icmsCsosn?: string | null;
+	icmsCst?: string | null;
+	pisCst?: string | null;
+	cofinsCst?: string | null;
 	isActive?: boolean;
 };
 
@@ -230,6 +248,25 @@ function normalizeMoney(value: unknown): number | null {
 	return Math.round(num);
 }
 
+function normalizeFiscalDigits(value: unknown, maxLength: number): string | null {
+	if (value === undefined) return null;
+	const digits = String(value ?? "").replace(/\D/g, "").slice(0, maxLength);
+	return digits || null;
+}
+
+function normalizeFiscalText(value: unknown, maxLength: number): string | null {
+	if (value === undefined) return null;
+	const text = String(value ?? "").trim().toUpperCase().slice(0, maxLength);
+	return text || null;
+}
+
+function normalizeFiscalOrigin(value: unknown): number | null {
+	if (value === null || value === undefined || value === "") return null;
+	const n = Number(value);
+	if (!Number.isFinite(n)) return null;
+	return Math.min(8, Math.max(0, Math.round(n)));
+}
+
 /**
  * Centavos vindos do PostgREST: `integer` costuma ser number; `numeric` pode vir string.
  * Sem isso, `cost_price_cents` string → `costPriceCents: null` no mapRowToProduct.
@@ -338,6 +375,15 @@ export async function createProduct(
 			? { pricing_tag_id: pricingTagId }
 			: {}),
 		cost_price_cents: normalizeMoney(input.costPriceCents),
+		ncm: normalizeFiscalDigits(input.ncm, 8),
+		cest: normalizeFiscalDigits(input.cest, 7),
+		cfop: normalizeFiscalDigits(input.cfop, 4),
+		fiscal_origin: normalizeFiscalOrigin(input.fiscalOrigin),
+		fiscal_unit: normalizeFiscalText(input.fiscalUnit, 6),
+		icms_csosn: normalizeFiscalDigits(input.icmsCsosn, 3),
+		icms_cst: normalizeFiscalDigits(input.icmsCst, 3),
+		pis_cst: normalizeFiscalDigits(input.pisCst, 2),
+		cofins_cst: normalizeFiscalDigits(input.cofinsCst, 2),
 		is_active: input.isActive ?? true,
 		created_by: auth.userId,
 		catalog_sort_key: catalogSortKey,
@@ -581,6 +627,21 @@ export async function updateProduct(
 	if (input.costPriceCents !== undefined) {
 		patch.cost_price_cents = normalizeMoney(input.costPriceCents);
 	}
+	if (input.ncm !== undefined) patch.ncm = normalizeFiscalDigits(input.ncm, 8);
+	if (input.cest !== undefined) patch.cest = normalizeFiscalDigits(input.cest, 7);
+	if (input.cfop !== undefined) patch.cfop = normalizeFiscalDigits(input.cfop, 4);
+	if (input.fiscalOrigin !== undefined)
+		patch.fiscal_origin = normalizeFiscalOrigin(input.fiscalOrigin);
+	if (input.fiscalUnit !== undefined)
+		patch.fiscal_unit = normalizeFiscalText(input.fiscalUnit, 6);
+	if (input.icmsCsosn !== undefined)
+		patch.icms_csosn = normalizeFiscalDigits(input.icmsCsosn, 3);
+	if (input.icmsCst !== undefined)
+		patch.icms_cst = normalizeFiscalDigits(input.icmsCst, 3);
+	if (input.pisCst !== undefined)
+		patch.pis_cst = normalizeFiscalDigits(input.pisCst, 2);
+	if (input.cofinsCst !== undefined)
+		patch.cofins_cst = normalizeFiscalDigits(input.cofinsCst, 2);
 	if (
 		input.costPriceManuallyEdited === true &&
 		input.costPriceCents !== undefined
@@ -1198,6 +1259,20 @@ function mapRowToProduct(row: Record<string, unknown>): Product {
 			typeof row.cost_price_manual_edited_at === "string"
 				? row.cost_price_manual_edited_at
 				: null,
+		ncm: row.ncm ? String(row.ncm).trim() : null,
+		cest: row.cest ? String(row.cest).trim() : null,
+		cfop: row.cfop ? String(row.cfop).trim() : null,
+		fiscalOrigin:
+			typeof row.fiscal_origin === "number" && Number.isFinite(row.fiscal_origin)
+				? row.fiscal_origin
+				: row.fiscal_origin != null && String(row.fiscal_origin).trim()
+					? Number(row.fiscal_origin)
+					: null,
+		fiscalUnit: row.fiscal_unit ? String(row.fiscal_unit).trim() : null,
+		icmsCsosn: row.icms_csosn ? String(row.icms_csosn).trim() : null,
+		icmsCst: row.icms_cst ? String(row.icms_cst).trim() : null,
+		pisCst: row.pis_cst ? String(row.pis_cst).trim() : null,
+		cofinsCst: row.cofins_cst ? String(row.cofins_cst).trim() : null,
 		isActive: Boolean(row.is_active ?? true),
 		catalogSortKey: rawCatalogSort,
 		createdAt,
