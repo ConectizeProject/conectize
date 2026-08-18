@@ -29,6 +29,16 @@ export type SalesCupomData = {
   changeCents: number
   items: SalesCupomItem[]
   payments: SalesCupomPayment[]
+  fiscal?: {
+    title: string
+    accessKey: string | null
+    protocol: string | null
+    qrCodeUrl: string | null
+    qrCodeDataUrl: string | null
+    authorizationDate: string | null
+    environment: string | null
+    consumerLabel: string
+  } | null
 }
 
 function escapeHtml (text: string): string {
@@ -199,6 +209,18 @@ export function buildSalesCupomHtml (
     .totals .row.total { font-size: 12px; font-weight: 700; margin-top: 4px; }
     .footer { margin-top: 10px; font-size: 11px; }
     .footer .datetime { margin-top: 4px; font-size: 10px; }
+    .fiscal-box {
+      margin-top: 8px;
+      border-top: 1px dashed #222;
+      border-bottom: 1px dashed #222;
+      padding: 8px 0;
+      text-align: center;
+      word-break: break-word;
+    }
+    .fiscal-title { font-size: 11px; font-weight: 700; margin-bottom: 4px; }
+    .access-key { font-size: 9px; letter-spacing: 0.5px; margin: 4px 0; }
+    .qr { display: block; width: 132px; height: 132px; margin: 6px auto 2px; }
+    .qr-link { font-size: 8px; line-height: 1.2; }
     @media print {
       body { padding: 0; max-width: none; width: 80mm; }
       @page { margin: 4mm; size: auto; }
@@ -264,6 +286,21 @@ export function buildSalesCupomHtml (
   </div>
 
   <hr class="sep" />
+
+  ${cupom.fiscal
+    ? `<section class="fiscal-box">
+        <div class="fiscal-title">${escapeHtml(cupom.fiscal.title)}</div>
+        <div class="muted">${escapeHtml(cupom.fiscal.consumerLabel)}</div>
+        ${cupom.fiscal.environment === 'homologacao' ? '<div class="muted">EMITIDA EM AMBIENTE DE HOMOLOGAÇÃO - SEM VALOR FISCAL</div>' : ''}
+        ${cupom.fiscal.accessKey ? `<div class="access-key">${escapeHtml(cupom.fiscal.accessKey.replace(/(.{4})/g, '$1 ').trim())}</div>` : ''}
+        ${cupom.fiscal.protocol ? `<div class="muted">Protocolo: ${escapeHtml(cupom.fiscal.protocol)}</div>` : ''}
+        ${cupom.fiscal.authorizationDate ? `<div class="muted">Autorização: ${escapeHtml(formatDateTimeBr(cupom.fiscal.authorizationDate))}</div>` : ''}
+        ${cupom.fiscal.qrCodeDataUrl ? `<img class="qr" src="${escapeHtml(cupom.fiscal.qrCodeDataUrl)}" alt="QR Code NFC-e" />` : ''}
+        ${cupom.fiscal.qrCodeUrl ? `<div class="qr-link">${escapeHtml(cupom.fiscal.qrCodeUrl)}</div>` : ''}
+      </section>
+
+      <hr class="sep" />`
+    : ''}
 
   <footer class="footer center">
     <div>Obrigado pela preferência!</div>

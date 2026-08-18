@@ -23,6 +23,13 @@ function parseNonNegativeNumber (raw: unknown): number | null {
   return n
 }
 
+function parseFiscalOrigin (raw: unknown): number | null {
+  if (raw == null || raw === '') return null
+  const n = typeof raw === 'number' ? raw : Number(String(raw).replace(',', '.'))
+  if (!Number.isFinite(n) || n < 0 || n > 8) return null
+  return Math.round(n)
+}
+
 export async function POST (request: NextRequest) {
   const auth = await requireStaffOrAdmin()
   if (auth.ok === false) {
@@ -55,6 +62,7 @@ export async function POST (request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'initialStock_invalid' }, { status: 400 })
   }
   const initialStock = initialStockRaw ?? 0
+  const fiscalOrigin = parseFiscalOrigin(body.fiscalOrigin)
 
   let pricingTagId: string | null | undefined
   if (Object.prototype.hasOwnProperty.call(body, 'pricingTagId')) {
@@ -116,6 +124,15 @@ export async function POST (request: NextRequest) {
     description: String(body.description || '').trim() || null,
     salePriceCents,
     costPriceCents,
+    ncm: String(body.ncm || '').trim() || null,
+    cest: String(body.cest || '').trim() || null,
+    cfop: String(body.cfop || '').trim() || null,
+    fiscalOrigin,
+    fiscalUnit: String(body.fiscalUnit || '').trim() || null,
+    icmsCsosn: String(body.icmsCsosn || '').trim() || null,
+    icmsCst: String(body.icmsCst || '').trim() || null,
+    pisCst: String(body.pisCst || '').trim() || null,
+    cofinsCst: String(body.cofinsCst || '').trim() || null,
     isActive: body.isActive !== false,
     ...(pricingTagId !== undefined ? { pricingTagId } : {}),
     ...(parentProductId !== undefined ? { parentProductId } : {}),

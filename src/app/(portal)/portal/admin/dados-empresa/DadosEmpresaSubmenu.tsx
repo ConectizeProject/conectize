@@ -2,11 +2,12 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Building2, FileText, HardDrive, Smartphone } from 'lucide-react'
+import { Building2, FileCheck2, FileText, HardDrive, Smartphone } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const submenuItems = [
   { href: '/portal/admin/dados-empresa', label: 'Informações', icon: Building2, exact: true },
+  { href: '/portal/admin/dados-empresa/fiscal', label: 'Fiscal', icon: FileCheck2, exact: false },
   { href: '/portal/admin/dados-empresa/aparelhos', label: 'Aparelhos', icon: Smartphone, exact: false },
   { href: '/portal/admin/presets', label: 'Presets', icon: FileText, exact: false },
   { href: '/portal/admin/armazenamento', label: 'Armazenamento', icon: HardDrive, exact: false },
