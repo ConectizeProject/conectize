@@ -27,6 +27,13 @@ import {
   upsertDefaultFiscalOperationNature,
   type FiscalOperationType,
 } from '@/lib/fiscal/operation-nature'
+import {
+  IBSCBS_CSTS,
+  IBSCBS_CST_LABELS,
+  formatIbscbsRate,
+  ibscbsStandardRates,
+  isIbscbsXmlEnabled,
+} from '@/lib/fiscal/ibscbs'
 import { decryptFiscalSecretToString } from '@/lib/fiscal/secrets'
 import { nfceNumberingForEnvironment } from '@/lib/fiscal/numbering'
 import { isFiscalCertificateExpired } from '@/lib/fiscal/certificate-validity'
@@ -113,6 +120,9 @@ async function updateFiscalAction (formData: FormData) {
     icmsCst: String(formData.get('defaultIcmsCst') || ''),
     pisCst: String(formData.get('defaultPisCst') || '49'),
     cofinsCst: String(formData.get('defaultCofinsCst') || '49'),
+    ibscbsEnabled: formData.get('ibscbsEnabled') === 'on',
+    ibscbsCst: String(formData.get('ibscbsCst') || '000'),
+    ibscbsCclassTrib: String(formData.get('ibscbsCclassTrib') || '000001'),
   })
 
   const profile = normalizeFiscalProfileInput({
@@ -149,6 +159,9 @@ async function updateFiscalAction (formData: FormData) {
     defaultCsosn: operationNature.icmsCsosn || '102',
     defaultPisCst: operationNature.pisCst,
     defaultCofinsCst: operationNature.cofinsCst,
+    ibscbsEnabled: operationNature.ibscbsEnabled,
+    ibscbsCst: operationNature.ibscbsCst,
+    ibscbsCclassTrib: operationNature.ibscbsCclassTrib,
   })
 
   let saved
@@ -247,6 +260,11 @@ export default async function FiscalSettingsPage ({
   const numberingHomologacao = nfceNumberingForEnvironment(profile || {}, 'homologacao')
   const numberingProducao = nfceNumberingForEnvironment(profile || {}, 'producao')
   const certificateExpired = isFiscalCertificateExpired(certificate?.validUntil)
+  const ibscbsRates = ibscbsStandardRates()
+  const ibscbsEnabled = isIbscbsXmlEnabled({
+    enabled: nfceOperationNature?.ibscbs_enabled ?? profile?.ibscbs_enabled,
+    taxRegime: profile?.tax_regime || 'simples_nacional',
+  })
   const nfceNature = nfceOperationNature
     ? normalizeFiscalOperationNatureInput({
       documentModel: '65',
@@ -266,6 +284,9 @@ export default async function FiscalSettingsPage ({
       icmsCst: nfceOperationNature.icms_cst,
       pisCst: nfceOperationNature.pis_cst,
       cofinsCst: nfceOperationNature.cofins_cst,
+      ibscbsEnabled: nfceOperationNature.ibscbs_enabled,
+      ibscbsCst: nfceOperationNature.ibscbs_cst,
+      ibscbsCclassTrib: nfceOperationNature.ibscbs_cclass_trib,
     })
     : operationNatureFromProfileFallback(profile, '65')
 
@@ -577,6 +598,55 @@ export default async function FiscalSettingsPage ({
                 <Label htmlFor='defaultCofinsCst'>COFINS CST</Label>
                 <Input id='defaultCofinsCst' name='defaultCofinsCst' defaultValue={nfceNature.cofinsCst} maxLength={2} />
               </div>
+              </div>
+
+              <Separator />
+
+              <div>
+                <h4 className='text-sm font-medium'>IBS e CBS</h4>
+                <p className='mt-1 text-xs text-muted-foreground'>
+                  Reforma tributária (NT 2025.002). A base é o valor de cada item da NFC-e.
+                  Alíquotas de {new Date().getFullYear()} ficam no XML: IBS UF {formatIbscbsRate(ibscbsRates.pIbsUf)},
+                  IBS município {formatIbscbsRate(ibscbsRates.pIbsMun)} e CBS {formatIbscbsRate(ibscbsRates.pCbs)}.
+                  No Simples a SEFAZ só exige o grupo em janeiro de 2027; até lá o destaque é opcional.
+                </p>
+              </div>
+
+              <div className='flex h-10 items-center gap-3 rounded-md border border-input bg-background px-3 text-sm'>
+                <label className='flex items-center gap-2'>
+                  <input type='checkbox' name='ibscbsEnabled' defaultChecked={ibscbsEnabled} />
+                  Destacar IBS e CBS na NFC-e
+                </label>
+              </div>
+
+              <div className='grid gap-4 md:grid-cols-2'>
+                <div className='space-y-2'>
+                  <Label htmlFor='ibscbsCst'>CST IBS/CBS</Label>
+                  <select
+                    id='ibscbsCst'
+                    name='ibscbsCst'
+                    defaultValue={nfceNature.ibscbsCst || '000'}
+                    className='h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm'
+                  >
+                    {IBSCBS_CSTS.map((cst) => (
+                      <option key={cst} value={cst}>{IBSCBS_CST_LABELS[cst]}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className='space-y-2'>
+                  <Label htmlFor='ibscbsCclassTrib'>cClassTrib</Label>
+                  <Input
+                    id='ibscbsCclassTrib'
+                    name='ibscbsCclassTrib'
+                    defaultValue={nfceNature.ibscbsCclassTrib || '000001'}
+                    maxLength={6}
+                    inputMode='numeric'
+                    autoComplete='off'
+                  />
+                  <p className='text-xs text-muted-foreground'>
+                    6 dígitos. Os 3 primeiros precisam ser iguais ao CST. Venda varejo padrão: 000001.
+                  </p>
+                </div>
               </div>
             </div>
           </CardContent>

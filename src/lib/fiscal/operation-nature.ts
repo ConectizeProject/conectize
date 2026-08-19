@@ -3,6 +3,7 @@ import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { onlyDigits } from '@/lib/utils/strings'
 import { nfceNumberingForEnvironment, type FiscalNumberingProfileRow } from '@/lib/fiscal/numbering'
 import type { TaxRegime } from '@/lib/fiscal/profile'
+import { fiscalIbscbsCclassTribOrNull, fiscalIbscbsCstOrNull } from '@/lib/fiscal/ibscbs'
 
 export type FiscalDocumentModel = '55' | '65'
 export type FiscalOperationType = 'entrada' | 'saida'
@@ -25,6 +26,9 @@ export type FiscalOperationNatureInput = {
   icmsCst: string | null
   pisCst: string
   cofinsCst: string
+  ibscbsEnabled: boolean
+  ibscbsCst: string
+  ibscbsCclassTrib: string
 }
 
 export type FiscalOperationNatureRow = {
@@ -47,6 +51,9 @@ export type FiscalOperationNatureRow = {
   icms_cst: string | null
   pis_cst: string
   cofins_cst: string
+  ibscbs_enabled?: boolean | null
+  ibscbs_cst?: string | null
+  ibscbs_cclass_trib?: string | null
   is_default: boolean
   is_active: boolean
 }
@@ -75,6 +82,9 @@ export function normalizeFiscalOperationNatureInput (
   const presenceIndicator = Number.isFinite(Number(raw.presenceIndicator))
     ? Math.min(9, Math.max(0, Math.round(Number(raw.presenceIndicator))))
     : 1
+  const ibscbsCst = fiscalIbscbsCstOrNull(raw.ibscbsCst || '000') || '000'
+  const ibscbsCclassTrib = fiscalIbscbsCclassTribOrNull(ibscbsCst, raw.ibscbsCclassTrib || `${ibscbsCst}001`)
+    || `${ibscbsCst}001`
 
   return {
     documentModel,
@@ -94,6 +104,9 @@ export function normalizeFiscalOperationNatureInput (
     icmsCst: onlyDigits(raw.icmsCst || '').slice(0, 3) || null,
     pisCst: onlyDigits(raw.pisCst || '').slice(0, 2) || '49',
     cofinsCst: onlyDigits(raw.cofinsCst || '').slice(0, 2) || '49',
+    ibscbsEnabled: Boolean(raw.ibscbsEnabled),
+    ibscbsCst,
+    ibscbsCclassTrib,
   }
 }
 
@@ -124,6 +137,9 @@ export function operationNatureFromProfileFallback (
     icmsCst: null,
     pisCst: String(profile?.default_pis_cst || '49'),
     cofinsCst: String(profile?.default_cofins_cst || '49'),
+    ibscbsEnabled: profile?.ibscbs_enabled === true,
+    ibscbsCst: String(profile?.ibscbs_cst || '000'),
+    ibscbsCclassTrib: String(profile?.ibscbs_cclass_trib || '000001'),
   })
 }
 
@@ -169,6 +185,9 @@ export async function upsertDefaultFiscalOperationNature (
     icms_cst: input.icmsCst,
     pis_cst: input.pisCst,
     cofins_cst: input.cofinsCst,
+    ibscbs_enabled: input.ibscbsEnabled,
+    ibscbs_cst: input.ibscbsCst,
+    ibscbs_cclass_trib: input.ibscbsCclassTrib,
     is_default: true,
     is_active: true,
     updated_at: new Date().toISOString(),

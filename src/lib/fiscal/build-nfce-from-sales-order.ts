@@ -8,6 +8,13 @@ import { validateCestNcmPair } from '@/lib/fiscal/cest-lookup'
 import { isNfceServiceItem } from '@/lib/fiscal/certificate-validity'
 import { fiscalCestOrNull, fiscalNcmOrNull } from '@/lib/fiscal/ncm'
 import { buildNfcePagamentoLine } from '@/lib/fiscal/nfce-payment'
+import {
+  buildIbscbsItem,
+  buildIbscbsTot,
+  resolveIbscbsConfig,
+  type IbscbsItem,
+  type NfceIbscbsPayload,
+} from '@/lib/fiscal/ibscbs'
 import { onlyDigits } from '@/lib/utils/strings'
 
 type FiscalProfileRow = {
@@ -32,6 +39,9 @@ type FiscalProfileRow = {
   default_csosn?: string | null
   default_pis_cst?: string | null
   default_cofins_cst?: string | null
+  ibscbs_enabled?: boolean | null
+  ibscbs_cst?: string | null
+  ibscbs_cclass_trib?: string | null
   fiscal_environment?: 'homologacao' | 'producao'
 }
 
@@ -47,6 +57,9 @@ type FiscalOperationNatureRow = {
   icms_cst?: string | null
   pis_cst?: string | null
   cofins_cst?: string | null
+  ibscbs_enabled?: boolean | null
+  ibscbs_cst?: string | null
+  ibscbs_cclass_trib?: string | null
 }
 
 type BuildNfceInput = {
@@ -211,6 +224,15 @@ export async function buildNfceFromSalesOrder (input: BuildNfceInput): Promise<B
   }
 
   const produtos: Array<ProdutoProps & { nFCI?: string }> = []
+  const ibscbsResolved = resolveIbscbsConfig({
+    enabled: operationNature?.ibscbs_enabled ?? profile.ibscbs_enabled,
+    cst: operationNature?.ibscbs_cst || profile.ibscbs_cst,
+    cClassTrib: operationNature?.ibscbs_cclass_trib || profile.ibscbs_cclass_trib,
+    taxRegime: profile.tax_regime,
+  })
+  if (ibscbsResolved.ok === false) return ibscbsResolved
+  const ibscbsConfig = ibscbsResolved.config
+  const ibscbsItems: IbscbsItem[] = []
   for (let index = 0; index < items.length; index += 1) {
     const item = items[index]
     const productRaw = item.products
@@ -268,6 +290,11 @@ export async function buildNfceFromSalesOrder (input: BuildNfceInput): Promise<B
       }
     }
 
+    const ibscbs = ibscbsConfig.include
+      ? buildIbscbsItem({ config: ibscbsConfig, baseCents: fiscalItemCents[index] })
+      : null
+    if (ibscbs) ibscbsItems.push(ibscbs)
+
     produtos.push({
       numero: index + 1,
       codigo: requiredText(product.sku) || requiredText(product.id) || String(index + 1),
@@ -315,7 +342,7 @@ export async function buildNfceFromSalesOrder (input: BuildNfceInput): Promise<B
     }
   }
 
-  const payload: NFeProps = {
+  const payload: NFeProps & NfceIbscbsPayload = {
     identificacao: {
       modelo: '65',
       naturezaOperacao: requiredText(operationNature?.description) || 'Venda de mercadoria',
@@ -359,6 +386,12 @@ export async function buildNfceFromSalesOrder (input: BuildNfceInput): Promise<B
       troco: centsToValue(order.change_cents),
     },
     informacoesComplementares: `Venda Conectize #${order.order_number}`,
+    ...(ibscbsConfig.include
+      ? {
+        ibscbsItems,
+        ibscbsTot: buildIbscbsTot(ibscbsItems, centsToValue(fiscalTotalCents)),
+      }
+      : {}),
   }
 
   return {
