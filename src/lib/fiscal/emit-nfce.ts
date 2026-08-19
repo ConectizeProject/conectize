@@ -12,6 +12,13 @@ import {
   fiscalCertificateExpiredMessage,
   isFiscalCertificateExpired,
 } from '@/lib/fiscal/certificate-validity'
+import {
+  isMissingColumnError,
+  nfceNumberingPatch,
+  parseAllocatedFiscalNumber,
+  type FiscalNumberingEnvironment,
+  type FiscalNumberingProfileRow,
+} from '@/lib/fiscal/numbering'
 import { isSefazDenied } from '@/lib/fiscal/document-status'
 import {
   asSignedNfceXml,
@@ -141,20 +148,77 @@ async function getExistingNfce (auth: AuthCtx, orderId: string) {
   return data as FiscalDocumentRow | null
 }
 
-async function allocateNumber (auth: AuthCtx, environment: 'homologacao' | 'producao') {
-  const { data, error } = await auth.supabase.rpc('allocate_fiscal_document_number', {
+async function allocateNumberFromProfile (
+  service: ReturnType<typeof createSupabaseServiceClient>,
+  organizationId: string,
+  environment: FiscalNumberingEnvironment,
+) {
+  const envSelect = 'fiscal_environment, nfce_series, nfce_next_number, nfce_series_homologacao, nfce_next_number_homologacao, nfce_series_producao, nfce_next_number_producao'
+  const first = await service
+    .from('organization_fiscal_profiles')
+    .select(envSelect)
+    .eq('organization_id', organizationId)
+    .maybeSingle()
+
+  let profile = first.data as FiscalNumberingProfileRow | null
+  let error = first.error
+
+  if (error && isMissingColumnError(error)) {
+    const legacy = await service
+      .from('organization_fiscal_profiles')
+      .select('fiscal_environment, nfce_series, nfce_next_number')
+      .eq('organization_id', organizationId)
+      .maybeSingle()
+    profile = (legacy.data || null) as FiscalNumberingProfileRow | null
+    error = legacy.error
+  }
+
+  if (error || !profile) {
+    console.error('[nfce] allocate fallback load', error)
+    return null
+  }
+
+  const { numbering, patch, legacyPatch } = nfceNumberingPatch(profile as FiscalNumberingProfileRow, environment)
+  const { error: updateError } = await service
+    .from('organization_fiscal_profiles')
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq('organization_id', organizationId)
+
+  if (updateError && isMissingColumnError(updateError)) {
+    const { error: legacyError } = await service
+      .from('organization_fiscal_profiles')
+      .update({ ...legacyPatch, updated_at: new Date().toISOString() })
+      .eq('organization_id', organizationId)
+    if (legacyError) {
+      console.error('[nfce] allocate fallback update', legacyError)
+      return null
+    }
+  } else if (updateError) {
+    console.error('[nfce] allocate fallback update', updateError)
+    return null
+  }
+
+  return {
+    series: numbering.series,
+    number: numbering.nextNumber,
+  }
+}
+
+async function allocateNumber (auth: AuthCtx, environment: FiscalNumberingEnvironment) {
+  const service = createSupabaseServiceClient()
+  const { data, error } = await service.rpc('allocate_fiscal_document_number', {
     p_organization_id: auth.organizationId,
     p_model: '65',
     p_environment: environment,
   })
 
-  if (error) return null
-  const row = Array.isArray(data) ? data[0] : data
-  if (!row) return null
-  return {
-    series: Number(row.series) || 1,
-    number: Number(row.number) || 1,
+  const allocated = parseAllocatedFiscalNumber(data)
+  if (allocated) return allocated
+  if (error) {
+    console.error('[nfce] allocate_fiscal_document_number', error)
   }
+
+  return allocateNumberFromProfile(service, auth.organizationId, environment)
 }
 
 async function persistFiscalDocument (

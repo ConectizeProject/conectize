@@ -34,6 +34,13 @@ import type { FiscalDocumentDetail } from '@/lib/fiscal/document-types'
 import { maskFci, originRequiresFci } from '@/lib/fiscal/fci'
 import { maskCest, maskNcm } from '@/lib/fiscal/ncm'
 import { isProductFiscalCorrectionError } from '@/lib/fiscal/product-fiscal-errors'
+import {
+  NFCE_PAYMENT_TYPE_LABELS,
+  NFCE_PAYMENT_TYPES,
+  isNfcePaymentType,
+  nfcePaymentTypeFromCatalog,
+  type NfcePaymentType,
+} from '@/lib/fiscal/payment-method-type'
 import { fiscalRejectionGuidance } from '@/lib/fiscal/rejection-guidance'
 
 const ORIGIN_OPTIONS = [
@@ -62,6 +69,19 @@ type ItemDraft = {
   fiscalUnit: string
 }
 
+type PaymentDraft = {
+  id: string
+  paymentMethodId: string
+  paymentMethodType: NfcePaymentType
+  amountCents: number
+}
+
+type CatalogPaymentMethod = {
+  id: string
+  description: string
+  type: string
+}
+
 type Props = {
   documentId: string
 }
@@ -72,6 +92,15 @@ function listHref (model: '55' | '65') {
 
 function sendLabel (model: '55' | '65') {
   return model === '55' ? 'Enviar NF-e' : 'Enviar NFC-e'
+}
+
+function paymentsFromDocument (next: FiscalDocumentDetail): PaymentDraft[] {
+  return (next.payments || []).map((payment) => ({
+    id: payment.id,
+    paymentMethodId: payment.payment_method_id || '',
+    paymentMethodType: isNfcePaymentType(payment.payment_method_type) ? payment.payment_method_type : 'outro',
+    amountCents: payment.amount_cents,
+  }))
 }
 
 function itemsFromDocument (next: FiscalDocumentDetail): ItemDraft[] {
@@ -101,6 +130,8 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
   const [customerName, setCustomerName] = useState('')
   const [customerDocument, setCustomerDocument] = useState('')
   const [items, setItems] = useState<ItemDraft[]>([])
+  const [payments, setPayments] = useState<PaymentDraft[]>([])
+  const [paymentMethods, setPaymentMethods] = useState<CatalogPaymentMethod[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [isSending, setIsSending] = useState(false)
@@ -116,8 +147,12 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
   async function load () {
     setIsLoading(true)
     try {
-      const res = await portalFetch(`/api/portal/fiscal/documents/${encodeURIComponent(documentId)}`)
-      const data = await res?.json().catch(() => null)
+      const [docRes, methodsRes] = await Promise.all([
+        portalFetch(`/api/portal/fiscal/documents/${encodeURIComponent(documentId)}`),
+        portalFetch('/api/portal/payment-methods'),
+      ])
+      const data = await docRes?.json().catch(() => null)
+      const methodsData = await methodsRes?.json().catch(() => null)
       if (!data?.ok || !data.fiscal_document) {
         toast({
           title: 'Nota não encontrada',
@@ -133,6 +168,14 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
       setCustomerName(next.order?.customer_name || 'Consumidor Final')
       setCustomerDocument(formatCpfCnpj(next.order?.customer_document || ''))
       setItems(itemsFromDocument(next))
+      setPayments(paymentsFromDocument(next))
+      if (methodsData?.ok && Array.isArray(methodsData.paymentMethods)) {
+        setPaymentMethods(methodsData.paymentMethods.map((method: Record<string, unknown>) => ({
+          id: String(method.id || ''),
+          description: String(method.description || 'Pagamento'),
+          type: String(method.type || ''),
+        })).filter((method: CatalogPaymentMethod) => method.id))
+      }
     } finally {
       setIsLoading(false)
     }
@@ -167,6 +210,11 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
           fci: originRequiresFci(item.fiscalOrigin) ? item.fci : null,
           fiscalUnit: item.fiscalUnit,
         })),
+        payments: payments.map((payment) => ({
+          id: payment.id,
+          paymentMethodId: payment.paymentMethodId || null,
+          paymentMethodType: payment.paymentMethodType,
+        })),
       }),
     })
     const data = await res?.json().catch(() => null)
@@ -183,6 +231,7 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
     setCustomerName(next.order?.customer_name || 'Consumidor Final')
     setCustomerDocument(formatCpfCnpj(next.order?.customer_document || ''))
     setItems(itemsFromDocument(next))
+    setPayments(paymentsFromDocument(next))
     return { ok: true as const }
   }
 
@@ -196,8 +245,8 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
       }
       toast({
         variant: 'success',
-        title: 'Dados salvos no produto',
-        description: 'NCM, CEST, origem, FCI e unidade foram gravados no cadastro do produto.',
+        title: 'Dados da nota salvos',
+        description: 'NCM, CEST e forma de pagamento foram atualizados. A NFC-e só muda na SEFAZ depois de reenviar.',
       })
     } finally {
       setIsSaving(false)
@@ -457,6 +506,84 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Pagamentos</CardTitle>
+          {editable ? (
+            <p className='text-sm font-normal text-muted-foreground'>
+              A forma de pagamento vai no XML da NFC-e. O valor da venda não pode ser alterado aqui.
+            </p>
+          ) : null}
+        </CardHeader>
+        <CardContent className='space-y-3'>
+          {payments.length === 0 ? (
+            <p className='text-sm text-muted-foreground'>Nenhum pagamento nesta venda.</p>
+          ) : payments.map((payment, index) => (
+            <div key={payment.id} className='grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end'>
+              <div className='space-y-2'>
+                <Label htmlFor={`nf-payment-${payment.id}`}>
+                  {payments.length > 1 ? `Pagamento ${index + 1}` : 'Forma de pagamento'}
+                </Label>
+                {paymentMethods.length > 0 ? (
+                  <select
+                    id={`nf-payment-${payment.id}`}
+                    className='h-10 w-full rounded border bg-background px-2 text-sm disabled:opacity-50'
+                    value={payment.paymentMethodId}
+                    disabled={!editable}
+                    onChange={(e) => {
+                      const paymentMethodId = e.target.value
+                      const method = paymentMethods.find((row) => row.id === paymentMethodId)
+                      setPayments((prev) => prev.map((row) => row.id === payment.id
+                        ? {
+                          ...row,
+                          paymentMethodId,
+                          paymentMethodType: method
+                            ? nfcePaymentTypeFromCatalog(method.type)
+                            : row.paymentMethodType,
+                        }
+                        : row))
+                    }}
+                  >
+                    {!payment.paymentMethodId ? (
+                      <option value=''>Selecione a forma</option>
+                    ) : paymentMethods.every((method) => method.id !== payment.paymentMethodId) ? (
+                      <option value={payment.paymentMethodId}>
+                        {NFCE_PAYMENT_TYPE_LABELS[payment.paymentMethodType]}
+                      </option>
+                    ) : null}
+                    {paymentMethods.map((method) => (
+                      <option key={method.id} value={method.id}>
+                        {method.description}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <select
+                    id={`nf-payment-${payment.id}`}
+                    className='h-10 w-full rounded border bg-background px-2 text-sm disabled:opacity-50'
+                    value={payment.paymentMethodType}
+                    disabled={!editable}
+                    onChange={(e) => {
+                      const paymentMethodType = e.target.value as NfcePaymentType
+                      setPayments((prev) => prev.map((row) => row.id === payment.id
+                        ? { ...row, paymentMethodId: '', paymentMethodType }
+                        : row))
+                    }}
+                  >
+                    {NFCE_PAYMENT_TYPES.map((type) => (
+                      <option key={type} value={type}>{NFCE_PAYMENT_TYPE_LABELS[type]}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+              <p className='pb-2 text-sm font-medium tabular-nums'>
+                {maskedFromCents(payment.amountCents)}
+              </p>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

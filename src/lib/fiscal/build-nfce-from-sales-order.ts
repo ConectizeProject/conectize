@@ -7,6 +7,7 @@ import { fiscalIeOrNull } from '@/lib/fiscal/ie'
 import { validateCestNcmPair } from '@/lib/fiscal/cest-lookup'
 import { isNfceServiceItem } from '@/lib/fiscal/certificate-validity'
 import { fiscalCestOrNull, fiscalNcmOrNull } from '@/lib/fiscal/ncm'
+import { buildNfcePagamentoLine } from '@/lib/fiscal/nfce-payment'
 import { onlyDigits } from '@/lib/utils/strings'
 
 type FiscalProfileRow = {
@@ -61,14 +62,6 @@ type BuildNfceInput = {
 export type BuildNfceResult =
   | { ok: true, payload: NFeProps }
   | { ok: false, error: string, message: string }
-
-const PAYMENT_TO_TPAG: Record<string, string> = {
-  dinheiro: '01',
-  credito: '03',
-  debito: '04',
-  pix: '17',
-  outro: '99',
-}
 
 function centsToValue (cents: unknown) {
   return Math.round(Number(cents || 0)) / 100
@@ -303,9 +296,9 @@ export async function buildNfceFromSalesOrder (input: BuildNfceInput): Promise<B
     produtos[0] = { ...produtos[0], descricao: HOMOLOGACAO_DEST_NAME }
   }
 
-  const pagamentos = (payments || []).map((payment) => ({
-    formaPagamento: PAYMENT_TO_TPAG[String(payment.payment_method_type || '')] || '99',
-    valor: centsToValue(payment.amount_cents),
+  const pagamentos = (payments || []).map((payment) => buildNfcePagamentoLine({
+    paymentMethodType: payment.payment_method_type,
+    amount: centsToValue(payment.amount_cents),
   }))
 
   if (pagamentos.length === 0) {

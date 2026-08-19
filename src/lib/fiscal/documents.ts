@@ -10,10 +10,17 @@ import { validateCestNcmPair } from '@/lib/fiscal/cest-lookup'
 import { normalizeOptionalFci, originRequiresFci } from '@/lib/fiscal/fci'
 import { normalizeOptionalCest, normalizeOptionalNcm } from '@/lib/fiscal/ncm'
 import { updateProduct } from '@/lib/products/service'
+import { syncSalesOrderFinancialTransactions } from '@/lib/finance/service-order-financial-sync'
+import {
+  isNfcePaymentType,
+  nfcePaymentTypeFromCatalog,
+  type NfcePaymentType,
+} from '@/lib/fiscal/payment-method-type'
 import type {
   FiscalDocumentDetail,
   FiscalDocumentItemRow,
   FiscalDocumentListRow,
+  FiscalDocumentPaymentRow,
 } from '@/lib/fiscal/document-types'
 
 export type {
@@ -123,12 +130,13 @@ export async function loadFiscalDocumentDetail (auth: AuthCtx, fiscalDocumentId:
 
   let order: FiscalDocumentDetail['order'] = null
   let items: FiscalDocumentItemRow[] = []
+  let payments: FiscalDocumentPaymentRow[] = []
 
   if (data.sales_order_id) {
-    const [{ data: orderRow, error: orderError }, { data: itemRows, error: itemsError }] = await Promise.all([
+    const [{ data: orderRow, error: orderError }, { data: itemRows, error: itemsError }, { data: paymentRows, error: paymentsError }] = await Promise.all([
       auth.supabase
         .from('sales_orders')
-        .select('id, order_number, status, customer_name, customer_type, customer_document, total_cents')
+        .select('id, order_number, status, customer_name, customer_type, customer_document, total_cents, paid_amount_cents, change_cents')
         .eq('organization_id', auth.organizationId)
         .eq('id', data.sales_order_id)
         .maybeSingle(),
@@ -138,9 +146,15 @@ export async function loadFiscalDocumentDetail (auth: AuthCtx, fiscalDocumentId:
         .eq('organization_id', auth.organizationId)
         .eq('sales_order_id', data.sales_order_id)
         .order('created_at', { ascending: true }),
+      auth.supabase
+        .from('sales_order_payments')
+        .select('id, payment_method_id, payment_method_type, amount_cents')
+        .eq('organization_id', auth.organizationId)
+        .eq('sales_order_id', data.sales_order_id)
+        .order('created_at', { ascending: true }),
     ])
 
-    if (orderError || itemsError) return { ok: false as const, error: 'db_error' as const }
+    if (orderError || itemsError || paymentsError) return { ok: false as const, error: 'db_error' as const }
 
     if (orderRow) {
       order = {
@@ -172,6 +186,13 @@ export async function loadFiscalDocumentDetail (auth: AuthCtx, fiscalDocumentId:
         fiscal_unit: product?.fiscal_unit ? String(product.fiscal_unit) : null,
       }
     })
+
+    payments = (paymentRows ?? []).map((payment) => ({
+      id: String(payment.id),
+      payment_method_id: payment.payment_method_id ? String(payment.payment_method_id) : null,
+      payment_method_type: String(payment.payment_method_type || 'outro'),
+      amount_cents: Number(payment.amount_cents) || 0,
+    }))
   }
 
   const detail: FiscalDocumentDetail = {
@@ -192,6 +213,7 @@ export async function loadFiscalDocumentDetail (auth: AuthCtx, fiscalDocumentId:
     created_at: String(data.created_at),
     order,
     items,
+    payments,
   }
 
   return { ok: true as const, document: detail }
@@ -207,6 +229,11 @@ export type FiscalDocumentDraftInput = {
     fiscalOrigin?: number | null
     fci?: string | null
     fiscalUnit?: string | null
+  }>
+  payments?: Array<{
+    id: string
+    paymentMethodId?: string | null
+    paymentMethodType?: string | null
   }>
 }
 
@@ -339,5 +366,170 @@ export async function updateFiscalDocumentDraft (
     }
   }
 
+  if (input.payments) {
+    const paymentsResult = await applyFiscalDocumentPayments(auth, doc, input.payments)
+    if (paymentsResult.ok === false) return paymentsResult
+  }
+
   return loadFiscalDocumentDetail(auth, fiscalDocumentId)
+}
+
+async function applyFiscalDocumentPayments (
+  auth: AuthCtx,
+  doc: FiscalDocumentDetail,
+  paymentInputs: NonNullable<FiscalDocumentDraftInput['payments']>,
+) {
+  if (!doc.order) {
+    return { ok: false as const, error: 'order_not_found' as const, message: 'Pedido da nota não encontrado.' }
+  }
+  if (paymentInputs.length !== doc.payments.length) {
+    return {
+      ok: false as const,
+      error: 'invalid_payments' as const,
+      message: 'A quantidade de pagamentos não pode ser alterada nesta tela.',
+    }
+  }
+
+  const currentById = new Map(doc.payments.map((row) => [row.id, row]))
+  const seen = new Set<string>()
+  for (const row of paymentInputs) {
+    const id = String(row.id || '').trim()
+    if (!id || !currentById.has(id) || seen.has(id)) {
+      return {
+        ok: false as const,
+        error: 'invalid_payments' as const,
+        message: 'Um pagamento da nota não foi encontrado.',
+      }
+    }
+    seen.add(id)
+  }
+
+  const { data: methods, error: methodsError } = await auth.supabase
+    .from('payment_methods')
+    .select('id, type')
+    .eq('organization_id', auth.organizationId)
+  if (methodsError) return { ok: false as const, error: 'db_error' as const }
+
+  const catalog = (methods ?? []).map((row) => ({
+    id: String(row.id),
+    type: nfcePaymentTypeFromCatalog(row.type),
+  }))
+  const catalogById = new Map(catalog.map((row) => [row.id, row]))
+
+  const resolved: Array<{
+    id: string
+    paymentMethodId: string | null
+    paymentMethodType: NfcePaymentType
+    amountCents: number
+  }> = []
+
+  for (const input of paymentInputs) {
+    const current = currentById.get(String(input.id))
+    if (!current) {
+      return {
+        ok: false as const,
+        error: 'invalid_payments' as const,
+        message: 'Um pagamento da nota não foi encontrado.',
+      }
+    }
+
+    const requestedMethodId = input.paymentMethodId === undefined
+      ? undefined
+      : (String(input.paymentMethodId || '').trim() || null)
+    let paymentMethodId = current.payment_method_id
+    let paymentMethodType: NfcePaymentType = isNfcePaymentType(current.payment_method_type)
+      ? current.payment_method_type
+      : 'outro'
+
+    if (requestedMethodId) {
+      const method = catalogById.get(requestedMethodId)
+      if (method) {
+        paymentMethodId = method.id
+        paymentMethodType = method.type
+      } else if (isNfcePaymentType(input.paymentMethodType)) {
+        paymentMethodType = input.paymentMethodType
+        paymentMethodId = catalog.find((row) => row.type === paymentMethodType)?.id ?? null
+      } else {
+        return {
+          ok: false as const,
+          error: 'invalid_payment_method' as const,
+          message: 'Forma de pagamento inválida.',
+        }
+      }
+    } else if (input.paymentMethodType != null) {
+      if (!isNfcePaymentType(input.paymentMethodType)) {
+        return {
+          ok: false as const,
+          error: 'invalid_payment_method' as const,
+          message: 'Forma de pagamento inválida.',
+        }
+      }
+      paymentMethodType = input.paymentMethodType
+      const currentMethod = paymentMethodId ? catalogById.get(paymentMethodId) : null
+      if (!currentMethod || currentMethod.type !== paymentMethodType) {
+        paymentMethodId = catalog.find((row) => row.type === paymentMethodType)?.id ?? null
+      }
+    }
+
+    resolved.push({
+      id: current.id,
+      paymentMethodId,
+      paymentMethodType,
+      amountCents: current.amount_cents,
+    })
+  }
+
+  for (const row of resolved) {
+    const { error } = await auth.supabase
+      .from('sales_order_payments')
+      .update({
+        payment_method_id: row.paymentMethodId,
+        payment_method_type: row.paymentMethodType,
+      })
+      .eq('organization_id', auth.organizationId)
+      .eq('id', row.id)
+    if (error) return { ok: false as const, error: 'db_error' as const }
+  }
+
+  const hasCash = resolved.some((row) => row.paymentMethodType === 'dinheiro')
+  const paidAmount = resolved.reduce((sum, row) => sum + row.amountCents, 0)
+  const total = doc.order.total_cents
+  const change = hasCash ? Math.max(0, paidAmount - total) : 0
+  const { error: orderError } = await auth.supabase
+    .from('sales_orders')
+    .update({
+      change_cents: change,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('organization_id', auth.organizationId)
+    .eq('id', doc.order.id)
+  if (orderError) return { ok: false as const, error: 'db_error' as const }
+
+  if (doc.order.status === 'paid') {
+    try {
+      await syncSalesOrderFinancialTransactions({
+        supabase: auth.supabase,
+        organizationId: auth.organizationId,
+        orderId: doc.order.id,
+        orderRow: {
+          id: doc.order.id,
+          organization_id: auth.organizationId,
+          order_number: doc.order.order_number ?? null,
+          status: 'paid',
+          updated_at: new Date().toISOString(),
+          change_cents: change,
+          total_cents: total,
+        },
+      })
+    } catch (err) {
+      console.error('[fiscal payments] finance sync failed', err)
+      return {
+        ok: false as const,
+        error: 'finance_sync_failed' as const,
+        message: 'A forma de pagamento foi gravada, mas o financeiro não foi atualizado.',
+      }
+    }
+  }
+
+  return { ok: true as const }
 }

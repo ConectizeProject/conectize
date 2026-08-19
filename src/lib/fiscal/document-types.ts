@@ -35,6 +35,13 @@ export type FiscalDocumentItemRow = {
   fiscal_unit: string | null
 }
 
+export type FiscalDocumentPaymentRow = {
+  id: string
+  payment_method_id: string | null
+  payment_method_type: string
+  amount_cents: number
+}
+
 export type FiscalDocumentDetail = {
   id: string
   model: '55' | '65'
@@ -61,4 +68,5 @@ export type FiscalDocumentDetail = {
     total_cents: number
   } | null
   items: FiscalDocumentItemRow[]
+  payments: FiscalDocumentPaymentRow[]
 }

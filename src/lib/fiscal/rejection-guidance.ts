@@ -39,6 +39,13 @@ export function fiscalRejectionGuidance (
     }
   }
 
+  if (code === '391') {
+    return {
+      summary: 'A SEFAZ exige o grupo de cartão (tpIntegra) quando a forma de pagamento é crédito ou débito.',
+      hint: 'O Conectize envia a maquininha como não integrada (tpIntegra 2). Se a venda não foi no cartão, troque a forma de pagamento nesta tela e reenvie.',
+    }
+  }
+
   if (code === '229') {
     return {
       summary: 'A IE do emitente está marcada como isenta, mas a SEFAZ exige inscrição cadastrada.',

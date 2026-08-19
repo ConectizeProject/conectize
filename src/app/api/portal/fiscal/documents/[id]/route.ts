@@ -69,10 +69,25 @@ export async function PATCH (
     }))
     : undefined
 
+  const payments = Array.isArray(body?.payments)
+    ? body.payments.map((payment: Record<string, unknown>) => ({
+      id: String(payment.id || ''),
+      paymentMethodId: payment.paymentMethodId == null && payment.payment_method_id == null
+        ? undefined
+        : (payment.paymentMethodId ?? payment.payment_method_id) == null
+          ? null
+          : String(payment.paymentMethodId ?? payment.payment_method_id),
+      paymentMethodType: payment.paymentMethodType == null && payment.payment_method_type == null
+        ? undefined
+        : String(payment.paymentMethodType ?? payment.payment_method_type),
+    }))
+    : undefined
+
   const result = await updateFiscalDocumentDraft(auth, fiscalDocumentId, {
     customerName: body?.customer_name == null ? undefined : String(body.customer_name),
     customerDocument: body?.customer_document == null ? undefined : String(body.customer_document),
     items,
+    payments,
   })
 
   if (!result.ok) {
