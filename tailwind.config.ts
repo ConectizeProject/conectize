@@ -20,8 +20,8 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ['Outfit', 'sans-serif'],
-        heading: ['Outfit', 'sans-serif'],
+        sans: ['var(--font-outfit)', 'sans-serif'],
+        heading: ['var(--font-outfit)', 'sans-serif'],
       },
       colors: {
         border: 'hsl(var(--border))',

@@ -28,6 +28,10 @@ import { composePortalVariationDisplayName } from '@/lib/products/variation-disp
 import { cn } from '@/lib/utils'
 import { formatMoneyInput, maskedFromCents, moneyToCentsFromMasked } from '@/lib/utils/money'
 import { toast } from '@/hooks/use-toast'
+import { cestPairingMessage, evaluateCestForNcm, type CestSuggestion, type CestTableStatus } from '@/lib/fiscal/cest'
+import { maskFci, normalizeOptionalFci, originRequiresFci } from '@/lib/fiscal/fci'
+import { normalizeOptionalGtin } from '@/lib/fiscal/gtin'
+import { normalizeOptionalCest, normalizeOptionalNcm } from '@/lib/fiscal/ncm'
 
 export type ProductFormProduct = {
   id: string
@@ -45,6 +49,7 @@ export type ProductFormProduct = {
   cest?: string | null
   cfop?: string | null
   fiscalOrigin?: number | null
+  fci?: string | null
   fiscalUnit?: string | null
   icmsCsosn?: string | null
   icmsCst?: string | null
@@ -71,6 +76,7 @@ export type ProductFormSubmitPayload = {
   cest: string | null
   cfop: string | null
   fiscalOrigin: number | null
+  fci: string | null
   fiscalUnit: string | null
   icmsCsosn: string | null
   icmsCst: string | null
@@ -166,6 +172,43 @@ function generateEAN13 () {
   return `${baseCode}${checksum}`
 }
 
+const FISCAL_ORIGIN_OPTIONS = [
+  { value: '0', label: '0 - Nacional, exceto as indicadas nos códigos 3, 4, 5 e 8' },
+  { value: '1', label: '1 - Estrangeira - Importação direta, exceto a indicada no código 6' },
+  { value: '2', label: '2 - Estrangeira - Adquirida no mercado interno, exceto a indicada no código 7' },
+  { value: '3', label: '3 - Nacional, mercadoria ou bem com Conteúdo de Importação superior a 40% e inferior ou igual a 70%' },
+  { value: '4', label: '4 - Nacional, produção conforme processos produtivos básicos dos Ajustes' },
+  { value: '5', label: '5 - Nacional, mercadoria ou bem com Conteúdo de Importação inferior ou igual a 40%' },
+  { value: '6', label: '6 - Estrangeira - Importação direta, sem similar nacional, constante em lista da CAMEX' },
+  { value: '7', label: '7 - Estrangeira - Adquirida no mercado interno, sem similar nacional, constante em lista da CAMEX' },
+  { value: '8', label: '8 - Nacional, mercadoria ou bem com Conteúdo de Importação superior a 70%' },
+]
+
+function fiscalDigits (value: unknown, maxLength: number) {
+  return String(value ?? '').replace(/\D/g, '').slice(0, maxLength)
+}
+
+function maskNcm (value: unknown) {
+  const digits = fiscalDigits(value, 8)
+  if (digits.length <= 4) return digits
+  if (digits.length <= 6) return `${digits.slice(0, 4)}.${digits.slice(4)}`
+  return `${digits.slice(0, 4)}.${digits.slice(4, 6)}.${digits.slice(6)}`
+}
+
+function maskCest (value: unknown) {
+  const digits = fiscalDigits(value, 7)
+  if (digits.length <= 2) return digits
+  if (digits.length <= 5) return `${digits.slice(0, 2)}.${digits.slice(2)}`
+  return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5)}`
+}
+
+function normalizeFiscalOriginSelectValue (value: unknown) {
+  const n = Number(value ?? 0)
+  if (!Number.isFinite(n)) return '0'
+  const safe = Math.min(8, Math.max(0, Math.round(n)))
+  return String(safe)
+}
+
 type Props = {
   mode: 'create' | 'edit'
   product?: ProductFormProduct
@@ -224,6 +267,10 @@ export function ProductForm ({
     name?: string
     salePrice?: string
     costPrice?: string
+    barcode?: string
+    ncm?: string
+    cest?: string
+    fci?: string
   }>({})
   const [pending, setPending] = useState(false)
   const [pricingTags, setPricingTags] = useState<PricingTagRow[]>([])
@@ -233,6 +280,13 @@ export function ProductForm ({
     if (product?.kind === 'product') return 'product'
     return defaultKind
   })
+  const [ncm, setNcm] = useState(() => maskNcm(product?.ncm || ''))
+  const [cest, setCest] = useState(() => maskCest(product?.cest || ''))
+  const [fiscalOrigin, setFiscalOrigin] = useState(() => normalizeFiscalOriginSelectValue(product?.fiscalOrigin ?? 0))
+  const [fci, setFci] = useState(() => maskFci(product?.fci || ''))
+  const [cestSuggestions, setCestSuggestions] = useState<CestSuggestion[]>([])
+  const [cestTableStatus, setCestTableStatus] = useState<CestTableStatus>('unknown')
+  const [isLoadingCestSuggestions, setIsLoadingCestSuggestions] = useState(false)
   const [description, setDescription] = useState(() => product?.description || '')
   const [imageUrl, setImageUrl] = useState(() =>
     product?.imageUrl != null && String(product.imageUrl).trim()
@@ -320,12 +374,62 @@ export function ProductForm ({
 
   useEffect(() => {
     if (!product?.id) return
+    setNcm(maskNcm(product.ncm || ''))
+    setCest(maskCest(product.cest || ''))
+    setFiscalOrigin(normalizeFiscalOriginSelectValue(product.fiscalOrigin ?? 0))
+    setFci(maskFci(product.fci || ''))
     setImageUrl(
       product.imageUrl != null && String(product.imageUrl).trim()
         ? String(product.imageUrl).trim()
         : '',
     )
-  }, [product?.id, product?.imageUrl])
+  }, [product?.id, product?.ncm, product?.cest, product?.fiscalOrigin, product?.fci, product?.imageUrl])
+
+  const ncmDigits = fiscalDigits(ncm, 8)
+
+  useEffect(() => {
+    if (kind !== 'product' || ncmDigits.length !== 8) {
+      setCestSuggestions([])
+      setCestTableStatus('unknown')
+      setIsLoadingCestSuggestions(false)
+      return
+    }
+
+    const controller = new AbortController()
+    setIsLoadingCestSuggestions(true)
+
+    void (async () => {
+      try {
+        const res = await fetch(`/api/portal/fiscal/cest-suggestions?ncm=${encodeURIComponent(ncmDigits)}`, {
+          signal: controller.signal,
+        })
+        const json = await res.json().catch(() => null) as {
+          ok?: boolean
+          status?: CestTableStatus
+          suggestions?: CestSuggestion[]
+        } | null
+        if (controller.signal.aborted) return
+        const suggestions = res.ok && json?.ok && Array.isArray(json.suggestions) ? json.suggestions : []
+        const status = json?.status === 'in' || json?.status === 'out' || json?.status === 'unknown'
+          ? json.status
+          : 'unknown'
+        setCestSuggestions(suggestions)
+        setCestTableStatus(status)
+      } catch (err) {
+        if (!controller.signal.aborted) {
+          console.warn('[product form] cest suggestions failed', err)
+          setCestSuggestions([])
+          setCestTableStatus('unknown')
+        }
+      } finally {
+        if (!controller.signal.aborted) setIsLoadingCestSuggestions(false)
+      }
+    })()
+
+    return () => {
+      controller.abort()
+    }
+  }, [kind, ncmDigits])
 
   useEffect(() => {
     let cancelled = false
@@ -540,6 +644,62 @@ export function ProductForm ({
     }
     const costPrice = costCentsParsed == null ? 0 : costCentsParsed / 100
 
+    const barcodeNormalized = normalizeOptionalGtin(formData.get('barcode'))
+    if (barcodeNormalized === 'invalid') {
+      setSubmitErrors({
+        barcode: 'Informe um EAN/GTIN válido (8, 12, 13 ou 14 dígitos) ou deixe em branco.',
+      })
+      queueMicrotask(() => {
+        const el = document.getElementById('barcode') as HTMLInputElement | null
+        el?.focus()
+      })
+      return
+    }
+
+    const ncmNormalized = kind === 'product' ? normalizeOptionalNcm(ncm) : null
+    if (ncmNormalized === 'invalid') {
+      setSubmitErrors({
+        ncm: 'Informe o NCM com 8 dígitos (0000.00.00) ou deixe em branco.',
+      })
+      queueMicrotask(() => {
+        const el = document.getElementById('ncm') as HTMLInputElement | null
+        el?.focus()
+      })
+      return
+    }
+
+    const cestNormalized = kind === 'product' ? normalizeOptionalCest(cest) : null
+    if (cestNormalized === 'invalid') {
+      setSubmitErrors({
+        cest: 'Informe o CEST com 7 dígitos (00.000.00) ou deixe em branco.',
+      })
+      queueMicrotask(() => {
+        const el = document.getElementById('cest') as HTMLInputElement | null
+        el?.focus()
+      })
+      return
+    }
+
+    if (kind === 'product' && ncmNormalized && !isLoadingCestSuggestions) {
+      const pairing = evaluateCestForNcm({
+        status: cestTableStatus,
+        allowedCests: cestSuggestions.map((item) => item.code),
+        cest: cestNormalized,
+      })
+      if (pairing.ok === false) {
+        setSubmitErrors({
+          cest: cestPairingMessage(pairing.reason, {
+            allowedCests: cestSuggestions.map((item) => item.code),
+          }),
+        })
+        queueMicrotask(() => {
+          const el = document.getElementById('cest') as HTMLInputElement | null
+          el?.focus()
+        })
+        return
+      }
+    }
+
     const initialStockRaw = mode === 'create'
       ? Number(String(formData.get('initialStock') || '0').replace(',', '.'))
       : 0
@@ -547,15 +707,29 @@ export function ProductForm ({
       ? Math.floor(initialStockRaw)
       : 0
 
-    const fiscalOriginRaw = Number(formData.get('fiscalOrigin') || '')
-    const fiscalOrigin = kind === 'product' && Number.isFinite(fiscalOriginRaw)
+    const fiscalOriginRaw = Number(fiscalOrigin)
+    const fiscalOriginValue = kind === 'product' && Number.isFinite(fiscalOriginRaw)
       ? Math.min(8, Math.max(0, Math.round(fiscalOriginRaw)))
       : null
+
+    const fciNormalized = kind === 'product' && originRequiresFci(fiscalOriginValue)
+      ? normalizeOptionalFci(fci)
+      : null
+    if (fciNormalized === 'invalid' || (kind === 'product' && originRequiresFci(fiscalOriginValue) && fciNormalized == null)) {
+      setSubmitErrors({
+        fci: 'Informe o FCI no formato UUID (8-4-4-4-12). Obrigatório para origens 3, 5 e 8.',
+      })
+      queueMicrotask(() => {
+        const el = document.getElementById('fci') as HTMLInputElement | null
+        el?.focus()
+      })
+      return
+    }
 
     const payload: ProductFormSubmitPayload = {
       name,
       sku: String(formData.get('sku') || '').trim() || null,
-      barcode: String(formData.get('barcode') || '').trim() || null,
+      barcode: barcodeNormalized,
       description: description.trim() || null,
       imageUrl: imageUrl.trim() || null,
       kind,
@@ -565,15 +739,16 @@ export function ProductForm ({
       pricingTagId: pricingTagId || null,
       compatibleModelIds: compatibleModels.map((m) => m.id),
       initialStock,
-      ncm: kind === 'product' ? String(formData.get('ncm') || '').trim() || null : null,
-      cest: kind === 'product' ? String(formData.get('cest') || '').trim() || null : null,
-      cfop: kind === 'product' ? String(formData.get('cfop') || '').trim() || null : null,
-      fiscalOrigin,
+      ncm: kind === 'product' ? ncmNormalized : null,
+      cest: kind === 'product' ? cestNormalized : null,
+      cfop: kind === 'product' ? fiscalDigits(product?.cfop || '', 4) || null : null,
+      fiscalOrigin: fiscalOriginValue,
+      fci: kind === 'product' && fciNormalized !== 'invalid' ? fciNormalized : null,
       fiscalUnit: kind === 'product' ? String(formData.get('fiscalUnit') || '').trim() || null : null,
-      icmsCsosn: kind === 'product' ? String(formData.get('icmsCsosn') || '').trim() || null : null,
-      icmsCst: kind === 'product' ? String(formData.get('icmsCst') || '').trim() || null : null,
-      pisCst: kind === 'product' ? String(formData.get('pisCst') || '').trim() || null : null,
-      cofinsCst: kind === 'product' ? String(formData.get('cofinsCst') || '').trim() || null : null,
+      icmsCsosn: kind === 'product' ? fiscalDigits(product?.icmsCsosn || '', 3) || null : null,
+      icmsCst: kind === 'product' ? fiscalDigits(product?.icmsCst || '', 3) || null : null,
+      pisCst: kind === 'product' ? fiscalDigits(product?.pisCst || '', 2) || null : null,
+      cofinsCst: kind === 'product' ? fiscalDigits(product?.cofinsCst || '', 2) || null : null,
     }
 
     if (showVariationKeyEditor) {
@@ -859,9 +1034,16 @@ export function ProductForm ({
             <Input
               id="barcode"
               name="barcode"
-              className="pr-10"
+              inputMode="numeric"
+              autoComplete="off"
+              className={cn('pr-10', submitErrors.barcode && 'border-destructive')}
               defaultValue={product?.barcode || ''}
               disabled={pending}
+              aria-invalid={submitErrors.barcode ? true : undefined}
+              aria-describedby={submitErrors.barcode ? 'barcode-error' : 'barcode-hint'}
+              onChange={() => {
+                if (submitErrors.barcode) setSubmitErrors((s) => ({ ...s, barcode: undefined }))
+              }}
             />
             <Button
               type="button"
@@ -871,6 +1053,7 @@ export function ProductForm ({
               onClick={() => {
                 const el = document.getElementById('barcode') as HTMLInputElement | null
                 if (el) el.value = generateEAN13()
+                if (submitErrors.barcode) setSubmitErrors((s) => ({ ...s, barcode: undefined }))
               }}
               disabled={pending}
               aria-label="Gerar código de barras (EAN-13)"
@@ -878,6 +1061,17 @@ export function ProductForm ({
               <Barcode className="h-4 w-4" />
             </Button>
           </div>
+          {submitErrors.barcode
+            ? (
+              <p id="barcode-error" className="text-sm text-destructive" role="alert">
+                {submitErrors.barcode}
+              </p>
+            )
+            : (
+              <p id="barcode-hint" className="text-xs text-muted-foreground">
+                EAN-8, 12, 13 ou 14 com dígito verificador. Deixe em branco se não houver GTIN.
+              </p>
+            )}
         </div>
       </div>
 
@@ -1000,55 +1194,169 @@ export function ProductForm ({
           <div>
             <h3 className="text-sm font-semibold tracking-tight text-foreground">Fiscal</h3>
             <p className="mt-1 text-xs text-muted-foreground">
-              Usado na NFC-e. Itens sem NCM serão bloqueados na emissão fiscal.
+              Dados do item na NFC-e. CFOP, CSOSN, ICMS CST, PIS e COFINS vêm da natureza de operação em Fiscal.
+              Itens sem NCM são bloqueados na emissão. Origens 3, 5 e 8 exigem FCI. CEST só entra se o NCM estiver na tabela de ST.
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="space-y-2 sm:col-span-2 lg:col-span-2">
+              <Label htmlFor="origem">Origem</Label>
+              <input type="hidden" name="fiscalOrigin" value={fiscalOrigin} />
+              <Select
+                value={fiscalOrigin}
+                onValueChange={(value) => {
+                  setFiscalOrigin(value)
+                  if (!originRequiresFci(value)) {
+                    setFci('')
+                    if (submitErrors.fci) setSubmitErrors((s) => ({ ...s, fci: undefined }))
+                  }
+                }}
+                disabled={pending}
+              >
+                <SelectTrigger id="origem" className="w-full">
+                  <SelectValue placeholder="Selecione a origem" />
+                </SelectTrigger>
+                <SelectContent>
+                  {FISCAL_ORIGIN_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {originRequiresFci(fiscalOrigin) ? (
+              <div className="space-y-2 sm:col-span-2 lg:col-span-3">
+                <Label htmlFor="fci">FCI</Label>
+                <Input
+                  id="fci"
+                  name="fci"
+                  autoComplete="off"
+                  spellCheck={false}
+                  maxLength={36}
+                  value={fci}
+                  onChange={(e) => {
+                    setFci(maskFci(e.target.value))
+                    if (submitErrors.fci) setSubmitErrors((s) => ({ ...s, fci: undefined }))
+                  }}
+                  placeholder="00000000-0000-0000-0000-000000000000"
+                  disabled={pending}
+                  className={cn(submitErrors.fci && 'border-destructive')}
+                  aria-invalid={submitErrors.fci ? true : undefined}
+                  aria-describedby={submitErrors.fci ? 'fci-error' : 'fci-hint'}
+                />
+                {submitErrors.fci
+                  ? (
+                    <p id="fci-error" className="text-sm text-destructive" role="alert">
+                      {submitErrors.fci}
+                    </p>
+                  )
+                  : (
+                    <p id="fci-hint" className="text-xs text-muted-foreground">
+                      Ficha de Conteúdo de Importação. Obrigatória nas origens 3, 5 e 8.
+                    </p>
+                  )}
+              </div>
+            ) : null}
             <div className="space-y-2">
               <Label htmlFor="ncm">NCM</Label>
-              <Input id="ncm" name="ncm" inputMode="numeric" maxLength={8} defaultValue={product?.ncm || ''} disabled={pending} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="cest">CEST</Label>
-              <Input id="cest" name="cest" inputMode="numeric" maxLength={7} defaultValue={product?.cest || ''} disabled={pending} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="cfop">CFOP</Label>
-              <Input id="cfop" name="cfop" inputMode="numeric" maxLength={4} defaultValue={product?.cfop || '5102'} disabled={pending} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="fiscalOrigin">Origem</Label>
               <Input
-                id="fiscalOrigin"
-                name="fiscalOrigin"
-                type="number"
-                min={0}
-                max={8}
-                defaultValue={product?.fiscalOrigin ?? 0}
+                id="ncm"
+                name="ncm"
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={10}
+                value={ncm}
+                onChange={(e) => {
+                  setNcm(maskNcm(e.target.value))
+                  if (submitErrors.ncm) setSubmitErrors((s) => ({ ...s, ncm: undefined }))
+                }}
+                placeholder="0000.00.00"
                 disabled={pending}
+                className={cn(submitErrors.ncm && 'border-destructive')}
+                aria-invalid={submitErrors.ncm ? true : undefined}
+                aria-describedby={submitErrors.ncm ? 'ncm-error' : 'ncm-hint'}
               />
+              {submitErrors.ncm
+                ? (
+                  <p id="ncm-error" className="text-sm text-destructive" role="alert">
+                    {submitErrors.ncm}
+                  </p>
+                )
+                : (
+                  <p id="ncm-hint" className="text-xs text-muted-foreground">
+                    Máscara visual. A SEFAZ recebe só os 8 dígitos.
+                  </p>
+                )}
+            </div>
+            <div className="space-y-2">
+                <Label htmlFor="cest">{cestTableStatus === 'in' ? 'CEST (obrigatório)' : 'CEST'}</Label>
+              <Input
+                id="cest"
+                name="cest"
+                list="cest-suggestions"
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={10}
+                value={cest}
+                onChange={(e) => {
+                  setCest(maskCest(e.target.value))
+                  if (submitErrors.cest) setSubmitErrors((s) => ({ ...s, cest: undefined }))
+                }}
+                placeholder="00.000.00"
+                disabled={pending}
+                className={cn(submitErrors.cest && 'border-destructive')}
+                aria-invalid={submitErrors.cest ? true : undefined}
+                aria-describedby={submitErrors.cest ? 'cest-error' : undefined}
+              />
+              {submitErrors.cest
+                ? (
+                  <p id="cest-error" className="text-sm text-destructive" role="alert">
+                    {submitErrors.cest}
+                  </p>
+                )
+                : null}
+              <datalist id="cest-suggestions">
+                {cestSuggestions.map((suggestion) => (
+                  <option key={suggestion.code} value={maskCest(suggestion.code)}>
+                    {suggestion.label}
+                  </option>
+                ))}
+              </datalist>
+              {isLoadingCestSuggestions ? (
+                <p className="text-xs text-muted-foreground">Buscando CESTs para o NCM...</p>
+              ) : null}
+              {!isLoadingCestSuggestions && ncmDigits.length === 8 && cestTableStatus === 'out' ? (
+                <p className="text-xs text-muted-foreground">Este NCM não exige CEST. Deixe o campo em branco.</p>
+              ) : null}
+              {!isLoadingCestSuggestions && ncmDigits.length === 8 && cestTableStatus === 'in' && cestSuggestions.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Este NCM exige CEST. Preencha o código de 7 dígitos.</p>
+              ) : null}
+              {!isLoadingCestSuggestions && ncmDigits.length === 8 && cestTableStatus === 'unknown' ? (
+                <p className="text-xs text-muted-foreground">Não foi possível consultar a tabela CEST. Você pode preencher manualmente.</p>
+              ) : null}
+              {cestSuggestions.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {cestSuggestions.slice(0, 5).map((suggestion) => (
+                    <Button
+                      key={suggestion.code}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-auto min-h-8 px-2 py-1 text-left text-xs"
+                      title={suggestion.label}
+                      onClick={() => setCest(maskCest(suggestion.code))}
+                      disabled={pending}
+                    >
+                      {maskCest(suggestion.code)}
+                    </Button>
+                  ))}
+                </div>
+              ) : null}
             </div>
             <div className="space-y-2">
               <Label htmlFor="fiscalUnit">Unidade</Label>
               <Input id="fiscalUnit" name="fiscalUnit" maxLength={6} defaultValue={product?.fiscalUnit || 'UN'} disabled={pending} />
-            </div>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="space-y-2">
-              <Label htmlFor="icmsCsosn">CSOSN</Label>
-              <Input id="icmsCsosn" name="icmsCsosn" inputMode="numeric" maxLength={3} defaultValue={product?.icmsCsosn || '102'} disabled={pending} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="icmsCst">ICMS CST</Label>
-              <Input id="icmsCst" name="icmsCst" inputMode="numeric" maxLength={3} defaultValue={product?.icmsCst || ''} disabled={pending} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="pisCst">PIS CST</Label>
-              <Input id="pisCst" name="pisCst" inputMode="numeric" maxLength={2} defaultValue={product?.pisCst || '49'} disabled={pending} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="cofinsCst">COFINS CST</Label>
-              <Input id="cofinsCst" name="cofinsCst" inputMode="numeric" maxLength={2} defaultValue={product?.cofinsCst || '49'} disabled={pending} />
             </div>
           </div>
         </section>

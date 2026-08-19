@@ -1,6 +1,7 @@
 import 'server-only'
 import { randomUUID } from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { toStorageUploadBody } from '@/lib/image/to-storage-upload-body'
 
 export const ORGANIZATION_LOGOS_BUCKET = 'organization-logos'
 export const ORGANIZATION_LOGO_MAX_BYTES = 2 * 1024 * 1024
@@ -57,7 +58,7 @@ export async function uploadOrganizationLogo (
 
   const { error: upErr } = await supabase.storage
     .from(ORGANIZATION_LOGOS_BUCKET)
-    .upload(storagePath, buf, { contentType: mime, upsert: false })
+    .upload(storagePath, toStorageUploadBody(buf), { contentType: mime, upsert: false })
 
   if (upErr) {
     console.error('[organization-logo upload]', upErr)

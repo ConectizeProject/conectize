@@ -33,6 +33,65 @@ function extractCnpjFromCertificate (commonName: string | null) {
   return digits.slice(-14)
 }
 
+function publicKeysMatch (cert: forge.pki.Certificate, key: forge.pki.rsa.PrivateKey) {
+  const certKey = cert.publicKey as forge.pki.rsa.PublicKey | undefined
+  if (!certKey?.n || !certKey?.e || !key.n || !key.e) return false
+  return certKey.n.compareTo(key.n) === 0 && certKey.e.compareTo(key.e) === 0
+}
+
+function parsePkcs12 (pfxBuffer: Buffer, password: string) {
+  const der = forge.util.createBuffer(bufferToBinaryString(pfxBuffer))
+  const asn1 = forge.asn1.fromDer(der, false)
+  return forge.pkcs12.pkcs12FromAsn1(asn1, false, password)
+}
+
+export type A1CertificateMaterial = {
+  certPem: string
+  chainPem: string
+  privateKeyPem: string
+  notAfter: Date
+  notBefore: Date
+}
+
+/** PEM para mTLS no Node 18+: o OpenSSL 3 recusa PFX A1 legado (RC2/3DES). */
+export function a1MaterialToMtls (material: A1CertificateMaterial) {
+  return {
+    cert: material.chainPem ? `${material.certPem}\n${material.chainPem}` : material.certPem,
+    key: material.privateKeyPem,
+  }
+}
+
+/** Abre o PFX A1 sem openssl.exe (necessário no Windows). */
+export function loadA1CertificateMaterial (pfxBuffer: Buffer, password: string): A1CertificateMaterial {
+  const p12 = parsePkcs12(pfxBuffer, password)
+  const certBags = p12.getBags({ bagType: forge.pki.oids.certBag })[forge.pki.oids.certBag] || []
+  const keyBags = [
+    ...(p12.getBags({ bagType: forge.pki.oids.pkcs8ShroudedKeyBag })[forge.pki.oids.pkcs8ShroudedKeyBag] || []),
+    ...(p12.getBags({ bagType: forge.pki.oids.keyBag })[forge.pki.oids.keyBag] || []),
+  ]
+  const privateKey = keyBags
+    .map((bag) => bag.key)
+    .find((item): item is forge.pki.rsa.PrivateKey => Boolean(item))
+  const certs = certBags
+    .map((bag) => bag.cert)
+    .filter((item): item is forge.pki.Certificate => Boolean(item))
+  const leaf = (privateKey ? certs.find((item) => publicKeysMatch(item, privateKey)) : null) || certs[0]
+
+  if (!leaf || !privateKey) {
+    throw new Error('Certificado A1 sem chave ou certificado no arquivo PFX.')
+  }
+
+  const chain = certs.filter((item) => item !== leaf)
+
+  return {
+    certPem: forge.pki.certificateToPem(leaf),
+    chainPem: chain.map((item) => forge.pki.certificateToPem(item)).join('\n'),
+    privateKeyPem: forge.pki.privateKeyToPem(privateKey),
+    notAfter: leaf.validity.notAfter,
+    notBefore: leaf.validity.notBefore,
+  }
+}
+
 export function validateFiscalCertificate (
   pfxBuffer: Buffer,
   password: string,
@@ -47,8 +106,7 @@ export function validateFiscalCertificate (
   }
 
   try {
-    const asn1 = forge.asn1.fromDer(bufferToBinaryString(pfxBuffer))
-    const p12 = forge.pkcs12.pkcs12FromAsn1(asn1, false, password)
+    const p12 = parsePkcs12(pfxBuffer, password)
     const certBags = p12.getBags({ bagType: forge.pki.oids.certBag })[forge.pki.oids.certBag] || []
     const firstCert = certBags
       .map((bag) => bag.cert)

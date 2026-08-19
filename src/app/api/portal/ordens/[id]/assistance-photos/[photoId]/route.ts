@@ -2,8 +2,23 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 import { deleteServiceOrderPhotoFile } from '@/lib/orders/service-order-photo-storage'
+import { handlePortalServiceOrderPhotoFileGet } from '@/lib/orders/serve-service-order-photo'
 
 const BUCKET = 'order-assistance-photos'
+
+export async function GET (
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string; photoId: string }> },
+) {
+  const { id, photoId } = await params
+  return handlePortalServiceOrderPhotoFileGet({
+    request,
+    orderIdRaw: id,
+    photoIdRaw: photoId,
+    table: 'service_order_assistance_photos',
+    bucket: BUCKET,
+  })
+}
 
 export async function DELETE (
   _request: NextRequest,

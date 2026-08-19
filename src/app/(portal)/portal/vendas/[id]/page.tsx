@@ -443,7 +443,7 @@ export default function PedidoVendaDetailPage () {
     : '—'
 
   return (
-    <div className='space-y-4 py-4'>
+    <div className='space-y-4'>
       <div className='flex flex-wrap items-start justify-between gap-3'>
         <div>
           <h1 className='text-2xl font-semibold'>Pedido #{order.order_number}</h1>

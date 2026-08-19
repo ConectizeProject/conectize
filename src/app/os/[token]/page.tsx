@@ -10,7 +10,7 @@ import Header from '@/components/Header'
 import Footer from '@/components/Footer'
 import { OsPublicEntryPhotos } from './OsPublicEntryPhotos'
 import { OsPublicDeviceChecksSection } from './OsPublicDeviceChecksSection'
-import { signServiceOrderPhotoRows } from '@/lib/orders/service-order-photo-storage'
+import { mapRowsToPublicOsPhotoItems } from '@/lib/orders/service-order-photo-urls'
 
 export const dynamic = 'force-dynamic'
 
@@ -197,7 +197,6 @@ export default async function OrdemPublicaPage({
 	let exitPhotos: Array<{ id: string; url: string | null; thumbUrl: string | null; created_at: string }> = []
 	let assistancePhotos: Array<{ id: string; url: string | null; thumbUrl: string | null; created_at: string }> = []
 	if (order?.id) {
-		const expiresIn = 60 * 60
 		const [entryRowsRes, exitRowsRes, assistanceRowsRes] = await Promise.all([
 			supabase
 				.from('service_order_entry_photos')
@@ -216,11 +215,11 @@ export default async function OrdemPublicaPage({
 				.order('created_at', { ascending: true }),
 		])
 
-		;[entryPhotos, exitPhotos, assistancePhotos] = await Promise.all([
-			signServiceOrderPhotoRows(supabase, 'order-entry-photos', entryRowsRes.data, expiresIn),
-			signServiceOrderPhotoRows(supabase, 'order-exit-photos', exitRowsRes.data, expiresIn),
-			signServiceOrderPhotoRows(supabase, 'order-assistance-photos', assistanceRowsRes.data, expiresIn),
-		])
+		;[entryPhotos, exitPhotos, assistancePhotos] = [
+			mapRowsToPublicOsPhotoItems(token, 'entry', entryRowsRes.data),
+			mapRowsToPublicOsPhotoItems(token, 'exit', exitRowsRes.data),
+			mapRowsToPublicOsPhotoItems(token, 'assistance', assistanceRowsRes.data),
+		]
 	}
 
 	if (!order) {

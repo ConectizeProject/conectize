@@ -5,7 +5,7 @@
 	"scripts": {
 		"dev": "next dev",
 		"dev:webpack": "next dev --webpack",
-		"build": "next build",
+		"build": "node scripts/prepare-next-build.mjs && next build",
 		"start": "next start",
 		"lint": "biome lint .",
 		"lint:fix": "biome lint . --write",

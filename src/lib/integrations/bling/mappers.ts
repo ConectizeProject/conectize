@@ -11,6 +11,15 @@ export type LocalProduct = {
 	salePriceCents?: number | null;
 	costPriceCents?: number | null;
 	isActive?: boolean;
+	ncm?: string | null;
+	cest?: string | null;
+	cfop?: string | null;
+	fiscalOrigin?: number | null;
+	fiscalUnit?: string | null;
+	icmsCsosn?: string | null;
+	icmsCst?: string | null;
+	pisCst?: string | null;
+	cofinsCst?: string | null;
 	/** Estoque atual no Bling; usado na importação para criar/alinhar movimentos. */
 	estoqueAtual?: number;
 };
@@ -139,6 +148,145 @@ function recordPropCI(
 		if (key.toLowerCase() === nameLower) return obj[key];
 	}
 	return undefined;
+}
+
+function readPropCI(
+	obj: Record<string, unknown>,
+	names: string[],
+): { found: boolean; value: unknown } {
+	for (const wanted of names) {
+		const lower = wanted.toLowerCase();
+		for (const key of Object.keys(obj)) {
+			if (key.toLowerCase() === lower) return { found: true, value: obj[key] };
+		}
+	}
+	return { found: false, value: undefined };
+}
+
+function objectPropCI(obj: Record<string, unknown>, names: string[]): Record<string, unknown> | null {
+	const found = readPropCI(obj, names);
+	if (!found.found || !found.value || typeof found.value !== "object" || Array.isArray(found.value)) {
+		return null;
+	}
+	return found.value as Record<string, unknown>;
+}
+
+function fiscalContainersFrom(
+	flat: Record<string, unknown>,
+	slice: Record<string, unknown>,
+): Record<string, unknown>[] {
+	const containers: Record<string, unknown>[] = [slice, flat];
+	const nestedKeys = [
+		"tributacao",
+		"tributação",
+		"tributacaoProduto",
+		"dadosFiscais",
+		"dados_fiscais",
+		"fiscal",
+		"produtoFiscal",
+	];
+	for (const source of [slice, flat]) {
+		for (const key of nestedKeys) {
+			const nested = objectPropCI(source, [key]);
+			if (nested) containers.push(nested);
+		}
+	}
+	return containers;
+}
+
+function nestedFiscalContainers(
+	containers: Record<string, unknown>[],
+	names: string[],
+): Record<string, unknown>[] {
+	const nested: Record<string, unknown>[] = [];
+	for (const container of containers) {
+		const item = objectPropCI(container, names);
+		if (item) nested.push(item);
+	}
+	return [...nested, ...containers];
+}
+
+function readFiscalValue(
+	containers: Record<string, unknown>[],
+	names: string[],
+): { found: boolean; value: unknown } {
+	for (const container of containers) {
+		const found = readPropCI(container, names);
+		if (found.found) return found;
+	}
+	return { found: false, value: undefined };
+}
+
+function fiscalDigits(
+	containers: Record<string, unknown>[],
+	names: string[],
+	maxLength: number,
+): string | null | undefined {
+	const found = readFiscalValue(containers, names);
+	if (!found.found) return undefined;
+	const digits = String(found.value ?? "").replace(/\D/g, "").slice(0, maxLength);
+	return digits || null;
+}
+
+function fiscalText(
+	containers: Record<string, unknown>[],
+	names: string[],
+	maxLength: number,
+): string | null | undefined {
+	const found = readFiscalValue(containers, names);
+	if (!found.found) return undefined;
+	const text = String(found.value ?? "").trim().toUpperCase().slice(0, maxLength);
+	return text || null;
+}
+
+function fiscalOrigin(
+	containers: Record<string, unknown>[],
+): number | null | undefined {
+	const found = readFiscalValue(containers, [
+		"origem",
+		"origemFiscal",
+		"codigoOrigem",
+		"codigo_origem",
+		"origemMercadoria",
+	]);
+	if (!found.found) return undefined;
+	const digits = String(found.value ?? "").replace(/\D/g, "");
+	if (!digits) return null;
+	const n = Number(digits[0]);
+	return Number.isInteger(n) && n >= 0 && n <= 8 ? n : null;
+}
+
+function extractFiscalFields(
+	flat: Record<string, unknown>,
+	slice: Record<string, unknown>,
+): Pick<
+	LocalProduct,
+	| "ncm"
+	| "cest"
+	| "cfop"
+	| "fiscalOrigin"
+	| "fiscalUnit"
+	| "icmsCsosn"
+	| "icmsCst"
+	| "pisCst"
+	| "cofinsCst"
+> {
+	const containers = fiscalContainersFrom(flat, slice);
+	const icmsContainers = nestedFiscalContainers(containers, ["icms", "ICMS"]);
+	const pisContainers = nestedFiscalContainers(containers, ["pis", "PIS"]);
+	const cofinsContainers = nestedFiscalContainers(containers, ["cofins", "COFINS"]);
+
+	return {
+		ncm: fiscalDigits(containers, ["ncm", "classificacaoFiscal", "classificacao_fiscal"], 8),
+		cest: fiscalDigits(containers, ["cest", "codigoCest", "codigoCEST", "codigo_cest"], 7),
+		cfop: fiscalDigits(containers, ["cfop", "cfopPadrao", "cfop_padrao", "cfopSaida", "cfop_saida"], 4),
+		fiscalOrigin: fiscalOrigin(containers),
+		fiscalUnit: fiscalText(containers, ["unidade", "unidadeMedida", "unidade_medida", "un"], 6),
+		icmsCsosn: fiscalDigits(icmsContainers, ["csosn", "icmsCsosn", "codigoCsosn", "codigo_csosn"], 3),
+		icmsCst: fiscalDigits(icmsContainers, ["cst", "icmsCst", "codigoCst", "codigo_cst"], 3),
+		pisCst: fiscalDigits(pisContainers, ["cst", "pisCst", "cstPis", "codigoCst", "codigo_cst"], 2),
+		cofinsCst: fiscalDigits(cofinsContainers, ["cst", "cofinsCst", "cstCofins", "codigoCst", "codigo_cst"], 2),
+	};
 }
 
 /** Bling v3: `imagemURL` na raiz ou imagens em `midia.imagens` (internas/externas/imagensURL). */
@@ -711,6 +859,7 @@ export function mapBlingProductToLocal(
 	const { saleCents, costCents } = resolveSaleAndCostCents(dto);
 	const estoqueAtual = getStock(dto);
 	const imageUrl = extractBlingProductImageUrl(slice);
+	const fiscal = extractFiscalFields(flat, slice);
 	const tipo = (dto.tipo || "").toString().toUpperCase();
 	const kind: "product" | "service" | null =
 		tipo === "P" ? "product" : tipo === "S" ? "service" : null;
@@ -744,6 +893,7 @@ export function mapBlingProductToLocal(
 		isActive,
 		imageUrl,
 		kind,
+		...fiscal,
 		estoqueAtual,
 	};
 }

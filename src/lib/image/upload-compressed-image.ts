@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createImageUploadVariants } from '@/lib/image/process-upload-image'
 import { toThumbStoragePath } from '@/lib/image/storage-paths'
+import { toStorageUploadBody } from '@/lib/image/to-storage-upload-body'
 
 const JPEG_CONTENT_TYPE = 'image/jpeg'
 
@@ -29,7 +30,7 @@ export async function uploadCompressedImageWithThumb (opts: {
 
   const { error: fullErr } = await opts.supabase.storage
     .from(opts.bucket)
-    .upload(path, full, { contentType: JPEG_CONTENT_TYPE, upsert: false })
+    .upload(path, toStorageUploadBody(full), { contentType: JPEG_CONTENT_TYPE, upsert: false })
 
   if (fullErr) {
     console.error('[uploadCompressedImageWithThumb] full', fullErr)
@@ -38,7 +39,7 @@ export async function uploadCompressedImageWithThumb (opts: {
 
   const { error: thumbErr } = await opts.supabase.storage
     .from(opts.bucket)
-    .upload(thumbPath, thumb, { contentType: JPEG_CONTENT_TYPE, upsert: false })
+    .upload(thumbPath, toStorageUploadBody(thumb), { contentType: JPEG_CONTENT_TYPE, upsert: false })
 
   if (thumbErr) {
     console.error('[uploadCompressedImageWithThumb] thumb', thumbErr)

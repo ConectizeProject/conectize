@@ -1,7 +1,9 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { ExternalLink, FileCheck2, Loader2, Printer, Send } from 'lucide-react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { Download, ExternalLink, FileCheck2, Loader2, Printer, Send } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -13,6 +15,10 @@ import {
 } from '@/components/ui/dialog'
 import { portalFetch } from '@/lib/portal/portal-fetch'
 import { toast } from '@/hooks/use-toast'
+import {
+  isProductFiscalCorrectionError,
+  nfceEditorHref,
+} from '@/lib/fiscal/product-fiscal-errors'
 import {
   SalesOrderCupomPreview,
   openSalesOrderCupomPrint,
@@ -43,6 +49,7 @@ type FiscalDocumentState = {
 type SalesOrderNfceState = {
   fiscalDocument: FiscalDocumentState | null
   danfeUrl: string | null
+  xmlUrl: string | null
 }
 
 type SalesOrderAfterSaleDialogProps = {
@@ -92,10 +99,11 @@ export function SalesOrderAfterSaleActions (props: {
   const [busyPrint, setBusyPrint] = useState(false)
   const [busyBling, setBusyBling] = useState(false)
   const [busyNfce, setBusyNfce] = useState(false)
-  const [nfce, setNfce] = useState<SalesOrderNfceState>({ fiscalDocument: null, danfeUrl: null })
+  const [nfce, setNfce] = useState<SalesOrderNfceState>({ fiscalDocument: null, danfeUrl: null, xmlUrl: null })
   const [bling, setBling] = useState<SalesOrderBlingLinkState>(() =>
     buildInitialBlingState(props)
   )
+  const router = useRouter()
 
   useEffect(() => {
     setBling(buildInitialBlingState(props))
@@ -106,11 +114,18 @@ export function SalesOrderAfterSaleActions (props: {
   const viewUrl = bling.preferredUrl || bling.pedidoUrl
   const nfceStatus = nfce.fiscalDocument?.status ?? null
   const canPrintFiscal = nfceStatus === 'authorized' && nfce.danfeUrl
+  const needsFiscalCorrection = Boolean(
+    nfce.fiscalDocument?.id && (
+      nfceStatus === 'rejected' ||
+      nfceStatus === 'denied' ||
+      (nfceStatus === 'pending' && isProductFiscalCorrectionError(nfce.fiscalDocument.sefaz_status_code))
+    ),
+  )
 
   useEffect(() => {
     let cancelled = false
     if (!isPaid) {
-      setNfce({ fiscalDocument: null, danfeUrl: null })
+      setNfce({ fiscalDocument: null, danfeUrl: null, xmlUrl: null })
       return
     }
 
@@ -121,6 +136,7 @@ export function SalesOrderAfterSaleActions (props: {
       setNfce({
         fiscalDocument: data.fiscal_document ?? null,
         danfeUrl: data.danfe_url ?? null,
+        xmlUrl: data.xml_url ?? null,
       })
     })()
 
@@ -203,6 +219,13 @@ export function SalesOrderAfterSaleActions (props: {
       return
     }
 
+    if (needsFiscalCorrection && nfce.fiscalDocument?.id) {
+      router.push(nfceEditorHref(nfce.fiscalDocument.id, {
+        corrigir: isProductFiscalCorrectionError(nfce.fiscalDocument.sefaz_status_code),
+      }))
+      return
+    }
+
     setBusyNfce(true)
     try {
       const endpoint = nfce.fiscalDocument?.id && nfce.fiscalDocument.status !== 'authorized'
@@ -210,7 +233,16 @@ export function SalesOrderAfterSaleActions (props: {
         : `/api/portal/sales-orders/${encodeURIComponent(props.orderId)}/emit-nfce`
       const res = await portalFetch(endpoint, { method: 'POST' })
       const data = await res?.json().catch(() => null)
+      const nextDocument = (data?.fiscal_document ?? null) as FiscalDocumentState | null
       if (!data?.ok) {
+        if (data?.needs_correction && nextDocument?.id) {
+          toast({
+            title: 'Complete NCM e CEST',
+            description: data.message || 'Preencha os dados fiscais dos produtos para emitir a NFC-e.',
+          })
+          router.push(nfceEditorHref(nextDocument.id, { corrigir: true }))
+          return
+        }
         toast({
           title: 'NFC-e não autorizada',
           description: data?.message || data?.error || 'Não foi possível emitir a NFC-e.',
@@ -222,6 +254,7 @@ export function SalesOrderAfterSaleActions (props: {
       const next = {
         fiscalDocument: data.fiscal_document ?? null,
         danfeUrl: data.danfe_url ?? null,
+        xmlUrl: data.xml_url ?? null,
       }
       setNfce(next)
 
@@ -237,10 +270,13 @@ export function SalesOrderAfterSaleActions (props: {
 
       const reason = next.fiscalDocument?.sefaz_status_message
       toast({
-        title: 'NFC-e enviada',
+        title: 'NFC-e não autorizada',
         description: reason || 'A SEFAZ retornou a nota sem autorização.',
         variant: 'destructive',
       })
+      if (next.fiscalDocument?.id) {
+        router.push(`/portal/vendas/nfce/${encodeURIComponent(next.fiscalDocument.id)}`)
+      }
     } finally {
       setBusyNfce(false)
     }
@@ -257,8 +293,21 @@ export function SalesOrderAfterSaleActions (props: {
         <Button type='button' variant={canPrintFiscal ? 'outline' : 'secondary'} disabled={busyNfce} onClick={() => void handleNfce()}>
           {busyNfce ? <Loader2 className='h-4 w-4 animate-spin' /> : <FileCheck2 className='h-4 w-4' />}
           <span className='ml-2'>
-            {canPrintFiscal ? 'Imprimir cupom fiscal' : 'NFC-e + imprimir cupom fiscal'}
+            {needsFiscalCorrection
+              ? 'Completar dados da NFC-e'
+              : canPrintFiscal
+                ? 'Imprimir cupom fiscal'
+                : 'NFC-e + imprimir cupom fiscal'}
           </span>
+        </Button>
+      ) : null}
+
+      {nfce.xmlUrl ? (
+        <Button type='button' variant='outline' asChild>
+          <a href={nfce.xmlUrl} download>
+            <Download className='h-4 w-4' />
+            <span className='ml-2'>Baixar XML</span>
+          </a>
         </Button>
       ) : null}
 
@@ -279,9 +328,29 @@ export function SalesOrderAfterSaleActions (props: {
           </Button>
         )
       ) : null}
-      {nfceStatus === 'rejected' || nfceStatus === 'denied' ? (
+      {nfceStatus === 'denied' && nfce.fiscalDocument?.id ? (
         <p className='basis-full text-sm text-destructive'>
-          NFC-e rejeitada: {nfce.fiscalDocument?.sefaz_status_message || nfce.fiscalDocument?.sefaz_status_code || 'verifique os dados fiscais.'}
+          NFC-e denegada.{' '}
+          <Link href={`/portal/vendas/nfce/${encodeURIComponent(nfce.fiscalDocument.id)}`} className='underline underline-offset-4'>
+            Corrigir e enviar de novo
+          </Link>
+          {nfce.fiscalDocument.sefaz_status_message ? ` — ${nfce.fiscalDocument.sefaz_status_message}` : ''}
+        </p>
+      ) : nfceStatus === 'rejected' && nfce.fiscalDocument?.id ? (
+        <p className='basis-full text-sm text-destructive'>
+          NFC-e rejeitada.{' '}
+          <Link href={`/portal/vendas/nfce/${encodeURIComponent(nfce.fiscalDocument.id)}`} className='underline underline-offset-4'>
+            Ver erro e corrigir
+          </Link>
+          {nfce.fiscalDocument.sefaz_status_message ? ` — ${nfce.fiscalDocument.sefaz_status_message}` : ''}
+        </p>
+      ) : nfceStatus === 'denied' ? (
+        <p className='basis-full text-sm text-destructive'>
+          NFC-e denegada: o número foi consumido pela SEFAZ. Corrija os dados e emita de novo.
+        </p>
+      ) : nfceStatus === 'rejected' ? (
+        <p className='basis-full text-sm text-destructive'>
+          NFC-e rejeitada: {nfce.fiscalDocument?.sefaz_status_message || 'verifique os dados fiscais.'}
         </p>
       ) : null}
     </div>

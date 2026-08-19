@@ -60,11 +60,6 @@ const nextConfig = {
 			},
 		],
 	},
-	// Turbopack: cache em disco para dev mais rápido entre reinícios (Next.js 16)
-	experimental: {
-		turbopackFileSystemCacheForDev: true,
-		// inlineCss desligado: em alguns browsers gerava FOUC / flash preto antes do paint
-	},
 	// Remove polyfills legados em navegadores modernos (~14KB economia)
 	turbopack: {
 		resolveAlias: {

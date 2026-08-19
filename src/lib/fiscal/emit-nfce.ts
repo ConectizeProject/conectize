@@ -3,7 +3,31 @@ import type { PortalAuthStaffSuccess } from '@/lib/auth/portal-api'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { decryptFiscalSecretToBuffer, decryptFiscalSecretToString } from '@/lib/fiscal/secrets'
 import { buildNfceFromSalesOrder } from '@/lib/fiscal/build-nfce-from-sales-order'
-import { createSefazClient } from '@/lib/fiscal/sefaz-client'
+import { createSefazClient, type SefazTransmitResult } from '@/lib/fiscal/sefaz-client'
+import { nfceCscForEnvironment } from '@/lib/fiscal/csc'
+import { getDefaultFiscalOperationNature } from '@/lib/fiscal/operation-nature'
+import { isProductFiscalCorrectionError } from '@/lib/fiscal/product-fiscal-errors'
+import { loadA1CertificateMaterial } from '@/lib/fiscal/certificate'
+import {
+  fiscalCertificateExpiredMessage,
+  isFiscalCertificateExpired,
+} from '@/lib/fiscal/certificate-validity'
+import {
+  isMissingColumnError,
+  nfceNumberingPatch,
+  parseAllocatedFiscalNumber,
+  type FiscalNumberingEnvironment,
+  type FiscalNumberingProfileRow,
+} from '@/lib/fiscal/numbering'
+import { isSefazDenied } from '@/lib/fiscal/document-status'
+import {
+  asSignedNfceXml,
+  buildNfeProcXml,
+  extractQrCodeUrlFromXml,
+  isDuplicateSefazError,
+  isUncertainSefazError,
+  type SefazConsultaParse,
+} from '@/lib/fiscal/sefaz-consulta'
 
 type AuthCtx = PortalAuthStaffSuccess
 
@@ -17,6 +41,7 @@ type FiscalDocumentRow = {
   status: string
   protocol?: string | null
   qr_code_url?: string | null
+  submitted_xml?: string | null
   sefaz_status_code?: string | null
   sefaz_status_message?: string | null
   authorized_at?: string | null
@@ -29,7 +54,13 @@ export type EmitNfceResult =
     alreadyAuthorized: boolean
     printedUrl: string | null
   }
-  | { ok: false, error: string, message: string }
+  | {
+    ok: false
+    error: string
+    message: string
+    fiscalDocument?: FiscalDocumentRow | null
+    needsCorrection?: boolean
+  }
 
 export type CancelNfceResult =
   | { ok: true, fiscalDocument: FiscalDocumentRow }
@@ -39,8 +70,16 @@ function errorMessage (err: unknown) {
   if (err && typeof err === 'object') {
     const record = err as { cStat?: unknown, xMotivo?: unknown, message?: unknown }
     const status = record.cStat ? `[${String(record.cStat)}] ` : ''
-    const reason = record.xMotivo || record.message
-    return `${status}${String(reason || 'Falha ao transmitir NFC-e.')}`
+    const reason = String(record.xMotivo || record.message || '')
+    if (/unsupported pkcs12|pkcs12 pfx/i.test(reason)) {
+      return 'O certificado A1 usa um formato que o Node não abre como PFX. Recarregue o certificado em Configurações fiscais ou tente novamente.'
+    }
+    if (/body nao encontrado|resposta soap invalida/i.test(reason)) {
+      return reason.includes('Trecho:')
+        ? reason
+        : 'A SEFAZ respondeu, mas o envelope SOAP não pôde ser lido. Tente enviar novamente.'
+    }
+    return `${status}${reason || 'Falha ao transmitir NFC-e.'}`
   }
   return 'Falha ao transmitir NFC-e.'
 }
@@ -53,17 +92,28 @@ function errorStatusCode (err: unknown) {
   return 'exception'
 }
 
-function extractQrCodeUrl (xml: string | null) {
-  if (!xml) return null
-  const cdata = xml.match(/<qrCode>\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*<\/qrCode>/)
-  if (cdata?.[1]) return cdata[1].trim()
-  const plain = xml.match(/<qrCode>([\s\S]*?)<\/qrCode>/)
-  if (!plain?.[1]) return null
-  return plain[1]
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .trim()
+function certificateExpiredResult (validUntil: unknown): Extract<EmitNfceResult, { ok: false }> {
+  return {
+    ok: false,
+    error: 'certificate_expired',
+    message: fiscalCertificateExpiredMessage(validUntil),
+  }
+}
+
+function readLiveCertificateExpiry (pfx: Buffer, password: string) {
+  try {
+    return loadA1CertificateMaterial(pfx, password).notAfter
+  } catch {
+    return null
+  }
+}
+
+const FISCAL_DOCUMENT_SELECT = 'id, model, environment, series, number, access_key, status, protocol, qr_code_url, submitted_xml, sefaz_status_code, sefaz_status_message, authorized_at'
+
+const TIMEOUT_MESSAGE = 'A SEFAZ não confirmou a autorização a tempo. A nota não foi reenviada para evitar duplicidade. Tente novamente para consultar o protocolo.'
+
+function printedUrlFor (documentId: string) {
+  return `/api/portal/fiscal/documents/${encodeURIComponent(documentId)}/danfe`
 }
 
 async function insertEvent (auth: AuthCtx, input: {
@@ -86,7 +136,7 @@ async function insertEvent (auth: AuthCtx, input: {
 async function getExistingNfce (auth: AuthCtx, orderId: string) {
   const { data } = await auth.supabase
     .from('fiscal_documents')
-    .select('id, model, environment, series, number, access_key, status, protocol, qr_code_url, sefaz_status_code, sefaz_status_message, authorized_at')
+    .select(FISCAL_DOCUMENT_SELECT)
     .eq('organization_id', auth.organizationId)
     .eq('sales_order_id', orderId)
     .eq('model', '65')
@@ -98,19 +148,256 @@ async function getExistingNfce (auth: AuthCtx, orderId: string) {
   return data as FiscalDocumentRow | null
 }
 
-async function allocateNumber (auth: AuthCtx, environment: 'homologacao' | 'producao') {
-  const { data, error } = await auth.supabase.rpc('allocate_fiscal_document_number', {
+async function allocateNumberFromProfile (
+  service: ReturnType<typeof createSupabaseServiceClient>,
+  organizationId: string,
+  environment: FiscalNumberingEnvironment,
+) {
+  const envSelect = 'fiscal_environment, nfce_series, nfce_next_number, nfce_series_homologacao, nfce_next_number_homologacao, nfce_series_producao, nfce_next_number_producao'
+  const first = await service
+    .from('organization_fiscal_profiles')
+    .select(envSelect)
+    .eq('organization_id', organizationId)
+    .maybeSingle()
+
+  let profile = first.data as FiscalNumberingProfileRow | null
+  let error = first.error
+
+  if (error && isMissingColumnError(error)) {
+    const legacy = await service
+      .from('organization_fiscal_profiles')
+      .select('fiscal_environment, nfce_series, nfce_next_number')
+      .eq('organization_id', organizationId)
+      .maybeSingle()
+    profile = (legacy.data || null) as FiscalNumberingProfileRow | null
+    error = legacy.error
+  }
+
+  if (error || !profile) {
+    console.error('[nfce] allocate fallback load', error)
+    return null
+  }
+
+  const { numbering, patch, legacyPatch } = nfceNumberingPatch(profile as FiscalNumberingProfileRow, environment)
+  const { error: updateError } = await service
+    .from('organization_fiscal_profiles')
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq('organization_id', organizationId)
+
+  if (updateError && isMissingColumnError(updateError)) {
+    const { error: legacyError } = await service
+      .from('organization_fiscal_profiles')
+      .update({ ...legacyPatch, updated_at: new Date().toISOString() })
+      .eq('organization_id', organizationId)
+    if (legacyError) {
+      console.error('[nfce] allocate fallback update', legacyError)
+      return null
+    }
+  } else if (updateError) {
+    console.error('[nfce] allocate fallback update', updateError)
+    return null
+  }
+
+  return {
+    series: numbering.series,
+    number: numbering.nextNumber,
+  }
+}
+
+async function allocateNumber (auth: AuthCtx, environment: FiscalNumberingEnvironment) {
+  const service = createSupabaseServiceClient()
+  const { data, error } = await service.rpc('allocate_fiscal_document_number', {
     p_organization_id: auth.organizationId,
     p_model: '65',
     p_environment: environment,
   })
 
-  if (error) return null
-  const row = Array.isArray(data) ? data[0] : data
-  if (!row) return null
+  const allocated = parseAllocatedFiscalNumber(data)
+  if (allocated) return allocated
+  if (error) {
+    console.error('[nfce] allocate_fiscal_document_number', error)
+  }
+
+  return allocateNumberFromProfile(service, auth.organizationId, environment)
+}
+
+async function persistFiscalDocument (
+  auth: AuthCtx,
+  documentId: string,
+  patch: Record<string, unknown>,
+) {
+  const { data } = await auth.supabase
+    .from('fiscal_documents')
+    .update({
+      ...patch,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', documentId)
+    .eq('organization_id', auth.organizationId)
+    .select(FISCAL_DOCUMENT_SELECT)
+    .maybeSingle()
+  return (data || null) as FiscalDocumentRow | null
+}
+
+function authorizedResult (row: FiscalDocumentRow, alreadyAuthorized = false): Extract<EmitNfceResult, { ok: true }> {
   return {
-    series: Number(row.series) || 1,
-    number: Number(row.number) || 1,
+    ok: true,
+    fiscalDocument: row,
+    alreadyAuthorized,
+    printedUrl: printedUrlFor(row.id),
+  }
+}
+
+async function applyConsultaOutcome (
+  auth: AuthCtx,
+  fiscalDocument: FiscalDocumentRow,
+  consulta: SefazConsultaParse,
+  signedXml: string | null,
+): Promise<EmitNfceResult | 'missing'> {
+  if (consulta.kind === 'not_found') return 'missing'
+
+  if (consulta.kind === 'authorized') {
+    const authorizedXml = signedXml && consulta.protNfeXml
+      ? buildNfeProcXml(signedXml, consulta.protNfeXml)
+      : null
+    const qrCodeUrl = extractQrCodeUrlFromXml(signedXml || '')
+    const updated = await persistFiscalDocument(auth, fiscalDocument.id, {
+      status: 'authorized',
+      access_key: fiscalDocument.access_key,
+      protocol: consulta.protocol,
+      sefaz_status_code: consulta.statusCode,
+      sefaz_status_message: consulta.statusMessage,
+      authorized_at: consulta.authorizedAt,
+      ...(authorizedXml ? { authorized_xml: authorizedXml } : {}),
+      ...(qrCodeUrl ? { qr_code_url: qrCodeUrl } : {}),
+    })
+    await insertEvent(auth, {
+      documentId: fiscalDocument.id,
+      type: 'authorize',
+      statusCode: consulta.statusCode,
+      statusMessage: consulta.statusMessage,
+      payload: { recovered: true },
+    })
+    return authorizedResult((updated || {
+      ...fiscalDocument,
+      status: 'authorized',
+      protocol: consulta.protocol,
+      sefaz_status_code: consulta.statusCode,
+      sefaz_status_message: consulta.statusMessage,
+      authorized_at: consulta.authorizedAt,
+    }) as FiscalDocumentRow)
+  }
+
+  const status = consulta.kind === 'denied'
+    ? 'denied'
+    : consulta.kind === 'canceled'
+      ? 'canceled'
+      : 'rejected'
+  const updated = await persistFiscalDocument(auth, fiscalDocument.id, {
+    status,
+    sefaz_status_code: consulta.statusCode,
+    sefaz_status_message: consulta.statusMessage,
+    protocol: consulta.protocol,
+    authorized_at: consulta.kind === 'denied' || consulta.kind === 'canceled' ? consulta.authorizedAt : null,
+  })
+  await insertEvent(auth, {
+    documentId: fiscalDocument.id,
+    type: consulta.kind === 'denied' ? 'reject' : consulta.kind === 'canceled' ? 'cancel' : 'reject',
+    statusCode: consulta.statusCode,
+    statusMessage: consulta.statusMessage,
+    payload: { recovered: true },
+  })
+  return {
+    ok: false,
+    error: consulta.kind === 'denied' ? 'sefaz_denied' : 'sefaz_error',
+    message: `[${consulta.statusCode}] ${consulta.statusMessage}`,
+    fiscalDocument: (updated || fiscalDocument) as FiscalDocumentRow,
+  }
+}
+
+async function recoverAfterUncertainSend (
+  auth: AuthCtx,
+  client: ReturnType<typeof createSefazClient>,
+  fiscalDocument: FiscalDocumentRow,
+  accessKey: string,
+  signedXml: string | null,
+): Promise<EmitNfceResult> {
+  const timeoutPatch: Record<string, unknown> = {
+    status: 'pending',
+    access_key: accessKey,
+    sefaz_status_code: 'timeout',
+    sefaz_status_message: TIMEOUT_MESSAGE,
+  }
+  if (signedXml) timeoutPatch.submitted_xml = signedXml
+  await persistFiscalDocument(auth, fiscalDocument.id, timeoutPatch)
+  try {
+    const consulta = await client.consultar(accessKey)
+    const outcome = await applyConsultaOutcome(auth, { ...fiscalDocument, access_key: accessKey }, consulta, signedXml)
+    if (outcome !== 'missing') return outcome
+  } catch (err) {
+    await insertEvent(auth, {
+      documentId: fiscalDocument.id,
+      type: 'error',
+      statusCode: errorStatusCode(err),
+      statusMessage: errorMessage(err),
+      payload: { operation: 'consulta', after: 'timeout' },
+    })
+  }
+
+  const pending = await persistFiscalDocument(auth, fiscalDocument.id, {
+    status: 'pending',
+    access_key: accessKey,
+    sefaz_status_code: 'timeout',
+    sefaz_status_message: TIMEOUT_MESSAGE,
+  })
+  await insertEvent(auth, {
+    documentId: fiscalDocument.id,
+    type: 'error',
+    statusCode: 'timeout',
+    statusMessage: TIMEOUT_MESSAGE,
+    payload: { operation: 'consulta', accessKey },
+  })
+  return {
+    ok: false,
+    error: 'sefaz_timeout',
+    message: TIMEOUT_MESSAGE,
+    fiscalDocument: (pending || { ...fiscalDocument, access_key: accessKey, status: 'pending' }) as FiscalDocumentRow,
+  }
+}
+
+async function applyTransmitResult (
+  auth: AuthCtx,
+  fiscalDocument: FiscalDocumentRow,
+  result: SefazTransmitResult,
+): Promise<EmitNfceResult> {
+  const denied = isSefazDenied(result.statusCode)
+  const status = result.authorized ? 'authorized' : denied ? 'denied' : 'rejected'
+  const updated = await persistFiscalDocument(auth, fiscalDocument.id, {
+    status,
+    access_key: result.accessKey,
+    authorized_xml: result.authorizedXml,
+    protocol: result.protocol,
+    qr_code_url: extractQrCodeUrlFromXml(result.authorizedXml || ''),
+    sefaz_status_code: result.statusCode,
+    sefaz_status_message: result.statusMessage,
+    authorized_at: result.authorizedAt,
+  })
+  await insertEvent(auth, {
+    documentId: fiscalDocument.id,
+    type: result.authorized ? 'authorize' : 'reject',
+    statusCode: result.statusCode,
+    statusMessage: result.statusMessage,
+  })
+  const row = (updated || fiscalDocument) as FiscalDocumentRow
+  if (result.authorized) return authorizedResult(row)
+
+  const statusCode = String(result.statusCode || '').trim()
+  const statusMessage = String(result.statusMessage || '').trim() || 'A SEFAZ recusou a NFC-e.'
+  return {
+    ok: false,
+    error: denied ? 'sefaz_denied' : 'sefaz_error',
+    message: statusCode ? `[${statusCode}] ${statusMessage}` : statusMessage,
+    fiscalDocument: row,
   }
 }
 
@@ -119,12 +406,13 @@ export async function getSalesOrderNfceState (auth: AuthCtx, orderId: string) {
 }
 
 export async function emitNfceForSalesOrder (auth: AuthCtx, orderId: string): Promise<EmitNfceResult> {
-  const [{ data: profile }, existing] = await Promise.all([
+  const [{ data: profile }, operationNature, existing] = await Promise.all([
     auth.supabase
       .from('organization_fiscal_profiles')
       .select('*')
       .eq('organization_id', auth.organizationId)
       .maybeSingle(),
+    getDefaultFiscalOperationNature(auth.organizationId, '65'),
     getExistingNfce(auth, orderId),
   ])
 
@@ -133,43 +421,96 @@ export async function emitNfceForSalesOrder (auth: AuthCtx, orderId: string): Pr
   }
 
   if (existing?.status === 'authorized') {
-    return {
-      ok: true,
-      fiscalDocument: existing,
-      alreadyAuthorized: true,
-      printedUrl: `/api/portal/fiscal/documents/${encodeURIComponent(existing.id)}/danfe`,
-    }
+    return authorizedResult(existing, true)
   }
 
   const service = createSupabaseServiceClient()
   const { data: certificate } = await service
     .from('organization_fiscal_certificates')
-    .select('pfx_ciphertext, password_ciphertext')
+    .select('pfx_ciphertext, password_ciphertext, valid_until')
     .eq('organization_id', auth.organizationId)
     .maybeSingle()
 
   if (!certificate?.pfx_ciphertext || !certificate.password_ciphertext) {
     return { ok: false, error: 'missing_certificate', message: 'Cadastre o certificado digital A1 da empresa.' }
   }
+  if (isFiscalCertificateExpired(certificate.valid_until)) {
+    return certificateExpiredResult(certificate.valid_until)
+  }
 
-  const cscCiphertext = profile.nfce_csc_ciphertext ? String(profile.nfce_csc_ciphertext) : ''
-  if (!profile.nfce_csc_id || !cscCiphertext) {
-    return { ok: false, error: 'missing_csc', message: 'Informe o CSC e o ID Token da NFC-e.' }
+  const environment = profile.fiscal_environment === 'producao' ? 'producao' : 'homologacao'
+  const cscPair = nfceCscForEnvironment(profile, environment)
+  if (!cscPair.id || !cscPair.ciphertext) {
+    return {
+      ok: false,
+      error: 'missing_csc',
+      message: environment === 'producao'
+        ? 'Informe o CSC e o ID Token de produção da NFC-e.'
+        : 'Informe o CSC e o ID Token de homologação da NFC-e.',
+    }
   }
 
   const pfx = decryptFiscalSecretToBuffer(String(certificate.pfx_ciphertext))
   const password = decryptFiscalSecretToString(String(certificate.password_ciphertext))
-  const csc = decryptFiscalSecretToString(cscCiphertext)
-  const environment = profile.fiscal_environment === 'producao' ? 'producao' : 'homologacao'
+  const liveExpiry = readLiveCertificateExpiry(pfx, password)
+  if (isFiscalCertificateExpired(liveExpiry)) {
+    return certificateExpiredResult(liveExpiry)
+  }
+  const csc = decryptFiscalSecretToString(cscPair.ciphertext)
+  const signedPersist = { documentId: '' }
+  const client = createSefazClient({
+    pfx,
+    password,
+    environment,
+    uf: String(profile.state || '').trim().toUpperCase(),
+    cscId: String(cscPair.id).trim(),
+    csc,
+    async onSignedXml ({ xml, accessKey }) {
+      if (!signedPersist.documentId) return
+      await persistFiscalDocument(auth, signedPersist.documentId, {
+        submitted_xml: xml,
+        access_key: accessKey,
+      })
+    },
+  })
 
-  const numbering = existing
-    ? { series: Number(existing.series), number: Number(existing.number) }
+  // Denegação (cStat 110/301/302) consome o número. Rejeição pode reutilizar.
+  const reusable = existing?.status === 'denied' ? null : existing
+  if (reusable?.access_key) {
+    try {
+      const consulta = await client.consultar(reusable.access_key)
+      const recovered = await applyConsultaOutcome(
+        auth,
+        reusable,
+        consulta,
+        asSignedNfceXml(reusable.submitted_xml),
+      )
+      if (recovered !== 'missing') return recovered
+    } catch (err) {
+      await insertEvent(auth, {
+        documentId: reusable.id,
+        type: 'error',
+        statusCode: errorStatusCode(err),
+        statusMessage: errorMessage(err),
+        payload: { operation: 'consulta', before: 'retry' },
+      })
+      return {
+        ok: false,
+        error: 'sefaz_timeout',
+        message: TIMEOUT_MESSAGE,
+        fiscalDocument: reusable,
+      }
+    }
+  }
+
+  const numbering = reusable
+    ? { series: Number(reusable.series), number: Number(reusable.number) }
     : await allocateNumber(auth, environment)
   if (!numbering) {
     return { ok: false, error: 'numbering_failed', message: 'Não foi possível reservar a numeração da NFC-e.' }
   }
 
-  let fiscalDocument = existing
+  let fiscalDocument = reusable
   if (!fiscalDocument) {
     const { data: inserted, error: insertError } = await auth.supabase
       .from('fiscal_documents')
@@ -182,7 +523,7 @@ export async function emitNfceForSalesOrder (auth: AuthCtx, orderId: string): Pr
         sales_order_id: orderId,
         status: 'pending',
       })
-      .select('id, model, environment, series, number, access_key, status, protocol, qr_code_url, sefaz_status_code, sefaz_status_message, authorized_at')
+      .select(FISCAL_DOCUMENT_SELECT)
       .maybeSingle()
 
     if (insertError || !inserted) {
@@ -192,114 +533,76 @@ export async function emitNfceForSalesOrder (auth: AuthCtx, orderId: string): Pr
   } else {
     await insertEvent(auth, { documentId: fiscalDocument.id, type: 'retry' })
   }
+  signedPersist.documentId = fiscalDocument.id
 
   const built = await buildNfceFromSalesOrder({
     supabase: auth.supabase,
     organizationId: auth.organizationId,
     orderId,
     profile,
+    operationNature,
     series: numbering.series,
     number: numbering.number,
   })
   if (built.ok === false) {
-    await auth.supabase
-      .from('fiscal_documents')
-      .update({
-        status: 'rejected',
-        sefaz_status_code: built.error,
-        sefaz_status_message: built.message,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', fiscalDocument.id)
-      .eq('organization_id', auth.organizationId)
+    const needsCorrection = isProductFiscalCorrectionError(built.error)
+    const updated = await persistFiscalDocument(auth, fiscalDocument.id, {
+      status: needsCorrection ? 'pending' : 'rejected',
+      sefaz_status_code: built.error,
+      sefaz_status_message: built.message,
+    })
     await insertEvent(auth, {
       documentId: fiscalDocument.id,
-      type: 'reject',
+      type: needsCorrection ? 'error' : 'reject',
       statusCode: built.error,
       statusMessage: built.message,
     })
-    return { ok: false, error: built.error, message: built.message }
+    return {
+      ok: false,
+      error: built.error,
+      message: built.message,
+      fiscalDocument: (updated || fiscalDocument) as FiscalDocumentRow,
+      needsCorrection,
+    }
   }
 
-  await auth.supabase
-    .from('fiscal_documents')
-    .update({
-      submitted_xml: built.submittedXmlPlaceholder,
-      status: 'pending',
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', fiscalDocument.id)
-    .eq('organization_id', auth.organizationId)
+  await persistFiscalDocument(auth, fiscalDocument.id, {
+    status: 'pending',
+  })
   await insertEvent(auth, { documentId: fiscalDocument.id, type: 'submit' })
 
   try {
-    const client = createSefazClient({
-      pfx,
-      password,
-      environment,
-      uf: String(profile.state || '').trim().toUpperCase(),
-      cscId: String(profile.nfce_csc_id || '').trim(),
-      csc,
-    })
     const result = await client.transmitir(built.payload)
-    const status = result.authorized
-      ? 'authorized'
-      : result.statusCode === '110' || result.statusCode === '301' || result.statusCode === '302'
-        ? 'denied'
-        : 'rejected'
-    const qrCodeUrl = extractQrCodeUrl(result.authorizedXml)
-    const { data: updated } = await auth.supabase
-      .from('fiscal_documents')
-      .update({
-        status,
-        access_key: result.accessKey,
-        authorized_xml: result.authorizedXml,
-        protocol: result.protocol,
-        qr_code_url: qrCodeUrl,
-        sefaz_status_code: result.statusCode,
-        sefaz_status_message: result.statusMessage,
-        authorized_at: result.authorizedAt,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', fiscalDocument.id)
-      .eq('organization_id', auth.organizationId)
-      .select('id, model, environment, series, number, access_key, status, protocol, qr_code_url, sefaz_status_code, sefaz_status_message, authorized_at')
-      .maybeSingle()
-
-    await insertEvent(auth, {
-      documentId: fiscalDocument.id,
-      type: result.authorized ? 'authorize' : 'reject',
-      statusCode: result.statusCode,
-      statusMessage: result.statusMessage,
-    })
-
-    const row = (updated || fiscalDocument) as FiscalDocumentRow
-    return {
-      ok: true,
-      fiscalDocument: row,
-      alreadyAuthorized: false,
-      printedUrl: result.authorized ? `/api/portal/fiscal/documents/${encodeURIComponent(row.id)}/danfe` : null,
-    }
+    return applyTransmitResult(auth, fiscalDocument, result)
   } catch (err) {
+    const accessKey = client.lastAccessKey || fiscalDocument.access_key || null
+    const signedXml = client.lastSignedXml
+    if ((isUncertainSefazError(err) || isDuplicateSefazError(err)) && accessKey) {
+      return recoverAfterUncertainSend(auth, client, fiscalDocument, accessKey, signedXml)
+    }
+
     const message = errorMessage(err)
     const statusCode = errorStatusCode(err)
-    await auth.supabase
-      .from('fiscal_documents')
-      .update({
-        status: 'rejected',
-        sefaz_status_code: statusCode,
-        sefaz_status_message: message,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', fiscalDocument.id)
-      .eq('organization_id', auth.organizationId)
+    const denied = isSefazDenied(statusCode)
+    const updated = await persistFiscalDocument(auth, fiscalDocument.id, {
+      status: denied ? 'denied' : 'rejected',
+      access_key: accessKey,
+      sefaz_status_code: statusCode,
+      sefaz_status_message: message,
+      ...(signedXml ? { submitted_xml: signedXml } : {}),
+    })
     await insertEvent(auth, {
       documentId: fiscalDocument.id,
       type: 'error',
       statusCode,
       statusMessage: message,
     })
-    return { ok: false, error: 'sefaz_error', message }
+    return {
+      ok: false,
+      error: denied ? 'sefaz_denied' : 'sefaz_error',
+      message,
+      fiscalDocument: (updated || fiscalDocument) as FiscalDocumentRow,
+    }
   }
 }
 
@@ -344,22 +647,43 @@ export async function cancelNfceDocument (
 
   const { data: certificate } = await service
     .from('organization_fiscal_certificates')
-    .select('pfx_ciphertext, password_ciphertext')
+    .select('pfx_ciphertext, password_ciphertext, valid_until')
     .eq('organization_id', auth.organizationId)
     .maybeSingle()
 
   if (!certificate?.pfx_ciphertext || !certificate.password_ciphertext) {
     return { ok: false, error: 'missing_certificate', message: 'Certificado digital A1 não encontrado.' }
   }
+  if (isFiscalCertificateExpired(certificate.valid_until)) {
+    return {
+      ok: false,
+      error: 'certificate_expired',
+      message: fiscalCertificateExpiredMessage(certificate.valid_until),
+    }
+  }
 
   try {
+    const pfx = decryptFiscalSecretToBuffer(String(certificate.pfx_ciphertext))
+    const password = decryptFiscalSecretToString(String(certificate.password_ciphertext))
+    const liveExpiry = readLiveCertificateExpiry(pfx, password)
+    if (isFiscalCertificateExpired(liveExpiry)) {
+      return {
+        ok: false,
+        error: 'certificate_expired',
+        message: fiscalCertificateExpiredMessage(liveExpiry),
+      }
+    }
+    const cscPair = nfceCscForEnvironment(
+      profile,
+      fiscalDocument.environment === 'producao' ? 'producao' : 'homologacao',
+    )
     const client = createSefazClient({
-      pfx: decryptFiscalSecretToBuffer(String(certificate.pfx_ciphertext)),
-      password: decryptFiscalSecretToString(String(certificate.password_ciphertext)),
+      pfx,
+      password,
       environment: fiscalDocument.environment,
       uf: String(profile.state || '').trim().toUpperCase(),
-      cscId: profile.nfce_csc_id ? String(profile.nfce_csc_id) : undefined,
-      csc: profile.nfce_csc_ciphertext ? decryptFiscalSecretToString(String(profile.nfce_csc_ciphertext)) : undefined,
+      cscId: cscPair.id || undefined,
+      csc: cscPair.ciphertext ? decryptFiscalSecretToString(cscPair.ciphertext) : undefined,
     })
     const result = await client.cancelar({
       accessKey: fiscalDocument.access_key,
@@ -368,13 +692,29 @@ export async function cancelNfceDocument (
       justification: reason,
     })
 
-    const eventResult = result as { codigoStatus?: string, motivo?: string }
+    if (!result.confirmed) {
+      await insertEvent(auth, {
+        documentId: fiscalDocument.id,
+        type: 'error',
+        statusCode: result.statusCode || 'exception',
+        statusMessage: result.statusMessage,
+        payload: { operation: 'cancel' },
+      })
+      return {
+        ok: false,
+        error: 'sefaz_error',
+        message: result.statusCode
+          ? `[${result.statusCode}] ${result.statusMessage || 'A SEFAZ não homologou o cancelamento.'}`
+          : (result.statusMessage || 'A SEFAZ não homologou o cancelamento. A NFC-e permanece autorizada.'),
+      }
+    }
+
     const { data: updated } = await auth.supabase
       .from('fiscal_documents')
       .update({
         status: 'canceled',
-        sefaz_status_code: eventResult.codigoStatus ?? '135',
-        sefaz_status_message: eventResult.motivo ?? 'Evento de cancelamento registrado',
+        sefaz_status_code: result.statusCode,
+        sefaz_status_message: result.statusMessage || 'Cancelamento homologado pela SEFAZ',
         canceled_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
@@ -386,9 +726,9 @@ export async function cancelNfceDocument (
     await insertEvent(auth, {
       documentId: fiscalDocument.id,
       type: 'cancel',
-      statusCode: eventResult.codigoStatus ?? null,
-      statusMessage: eventResult.motivo ?? null,
-      payload: { justification: reason },
+      statusCode: result.statusCode,
+      statusMessage: result.statusMessage,
+      payload: { justification: reason, protocol: result.protocol },
     })
 
     return { ok: true, fiscalDocument: (updated || fiscalDocument) as FiscalDocumentRow }

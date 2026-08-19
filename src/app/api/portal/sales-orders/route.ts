@@ -45,18 +45,45 @@ export async function GET (request: NextRequest) {
 
   const orders = data ?? []
   const orderIds = orders.map((order) => String(order.id))
-  const [stockPostedIds, financePostedIds] = await Promise.all([
+  const [stockPostedIds, financePostedIds, nfceRowsResult] = await Promise.all([
     mapSalesOrdersWithStockPosted(auth, orderIds),
     mapSalesOrdersWithFinancePosted(auth.supabase, auth.organizationId, orderIds),
+    orderIds.length > 0
+      ? auth.supabase
+          .from('fiscal_documents')
+          .select('id, sales_order_id, status')
+          .eq('organization_id', auth.organizationId)
+          .eq('model', '65')
+          .neq('status', 'canceled')
+          .in('sales_order_id', orderIds)
+          .order('created_at', { ascending: true })
+      : Promise.resolve({ data: [], error: null }),
   ])
+  const nfceByOrder = new Map<string, { status: string, id: string }>()
+  if (!nfceRowsResult.error) {
+    for (const row of nfceRowsResult.data ?? []) {
+      const salesOrderId = String(row.sales_order_id || '')
+      if (salesOrderId) {
+        nfceByOrder.set(salesOrderId, {
+          status: String(row.status || 'pending'),
+          id: String(row.id),
+        })
+      }
+    }
+  }
 
   return NextResponse.json({
     ok: true,
-    orders: orders.map((order) => ({
-      ...order,
-      has_stock_posted: stockPostedIds.has(String(order.id)),
-      has_finance_posted: financePostedIds.has(String(order.id)),
-    })),
+    orders: orders.map((order) => {
+      const nfce = nfceByOrder.get(String(order.id))
+      return {
+        ...order,
+        has_stock_posted: stockPostedIds.has(String(order.id)),
+        has_finance_posted: financePostedIds.has(String(order.id)),
+        nfce_status: nfce?.status ?? null,
+        nfce_document_id: nfce?.id ?? null,
+      }
+    }),
     total: count ?? 0,
   })
 }

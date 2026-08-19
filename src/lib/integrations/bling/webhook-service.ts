@@ -40,6 +40,21 @@ type HubConnectionRow = {
   created_by: string | null
 }
 
+function applyFiscalFieldsToPayload (
+  payload: Record<string, unknown>,
+  local: ReturnType<typeof mapBlingProductToLocal>,
+) {
+  if (local.ncm !== undefined) payload.ncm = local.ncm
+  if (local.cest !== undefined) payload.cest = local.cest
+  if (local.cfop !== undefined) payload.cfop = local.cfop
+  if (local.fiscalOrigin !== undefined) payload.fiscal_origin = local.fiscalOrigin
+  if (local.fiscalUnit !== undefined) payload.fiscal_unit = local.fiscalUnit
+  if (local.icmsCsosn !== undefined) payload.icms_csosn = local.icmsCsosn
+  if (local.icmsCst !== undefined) payload.icms_cst = local.icmsCst
+  if (local.pisCst !== undefined) payload.pis_cst = local.pisCst
+  if (local.cofinsCst !== undefined) payload.cofins_cst = local.cofinsCst
+}
+
 /** Usuário “ator” para created_by em movimentos gerados por webhook (admin ou staff). */
 async function getWebhookActorUserId (
   supabase: ServiceClient,
@@ -239,6 +254,7 @@ async function upsertProductFromBlingWebhook (
     is_active: local.isActive ?? true,
     kind: local.kind ?? null,
   }
+  applyFiscalFieldsToPayload(syncBase, local)
 
   const { data: existingRow } = await supabase
     .from('products')

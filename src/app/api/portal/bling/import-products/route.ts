@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getPortalAuth } from '@/lib/supabase/server'
-import { getBlingClientForCurrentUser } from '@/lib/integrations/bling/api'
-import { buildParentNameByBlingIdFromPageItems, mapBlingProductToLocal } from '@/lib/integrations/bling/mappers'
+import { blingProdutoApiPath, getBlingClientForCurrentUser } from '@/lib/integrations/bling/api'
+import { buildParentNameByBlingIdFromPageItems, mapBlingProductToLocal, type LocalProduct } from '@/lib/integrations/bling/mappers'
 import { createProductSyncSnapshot } from '@/lib/products/bling-sync'
 import { allocateCatalogSortKeyForInsert } from '@/lib/products/catalog-sort-key'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
@@ -10,6 +10,18 @@ type SupabaseClient = Awaited<ReturnType<typeof createSupabaseServerClient>>
 type BlingProductsListResponse = {
   data?: Array<{ produto?: Record<string, unknown> } | Record<string, unknown>>
   itens?: Array<{ produto?: Record<string, unknown> } | Record<string, unknown>>
+}
+
+function applyFiscalFieldsToPayload (payload: Record<string, unknown>, local: LocalProduct) {
+  if (local.ncm !== undefined) payload.ncm = local.ncm
+  if (local.cest !== undefined) payload.cest = local.cest
+  if (local.cfop !== undefined) payload.cfop = local.cfop
+  if (local.fiscalOrigin !== undefined) payload.fiscal_origin = local.fiscalOrigin
+  if (local.fiscalUnit !== undefined) payload.fiscal_unit = local.fiscalUnit
+  if (local.icmsCsosn !== undefined) payload.icms_csosn = local.icmsCsosn
+  if (local.icmsCst !== undefined) payload.icms_cst = local.icmsCst
+  if (local.pisCst !== undefined) payload.pis_cst = local.pisCst
+  if (local.cofinsCst !== undefined) payload.cofins_cst = local.cofinsCst
 }
 
 async function getCurrentStock (supabase: SupabaseClient, productId: string): Promise<number> {
@@ -93,7 +105,20 @@ export async function POST (request: Request) {
     for (const raw of items) {
       const dto = raw?.produto ?? raw
 
-      const local = mapBlingProductToLocal(dto, null, mapCtx)
+      const listedLocal = mapBlingProductToLocal(dto, null, mapCtx)
+      const listedBlingId = listedLocal.blingId
+      let local = listedLocal
+      if (listedBlingId) {
+        try {
+          const detail = await client.request<{ data?: Record<string, unknown> } | Record<string, unknown>>({
+            method: 'GET',
+            path: blingProdutoApiPath(listedBlingId),
+          })
+          local = mapBlingProductToLocal(detail, listedBlingId, mapCtx)
+        } catch {
+          local = listedLocal
+        }
+      }
       if (!local.name) continue
       const blingId = local.blingId
       if (!blingId) continue
@@ -121,6 +146,7 @@ export async function POST (request: Request) {
         kind: local.kind ?? null,
         created_by: user.id,
       }
+      applyFiscalFieldsToPayload(payload, local)
 
       const { data: existing } = await supabase
         .from('products')
@@ -144,6 +170,7 @@ export async function POST (request: Request) {
           kind: payload.kind,
           updated_at: new Date().toISOString(),
         }
+        applyFiscalFieldsToPayload(updatePayload, local)
         if (payload.barcode !== undefined && payload.barcode !== null) {
           updatePayload.barcode = payload.barcode
         }

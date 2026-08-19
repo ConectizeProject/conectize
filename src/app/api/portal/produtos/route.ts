@@ -4,6 +4,7 @@ import {
   parseVariationAttributeKeys,
   parseVariationAttributeValues,
 } from '@/lib/products/variation-display-name'
+import { validateCestNcmPair } from '@/lib/fiscal/cest-lookup'
 import { addStockMovement, createProduct, replaceProductCompatibleDeviceModels } from '@/lib/products/service'
 
 const UUID_RE =
@@ -116,6 +117,16 @@ export async function POST (request: NextRequest) {
     }
   }
 
+  const ncm = String(body.ncm || '').trim() || null
+  const cest = String(body.cest || '').trim() || null
+  const cestPair = await validateCestNcmPair(ncm, cest, name)
+  if (cestPair.ok === false) {
+    return NextResponse.json(
+      { ok: false, error: cestPair.error, message: cestPair.message },
+      { status: 400 },
+    )
+  }
+
   const created = await createProduct({
     name,
     kind,
@@ -124,10 +135,11 @@ export async function POST (request: NextRequest) {
     description: String(body.description || '').trim() || null,
     salePriceCents,
     costPriceCents,
-    ncm: String(body.ncm || '').trim() || null,
-    cest: String(body.cest || '').trim() || null,
+    ncm,
+    cest,
     cfop: String(body.cfop || '').trim() || null,
     fiscalOrigin,
+    fci: body.fci == null ? null : String(body.fci).trim() || null,
     fiscalUnit: String(body.fiscalUnit || '').trim() || null,
     icmsCsosn: String(body.icmsCsosn || '').trim() || null,
     icmsCst: String(body.icmsCst || '').trim() || null,
@@ -143,9 +155,22 @@ export async function POST (request: NextRequest) {
   })
 
   if (!created.ok || !('product' in created)) {
+    const error = 'error' in created ? created.error : 'db_error'
     return NextResponse.json(
-      { ok: false, error: 'error' in created ? created.error : 'db_error' },
-      { status: 400 },
+      {
+        ok: false,
+        error,
+        ...(error === 'invalid_barcode'
+          ? { message: 'Informe um EAN/GTIN válido (8, 12, 13 ou 14 dígitos) ou deixe em branco.' }
+          : error === 'invalid_ncm'
+            ? { message: 'Informe o NCM com 8 dígitos (0000.00.00) ou deixe em branco.' }
+            : error === 'invalid_cest'
+              ? { message: 'Informe o CEST com 7 dígitos (00.000.00) ou deixe em branco.' }
+              : error === 'invalid_fci'
+                ? { message: 'Informe o FCI no formato UUID (8-4-4-4-12) ou deixe em branco.' }
+              : {}),
+      },
+      { status: error === 'not_authenticated' ? 401 : error === 'db_error' ? 500 : 400 },
     )
   }
 

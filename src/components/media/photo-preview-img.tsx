@@ -33,6 +33,7 @@ export function PhotoPreviewImg ({
       loading="lazy"
       decoding="async"
       draggable={false}
+      referrerPolicy="no-referrer"
       className={cn('absolute inset-0 size-full object-cover pointer-events-none', className)}
       onError={() => {
         if (fallback && src !== fallback) setSrc(fallback)
@@ -70,6 +71,7 @@ export function PhotoFullImg ({
       alt={alt}
       loading="eager"
       decoding="async"
+      referrerPolicy="no-referrer"
       className={cn('max-h-full max-w-full w-auto h-auto object-contain', className)}
       onError={() => {
         if (fallback && current !== fallback) setCurrent(fallback)
