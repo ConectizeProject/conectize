@@ -96,6 +96,7 @@ export function buildSalesCupomHtml (
   const shouldAutoPrint = options?.autoPrint !== false
   const companyName = escapeHtml(company?.name || 'Empresa')
   const companyCnpj = formatCompanyCnpj(company?.cnpj || null)
+  const companyIe = String(company?.ie || '').trim()
   const companyAddress = escapeHtml(buildCompanyAddress(company))
   const companyPhone = company?.phone ? formatPhoneBr(company.phone) : ''
   const logoFullUrl = resolveLogoUrl(company?.logoUrl, options?.baseUrl || '')
@@ -236,6 +237,7 @@ export function buildSalesCupomHtml (
     <div class="header-info">
       <div class="company-name">${companyName}</div>
       ${companyCnpj ? `<div>${escapeHtml(companyCnpj)}</div>` : ''}
+      ${companyIe ? `<div>IE ${escapeHtml(companyIe)}</div>` : ''}
       ${companyPhone ? `<div>${escapeHtml(companyPhone)}</div>` : ''}
       ${companyAddress ? `<div>${companyAddress}</div>` : ''}
     </div>

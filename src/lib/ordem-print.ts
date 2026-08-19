@@ -143,6 +143,7 @@ export type CompanyPrintData = {
 	phone: string | null
 	email: string | null
 	logoUrl: string | null
+	ie?: string | null
 }
 
 export type OrdemPrintData = {

@@ -265,6 +265,15 @@ export async function POST(request: Request) {
 			blingSyncPending: false,
 			blingSyncSnapshot: createProductSyncSnapshot(local),
 			kind: local.kind ?? undefined,
+			ncm: local.ncm,
+			cest: local.cest,
+			cfop: local.cfop,
+			fiscalOrigin: local.fiscalOrigin,
+			fiscalUnit: local.fiscalUnit,
+			icmsCsosn: local.icmsCsosn,
+			icmsCst: local.icmsCst,
+			pisCst: local.pisCst,
+			cofinsCst: local.cofinsCst,
 			...parentBlingPatch,
 		});
 

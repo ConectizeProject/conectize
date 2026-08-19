@@ -60,9 +60,10 @@ const nextConfig = {
 			},
 		],
 	},
-	// Turbopack: cache em disco para dev mais rápido entre reinícios (Next.js 16)
+	// Cache em disco do Turbopack no Windows: rotas aninhadas (ex. /portal/.../nova)
+	// compilam mas o matcher devolve 404 após restart. Opt-out explícito.
 	experimental: {
-		turbopackFileSystemCacheForDev: true,
+		turbopackFileSystemCacheForDev: false,
 		// inlineCss desligado: em alguns browsers gerava FOUC / flash preto antes do paint
 	},
 	// Remove polyfills legados em navegadores modernos (~14KB economia)

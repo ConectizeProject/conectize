@@ -23,10 +23,9 @@ export async function POST (
 
   const { data: doc, error } = await auth.supabase
     .from('fiscal_documents')
-    .select('sales_order_id, status')
+    .select('sales_order_id, status, model')
     .eq('organization_id', auth.organizationId)
     .eq('id', fiscalDocumentId)
-    .eq('model', '65')
     .maybeSingle()
 
   if (error) {
@@ -35,6 +34,13 @@ export async function POST (
   if (!doc?.sales_order_id) {
     return NextResponse.json({ ok: false, error: 'not_found' }, { status: 404 })
   }
+  if (String(doc.model) === '55') {
+    return NextResponse.json({
+      ok: false,
+      error: 'nfe_not_available',
+      message: 'A emissão de NF-e ainda não está disponível. Use NFC-e para venda no PDV.',
+    }, { status: 400 })
+  }
   if (doc.status === 'authorized') {
     return NextResponse.json({ ok: false, error: 'already_authorized' }, { status: 400 })
   }
@@ -42,8 +48,14 @@ export async function POST (
   const result = await emitNfceForSalesOrder(auth, String(doc.sales_order_id))
   if (result.ok === false) {
     return NextResponse.json(
-      { ok: false, error: result.error, message: result.message },
-      { status: result.error === 'sefaz_error' ? 502 : 400 },
+      {
+        ok: false,
+        error: result.error,
+        message: result.message,
+        needs_correction: result.needsCorrection === true,
+        fiscal_document: result.fiscalDocument ?? null,
+      },
+      { status: result.error === 'sefaz_error' || result.error === 'sefaz_timeout' || result.error === 'sefaz_denied' ? 502 : 400 },
     )
   }
 
@@ -51,5 +63,8 @@ export async function POST (
     ok: true,
     fiscal_document: result.fiscalDocument,
     danfe_url: result.printedUrl,
+    xml_url: result.printedUrl
+      ? `/api/portal/fiscal/documents/${encodeURIComponent(result.fiscalDocument.id)}/xml`
+      : null,
   })
 }

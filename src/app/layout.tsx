@@ -8,9 +8,9 @@ import './globals.css'
 
 const outfit = Outfit({
   subsets: ['latin'],
-  weight: ['300', '400', '500', '600', '700', '800'],
+  weight: ['400', '500', '600', '700'],
   display: 'swap',
-  variable: '--font-outfit'
+  variable: '--font-outfit',
 })
 
 export const metadata: Metadata = {
@@ -91,7 +91,7 @@ export default function RootLayout ({
           }}
         />
       </head>
-      <body>
+      <body className={outfit.className}>
         <Script
           id="theme-boot"
           strategy="beforeInteractive"

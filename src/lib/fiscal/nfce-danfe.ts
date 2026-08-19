@@ -3,6 +3,10 @@ import QRCode from 'qrcode'
 import type { PortalAuthStaffSuccess } from '@/lib/auth/portal-api'
 import type { CompanyPrintData } from '@/lib/ordem-print'
 import {
+  fiscalIePrintLabel,
+  formatFiscalEmitenteAddress,
+} from '@/lib/fiscal/fiscal-print'
+import {
   buildSalesCupomHtml,
   type SalesCupomData,
   type SalesCupomPayment,
@@ -48,7 +52,7 @@ export async function buildNfceDanfeHtml (
   if (orderError) return { status: 500 }
   if (!order) return { status: 404 }
 
-  const [{ data: items }, { data: payments }, { data: companyRow }] = await Promise.all([
+  const [{ data: items }, { data: payments }, { data: companyRow }, { data: fiscalProfile }] = await Promise.all([
     auth.supabase
       .from('sales_order_items')
       .select('quantity, unit_price_cents, discount_cents, subtotal_cents, products(name, sku)')
@@ -66,20 +70,27 @@ export async function buildNfceDanfeHtml (
       .select('name, cnpj, address, complement, zip_code, city, state, phone, email, logo_url')
       .eq('id', auth.organizationId)
       .maybeSingle(),
+    auth.supabase
+      .from('organization_fiscal_profiles')
+      .select('legal_name, trade_name, cnpj, state_registration, state_registration_exempt, street, number, complement, district, zip_code, city, state')
+      .eq('organization_id', auth.organizationId)
+      .maybeSingle(),
   ])
 
-  const company: CompanyPrintData | null = companyRow
+  const fiscalAddress = formatFiscalEmitenteAddress(fiscalProfile)
+  const company: CompanyPrintData | null = (fiscalProfile || companyRow)
     ? {
-      name: companyRow.name ?? null,
-      cnpj: companyRow.cnpj ?? null,
-      address: companyRow.address ?? null,
-      complement: companyRow.complement ?? null,
-      zipCode: companyRow.zip_code ?? null,
-      city: companyRow.city ?? null,
-      state: companyRow.state ?? null,
-      phone: companyRow.phone ?? null,
-      email: companyRow.email ?? null,
-      logoUrl: companyRow.logo_url ?? null,
+      name: fiscalProfile?.legal_name || fiscalProfile?.trade_name || companyRow?.name || null,
+      cnpj: fiscalProfile?.cnpj || companyRow?.cnpj || null,
+      address: fiscalAddress || companyRow?.address || null,
+      complement: fiscalAddress ? null : (companyRow?.complement ?? null),
+      zipCode: fiscalAddress ? null : (companyRow?.zip_code ?? null),
+      city: fiscalAddress ? null : (companyRow?.city ?? null),
+      state: fiscalAddress ? null : (companyRow?.state ?? null),
+      phone: companyRow?.phone ?? null,
+      email: companyRow?.email ?? null,
+      logoUrl: companyRow?.logo_url ?? null,
+      ie: fiscalIePrintLabel(fiscalProfile),
     }
     : null
 

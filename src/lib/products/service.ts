@@ -1,5 +1,8 @@
 import { createSupabaseServerClient, getAuthUser } from "@/lib/supabase/server";
 import { allocateCatalogSortKeyForInsert } from "@/lib/products/catalog-sort-key";
+import { normalizeOptionalFci, originRequiresFci } from "@/lib/fiscal/fci";
+import { normalizeOptionalGtin } from "@/lib/fiscal/gtin";
+import { normalizeOptionalCest, normalizeOptionalNcm } from "@/lib/fiscal/ncm";
 import {
 	composePortalVariationDisplayName,
 	parseVariationAttributeKeys,
@@ -53,6 +56,7 @@ export type Product = {
 	cest: string | null;
 	cfop: string | null;
 	fiscalOrigin: number | null;
+	fci: string | null;
 	fiscalUnit: string | null;
 	icmsCsosn: string | null;
 	icmsCst: string | null;
@@ -100,6 +104,7 @@ export type CreateProductInput = {
 	cest?: string | null;
 	cfop?: string | null;
 	fiscalOrigin?: number | null;
+	fci?: string | null;
 	fiscalUnit?: string | null;
 	icmsCsosn?: string | null;
 	icmsCst?: string | null;
@@ -152,7 +157,7 @@ type AuthSuccess = {
 type CreateProductResult =
 	| { ok: true; product: Product }
 	| AuthFailure
-	| { ok: false; error: "name_required" | "db_error" };
+	| { ok: false; error: "name_required" | "invalid_barcode" | "invalid_ncm" | "invalid_cest" | "invalid_fci" | "db_error" };
 
 type UpdateProductResult =
 	| { ok: true; product: Product }
@@ -297,6 +302,27 @@ export async function createProduct(
 		return { ok: false as const, error: "name_required" as const };
 	}
 
+	const barcode = normalizeOptionalGtin(input.barcode);
+	if (barcode === "invalid") {
+		return { ok: false as const, error: "invalid_barcode" as const };
+	}
+
+	const ncm = normalizeOptionalNcm(input.ncm);
+	if (ncm === "invalid") {
+		return { ok: false as const, error: "invalid_ncm" as const };
+	}
+
+	const cest = normalizeOptionalCest(input.cest);
+	if (cest === "invalid") {
+		return { ok: false as const, error: "invalid_cest" as const };
+	}
+
+	const fciNormalized = normalizeOptionalFci(input.fci);
+	if (fciNormalized === "invalid") {
+		return { ok: false as const, error: "invalid_fci" as const };
+	}
+	const fci = originRequiresFci(input.fiscalOrigin) ? fciNormalized : null;
+
 	const attrKeys = parseVariationAttributeKeys(input.variationAttributeKeys);
 	const attrVals = parseVariationAttributeValues(input.variationAttributeValues);
 
@@ -364,7 +390,7 @@ export async function createProduct(
 		parent_product_id: parentProductId,
 		name: finalName,
 		sku: input.sku ? String(input.sku).trim() : null,
-		barcode: input.barcode ? String(input.barcode).trim() : null,
+		barcode,
 		description: input.description ? String(input.description).trim() : null,
 		image_url:
 			input.imageUrl != null && String(input.imageUrl).trim()
@@ -375,10 +401,11 @@ export async function createProduct(
 			? { pricing_tag_id: pricingTagId }
 			: {}),
 		cost_price_cents: normalizeMoney(input.costPriceCents),
-		ncm: normalizeFiscalDigits(input.ncm, 8),
-		cest: normalizeFiscalDigits(input.cest, 7),
+		ncm,
+		cest,
 		cfop: normalizeFiscalDigits(input.cfop, 4),
 		fiscal_origin: normalizeFiscalOrigin(input.fiscalOrigin),
+		fci,
 		fiscal_unit: normalizeFiscalText(input.fiscalUnit, 6),
 		icms_csosn: normalizeFiscalDigits(input.icmsCsosn, 3),
 		icms_cst: normalizeFiscalDigits(input.icmsCst, 3),
@@ -632,6 +659,17 @@ export async function updateProduct(
 	if (input.cfop !== undefined) patch.cfop = normalizeFiscalDigits(input.cfop, 4);
 	if (input.fiscalOrigin !== undefined)
 		patch.fiscal_origin = normalizeFiscalOrigin(input.fiscalOrigin);
+	if (input.fci !== undefined) {
+		const fci = normalizeOptionalFci(input.fci);
+		patch.fci = fci === "invalid" ? null : fci;
+	}
+	if (
+		input.fiscalOrigin !== undefined &&
+		!originRequiresFci(input.fiscalOrigin) &&
+		input.fci === undefined
+	) {
+		patch.fci = null;
+	}
 	if (input.fiscalUnit !== undefined)
 		patch.fiscal_unit = normalizeFiscalText(input.fiscalUnit, 6);
 	if (input.icmsCsosn !== undefined)
@@ -1268,6 +1306,7 @@ function mapRowToProduct(row: Record<string, unknown>): Product {
 				: row.fiscal_origin != null && String(row.fiscal_origin).trim()
 					? Number(row.fiscal_origin)
 					: null,
+		fci: row.fci ? String(row.fci).trim() : null,
 		fiscalUnit: row.fiscal_unit ? String(row.fiscal_unit).trim() : null,
 		icmsCsosn: row.icms_csosn ? String(row.icms_csosn).trim() : null,
 		icmsCst: row.icms_cst ? String(row.icms_cst).trim() : null,

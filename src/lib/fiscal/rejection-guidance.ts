@@ -1,0 +1,52 @@
+export type FiscalRejectionGuidance = {
+  summary: string
+  hint: string
+  href?: string
+  hrefLabel?: string
+}
+
+export function fiscalRejectionGuidance (
+  statusCode: string | null | undefined,
+  environment?: string | null,
+): FiscalRejectionGuidance | null {
+  const code = String(statusCode || '').trim()
+  const isHomologacao = environment !== 'producao'
+
+  if (code === '230') {
+    return {
+      summary: 'A IE preenchida no Conectize foi enviada no XML. A rejeição 230 significa que a SEFAZ da UF não tem essa IE no cadastro dela — não no nosso formulário.',
+      hint: isHomologacao
+        ? 'Homologação e produção são cadastros diferentes. Confira se o CNPJ/IE estão credenciados para NFC-e no ambiente de teste da SEFAZ da UF (portal da fazenda, não nesta tela).'
+        : 'Confira se o CNPJ/IE estão no CAD-ICMS e credenciados para NFC-e na SEFAZ da UF. Só reenviar a nota não cadastra a IE lá.',
+      href: '/portal/admin/dados-empresa/fiscal',
+      hrefLabel: 'Ver CNPJ, IE e ambiente enviados',
+    }
+  }
+
+  if (code === '385') {
+    return {
+      summary: 'A SEFAZ exige o número da FCI no XML para itens com origem 3, 5 ou 8.',
+      hint: 'Preencha o FCI (UUID) no cadastro do produto ou nesta nota e reenvie. O campo só aparece nessas origens.',
+    }
+  }
+
+  if (code === '806' || code === '814' || code === '815') {
+    return {
+      summary: 'A SEFAZ recusou o CEST em relação ao NCM do item.',
+      hint: code === '806'
+        ? 'Esta operação de ST exige CEST. Preencha um CEST válido para o NCM do produto.'
+        : 'Use um CEST da tabela do NCM ou deixe em branco se o NCM não estiver na tabela de Substituição Tributária.',
+    }
+  }
+
+  if (code === '229') {
+    return {
+      summary: 'A IE do emitente está marcada como isenta, mas a SEFAZ exige inscrição cadastrada.',
+      hint: 'Desmarque “Isento” em Dados da empresa e informe a IE do CAD-ICMS.',
+      href: '/portal/admin/dados-empresa/fiscal',
+      hrefLabel: 'Abrir dados fiscais',
+    }
+  }
+
+  return null
+}

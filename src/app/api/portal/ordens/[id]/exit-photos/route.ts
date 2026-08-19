@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 import {
-  signServiceOrderPhotoRows,
   uploadServiceOrderPhotoBlob,
 } from '@/lib/orders/service-order-photo-storage'
+import { mapRowsToPortalPhotoItems } from '@/lib/orders/service-order-photo-urls'
 
 const BUCKET = 'order-exit-photos'
 const TABLE = 'service_order_exit_photos' as const
@@ -51,7 +51,7 @@ export async function GET (
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
   }
 
-  const photos = await signServiceOrderPhotoRows(auth.supabase, BUCKET, rows, 60 * 60)
+  const photos = mapRowsToPortalPhotoItems(orderId, 'exit-photos', rows)
   return NextResponse.json({ ok: true, photos })
 }
 

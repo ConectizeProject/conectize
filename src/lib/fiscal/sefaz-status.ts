@@ -1,6 +1,6 @@
 import 'server-only'
 import https from 'https'
-import forge from 'node-forge'
+import { a1MaterialToMtls, loadA1CertificateMaterial } from '@/lib/fiscal/certificate'
 import { getSefazUrl } from '@brasil-fiscal/nfe/dist/shared/constants/sefaz-urls'
 
 const UF_CODES: Record<string, string> = {
@@ -52,27 +52,10 @@ type SefazStatusCertificate = {
 }
 
 function pfxToPemPair (certificate: SefazStatusCertificate) {
-  const asn1 = forge.asn1.fromDer(certificate.pfxBuffer.toString('binary'))
-  const p12 = forge.pkcs12.pkcs12FromAsn1(asn1, false, certificate.password)
-  const certBags = p12.getBags({ bagType: forge.pki.oids.certBag })[forge.pki.oids.certBag] || []
-  const keyBags = [
-    ...(p12.getBags({ bagType: forge.pki.oids.pkcs8ShroudedKeyBag })[forge.pki.oids.pkcs8ShroudedKeyBag] || []),
-    ...(p12.getBags({ bagType: forge.pki.oids.keyBag })[forge.pki.oids.keyBag] || []),
-  ]
-  const cert = certBags
-    .map((bag) => bag.cert)
-    .find((item): item is forge.pki.Certificate => Boolean(item))
-  const key = keyBags
-    .map((bag) => bag.key)
-    .find((item): item is forge.pki.rsa.PrivateKey => Boolean(item))
-
-  if (!cert || !key) {
-    throw new Error('pfx_missing_cert_or_key')
-  }
-
+  const mtls = a1MaterialToMtls(loadA1CertificateMaterial(certificate.pfxBuffer, certificate.password))
   return {
-    certPem: forge.pki.certificateToPem(cert),
-    keyPem: forge.pki.privateKeyToPem(key),
+    certPem: mtls.cert,
+    keyPem: mtls.key,
   }
 }
 

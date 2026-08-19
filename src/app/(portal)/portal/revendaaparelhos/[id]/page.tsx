@@ -2,8 +2,9 @@ import { redirect, notFound } from 'next/navigation'
 import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import { attachResaleDeviceDisplayImage } from '@/lib/seminovos/resale-device-display-image'
-import { revendaPath } from '@/lib/revenda/revenda-paths'
+import { isRevendaReservedSegment, revendaPath } from '@/lib/revenda/revenda-paths'
 import { SeminovosFormClient } from '../../seminovos/SeminovosFormClient'
+import { RevendaCreateForm } from '../RevendaCreateForm'
 
 type Props = {
   params: Promise<{ id: string }>
@@ -23,6 +24,8 @@ export default async function RevendaEditDevicePage ({ params }: Props) {
 
   const { id } = await params
   if (!id) redirect(revendaPath.listagem)
+  if (id === 'nova') return <RevendaCreateForm defaultStockType="seminovo" />
+  if (isRevendaReservedSegment(id)) redirect(revendaPath.listagem)
 
   const supabase = await createSupabaseServerClient()
   const [{ data: device, error: deviceError }, { data: costs }] = await Promise.all([

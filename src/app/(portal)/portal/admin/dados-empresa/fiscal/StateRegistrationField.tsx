@@ -34,6 +34,9 @@ export function StateRegistrationField (props: {
         autoComplete='off'
         placeholder={isExempt ? 'Isento' : undefined}
       />
+      <p className='text-xs text-muted-foreground'>
+        Este campo só entra no XML. A SEFAZ precisa ter a mesma IE no CAD-ICMS do ambiente (homologação ou produção).
+      </p>
     </div>
   )
 }

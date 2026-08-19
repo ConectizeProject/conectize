@@ -177,27 +177,58 @@ export async function mapSalesOrdersWithStockPosted (
   return posted
 }
 
-async function loadServiceProductIds (
+async function loadStocklessProductIds (
   auth: AuthCtx,
   productIds: string[],
 ) {
   const uniqueIds = [...new Set(productIds.filter(Boolean))]
-  if (uniqueIds.length === 0) return { ok: true as const, serviceIds: new Set<string>() }
+  if (uniqueIds.length === 0) return { ok: true as const, stocklessIds: new Set<string>() }
 
   const { data, error } = await auth.supabase
     .from('products')
-    .select('id, kind')
+    .select('id, kind, bling_id')
     .eq('organization_id', auth.organizationId)
     .in('id', uniqueIds)
 
   if (error) return { ok: false as const, error: 'db_error' as const }
-  const serviceIds = new Set<string>()
+  const stocklessIds = new Set<string>()
+  const blingIds = (data ?? [])
+    .map((row) => String((row as { bling_id?: string | null }).bling_id || '').trim())
+    .filter(Boolean)
+
+  const [childrenResult, blingChildrenResult] = await Promise.all([
+    auth.supabase
+      .from('products')
+      .select('parent_product_id')
+      .eq('organization_id', auth.organizationId)
+      .in('parent_product_id', uniqueIds),
+    blingIds.length > 0
+      ? auth.supabase
+          .from('products')
+          .select('parent_bling_id')
+          .eq('organization_id', auth.organizationId)
+          .in('parent_bling_id', blingIds)
+      : Promise.resolve({ data: [], error: null }),
+  ])
+  if (childrenResult.error || blingChildrenResult.error) {
+    return { ok: false as const, error: 'db_error' as const }
+  }
+
+  const parentProductIds = new Set((childrenResult.data ?? []).map((row) => String(row.parent_product_id || '')).filter(Boolean))
+  const parentBlingIds = new Set((blingChildrenResult.data ?? []).map((row) => String(row.parent_bling_id || '')).filter(Boolean))
+
   for (const row of data ?? []) {
+    const id = String((row as { id: string }).id)
+    const blingId = String((row as { bling_id?: string | null }).bling_id || '').trim()
     if (String((row as { kind?: string | null }).kind || '').toLowerCase() === 'service') {
-      serviceIds.add(String((row as { id: string }).id))
+      stocklessIds.add(id)
+      continue
+    }
+    if (parentProductIds.has(id) || (blingId && parentBlingIds.has(blingId))) {
+      stocklessIds.add(id)
     }
   }
-  return { ok: true as const, serviceIds }
+  return { ok: true as const, stocklessIds }
 }
 
 async function applySalesOrderStockExits (
@@ -205,14 +236,14 @@ async function applySalesOrderStockExits (
   orderId: string,
   items: SalesOrderStockItem[],
 ) {
-  const services = await loadServiceProductIds(
+  const stockless = await loadStocklessProductIds(
     auth,
     items.map((item) => item.product_id),
   )
-  if (!services.ok) return { ok: false as const, error: 'db_error' as const }
+  if (!stockless.ok) return { ok: false as const, error: 'db_error' as const }
 
   for (const item of items) {
-    if (services.serviceIds.has(item.product_id)) continue
+    if (stockless.stocklessIds.has(item.product_id)) continue
     const itemId = String(item.id || '')
     if (!itemId) return { ok: false as const, error: 'db_error' as const }
     const quantity = toInt(item.quantity, 1)

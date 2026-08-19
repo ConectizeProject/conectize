@@ -60,6 +60,7 @@ function mapProductToForm (p: Product): ProductFormProduct {
     cest: p.cest,
     cfop: p.cfop,
     fiscalOrigin: p.fiscalOrigin,
+    fci: p.fci,
     fiscalUnit: p.fiscalUnit,
     icmsCsosn: p.icmsCsosn,
     icmsCst: p.icmsCst,
@@ -308,6 +309,7 @@ export function ProductFormDialog ({
             cest: payload.cest,
             cfop: payload.cfop,
             fiscalOrigin: payload.fiscalOrigin,
+            fci: payload.fci,
             fiscalUnit: payload.fiscalUnit,
             icmsCsosn: payload.icmsCsosn,
             icmsCst: payload.icmsCst,
@@ -329,7 +331,15 @@ export function ProductFormDialog ({
           setSavePhase('idle')
           toast({
             title: 'Erro ao criar',
-            description: String(data?.error || 'Tente novamente.'),
+            description: data?.message || (
+              data?.error === 'invalid_barcode'
+                ? 'Informe um EAN/GTIN válido (8, 12, 13 ou 14 dígitos) ou deixe em branco.'
+                : data?.error === 'invalid_ncm'
+                  ? 'Informe o NCM com 8 dígitos (0000.00.00) ou deixe em branco.'
+                  : data?.error === 'invalid_cest'
+                    ? 'Informe o CEST com 7 dígitos (00.000.00) ou deixe em branco.'
+                    : String(data?.error || 'Tente novamente.')
+            ),
             variant: 'destructive',
           })
           return
@@ -371,6 +381,7 @@ export function ProductFormDialog ({
           cest: payload.cest,
           cfop: payload.cfop,
           fiscalOrigin: payload.fiscalOrigin,
+          fci: payload.fci,
           fiscalUnit: payload.fiscalUnit,
           icmsCsosn: payload.icmsCsosn,
           icmsCst: payload.icmsCst,

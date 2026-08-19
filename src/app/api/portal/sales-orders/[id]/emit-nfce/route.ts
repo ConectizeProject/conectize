@@ -30,6 +30,9 @@ export async function GET (
     danfe_url: fiscalDocument?.status === 'authorized'
       ? `/api/portal/fiscal/documents/${encodeURIComponent(fiscalDocument.id)}/danfe`
       : null,
+    xml_url: (fiscalDocument?.status === 'authorized' || fiscalDocument?.status === 'canceled')
+      ? `/api/portal/fiscal/documents/${encodeURIComponent(fiscalDocument.id)}/xml`
+      : null,
   })
 }
 
@@ -52,11 +55,17 @@ export async function POST (
   if (result.ok === false) {
     const status = result.error === 'order_not_found'
       ? 404
-      : result.error === 'sefaz_error'
+      : result.error === 'sefaz_error' || result.error === 'sefaz_timeout' || result.error === 'sefaz_denied'
         ? 502
         : 400
     return NextResponse.json(
-      { ok: false, error: result.error, message: result.message },
+      {
+        ok: false,
+        error: result.error,
+        message: result.message,
+        needs_correction: result.needsCorrection === true,
+        fiscal_document: result.fiscalDocument ?? null,
+      },
       { status },
     )
   }
@@ -66,5 +75,8 @@ export async function POST (
     fiscal_document: result.fiscalDocument,
     already_authorized: result.alreadyAuthorized,
     danfe_url: result.printedUrl,
+    xml_url: result.printedUrl
+      ? `/api/portal/fiscal/documents/${encodeURIComponent(result.fiscalDocument.id)}/xml`
+      : null,
   })
 }

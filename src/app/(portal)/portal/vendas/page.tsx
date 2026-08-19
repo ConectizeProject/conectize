@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Ban, ExternalLink, MoreHorizontal, Package, Printer, Send, Undo2, Wallet } from 'lucide-react'
+import { Ban, ExternalLink, FileCheck2, MoreHorizontal, Package, Printer, Send, Undo2, Wallet } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -53,6 +53,10 @@ import { portalFetch } from '@/lib/portal/portal-fetch'
 import { maskedFromCents } from '@/lib/utils/money'
 import { toast } from '@/hooks/use-toast'
 import {
+  isProductFiscalCorrectionError,
+  nfceEditorHref,
+} from '@/lib/fiscal/product-fiscal-errors'
+import {
   openSalesOrderCupomPrint,
   salesOrderCupomPrintLabel,
 } from '@/app/(portal)/portal/vendas/SalesOrderAfterSaleActions'
@@ -71,6 +75,8 @@ type SalesOrder = {
   created_at: string
   has_stock_posted?: boolean
   has_finance_posted?: boolean
+  nfce_status?: 'pending' | 'authorized' | 'rejected' | 'canceled' | 'denied' | null
+  nfce_document_id?: string | null
 }
 
 type TeamUser = {
@@ -91,6 +97,13 @@ type ConfirmKind =
 type ConfirmState = {
   kind: ConfirmKind
   order: SalesOrder
+}
+
+type FiscalDocumentState = {
+  id?: string
+  status?: 'pending' | 'authorized' | 'rejected' | 'canceled' | 'denied'
+  sefaz_status_code?: string | null
+  sefaz_status_message?: string | null
 }
 
 const CONFIRM_COPY: Record<Exclude<ConfirmKind, 'cancel_paid'>, {
@@ -147,6 +160,15 @@ function blingViewUrl (order: SalesOrder) {
     return `https://www.bling.com.br/vendas.php#edit/${order.bling_pedido_id}`
   }
   return null
+}
+
+function nfceStatusLabel (status?: SalesOrder['nfce_status']) {
+  if (status === 'authorized') return 'NFC-e autorizada'
+  if (status === 'pending') return 'NFC-e pendente'
+  if (status === 'rejected') return 'NFC-e rejeitada'
+  if (status === 'denied') return 'NFC-e denegada'
+  if (status === 'canceled') return 'NFC-e cancelada'
+  return 'NFC-e vinculada'
 }
 
 export default function PedidosVendaPage () {
@@ -242,6 +264,107 @@ export default function PedidosVendaPage () {
 
       const url = data.preferred_url || data.pedido_url
       if (url) window.open(url, '_blank', 'noopener,noreferrer')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function emitNfce (order: SalesOrder) {
+    if (order.status !== 'paid') {
+      toast({
+        title: 'Venda ainda não está paga',
+        description: 'A NFC-e só pode ser emitida para vendas pagas.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setBusyId(order.id)
+    try {
+      const stateRes = await portalFetch(`/api/portal/sales-orders/${encodeURIComponent(order.id)}/emit-nfce`)
+      const stateData = await stateRes?.json().catch(() => null)
+      const fiscalDocument = (stateData?.fiscal_document ?? null) as FiscalDocumentState | null
+
+      if (fiscalDocument?.id && (
+        fiscalDocument.status === 'rejected' ||
+        fiscalDocument.status === 'denied' ||
+        (fiscalDocument.status === 'pending' && isProductFiscalCorrectionError(fiscalDocument.sefaz_status_code))
+      )) {
+        router.push(nfceEditorHref(fiscalDocument.id, {
+          corrigir: isProductFiscalCorrectionError(fiscalDocument.sefaz_status_code),
+        }))
+        return
+      }
+
+      if (stateData?.danfe_url) {
+        setOrders((prev) => prev.map((row) => (
+          row.id === order.id
+            ? { ...row, nfce_status: fiscalDocument?.status || 'authorized', nfce_document_id: fiscalDocument?.id || row.nfce_document_id }
+            : row
+        )))
+        toast({
+          variant: 'success',
+          title: 'NFC-e já autorizada',
+          description: 'Abrindo o cupom fiscal para impressão.',
+        })
+        window.open(String(stateData.danfe_url), '_blank', 'noopener,noreferrer')
+        return
+      }
+
+      const endpoint = fiscalDocument?.id && fiscalDocument.status !== 'authorized'
+        ? `/api/portal/fiscal/documents/${encodeURIComponent(fiscalDocument.id)}/retry`
+        : `/api/portal/sales-orders/${encodeURIComponent(order.id)}/emit-nfce`
+
+      const res = await portalFetch(endpoint, { method: 'POST' })
+      const data = await res?.json().catch(() => null)
+      const nextFiscalDocument = (data?.fiscal_document ?? null) as FiscalDocumentState | null
+      if (!data?.ok) {
+        if (data?.needs_correction && nextFiscalDocument?.id) {
+          toast({
+            title: 'Complete NCM e CEST',
+            description: data.message || 'Preencha os dados fiscais dos produtos para emitir a NFC-e.',
+          })
+          router.push(nfceEditorHref(nextFiscalDocument.id, { corrigir: true }))
+          return
+        }
+        toast({
+          title: 'NFC-e não autorizada',
+          description: data?.message || data?.error || 'Não foi possível emitir a NFC-e.',
+          variant: 'destructive',
+        })
+        return
+      }
+
+      if (data.danfe_url) {
+        setOrders((prev) => prev.map((row) => (
+          row.id === order.id
+            ? { ...row, nfce_status: nextFiscalDocument?.status || 'authorized', nfce_document_id: nextFiscalDocument?.id || row.nfce_document_id }
+            : row
+        )))
+        toast({
+          variant: 'success',
+          title: data.already_authorized ? 'NFC-e já autorizada' : 'NFC-e autorizada',
+          description: 'Abrindo o cupom fiscal para impressão.',
+        })
+        window.open(String(data.danfe_url), '_blank', 'noopener,noreferrer')
+        return
+      }
+
+      if (nextFiscalDocument?.status) {
+        setOrders((prev) => prev.map((row) => (
+          row.id === order.id
+            ? { ...row, nfce_status: nextFiscalDocument.status, nfce_document_id: nextFiscalDocument.id || row.nfce_document_id }
+            : row
+        )))
+      }
+      toast({
+        title: 'NFC-e não autorizada',
+        description: nextFiscalDocument?.sefaz_status_message || nextFiscalDocument?.sefaz_status_code || 'A SEFAZ retornou a nota sem autorização.',
+        variant: 'destructive',
+      })
+      if (nextFiscalDocument?.id) {
+        router.push(nfceEditorHref(nextFiscalDocument.id))
+      }
     } finally {
       setBusyId(null)
     }
@@ -426,11 +549,7 @@ export default function PedidosVendaPage () {
 
   return (
     <TooltipProvider>
-      <div className='space-y-4 py-4'>
-        <div className='flex items-center justify-between'>
-          <h1 className='text-2xl font-semibold'>Vendas</h1>
-          <Link href='/portal/pdv'><Button variant='outline'>Frente de Caixa</Button></Link>
-        </div>
+      <div className='space-y-4'>
         <Card>
           <CardHeader><CardTitle>Filtros</CardTitle></CardHeader>
           <CardContent className='grid gap-3 sm:grid-cols-2 lg:grid-cols-5'>
@@ -555,6 +674,23 @@ export default function PedidosVendaPage () {
                                 <TooltipContent>Estoque lançado</TooltipContent>
                               </Tooltip>
                             ) : null}
+                            {order.nfce_status || order.bling_nfce_id ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span
+                                    className={order.nfce_status === 'authorized' || order.bling_nfce_id
+                                      ? 'inline-flex h-8 w-8 items-center justify-center text-emerald-600'
+                                      : order.nfce_status === 'rejected' || order.nfce_status === 'denied'
+                                        ? 'inline-flex h-8 w-8 items-center justify-center text-destructive'
+                                        : 'inline-flex h-8 w-8 items-center justify-center text-amber-500'}
+                                    aria-label={order.bling_nfce_id ? 'NFC-e no Bling' : nfceStatusLabel(order.nfce_status)}
+                                  >
+                                    <FileCheck2 className='h-4 w-4' />
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent>{order.bling_nfce_id ? 'NFC-e no Bling' : nfceStatusLabel(order.nfce_status)}</TooltipContent>
+                              </Tooltip>
+                            ) : null}
                             <DropdownMenu modal={false}>
                               <DropdownMenuTrigger asChild>
                                 <Button
@@ -580,6 +716,25 @@ export default function PedidosVendaPage () {
                                       <Printer className='mr-2 h-4 w-4' />
                                       {salesOrderCupomPrintLabel(order.status)}
                                     </DropdownMenuItem>
+                                    {order.nfce_document_id ? (
+                                      <DropdownMenuItem asChild>
+                                        <Link href={`/portal/vendas/nfce/${encodeURIComponent(order.nfce_document_id)}`}>
+                                          <FileCheck2 className='mr-2 h-4 w-4' />
+                                          Abrir NFC-e
+                                        </Link>
+                                      </DropdownMenuItem>
+                                    ) : order.status === 'paid' ? (
+                                      <DropdownMenuItem
+                                        disabled={isBusy}
+                                        onSelect={(event) => {
+                                          event.preventDefault()
+                                          void emitNfce(order)
+                                        }}
+                                      >
+                                        <FileCheck2 className='mr-2 h-4 w-4' />
+                                        Gerar NFC-e
+                                      </DropdownMenuItem>
+                                    ) : null}
                                     {order.status === 'paid' ? (
                                       viewUrl ? (
                                         <DropdownMenuItem asChild>

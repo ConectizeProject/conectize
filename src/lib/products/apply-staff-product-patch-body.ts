@@ -16,6 +16,10 @@ import {
   syncProductToBling,
   updateProductAndSyncBling,
 } from '@/lib/products/update-product-with-bling'
+import { validateCestNcmPair } from '@/lib/fiscal/cest-lookup'
+import { normalizeOptionalFci, originRequiresFci } from '@/lib/fiscal/fci'
+import { normalizeOptionalGtin } from '@/lib/fiscal/gtin'
+import { normalizeOptionalCest, normalizeOptionalNcm } from '@/lib/fiscal/ncm'
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -173,7 +177,16 @@ export async function applyStaffProductPatchFromBody (
     return { ok: false, error: barcodeField.error, status: 400 }
   }
   if (barcodeField.hasValue) {
-    patch.barcode = barcodeField.value
+    const barcode = normalizeOptionalGtin(barcodeField.value)
+    if (barcode === 'invalid') {
+      return {
+        ok: false,
+        error: 'invalid_barcode',
+        status: 400,
+        message: 'Informe um EAN/GTIN válido (8, 12, 13 ou 14 dígitos) ou deixe em branco.',
+      }
+    }
+    patch.barcode = barcode
   }
 
   const descriptionField = parseTextField(body, 'description')
@@ -222,9 +235,52 @@ export async function applyStaffProductPatchFromBody (
     }
   }
 
+  const ncmField = parseTextField(body, 'ncm')
+  if ('error' in ncmField) {
+    return { ok: false, error: ncmField.error, status: 400 }
+  }
+  if (ncmField.hasValue) {
+    const ncm = normalizeOptionalNcm(ncmField.value)
+    if (ncm === 'invalid') {
+      return {
+        ok: false,
+        error: 'invalid_ncm',
+        status: 400,
+        message: 'Informe o NCM com 8 dígitos (0000.00.00) ou deixe em branco.',
+      }
+    }
+    patch.ncm = ncm
+  }
+
+  const cestField = parseTextField(body, 'cest')
+  if ('error' in cestField) {
+    return { ok: false, error: cestField.error, status: 400 }
+  }
+  if (cestField.hasValue) {
+    const cest = normalizeOptionalCest(cestField.value)
+    if (cest === 'invalid') {
+      return {
+        ok: false,
+        error: 'invalid_cest',
+        status: 400,
+        message: 'Informe o CEST com 7 dígitos (00.000.00) ou deixe em branco.',
+      }
+    }
+    patch.cest = cest
+  }
+
+  if (patch.ncm !== undefined || patch.cest !== undefined) {
+    const cestPair = await validateCestNcmPair(
+      patch.ncm !== undefined ? patch.ncm : current.ncm,
+      patch.cest !== undefined ? patch.cest : current.cest,
+      current.name,
+    )
+    if (cestPair.ok === false) {
+      return { ok: false, error: cestPair.error, status: 400, message: cestPair.message }
+    }
+  }
+
   for (const [bodyKey, patchKey] of [
-    ['ncm', 'ncm'],
-    ['cest', 'cest'],
     ['cfop', 'cfop'],
     ['fiscalUnit', 'fiscalUnit'],
     ['icmsCsosn', 'icmsCsosn'],
@@ -252,6 +308,33 @@ export async function applyStaffProductPatchFromBody (
       }
       patch.fiscalOrigin = Math.round(value)
     }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'fci')) {
+    const raw = body.fci
+    if (raw === null || raw === '') {
+      patch.fci = null
+    } else if (typeof raw !== 'string') {
+      return { ok: false, error: 'fci_invalid', status: 400 }
+    } else {
+      const fci = normalizeOptionalFci(raw)
+      if (fci === 'invalid') {
+        return {
+          ok: false,
+          error: 'invalid_fci',
+          status: 400,
+          message: 'Informe o FCI no formato UUID (8-4-4-4-12) ou deixe em branco.',
+        }
+      }
+      patch.fci = fci
+    }
+  }
+
+  if (
+    patch.fiscalOrigin !== undefined &&
+    !originRequiresFci(patch.fiscalOrigin)
+  ) {
+    patch.fci = null
   }
 
   let compatibleIds: string[] | null = null

@@ -91,6 +91,7 @@ const PRODUCT_PATCH_FIELDS_EXCLUDED_FROM_BLING_PENDING = new Set<keyof UpdatePro
   'cest',
   'cfop',
   'fiscalOrigin',
+  'fci',
   'fiscalUnit',
   'icmsCsosn',
   'icmsCst',
@@ -178,6 +179,7 @@ function normalizePatch (input: UpdateProductInput): NormalizePatchResult {
   if (input.cest !== undefined) patch.cest = input.cest
   if (input.cfop !== undefined) patch.cfop = input.cfop
   if (input.fiscalOrigin !== undefined) patch.fiscalOrigin = input.fiscalOrigin
+  if (input.fci !== undefined) patch.fci = input.fci
   if (input.fiscalUnit !== undefined) patch.fiscalUnit = input.fiscalUnit
   if (input.icmsCsosn !== undefined) patch.icmsCsosn = input.icmsCsosn
   if (input.icmsCst !== undefined) patch.icmsCst = input.icmsCst

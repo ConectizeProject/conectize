@@ -2,6 +2,7 @@ import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { onlyDigits } from '@/lib/utils/strings'
+import { fiscalIeOrNull } from '@/lib/fiscal/ie'
 import {
   decryptFiscalSecretToBuffer,
   decryptFiscalSecretToString,
@@ -32,8 +33,14 @@ export type FiscalProfileInput = {
   city: string | null
   state: string | null
   ibgeCityCode: string | null
-  nfceCscId: string | null
-  nfceCsc: string | null
+  nfceCscIdHomologacao: string | null
+  nfceCscHomologacao: string | null
+  nfceCscIdProducao: string | null
+  nfceCscProducao: string | null
+  nfceSeriesHomologacao: number
+  nfceNextNumberHomologacao: number
+  nfceSeriesProducao: number
+  nfceNextNumberProducao: number
   nfceSeries: number
   nfceNextNumber: number
   nfeSeries: number
@@ -70,12 +77,16 @@ export function normalizeFiscalProfileInput (raw: Partial<FiscalProfileInput>): 
   const defaultOrigin = Number.isFinite(Number(raw.defaultOrigin))
     ? Math.min(8, Math.max(0, Math.round(Number(raw.defaultOrigin))))
     : 0
+  const nfceSeriesHomologacao = Math.max(1, Math.round(Number(raw.nfceSeriesHomologacao) || 1))
+  const nfceNextNumberHomologacao = Math.max(1, Math.round(Number(raw.nfceNextNumberHomologacao) || 1))
+  const nfceSeriesProducao = Math.max(1, Math.round(Number(raw.nfceSeriesProducao) || 1))
+  const nfceNextNumberProducao = Math.max(1, Math.round(Number(raw.nfceNextNumberProducao) || 1))
 
   return {
     legalName: nullIfEmpty(raw.legalName),
     tradeName: nullIfEmpty(raw.tradeName),
     cnpj: onlyDigits(raw.cnpj || '').slice(0, 14) || null,
-    stateRegistration: onlyDigits(raw.stateRegistration || '') || null,
+    stateRegistration: fiscalIeOrNull(raw.stateRegistration, raw.state),
     stateRegistrationExempt: Boolean(raw.stateRegistrationExempt),
     municipalRegistration: nullIfEmpty(raw.municipalRegistration),
     taxRegime,
@@ -87,10 +98,16 @@ export function normalizeFiscalProfileInput (raw: Partial<FiscalProfileInput>): 
     city: nullIfEmpty(raw.city),
     state: String(raw.state || '').trim().toUpperCase().slice(0, 2) || null,
     ibgeCityCode: onlyDigits(raw.ibgeCityCode || '').slice(0, 7) || null,
-    nfceCscId: nullIfEmpty(raw.nfceCscId),
-    nfceCsc: nullIfEmpty(raw.nfceCsc),
-    nfceSeries: Math.max(1, Math.round(Number(raw.nfceSeries) || 1)),
-    nfceNextNumber: Math.max(1, Math.round(Number(raw.nfceNextNumber) || 1)),
+    nfceCscIdHomologacao: nullIfEmpty(raw.nfceCscIdHomologacao),
+    nfceCscHomologacao: nullIfEmpty(raw.nfceCscHomologacao),
+    nfceCscIdProducao: nullIfEmpty(raw.nfceCscIdProducao),
+    nfceCscProducao: nullIfEmpty(raw.nfceCscProducao),
+    nfceSeriesHomologacao,
+    nfceNextNumberHomologacao,
+    nfceSeriesProducao,
+    nfceNextNumberProducao,
+    nfceSeries: fiscalEnvironment === 'producao' ? nfceSeriesProducao : nfceSeriesHomologacao,
+    nfceNextNumber: fiscalEnvironment === 'producao' ? nfceNextNumberProducao : nfceNextNumberHomologacao,
     nfeSeries: Math.max(1, Math.round(Number(raw.nfeSeries) || 1)),
     nfeNextNumber: Math.max(1, Math.round(Number(raw.nfeNextNumber) || 1)),
     fiscalEnvironment,
@@ -104,6 +121,10 @@ export function normalizeFiscalProfileInput (raw: Partial<FiscalProfileInput>): 
   }
 }
 
+function nextCscCiphertext (incoming: string | null, existing: string | null | undefined) {
+  return incoming ? encryptFiscalSecret(incoming) : (existing || null)
+}
+
 export async function upsertFiscalProfile (
   _supabase: SupabaseClient,
   organizationId: string,
@@ -112,7 +133,7 @@ export async function upsertFiscalProfile (
   const supabase = createSupabaseServiceClient()
   const existing = await supabase
     .from('organization_fiscal_profiles')
-    .select('nfce_csc_ciphertext')
+    .select('nfce_csc_ciphertext, nfce_csc_ciphertext_homologacao, nfce_csc_ciphertext_producao, nfce_csc_id, nfce_csc_id_homologacao, nfce_csc_id_producao')
     .eq('organization_id', organizationId)
     .maybeSingle()
 
@@ -121,9 +142,20 @@ export async function upsertFiscalProfile (
     return { ok: false as const, error: 'db_error' as const }
   }
 
-  const cscCiphertext = input.nfceCsc
-    ? encryptFiscalSecret(input.nfceCsc)
-    : existing.data?.nfce_csc_ciphertext ?? null
+  const row = existing.data || {}
+  const cscHomologacao = nextCscCiphertext(
+    input.nfceCscHomologacao,
+    row.nfce_csc_ciphertext_homologacao || row.nfce_csc_ciphertext,
+  )
+  const cscProducao = nextCscCiphertext(
+    input.nfceCscProducao,
+    row.nfce_csc_ciphertext_producao,
+  )
+  const cscIdHomologacao = input.nfceCscIdHomologacao || row.nfce_csc_id_homologacao || row.nfce_csc_id || null
+  const cscIdProducao = input.nfceCscIdProducao || row.nfce_csc_id_producao || null
+  const activeCsc = input.fiscalEnvironment === 'producao'
+    ? { id: cscIdProducao, ciphertext: cscProducao }
+    : { id: cscIdHomologacao, ciphertext: cscHomologacao }
 
   const { error } = await supabase
     .from('organization_fiscal_profiles')
@@ -144,10 +176,18 @@ export async function upsertFiscalProfile (
       city: input.city,
       state: input.state,
       ibge_city_code: input.ibgeCityCode,
-      nfce_csc_id: input.nfceCscId,
-      nfce_csc_ciphertext: cscCiphertext,
+      nfce_csc_id: activeCsc.id,
+      nfce_csc_ciphertext: activeCsc.ciphertext,
+      nfce_csc_id_homologacao: cscIdHomologacao,
+      nfce_csc_ciphertext_homologacao: cscHomologacao,
+      nfce_csc_id_producao: cscIdProducao,
+      nfce_csc_ciphertext_producao: cscProducao,
       nfce_series: input.nfceSeries,
       nfce_next_number: input.nfceNextNumber,
+      nfce_series_homologacao: input.nfceSeriesHomologacao,
+      nfce_next_number_homologacao: input.nfceNextNumberHomologacao,
+      nfce_series_producao: input.nfceSeriesProducao,
+      nfce_next_number_producao: input.nfceNextNumberProducao,
       nfe_series: input.nfeSeries,
       nfe_next_number: input.nfeNextNumber,
       fiscal_environment: input.fiscalEnvironment,
