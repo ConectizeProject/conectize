@@ -13,6 +13,8 @@ import {
   type FiscalCertificateMetadata,
   validateFiscalCertificate,
 } from '@/lib/fiscal/certificate'
+import type { FiscalCscProfileRow } from '@/lib/fiscal/csc'
+import { fiscalIbscbsCclassTribOrNull, fiscalIbscbsCstOrNull } from '@/lib/fiscal/ibscbs'
 
 export type FiscalEnvironment = 'homologacao' | 'producao'
 export type TaxRegime = 'simples_nacional' | 'simples_excesso_sublimite' | 'regime_normal'
@@ -53,6 +55,9 @@ export type FiscalProfileInput = {
   defaultCsosn: string
   defaultPisCst: string
   defaultCofinsCst: string
+  ibscbsEnabled: boolean
+  ibscbsCst: string
+  ibscbsCclassTrib: string
 }
 
 export type FiscalCertificatePublic = FiscalCertificateMetadata & {
@@ -81,6 +86,9 @@ export function normalizeFiscalProfileInput (raw: Partial<FiscalProfileInput>): 
   const nfceNextNumberHomologacao = Math.max(1, Math.round(Number(raw.nfceNextNumberHomologacao) || 1))
   const nfceSeriesProducao = Math.max(1, Math.round(Number(raw.nfceSeriesProducao) || 1))
   const nfceNextNumberProducao = Math.max(1, Math.round(Number(raw.nfceNextNumberProducao) || 1))
+  const ibscbsCst = fiscalIbscbsCstOrNull(raw.ibscbsCst || '000') || '000'
+  const ibscbsCclassTrib = fiscalIbscbsCclassTribOrNull(ibscbsCst, raw.ibscbsCclassTrib || `${ibscbsCst}001`)
+    || `${ibscbsCst}001`
 
   return {
     legalName: nullIfEmpty(raw.legalName),
@@ -118,6 +126,9 @@ export function normalizeFiscalProfileInput (raw: Partial<FiscalProfileInput>): 
     defaultCsosn: onlyDigits(raw.defaultCsosn || '').slice(0, 3) || '102',
     defaultPisCst: onlyDigits(raw.defaultPisCst || '').slice(0, 2) || '49',
     defaultCofinsCst: onlyDigits(raw.defaultCofinsCst || '').slice(0, 2) || '49',
+    ibscbsEnabled: Boolean(raw.ibscbsEnabled),
+    ibscbsCst,
+    ibscbsCclassTrib,
   }
 }
 
@@ -142,7 +153,7 @@ export async function upsertFiscalProfile (
     return { ok: false as const, error: 'db_error' as const }
   }
 
-  const row = existing.data || {}
+  const row = (existing.data || {}) as FiscalCscProfileRow
   const cscHomologacao = nextCscCiphertext(
     input.nfceCscHomologacao,
     row.nfce_csc_ciphertext_homologacao || row.nfce_csc_ciphertext,
@@ -198,6 +209,9 @@ export async function upsertFiscalProfile (
       default_csosn: input.defaultCsosn,
       default_pis_cst: input.defaultPisCst,
       default_cofins_cst: input.defaultCofinsCst,
+      ibscbs_enabled: input.ibscbsEnabled,
+      ibscbs_cst: input.ibscbsCst,
+      ibscbs_cclass_trib: input.ibscbsCclassTrib,
       updated_at: new Date().toISOString(),
     })
 

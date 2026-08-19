@@ -6,10 +6,6 @@ import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import type { ServiceOrderPhotoTable } from '@/lib/orders/service-order-photo-storage'
 import { contentTypeForPhoto } from '@/lib/orders/photo-content-type'
 
-async function fileToBytes (data: Blob): Promise<Uint8Array> {
-  return new Uint8Array(await data.arrayBuffer())
-}
-
 export async function downloadStoragePhotoResponse (opts: {
   bucket: string
   storagePath: string
@@ -33,8 +29,7 @@ export async function downloadStoragePhotoResponse (opts: {
       if (error) console.error('[downloadStoragePhotoResponse]', opts.bucket, candidate, error.message)
       continue
     }
-    const body = await fileToBytes(data)
-    return new NextResponse(body, {
+    return new NextResponse(data, {
       headers: {
         'Content-Type': contentTypeForPhoto(candidate, data.type),
         'Cache-Control': 'private, max-age=300',
