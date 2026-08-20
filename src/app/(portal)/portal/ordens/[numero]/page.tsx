@@ -7,6 +7,10 @@ import {
 	CardTitle,
 } from '@/components/ui/card'
 import { fetchDeviceModelsForSelector } from '@/lib/portal/device-models-server'
+import {
+	ensurePortalOrganizationContext,
+	getPortalOrganizationId,
+} from '@/lib/organizations/portal-organization-context'
 import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
@@ -47,6 +51,7 @@ export default async function OrdemDetalhePage ({
 
 	const { user, role } = await getPortalAuth()
 	if (!user) await redirectToPortalLogin()
+	if (!user) redirect('/portal/login')
 
 	const normalizedRole = role === 'customer' ? 'user' : role
 	if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
@@ -70,17 +75,46 @@ export default async function OrdemDetalhePage ({
 	}
 
 	const supabase = await createSupabaseServerClient()
-	const orderRowPromise =
+	await ensurePortalOrganizationContext(supabase, user.id)
+	const organizationId = await getPortalOrganizationId(supabase, user.id)
+
+	if (!organizationId) {
+		return (
+			<Card>
+				<CardHeader>
+					<CardTitle>Ordem não encontrada</CardTitle>
+					<CardDescription>Não há empresa ativa no portal. Selecione uma empresa e tente de novo.</CardDescription>
+				</CardHeader>
+				<CardContent>
+					<Button asChild variant="outline">
+						<Link href={isPortalReadOnly ? '/portal/minhas-ordens' : '/portal/ordens'}>Voltar</Link>
+					</Button>
+				</CardContent>
+			</Card>
+		)
+	}
+
+	const orderByKey =
 		resolved.kind === 'id'
-			? supabase.from('service_orders').select(ORDER_SELECT).eq('id', resolved.value).maybeSingle()
-			: supabase.from('service_orders').select(ORDER_SELECT).eq('display_number', resolved.value).maybeSingle()
+			? supabase
+				.from('service_orders')
+				.select(ORDER_SELECT)
+				.eq('organization_id', organizationId)
+				.eq('id', resolved.value)
+				.maybeSingle()
+			: supabase
+				.from('service_orders')
+				.select(ORDER_SELECT)
+				.eq('organization_id', organizationId)
+				.eq('display_number', resolved.value)
+				.maybeSingle()
 
 	const [
-		{ data: order },
+		{ data: order, error: orderError },
 		deviceModels,
 		{ data: warrantyTemplates },
 	] = await Promise.all([
-		orderRowPromise,
+		orderByKey,
 		fetchDeviceModelsForSelector(supabase),
 		supabase
 			.from('warranty_templates')
@@ -89,6 +123,15 @@ export default async function OrdemDetalhePage ({
 			.order('sort_order', { ascending: true })
 			.order('created_at', { ascending: true }),
 	])
+
+	if (orderError && process.env.NODE_ENV === 'development') {
+		console.warn('[ordens/numero] lookup failed', {
+			numero,
+			organizationId,
+			code: orderError.code,
+			message: orderError.message,
+		})
+	}
 
 	if (!order) {
 		return (
