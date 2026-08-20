@@ -43,15 +43,9 @@ export function useNovaOrdemCustomerSearch ({ selectedCustomer }: Params) {
 	const [lastNameQueryFetched, setLastNameQueryFetched] = useState<
 		string | null
 	>(null)
-	const cpfSearchAbortRef = useRef<AbortController | null>(null)
-	const cpfSearchInFlightPrefixRef = useRef<string | null>(null)
-	const nameSearchInFlightRef = useRef<string | null>(null)
-	const cpfSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
-		null,
-	)
-	const nameSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
-		null,
-	)
+	const searchAbortRef = useRef<AbortController | null>(null)
+	const documentDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	const nameDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
 	const [isCpfPopoverOpen, setIsCpfPopoverOpen] = useState(false)
 
@@ -67,18 +61,12 @@ export function useNovaOrdemCustomerSearch ({ selectedCustomer }: Params) {
 
 	useEffect(() => {
 		if (!isDocumentMode && !isNameMode) {
-			cpfSearchAbortRef.current?.abort()
-			cpfSearchAbortRef.current = null
-			cpfSearchInFlightPrefixRef.current = null
-			nameSearchInFlightRef.current = null
-			if (cpfSearchDebounceRef.current) {
-				clearTimeout(cpfSearchDebounceRef.current)
-			}
-			if (nameSearchDebounceRef.current) {
-				clearTimeout(nameSearchDebounceRef.current)
-			}
-			cpfSearchDebounceRef.current = null
-			nameSearchDebounceRef.current = null
+			searchAbortRef.current?.abort()
+			searchAbortRef.current = null
+			if (documentDebounceRef.current) clearTimeout(documentDebounceRef.current)
+			if (nameDebounceRef.current) clearTimeout(nameDebounceRef.current)
+			documentDebounceRef.current = null
+			nameDebounceRef.current = null
 			queueMicrotask(() => {
 				setDocumentSearchError(null)
 				setCustomersBase([])
@@ -86,132 +74,127 @@ export function useNovaOrdemCustomerSearch ({ selectedCustomer }: Params) {
 				setLastNameQueryFetched(null)
 				setIsSearchingDocument(false)
 			})
+		}
+	}, [isDocumentMode, isNameMode])
+
+	useEffect(() => {
+		if (!isDocumentMode) return
+		if (documentPrefix === lastPrefixFetched) {
+			setIsSearchingDocument(false)
 			return
 		}
 
-		let cancelled = false
+		if (documentDebounceRef.current) clearTimeout(documentDebounceRef.current)
 
-		if (isDocumentMode) {
-			if (
-				documentPrefix === lastPrefixFetched ||
-				cpfSearchInFlightPrefixRef.current === documentPrefix
-			) {
-				return
-			}
-			if (cpfSearchDebounceRef.current) {
-				clearTimeout(cpfSearchDebounceRef.current)
-			}
-			cpfSearchDebounceRef.current = setTimeout(() => {
-				if (cancelled) return
-				cpfSearchAbortRef.current?.abort()
-				const controller = new AbortController()
-				cpfSearchAbortRef.current = controller
-				cpfSearchInFlightPrefixRef.current = documentPrefix
-				setIsSearchingDocument(true)
-				setDocumentSearchError(null)
-				portalFetch(
-					`/api/portal/customers/search?documentPrefix=${documentPrefix}`,
-					{ signal: controller.signal },
-				)
-					.then((res) => res.json())
-					.then((data) => {
-						if (cancelled) return
-						if (!data?.ok) {
-							setDocumentSearchError('Não foi possível buscar clientes agora.')
-							setCustomersBase([])
-							setLastPrefixFetched(documentPrefix)
-							return
-						}
-						setCustomersBase(data.customers || [])
+		documentDebounceRef.current = setTimeout(() => {
+			searchAbortRef.current?.abort()
+			const controller = new AbortController()
+			searchAbortRef.current = controller
+			setIsSearchingDocument(true)
+			setDocumentSearchError(null)
+
+			portalFetch(
+				`/api/portal/customers/search?documentPrefix=${documentPrefix}`,
+				{ signal: controller.signal },
+			)
+				.then((res) => res.json())
+				.then((data) => {
+					if (controller.signal.aborted) return
+					if (!data?.ok) {
+						setDocumentSearchError('Não foi possível buscar clientes agora.')
+						setCustomersBase([])
 						setLastPrefixFetched(documentPrefix)
-					})
-					.catch((err: { name?: string }) => {
-						if (err?.name === 'AbortError') return
-						if (!cancelled) {
-							setDocumentSearchError('Não foi possível buscar clientes agora.')
-							setCustomersBase([])
-							setLastPrefixFetched(documentPrefix)
-						}
-					})
-					.finally(() => {
-						if (!cancelled) setIsSearchingDocument(false)
-						if (cpfSearchInFlightPrefixRef.current === documentPrefix) {
-							cpfSearchInFlightPrefixRef.current = null
-						}
-					})
-			}, 350)
-		} else if (isNameMode) {
-			if (
-				nameQuery === lastNameQueryFetched ||
-				nameSearchInFlightRef.current === nameQuery
-			) {
-				return
-			}
-			if (nameSearchDebounceRef.current) {
-				clearTimeout(nameSearchDebounceRef.current)
-			}
-			nameSearchDebounceRef.current = setTimeout(() => {
-				if (cancelled) return
-				cpfSearchAbortRef.current?.abort()
-				const controller = new AbortController()
-				cpfSearchAbortRef.current = controller
-				nameSearchInFlightRef.current = nameQuery
-				setIsSearchingDocument(true)
-				setDocumentSearchError(null)
-				portalFetch(
-					`/api/portal/customers/search?name=${encodeURIComponent(nameQuery)}`,
-					{ signal: controller.signal },
-				)
-					.then((res) => res.json())
-					.then((data) => {
-						if (cancelled) return
-						if (!data?.ok) {
-							setDocumentSearchError('Não foi possível buscar clientes agora.')
-							setCustomersBase([])
-							setLastNameQueryFetched(nameQuery)
-							return
-						}
-						setCustomersBase(data.customers || [])
-						setLastNameQueryFetched(nameQuery)
-					})
-					.catch((err: { name?: string }) => {
-						if (err?.name === 'AbortError') return
-						if (!cancelled) {
-							setDocumentSearchError('Não foi possível buscar clientes agora.')
-							setCustomersBase([])
-							setLastNameQueryFetched(nameQuery)
-						}
-					})
-					.finally(() => {
-						if (!cancelled) setIsSearchingDocument(false)
-						if (nameSearchInFlightRef.current === nameQuery) {
-							nameSearchInFlightRef.current = null
-						}
-					})
-			}, 350)
-		}
+						return
+					}
+					setCustomersBase(data.customers || [])
+					setLastPrefixFetched(documentPrefix)
+				})
+				.catch((err: { name?: string }) => {
+					if (err?.name === 'AbortError' || controller.signal.aborted) return
+					setDocumentSearchError('Não foi possível buscar clientes agora.')
+					setCustomersBase([])
+					setLastPrefixFetched(documentPrefix)
+				})
+				.finally(() => {
+					if (searchAbortRef.current === controller) {
+						searchAbortRef.current = null
+					}
+					if (!controller.signal.aborted) {
+						setIsSearchingDocument(false)
+					}
+				})
+		}, 350)
 
 		return () => {
-			cancelled = true
-			if (cpfSearchDebounceRef.current) {
-				clearTimeout(cpfSearchDebounceRef.current)
+			if (documentDebounceRef.current) {
+				clearTimeout(documentDebounceRef.current)
+				documentDebounceRef.current = null
 			}
-			if (nameSearchDebounceRef.current) {
-				clearTimeout(nameSearchDebounceRef.current)
-			}
+			searchAbortRef.current?.abort()
 		}
-	}, [
-		isDocumentMode,
-		isNameMode,
-		documentPrefix,
-		lastPrefixFetched,
-		nameQuery,
-		lastNameQueryFetched,
-	])
+	}, [isDocumentMode, documentPrefix, lastPrefixFetched])
+
+	useEffect(() => {
+		if (!isNameMode || isDocumentMode) return
+		if (nameQuery === lastNameQueryFetched) {
+			setIsSearchingDocument(false)
+			return
+		}
+
+		if (nameDebounceRef.current) clearTimeout(nameDebounceRef.current)
+
+		nameDebounceRef.current = setTimeout(() => {
+			searchAbortRef.current?.abort()
+			const controller = new AbortController()
+			searchAbortRef.current = controller
+			setIsSearchingDocument(true)
+			setDocumentSearchError(null)
+
+			portalFetch(
+				`/api/portal/customers/search?name=${encodeURIComponent(nameQuery)}`,
+				{ signal: controller.signal },
+			)
+				.then((res) => res.json())
+				.then((data) => {
+					if (controller.signal.aborted) return
+					if (!data?.ok) {
+						setDocumentSearchError('Não foi possível buscar clientes agora.')
+						setCustomersBase([])
+						setLastNameQueryFetched(nameQuery)
+						return
+					}
+					setCustomersBase(data.customers || [])
+					setLastNameQueryFetched(nameQuery)
+				})
+				.catch((err: { name?: string }) => {
+					if (err?.name === 'AbortError' || controller.signal.aborted) return
+					setDocumentSearchError('Não foi possível buscar clientes agora.')
+					setCustomersBase([])
+					setLastNameQueryFetched(nameQuery)
+				})
+				.finally(() => {
+					if (searchAbortRef.current === controller) {
+						searchAbortRef.current = null
+					}
+					if (!controller.signal.aborted) {
+						setIsSearchingDocument(false)
+					}
+				})
+		}, 350)
+
+		return () => {
+			if (nameDebounceRef.current) {
+				clearTimeout(nameDebounceRef.current)
+				nameDebounceRef.current = null
+			}
+			searchAbortRef.current?.abort()
+		}
+	}, [isDocumentMode, isNameMode, nameQuery, lastNameQueryFetched])
 
 	const hasFetchedDocPrefix =
 		isDocumentMode && lastPrefixFetched === documentPrefix
-	const hasFetchedName = isNameMode && lastNameQueryFetched === nameQuery
+	const hasFetchedName =
+		isNameMode && !isDocumentMode && lastNameQueryFetched === nameQuery
 	const hasFetched = hasFetchedDocPrefix || hasFetchedName
 
 	const customersFiltered = useMemo(() => {

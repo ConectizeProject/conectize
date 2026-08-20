@@ -30,6 +30,16 @@ function buildSecurityHeaders () {
 
 const nextConfig = {
 	reactStrictMode: true,
+	// sharp 0.35 + Turbopack no Vercel: libvips não entra no bundle → 500 HTML em upload.
+	serverExternalPackages: ['sharp'],
+	outputFileTracingIncludes: {
+		'/api/**/*': [
+			'./node_modules/@img/sharp-libvips-linux-x64/**/*',
+			'./node_modules/@img/sharp-libvips-linuxmusl-x64/**/*',
+			'./node_modules/@img/sharp-linux-x64/**/*',
+			'./node_modules/@img/sharp-linuxmusl-x64/**/*',
+		],
+	},
 	images: {
 		formats: ['image/avif', 'image/webp'],
 		remotePatterns: [
