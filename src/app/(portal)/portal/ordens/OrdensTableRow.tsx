@@ -28,6 +28,7 @@ export function OrdensTableRow({ order }: Props) {
             href={getOrdemPortalPath(order)}
             className="absolute inset-0 z-0"
             aria-label={`Abrir ordem ${order.display_number ?? order.id}`}
+            transitionTypes={['nav-forward']}
           />
           <div className="relative z-10 grid grid-cols-9 gap-2 items-center py-2 px-4 cursor-pointer">
             <span className="font-medium">#{order.display_number ?? order.id}</span>

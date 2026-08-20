@@ -19,6 +19,7 @@ import {
   isProductFiscalCorrectionError,
   nfceEditorHref,
 } from '@/lib/fiscal/product-fiscal-errors'
+import { fiscalEmitFailureMessage } from '@/lib/fiscal/emit-failure-message'
 import {
   SalesOrderCupomPreview,
   openNfceDanfePrint,
@@ -246,7 +247,7 @@ export function SalesOrderAfterSaleActions (props: {
         }
         toast({
           title: 'NFC-e não autorizada',
-          description: data?.message || data?.error || 'Não foi possível emitir a NFC-e.',
+          description: fiscalEmitFailureMessage(res, data, 'NFC-e'),
           variant: 'destructive',
         })
         return
@@ -278,6 +279,15 @@ export function SalesOrderAfterSaleActions (props: {
       if (next.fiscalDocument?.id) {
         router.push(`/portal/vendas/nfce/${encodeURIComponent(next.fiscalDocument.id)}`)
       }
+    } catch (err) {
+      console.error('[vendas] handleNfce', err)
+      toast({
+        title: 'NFC-e não autorizada',
+        description: err instanceof Error && err.message
+          ? err.message
+          : 'Não foi possível emitir a NFC-e.',
+        variant: 'destructive',
+      })
     } finally {
       setBusyNfce(false)
     }

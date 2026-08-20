@@ -125,7 +125,8 @@ async function insertEvent (auth: AuthCtx, input: {
   statusMessage?: string | null
   payload?: Record<string, unknown> | null
 }) {
-  await auth.supabase.from('fiscal_document_events').insert({
+  const service = createSupabaseServiceClient()
+  const { error } = await service.from('fiscal_document_events').insert({
     organization_id: auth.organizationId,
     fiscal_document_id: input.documentId,
     event_type: input.type,
@@ -133,6 +134,9 @@ async function insertEvent (auth: AuthCtx, input: {
     status_message: input.statusMessage ?? null,
     payload: input.payload ?? null,
   })
+  if (error) {
+    console.error('[fiscal] insertEvent', error)
+  }
 }
 
 async function getExistingFiscalDocument (auth: AuthCtx, orderId: string, model: '55' | '65') {
@@ -286,7 +290,9 @@ async function persistFiscalDocument (
   documentId: string,
   patch: Record<string, unknown>,
 ) {
-  const { data } = await auth.supabase
+  // Service role: evita falha silenciosa de RLS no meio da transmissão SEFAZ.
+  const service = createSupabaseServiceClient()
+  const { data, error } = await service
     .from('fiscal_documents')
     .update({
       ...patch,
@@ -296,6 +302,9 @@ async function persistFiscalDocument (
     .eq('organization_id', auth.organizationId)
     .select(FISCAL_DOCUMENT_SELECT)
     .maybeSingle()
+  if (error) {
+    console.error('[fiscal] persistFiscalDocument', error)
+  }
   return (data || null) as FiscalDocumentRow | null
 }
 
@@ -539,32 +548,45 @@ export async function emitFiscalDocumentForSalesOrder (
     }
   }
 
-  const pfx = decryptFiscalSecretToBuffer(String(certificate.pfx_ciphertext))
-  const password = decryptFiscalSecretToString(String(certificate.password_ciphertext))
-  const liveExpiry = readLiveCertificateExpiry(pfx, password)
-  if (isFiscalCertificateExpired(liveExpiry)) {
-    return certificateExpiredResult(liveExpiry)
-  }
-  const csc = model === '65' && cscPair.ciphertext
-    ? decryptFiscalSecretToString(cscPair.ciphertext)
-    : undefined
+  let pfx: Buffer
+  let password: string
+  let csc: string | undefined
+  let client: ReturnType<typeof createSefazClient>
   const signedPersist = { documentId: '' }
-  const client = createSefazClient({
-    pfx,
-    password,
-    environment,
-    uf: String(profile.state || '').trim().toUpperCase(),
-    documentModel: model,
-    cscId: model === '65' ? String(cscPair.id || '').trim() || undefined : undefined,
-    csc,
-    async onSignedXml ({ xml, accessKey }) {
-      if (!signedPersist.documentId) return
-      await persistFiscalDocument(auth, signedPersist.documentId, {
-        submitted_xml: xml,
-        access_key: accessKey,
-      })
-    },
-  })
+  try {
+    pfx = decryptFiscalSecretToBuffer(String(certificate.pfx_ciphertext))
+    password = decryptFiscalSecretToString(String(certificate.password_ciphertext))
+    const liveExpiry = readLiveCertificateExpiry(pfx, password)
+    if (isFiscalCertificateExpired(liveExpiry)) {
+      return certificateExpiredResult(liveExpiry)
+    }
+    csc = model === '65' && cscPair.ciphertext
+      ? decryptFiscalSecretToString(cscPair.ciphertext)
+      : undefined
+    client = createSefazClient({
+      pfx,
+      password,
+      environment,
+      uf: String(profile.state || '').trim().toUpperCase(),
+      documentModel: model,
+      cscId: model === '65' ? String(cscPair.id || '').trim() || undefined : undefined,
+      csc,
+      async onSignedXml ({ xml, accessKey }) {
+        if (!signedPersist.documentId) return
+        await persistFiscalDocument(auth, signedPersist.documentId, {
+          submitted_xml: xml,
+          access_key: accessKey,
+        })
+      },
+    })
+  } catch (err) {
+    console.error('[fiscal] certificate/csc setup failed', err)
+    return {
+      ok: false,
+      error: 'certificate_setup_failed',
+      message: errorMessage(err, kind),
+    }
+  }
 
   // Denegação (cStat 110/301/302) consome o número. Rejeição pode reutilizar.
   const reusable = existing?.status === 'denied' ? null : existing
@@ -604,7 +626,8 @@ export async function emitFiscalDocumentForSalesOrder (
 
   let fiscalDocument = reusable
   if (!fiscalDocument) {
-    const { data: inserted, error: insertError } = await auth.supabase
+    // Service role após auth: staff/admin já validados; evita insert bloqueado por RLS.
+    const { data: inserted, error: insertError } = await service
       .from('fiscal_documents')
       .insert({
         organization_id: auth.organizationId,
@@ -619,7 +642,13 @@ export async function emitFiscalDocumentForSalesOrder (
       .maybeSingle()
 
     if (insertError || !inserted) {
-      return { ok: false, error: 'db_error', message: 'Não foi possível criar o documento fiscal.' }
+      console.error('[fiscal] insert fiscal_documents', insertError)
+      const detail = insertError?.code ? ` (${insertError.code})` : ''
+      return {
+        ok: false,
+        error: 'db_error',
+        message: `Não foi possível criar o documento fiscal${detail}.`,
+      }
     }
     fiscalDocument = inserted as FiscalDocumentRow
   } else {

@@ -49,7 +49,9 @@ export default async function RevendaEditDevicePage ({ params }: Props) {
       deviceId={id}
       isCreate={false}
       initialDevice={initialDeviceForRole}
-      initialDisplayImageUrl={initialDevice.display_image_url}
+      initialDisplayImageUrl={
+        initialDevice.display_image_full_url ?? initialDevice.display_image_url
+      }
       backHref={backHref}
       role={normalizedRole}
     />

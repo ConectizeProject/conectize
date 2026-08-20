@@ -593,7 +593,7 @@ export function OrdensKanbanBoard ({
             Nenhuma ordem encontrada com os filtros atuais.
           </p>
           <Button asChild className="mt-4" variant="secondary" size="sm">
-            <Link href="/portal/ordens/nova">Nova ordem</Link>
+            <Link href="/portal/ordens/nova" transitionTypes={['nav-forward']}>Nova ordem</Link>
           </Button>
         </div>
       ) : null}

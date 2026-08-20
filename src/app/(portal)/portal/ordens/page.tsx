@@ -270,7 +270,7 @@ export default async function OrdensPage({
 					<h1 className="text-xl font-bold sm:text-2xl">Ordens de serviço</h1>
 				</div>
 				<Button asChild className="w-full sm:w-auto shrink-0">
-					<Link href="/portal/ordens/nova">Nova ordem</Link>
+					<Link href="/portal/ordens/nova" transitionTypes={['nav-forward']}>Nova ordem</Link>
 				</Button>
 			</div>
 

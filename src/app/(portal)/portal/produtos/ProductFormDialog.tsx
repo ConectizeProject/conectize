@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { GripVertical, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -104,13 +104,19 @@ export function ProductFormDialog ({
   const [syncingProduct, setSyncingProduct] = useState(false)
   const [syncingStock, setSyncingStock] = useState(false)
   const [applyImageChildrenBusy, setApplyImageChildrenBusy] = useState(false)
-  const [parentAttrKeysForVariation, setParentAttrKeysForVariation] = useState<string[]>([])
-  const [parentNameForVariationForm, setParentNameForVariationForm] = useState<string | null>(null)
+  const [parentSummaryForVariation, setParentSummaryForVariation] = useState<{
+    id: string
+    name: string
+    sku: string | null
+    imageUrl: string | null
+    blingId: string | null
+    salePriceCents: number | null
+    isActive: boolean
+    variationAttributeKeys: string[]
+  } | null>(null)
   const [createParentAttrKeys, setCreateParentAttrKeys] = useState<string[]>([])
   const [createParentName, setCreateParentName] = useState<string | null>(null)
-  const [variationAttrPortalEl, setVariationAttrPortalEl] = useState<HTMLDivElement | null>(null)
   const [parentVariationKeysPortalEl, setParentVariationKeysPortalEl] = useState<HTMLDivElement | null>(null)
-  const variationTabDefaultedRef = useRef(false)
 
   const loadEdit = useCallback(async () => {
     if (!productId || mode !== 'edit') return
@@ -174,38 +180,16 @@ export function ProductFormDialog ({
     setSavePhase('idle')
     setEditTab('dados')
     setApplyImageChildrenBusy(false)
-    setParentAttrKeysForVariation([])
-    setParentNameForVariationForm(null)
+    setParentSummaryForVariation(null)
     setCreateParentAttrKeys([])
     setCreateParentName(null)
-    setVariationAttrPortalEl(null)
     setParentVariationKeysPortalEl(null)
   }, [open])
-
-  useEffect(() => {
-    variationTabDefaultedRef.current = false
-  }, [open, productId])
 
   useEffect(() => {
     if (!open || mode !== 'edit') return
     setEditTab(initialEditTab ?? 'dados')
   }, [open, mode, productId, initialEditTab])
-
-  useEffect(() => {
-    if (!open || mode !== 'edit' || initialEditTab != null || !loadedProduct) return
-    const isVar = Boolean(loadedProduct.parentProductId || loadedProduct.parentBlingId)
-    if (!isVar) return
-    if (variationTabDefaultedRef.current) return
-    variationTabDefaultedRef.current = true
-    setEditTab('variacoes')
-  }, [
-    open,
-    mode,
-    initialEditTab,
-    loadedProduct?.id,
-    loadedProduct?.parentProductId,
-    loadedProduct?.parentBlingId,
-  ])
 
   useEffect(() => {
     if (!loadedProduct || loadedProduct.kind !== 'service') return
@@ -214,6 +198,10 @@ export function ProductFormDialog ({
 
   useEffect(() => {
     const isVar = Boolean(loadedProduct?.parentBlingId || loadedProduct?.parentProductId)
+    if (isVar && editTab === 'variacoes') {
+      setEditTab('dados')
+      return
+    }
     const isParent = loadedProduct?.kind !== 'service' && !isVar && variations.length > 0
     if (!isParent) return
     if (editTab === 'estoque') setEditTab('dados')
@@ -228,8 +216,7 @@ export function ProductFormDialog ({
   useEffect(() => {
     const pid = loadedProduct?.parentProductId
     if (!open || mode !== 'edit' || !pid) {
-      setParentAttrKeysForVariation([])
-      setParentNameForVariationForm(null)
+      setParentSummaryForVariation(null)
       return
     }
     let cancelled = false
@@ -239,15 +226,24 @@ export function ProductFormDialog ({
         const data = await res.json().catch(() => null)
         if (cancelled || !res.ok || !data?.ok || !data?.product) return
         const parent = data.product as Product
-        setParentAttrKeysForVariation(
-          Array.isArray(parent.variationAttributeKeys) ? parent.variationAttributeKeys : [],
-        )
-        setParentNameForVariationForm(parent.name?.trim() || null)
+        setParentSummaryForVariation({
+          id: parent.id,
+          name: parent.name?.trim() || 'Produto pai',
+          sku: parent.sku ?? null,
+          imageUrl:
+            parent.imageUrl != null && String(parent.imageUrl).trim()
+              ? String(parent.imageUrl).trim()
+              : null,
+          blingId: parent.blingId ?? null,
+          salePriceCents:
+            typeof parent.salePriceCents === 'number' ? parent.salePriceCents : null,
+          isActive: parent.isActive !== false,
+          variationAttributeKeys: Array.isArray(parent.variationAttributeKeys)
+            ? parent.variationAttributeKeys
+            : [],
+        })
       } catch {
-        if (!cancelled) {
-          setParentAttrKeysForVariation([])
-          setParentNameForVariationForm(null)
-        }
+        if (!cancelled) setParentSummaryForVariation(null)
       }
     })()
     return () => {
@@ -686,46 +682,124 @@ export function ProductFormDialog ({
                 }}
                 className="flex min-h-0 flex-1 flex-col"
               >
-                <DialogHeader className="shrink-0 space-y-0 border-b px-6 pt-3 pb-2 text-left">
-                  <DialogTitle className="sr-only">Editar produto</DialogTitle>
-                  <TabsList className="h-auto w-full flex-wrap justify-start gap-1 rounded-none border-0 bg-transparent p-0">
-                    <TabsTrigger value="dados">Dados do produto</TabsTrigger>
-                    {isEditProductWithStock ? (
-                      <>
-                        <TabsTrigger value="variacoes">Variações</TabsTrigger>
-                        {!isParentWithVariations ? (
-                          <TabsTrigger value="estoque">Estoque</TabsTrigger>
-                        ) : null}
-                      </>
+                <DialogHeader className="shrink-0 space-y-3 border-b px-6 pt-4 pb-0 text-left">
+                  <div className="space-y-1 pr-8">
+                    <DialogTitle className="truncate text-base font-semibold tracking-tight sm:text-lg">
+                      {formProduct.name?.trim() || initialName || 'Editar produto'}
+                    </DialogTitle>
+                    <p className="text-[11px] leading-relaxed text-muted-foreground">
+                      <span className="text-muted-foreground/90">ID portal</span>
+                      {' '}
+                      <span className="font-mono tabular-nums text-foreground/70 select-all">
+                        {formProduct.id}
+                      </span>
+                      <span className="mx-1.5 text-muted-foreground/40" aria-hidden>·</span>
+                      <span className="text-muted-foreground/90">Bling</span>
+                      {' '}
+                      <span className="font-mono tabular-nums text-foreground/70 select-all">
+                        {blingIdLabel}
+                      </span>
+                    </p>
+                  </div>
+                  <TabsList className="h-auto w-full justify-start gap-0 rounded-none border-0 bg-transparent p-0">
+                    <TabsTrigger
+                      value="dados"
+                      className="rounded-none border-b-2 border-transparent px-3 pb-2.5 pt-1 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    >
+                      Dados
+                    </TabsTrigger>
+                    {isEditProductWithStock && !isVariationChild ? (
+                      <TabsTrigger
+                        value="variacoes"
+                        className="rounded-none border-b-2 border-transparent px-3 pb-2.5 pt-1 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                      >
+                        Variações
+                      </TabsTrigger>
+                    ) : null}
+                    {isEditProductWithStock && !isParentWithVariations ? (
+                      <TabsTrigger
+                        value="estoque"
+                        className="rounded-none border-b-2 border-transparent px-3 pb-2.5 pt-1 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                      >
+                        Estoque
+                      </TabsTrigger>
                     ) : null}
                   </TabsList>
                 </DialogHeader>
 
-                <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+                <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
                   <TabsContent
                     value="dados"
                     {...productEditTabMountProps}
                     className={variationTabPanelClass}
                   >
-                    <div className="mb-4 space-y-2">
-                      <p className="text-[11px] leading-relaxed text-muted-foreground">
-                        <span className="text-muted-foreground/90">ID portal</span>
-                        {' '}
-                        <span className="font-mono tabular-nums text-foreground/70 select-all">
-                          {formProduct.id}
-                        </span>
-                        <span className="mx-1.5 text-muted-foreground/40" aria-hidden>
-                          ·
-                        </span>
-                        <span className="text-muted-foreground/90">Bling</span>
-                        {' '}
-                        <span className="font-mono tabular-nums text-foreground/70 select-all">
-                          {blingIdLabel}
-                        </span>
-                      </p>
-                      <div className="flex flex-wrap items-center gap-2">
+                    {(loadedProduct.blingId || savePhase !== 'idle' || isVariationChild) ? (
+                      <div className="mb-5 space-y-3">
+                        {isVariationChild && parentSummaryForVariation ? (
+                          <div className="flex gap-3 rounded-lg border border-border/80 bg-muted/15 p-3 sm:p-3.5">
+                            <div className="h-14 w-14 shrink-0 overflow-hidden rounded-md border border-border/70 bg-background">
+                              {parentSummaryForVariation.imageUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={parentSummaryForVariation.imageUrl}
+                                  alt=""
+                                  className="h-full w-full object-cover"
+                                  loading="lazy"
+                                />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center text-[10px] text-muted-foreground">
+                                  Sem foto
+                                </div>
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                Produto pai
+                              </p>
+                              <p className="truncate text-sm font-semibold tracking-tight text-foreground">
+                                {parentSummaryForVariation.name}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {parentSummaryForVariation.sku
+                                  ? (
+                                    <>
+                                      SKU{' '}
+                                      <span className="font-mono tabular-nums text-foreground/80">
+                                        {parentSummaryForVariation.sku}
+                                      </span>
+                                    </>
+                                  )
+                                  : 'Sem SKU'}
+                                {parentSummaryForVariation.salePriceCents != null ? (
+                                  <>
+                                    <span className="mx-1.5 text-muted-foreground/40" aria-hidden>·</span>
+                                    {formatCurrency(parentSummaryForVariation.salePriceCents / 100)}
+                                  </>
+                                ) : null}
+                                <span className="mx-1.5 text-muted-foreground/40" aria-hidden>·</span>
+                                {parentSummaryForVariation.isActive ? 'Ativo' : 'Inativo'}
+                              </p>
+                            </div>
+                            {onNavigateToProductId ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="shrink-0 self-center"
+                                disabled={savePhase !== 'idle'}
+                                onClick={() => onNavigateToProductId(parentSummaryForVariation.id)}
+                              >
+                                Abrir pai
+                              </Button>
+                            ) : null}
+                          </div>
+                        ) : null}
+
                         {loadedProduct.blingId ? (
-                          <>
+                          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/80 bg-muted/15 px-3 py-2.5">
+                            <p className="mr-auto text-xs text-muted-foreground">
+                              Integração Bling
+                            </p>
                             <Button
                               type="button"
                               variant="outline"
@@ -737,7 +811,7 @@ export function ProductFormDialog ({
                                 'Dados atualizados pelo Bling.',
                               )}
                             >
-                              {syncingProduct ? 'Atualizando...' : 'Atualizar dados pelo Bling'}
+                              {syncingProduct ? 'Atualizando...' : 'Atualizar dados'}
                             </Button>
                             {loadedProduct.kind !== 'service' && !isParentWithVariations ? (
                               <Button
@@ -751,26 +825,26 @@ export function ProductFormDialog ({
                                   'Estoque sincronizado com Bling.',
                                 )}
                               >
-                                {syncingStock ? 'Sincronizando...' : 'Sincronizar estoque com Bling'}
+                                {syncingStock ? 'Sincronizando...' : 'Sincronizar estoque'}
                               </Button>
                             ) : null}
-                          </>
+                          </div>
+                        ) : null}
+
+                        {savePhase !== 'idle' ? (
+                          <div
+                            className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2.5 text-sm text-muted-foreground"
+                            aria-live="polite"
+                          >
+                            <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                            <span className="font-medium text-foreground">
+                              {savePhase === 'saving' && 'Salvando…'}
+                              {savePhase === 'syncing' && 'Sincronizando com o Bling…'}
+                            </span>
+                          </div>
                         ) : null}
                       </div>
-                    </div>
-
-                    {savePhase !== 'idle' && (
-                      <div
-                        className="mb-4 flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2.5 text-sm text-muted-foreground"
-                        aria-live="polite"
-                      >
-                        <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
-                        <span className="font-medium text-foreground">
-                          {savePhase === 'saving' && 'Salvando…'}
-                          {savePhase === 'syncing' && 'Sincronizando com o Bling…'}
-                        </span>
-                      </div>
-                    )}
+                    ) : null}
 
                     <ProductForm
                       key={`${formProduct.id}-${reloadKey}`}
@@ -782,12 +856,9 @@ export function ProductFormDialog ({
                       isVariation={Boolean(
                         loadedProduct.parentBlingId || loadedProduct.parentProductId,
                       )}
-                      parentProductNameForVariation={parentNameForVariationForm}
-                      parentVariationAttributeKeys={parentAttrKeysForVariation}
-                      variationAttributesPortalEl={
-                        isVariationChild && parentAttrKeysForVariation.length > 0
-                          ? variationAttrPortalEl
-                          : null
+                      parentProductNameForVariation={parentSummaryForVariation?.name ?? null}
+                      parentVariationAttributeKeys={
+                        parentSummaryForVariation?.variationAttributeKeys ?? []
                       }
                       variationAttributeKeysPortalEl={
                         !isVariationChild && isEditProductWithStock
@@ -805,37 +876,13 @@ export function ProductFormDialog ({
                     />
                   </TabsContent>
 
-                  {isEditProductWithStock ? (
+                  {isEditProductWithStock && !isVariationChild ? (
                     <>
                       <TabsContent
                         value="variacoes"
                         {...productEditTabMountProps}
                         className={variationTabPanelClass}
                       >
-                        {isVariationChild ? (
-                          parentAttrKeysForVariation.length > 0 ? (
-                            <div className="space-y-4">
-                              <p className="text-sm text-muted-foreground">
-                                Informe os valores dos atributos acordados no produto pai. O nome exibido no catálogo
-                                é montado automaticamente (ex.: «Cabo HDMI tamanho:1 metro»).
-                              </p>
-                              <div
-                                ref={setVariationAttrPortalEl}
-                                className="min-h-[4rem] rounded-md border border-border/60 bg-background p-4"
-                              />
-                              <p className="text-xs text-muted-foreground">
-                                SKU, preços e demais dados continuam na aba Dados do produto. Pode salvar em qualquer
-                                uma das abas.
-                              </p>
-                            </div>
-                          ) : (
-                            <p className="text-sm text-muted-foreground">
-                              O produto pai ainda não tem atributos de variação (ex.: Tamanho, Cor). Abra a edição do
-                              produto pai, vá à aba <span className="font-medium text-foreground">Variações</span> e
-                              configure «Atributos das variações».
-                            </p>
-                          )
-                        ) : (
                           <div className="space-y-4">
                             <div ref={setParentVariationKeysPortalEl} className="min-h-0" />
                             {variations.length === 0 ? (
@@ -975,30 +1022,31 @@ export function ProductFormDialog ({
                               </div>
                             )}
                           </div>
-                        )}
-                      </TabsContent>
-
-                      <TabsContent
-                        value="estoque"
-                        {...productEditTabMountProps}
-                        className={variationTabPanelClass}
-                      >
-                        {productId && !isParentWithVariations ? (
-                          <ProductStockPanel
-                            key={productId}
-                            productId={productId}
-                            productName={loadedProduct.name}
-                            costPriceCents={loadedProduct.costPriceCents}
-                            initialStock={0}
-                            active={editTab === 'estoque'}
-                            onSuccess={() => {
-                              void loadEdit()
-                              onSuccess?.()
-                            }}
-                          />
-                        ) : null}
                       </TabsContent>
                     </>
+                  ) : null}
+
+                  {isEditProductWithStock && !isParentWithVariations ? (
+                    <TabsContent
+                      value="estoque"
+                      {...productEditTabMountProps}
+                      className={variationTabPanelClass}
+                    >
+                      {productId ? (
+                        <ProductStockPanel
+                          key={productId}
+                          productId={productId}
+                          productName={loadedProduct.name}
+                          costPriceCents={loadedProduct.costPriceCents}
+                          initialStock={0}
+                          active={editTab === 'estoque'}
+                          onSuccess={() => {
+                            void loadEdit()
+                            onSuccess?.()
+                          }}
+                        />
+                      ) : null}
+                    </TabsContent>
                   ) : null}
                 </div>
               </Tabs>

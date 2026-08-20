@@ -148,7 +148,7 @@ export default async function MinhasOrdensPage() {
                 {orders.map((order) => (
                   <TableRow key={order.id} className="hover:bg-muted/50">
                     <TableCell className="font-medium">
-                      <Link href={getOrdemPortalPath(order)} className="block hover:underline focus:underline outline-none">
+                      <Link href={getOrdemPortalPath(order)} transitionTypes={['nav-forward']} className="block hover:underline focus:underline outline-none">
                         #{order.display_number ?? order.id}
                       </Link>
                     </TableCell>

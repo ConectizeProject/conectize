@@ -1,13 +1,11 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Barcode, Check, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
@@ -23,6 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Switch } from '@/components/ui/switch'
 import { suggestedSaleCents } from '@/lib/pricing/suggested-sale-cents'
 import { composePortalVariationDisplayName } from '@/lib/products/variation-display-name'
 import { cn } from '@/lib/utils'
@@ -136,6 +135,28 @@ function deviceRowToOption (d: DeviceCatalogRow) {
     value: d.id,
     label: [d.brand, d.device_type, d.model].filter(Boolean).join(' ') || d.id,
   }
+}
+
+function FormSection ({
+  title,
+  description,
+  children,
+}: {
+  title: string
+  description?: string
+  children: ReactNode
+}) {
+  return (
+    <section className="rounded-lg border border-border/80 bg-card text-card-foreground">
+      <div className="space-y-1 border-b border-border/60 px-4 py-3 sm:px-5">
+        <h3 className="text-sm font-semibold tracking-tight text-foreground">{title}</h3>
+        {description ? (
+          <p className="text-xs leading-relaxed text-muted-foreground">{description}</p>
+        ) : null}
+      </div>
+      <div className="space-y-4 p-4 sm:p-5">{children}</div>
+    </section>
+  )
 }
 
 export type CompatibleEntry = { id: string; label: string }
@@ -784,14 +805,10 @@ export function ProductForm ({
 
   function renderVariationKeysEditorSection () {
     return (
-      <div className="space-y-3 rounded-md border border-border/70 bg-muted/20 p-4">
-        <div>
-          <p className="text-sm font-medium text-foreground">Atributos das variações</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Ex.: Tamanho, Cor, Modelo. Em cada variação você informa o valor; o nome no catálogo fica
-            «Nome do produto atributo:valor» (vários atributos na mesma linha).
-          </p>
-        </div>
+      <FormSection
+        title="Atributos das variações"
+        description="Ex.: Tamanho, Cor, Modelo. Em cada variação você informa o valor; o nome no catálogo fica «Nome do produto atributo:valor»."
+      >
         <div className="space-y-2">
           {variationKeyDrafts.map((draft, idx) => (
             <div key={idx} className="flex gap-2">
@@ -830,7 +847,7 @@ export function ProductForm ({
           <Plus className="mr-1 h-4 w-4" aria-hidden />
           Adicionar atributo
         </Button>
-      </div>
+      </FormSection>
     )
   }
 
@@ -874,109 +891,45 @@ export function ProductForm ({
   }
 
   const formInner = (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-[minmax(0,7.25rem)_minmax(0,2.2fr)_minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
-        <div className="space-y-2 min-w-0">
-          <Label htmlFor="product-kind">Tipo</Label>
-          <select
-            id="product-kind"
-            className="flex h-10 w-full min-w-0 rounded-md border border-input bg-background px-2 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-            value={kind}
-            disabled={pending}
-            onChange={(e) => setKind(e.target.value === 'service' ? 'service' : 'product')}
-          >
-            <option value="product">Produto</option>
-            <option value="service">Serviço</option>
-          </select>
+    <form onSubmit={handleSubmit} className="space-y-5">
+      <FormSection
+        title="Identidade"
+        description="Tipo, nome e códigos usados no catálogo e na emissão fiscal."
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="product-kind">Tipo</Label>
+            <Select
+              value={kind}
+              onValueChange={(value) => setKind(value === 'service' ? 'service' : 'product')}
+              disabled={pending}
+            >
+              <SelectTrigger id="product-kind" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="product">Produto</SelectItem>
+                <SelectItem value="service">Serviço</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="sku">SKU</Label>
+            <Input
+              id="sku"
+              name="sku"
+              defaultValue={product?.sku || ''}
+              disabled={pending}
+              className="min-w-0"
+            />
+          </div>
         </div>
-        <div className="space-y-2 min-w-0">
-          <Label htmlFor="sku">SKU</Label>
-          <Input
-            id="sku"
-            name="sku"
-            defaultValue={product?.sku || ''}
-            disabled={pending}
-            className="min-w-0"
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="costPrice">Preço de custo</Label>
-          <Input
-            id="costPrice"
-            name="costPrice"
-            type="text"
-            inputMode="numeric"
-            autoComplete="off"
-            placeholder="0,00"
-            value={costReais}
-            onChange={(e) => {
-              setCostReais(formatMoneyInput(e.target.value))
-              if (submitErrors.costPrice) setSubmitErrors((s) => ({ ...s, costPrice: undefined }))
-            }}
-            disabled={pending}
-            className={cn('tabular-nums', submitErrors.costPrice && 'border-destructive')}
-            aria-invalid={submitErrors.costPrice ? true : undefined}
-            aria-describedby={submitErrors.costPrice ? 'costPrice-error' : undefined}
-          />
-          {submitErrors.costPrice
-            ? (
-              <p id="costPrice-error" className="text-sm text-destructive" role="alert">
-                {submitErrors.costPrice}
-              </p>
-            )
-            : null}
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="salePrice">Preço de venda</Label>
-          <Input
-            id="salePrice"
-            name="salePrice"
-            type="text"
-            inputMode="numeric"
-            autoComplete="off"
-            placeholder="0,00"
-            value={saleReais}
-            onChange={(e) => {
-              setSaleReais(formatMoneyInput(e.target.value))
-              if (submitErrors.salePrice) setSubmitErrors((s) => ({ ...s, salePrice: undefined }))
-            }}
-            disabled={pending}
-            className={cn('tabular-nums', submitErrors.salePrice && 'border-destructive')}
-            aria-invalid={submitErrors.salePrice ? true : undefined}
-            aria-describedby={submitErrors.salePrice ? 'salePrice-error' : undefined}
-          />
-          {submitErrors.salePrice
-            ? (
-              <p id="salePrice-error" className="text-sm text-destructive" role="alert">
-                {submitErrors.salePrice}
-              </p>
-            )
-            : null}
-          {showSuggestedSaleHint ? (
-            <p className="flex flex-wrap items-center gap-0.5 text-[11px] leading-tight text-muted-foreground">
-              <span>
-                Sugerido{' '}
-                <span className="tabular-nums font-medium text-foreground">{formatBrl(previewSuggestedCents)}</span>
-              </span>
-              <button
-                type="button"
-                className="inline-flex shrink-0 rounded p-px text-muted-foreground transition-colors hover:bg-muted hover:text-primary"
-                onClick={applySuggestedSalePrice}
-                aria-label="Aplicar preço sugerido"
-              >
-                <Check className="h-2.5 w-2.5" strokeWidth={2.5} aria-hidden />
-              </button>
-            </p>
-          ) : null}
-        </div>
-      </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
         {useAttrMode ? (
           variationAttributesPortalEl ? (
             <>
               {createPortal(renderVariationAttributesSection(), variationAttributesPortalEl)}
-              <div className="space-y-2 md:col-span-2 rounded-md border border-border/60 bg-muted/20 px-3 py-2.5">
+              <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2.5">
                 <p className="text-sm text-muted-foreground">
                   Os atributos desta variação ficam na aba{' '}
                   <span className="font-medium text-foreground">Variações</span>
@@ -984,21 +937,9 @@ export function ProductForm ({
                 </p>
               </div>
             </>
-          ) : creatingAsVariation ? (
-            <section
-              className="space-y-3 md:col-span-2 rounded-md border border-border/70 bg-muted/15 p-4"
-              aria-labelledby="nova-variacao-atributos-heading"
-            >
-              <h3
-                id="nova-variacao-atributos-heading"
-                className="text-sm font-semibold tracking-tight text-foreground"
-              >
-                Variações
-              </h3>
-              {renderVariationAttributesSection()}
-            </section>
           ) : (
-            <div className="space-y-3 md:col-span-2">
+            <div className="space-y-3 rounded-md border border-border/70 bg-muted/15 p-4">
+              <h4 className="text-sm font-semibold tracking-tight text-foreground">Variação</h4>
               {renderVariationAttributesSection()}
             </div>
           )
@@ -1028,6 +969,7 @@ export function ProductForm ({
               : null}
           </div>
         )}
+
         <div className="space-y-2">
           <Label htmlFor="barcode">Código de barras</Label>
           <div className="relative">
@@ -1073,36 +1015,134 @@ export function ProductForm ({
               </p>
             )}
         </div>
-      </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="min-w-0 space-y-2">
-          <Label htmlFor="pricing-tag">Tag de precificação</Label>
-          <Select
-            value={pricingTagId || '__none__'}
-            onValueChange={handlePricingTagChange}
+        <div className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/15 px-3 py-2.5">
+          <div className="min-w-0">
+            <Label htmlFor="isActive" className="text-sm font-medium">
+              Produto ativo
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Inativos somem das listagens e do PDV.
+            </p>
+          </div>
+          <Switch
+            id="isActive"
+            checked={isActive}
+            onCheckedChange={(c) => setIsActive(c === true)}
             disabled={pending}
-          >
-            <SelectTrigger id="pricing-tag" className="w-full">
-              <SelectValue placeholder="Nenhuma" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__none__">Nenhuma</SelectItem>
-              {pricingTags.map((t) => (
-                <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          />
         </div>
-        <div className="min-w-0 space-y-2">
+      </FormSection>
+
+      <FormSection
+        title="Preços"
+        description="Custo, venda e regra de precificação sugerida."
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="costPrice">Preço de custo</Label>
+            <Input
+              id="costPrice"
+              name="costPrice"
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder="0,00"
+              value={costReais}
+              onChange={(e) => {
+                setCostReais(formatMoneyInput(e.target.value))
+                if (submitErrors.costPrice) setSubmitErrors((s) => ({ ...s, costPrice: undefined }))
+              }}
+              disabled={pending}
+              className={cn('tabular-nums', submitErrors.costPrice && 'border-destructive')}
+              aria-invalid={submitErrors.costPrice ? true : undefined}
+              aria-describedby={submitErrors.costPrice ? 'costPrice-error' : undefined}
+            />
+            {submitErrors.costPrice
+              ? (
+                <p id="costPrice-error" className="text-sm text-destructive" role="alert">
+                  {submitErrors.costPrice}
+                </p>
+              )
+              : null}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="salePrice">Preço de venda</Label>
+            <Input
+              id="salePrice"
+              name="salePrice"
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder="0,00"
+              value={saleReais}
+              onChange={(e) => {
+                setSaleReais(formatMoneyInput(e.target.value))
+                if (submitErrors.salePrice) setSubmitErrors((s) => ({ ...s, salePrice: undefined }))
+              }}
+              disabled={pending}
+              className={cn('tabular-nums', submitErrors.salePrice && 'border-destructive')}
+              aria-invalid={submitErrors.salePrice ? true : undefined}
+              aria-describedby={submitErrors.salePrice ? 'salePrice-error' : undefined}
+            />
+            {submitErrors.salePrice
+              ? (
+                <p id="salePrice-error" className="text-sm text-destructive" role="alert">
+                  {submitErrors.salePrice}
+                </p>
+              )
+              : null}
+            {showSuggestedSaleHint ? (
+              <p className="flex flex-wrap items-center gap-1 text-xs leading-tight text-muted-foreground">
+                <span>
+                  Sugerido{' '}
+                  <span className="tabular-nums font-medium text-foreground">{formatBrl(previewSuggestedCents)}</span>
+                </span>
+                <button
+                  type="button"
+                  className="inline-flex shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  onClick={applySuggestedSalePrice}
+                  aria-label="Aplicar preço sugerido"
+                >
+                  <Check className="h-3 w-3" strokeWidth={2.5} aria-hidden />
+                </button>
+              </p>
+            ) : null}
+          </div>
+          <div className="space-y-2 sm:col-span-2">
+            <Label htmlFor="pricing-tag">Tag de precificação</Label>
+            <Select
+              value={pricingTagId || '__none__'}
+              onValueChange={handlePricingTagChange}
+              disabled={pending}
+            >
+              <SelectTrigger id="pricing-tag" className="w-full sm:max-w-md">
+                <SelectValue placeholder="Nenhuma" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">Nenhuma</SelectItem>
+                {pricingTags.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </FormSection>
+
+      <FormSection
+        title="Catálogo"
+        description="Descrição, modelos compatíveis e imagem de capa."
+      >
+        <div className="space-y-2">
           <Label htmlFor="compatible-model-search">Modelos compatíveis</Label>
           <div className="relative space-y-1.5">
             {compatibleModels.length > 0 ? (
-              <div className="flex flex-wrap gap-2 rounded-md border border-primary/20 bg-primary/5 p-2">
+              <div className="flex flex-wrap gap-2 rounded-md border border-border bg-muted/20 p-2">
                 {compatibleModels.map((model) => (
                   <span
                     key={model.id}
-                    className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-primary/20 bg-background px-2 py-1 text-xs"
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 text-xs"
                     title={model.label}
                   >
                     <span className="truncate">{model.label}</span>
@@ -1176,29 +1216,93 @@ export function ProductForm ({
             ) : null}
           </div>
         </div>
-      </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="description">Descrição</Label>
-        <Textarea
-          id="description"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          rows={4}
-          disabled={pending}
-        />
-      </div>
+        <div className="space-y-2">
+          <Label htmlFor="description">Descrição</Label>
+          <Textarea
+            id="description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={4}
+            disabled={pending}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="product-image-url">URL da imagem (capa)</Label>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+            {imageUrl.trim() ? (
+              <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-md border border-border bg-muted">
+                <img
+                  src={imageUrl.trim()}
+                  alt=""
+                  className="h-full w-full object-cover"
+                  loading="lazy"
+                  decoding="async"
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    e.currentTarget.style.visibility = 'hidden'
+                  }}
+                />
+              </div>
+            ) : null}
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
+                <Input
+                  id="product-image-url"
+                  type="text"
+                  inputMode="url"
+                  autoComplete="off"
+                  placeholder="https://…"
+                  value={imageUrl}
+                  onChange={(e) => setImageUrl(e.target.value)}
+                  disabled={pending}
+                  className="min-w-0 flex-1 font-mono text-sm"
+                />
+                {mode === 'edit' && variationChildCount > 0 && onApplyImageToVariationChildren
+                  ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="h-10 shrink-0 whitespace-nowrap"
+                      disabled={pending || applyImageToChildrenBusy}
+                      onClick={() => void onApplyImageToVariationChildren(imageUrl.trim() || null)}
+                    >
+                      {applyImageToChildrenBusy
+                        ? 'Aplicando…'
+                        : `Aplicar nas variações (${variationChildCount})`}
+                    </Button>
+                  )
+                  : null}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Endereço público da imagem usada na listagem. Deixe vazio para remover.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {mode === 'create' && kind !== 'service' ? (
+          <div className="space-y-2 sm:max-w-xs">
+            <Label htmlFor="initialStock">Estoque inicial</Label>
+            <Input
+              id="initialStock"
+              name="initialStock"
+              type="number"
+              min="0"
+              defaultValue="0"
+              disabled={pending}
+            />
+          </div>
+        ) : null}
+      </FormSection>
 
       {kind === 'product' ? (
-        <section className="space-y-3 rounded-md border border-border/70 bg-muted/15 p-4">
-          <div>
-            <h3 className="text-sm font-semibold tracking-tight text-foreground">Fiscal</h3>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Dados do item na NFC-e. CFOP, CSOSN, ICMS CST, PIS e COFINS vêm da natureza de operação em Fiscal.
-              Itens sem NCM são bloqueados na emissão. Origens 3, 5 e 8 exigem FCI. CEST só entra se o NCM estiver na tabela de ST.
-            </p>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <FormSection
+          title="Fiscal"
+          description="Dados do item na NFC-e. CFOP, CSOSN, ICMS CST, PIS e COFINS vêm da natureza de operação. Itens sem NCM são bloqueados na emissão."
+        >
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <div className="space-y-2 sm:col-span-2 lg:col-span-2">
               <Label htmlFor="origem">Origem</Label>
               <input type="hidden" name="fiscalOrigin" value={fiscalOrigin} />
@@ -1290,7 +1394,7 @@ export function ProductForm ({
                 )}
             </div>
             <div className="space-y-2">
-                <Label htmlFor="cest">{cestTableStatus === 'in' ? 'CEST (obrigatório)' : 'CEST'}</Label>
+              <Label htmlFor="cest">{cestTableStatus === 'in' ? 'CEST (obrigatório)' : 'CEST'}</Label>
               <Input
                 id="cest"
                 name="cest"
@@ -1359,9 +1463,9 @@ export function ProductForm ({
               <Input id="fiscalUnit" name="fiscalUnit" maxLength={6} defaultValue={product?.fiscalUnit || 'UN'} disabled={pending} />
             </div>
           </div>
-        </section>
+        </FormSection>
       ) : (
-        <div className="rounded-md border border-border/70 bg-muted/15 px-3 py-2.5 text-sm text-muted-foreground">
+        <div className="rounded-lg border border-border/80 bg-muted/15 px-4 py-3 text-sm text-muted-foreground">
           Nota de serviço (NFS-e) fica para uma fase futura; serviços não entram na emissão de NFC-e.
         </div>
       )}
@@ -1371,7 +1475,7 @@ export function ProductForm ({
           variationAttributeKeysPortalEl ? (
             <>
               {createPortal(renderVariationKeysEditorSection(), variationAttributeKeysPortalEl)}
-              <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2.5">
+              <div className="rounded-lg border border-border/70 bg-muted/20 px-4 py-3">
                 <p className="text-sm text-muted-foreground">
                   O cartão <span className="font-medium text-foreground">Atributos das variações</span> está na aba{' '}
                   <span className="font-medium text-foreground">Variações</span>. Defina ou altere os atributos lá
@@ -1388,41 +1492,6 @@ export function ProductForm ({
           renderVariationKeysEditorSection()
         )
       ) : null}
-
-      <div className="space-y-2">
-        <Label htmlFor="product-image-url">URL da imagem (capa)</Label>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
-          <Input
-            id="product-image-url"
-            type="text"
-            inputMode="url"
-            autoComplete="off"
-            placeholder="https://…"
-            value={imageUrl}
-            onChange={(e) => setImageUrl(e.target.value)}
-            disabled={pending}
-            className="min-w-0 flex-1 font-mono text-sm"
-          />
-          {mode === 'edit' && variationChildCount > 0 && onApplyImageToVariationChildren
-            ? (
-              <Button
-                type="button"
-                variant="secondary"
-                className="h-10 shrink-0 whitespace-nowrap"
-                disabled={pending || applyImageToChildrenBusy}
-                onClick={() => void onApplyImageToVariationChildren(imageUrl.trim() || null)}
-              >
-                {applyImageToChildrenBusy
-                  ? 'Aplicando…'
-                  : `Aplicar nas variações (${variationChildCount})`}
-              </Button>
-            )
-            : null}
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Endereço público da imagem usada na listagem. Deixe vazio para remover.
-        </p>
-      </div>
 
       <Dialog open={tagSuggestOpen} onOpenChange={setTagSuggestOpen}>
         <DialogContent className="sm:max-w-md">
@@ -1455,31 +1524,7 @@ export function ProductForm ({
         </DialogContent>
       </Dialog>
 
-      {mode === 'create' && kind !== 'service' && (
-        <div className="space-y-2">
-          <Label htmlFor="initialStock">Estoque inicial (quantidade)</Label>
-          <Input
-            id="initialStock"
-            name="initialStock"
-            type="number"
-            min="0"
-            defaultValue="0"
-            disabled={pending}
-          />
-        </div>
-      )}
-
-      <div className="flex items-center gap-2">
-        <Checkbox
-          id="isActive"
-          checked={isActive}
-          onCheckedChange={(c) => setIsActive(c === true)}
-          disabled={pending}
-        />
-        <Label htmlFor="isActive">Ativo</Label>
-      </div>
-
-      <div className="flex justify-end gap-2 pt-2">
+      <div className="sticky bottom-0 z-10 -mx-1 flex justify-end gap-2 border-t border-border/80 bg-background/95 px-1 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <Button type="button" variant="outline" onClick={onCancel} disabled={pending}>
           Cancelar
         </Button>
@@ -1495,15 +1540,14 @@ export function ProductForm ({
   }
 
   return (
-    <div className="max-w-2xl space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>{title}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {formInner}
-        </CardContent>
-      </Card>
+    <div className="max-w-2xl space-y-5">
+      <div className="space-y-1">
+        <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+        <p className="text-sm text-muted-foreground">
+          Preencha os dados do item. Campos fiscais são obrigatórios para emissão de NFC-e.
+        </p>
+      </div>
+      {formInner}
     </div>
   )
 }

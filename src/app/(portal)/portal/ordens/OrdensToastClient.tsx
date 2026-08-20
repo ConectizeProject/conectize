@@ -55,7 +55,7 @@ export function OrdensToastClient() {
         title: 'Ordem criada',
         description: 'Ordem de serviço criada com sucesso.',
         action: orderSeg ? (
-          <ToastAction altText="Abrir ordem" onClick={() => router.push(`/portal/ordens/${orderSeg}`)}>
+          <ToastAction altText="Abrir ordem" onClick={() => router.push(`/portal/ordens/${orderSeg}`, { transitionTypes: ['nav-forward'] })}>
             Abrir
           </ToastAction>
         ) : undefined,

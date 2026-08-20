@@ -5,6 +5,7 @@ import {
   getProductCurrentStock,
   listStockMovements,
   addStockMovement,
+  deleteStockMovement,
   type StockMovementType,
 } from '@/lib/products/service'
 import { pushStockMovementToBling } from '@/lib/integrations/bling/push-stock-movement'
@@ -185,5 +186,37 @@ export async function POST (
     currentStock: result.currentStock ?? null,
     movement: result.movement,
     blingPushError,
+  })
+}
+
+export async function DELETE (
+  request: Request,
+  { params }: { params: Params },
+) {
+  const { id } = await params
+  const auth = await requireStaffOrAdmin()
+  if (auth.ok === false) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status })
+  }
+
+  const url = new URL(request.url)
+  const movementId = String(url.searchParams.get('movementId') || '').trim()
+  if (!movementId) {
+    return NextResponse.json({ error: 'movement_id_required' }, { status: 400 })
+  }
+
+  const result = await deleteStockMovement(id, movementId)
+  if (result.ok === false) {
+    const status = result.error === 'not_authenticated'
+      ? 401
+      : result.error === 'not_found'
+        ? 404
+        : 500
+    return NextResponse.json({ error: result.error }, { status })
+  }
+
+  return NextResponse.json({
+    ok: true,
+    currentStock: result.currentStock,
   })
 }

@@ -84,8 +84,9 @@ export default async function RevendaVitrinePage ({ params }: Props) {
     image_url?: string | null
     image_gallery_paths?: string[] | null
   })
-  const displayImageUrl = coverSigned.thumbUrl ?? coverSigned.url
+  // Na vitrine (página do aparelho) a capa usa a full; thumb fica só na listagem.
   const displayImageFullUrl = coverSigned.url ?? coverSigned.thumbUrl
+  const displayImageUrl = displayImageFullUrl
   const imageOk = Boolean(displayImageUrl) && !device.sold
 
   return (

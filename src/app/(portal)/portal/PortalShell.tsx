@@ -90,7 +90,7 @@ function PortalSidebarNav({
 				return (
 					<SidebarMenuItem key={item.href}>
 						<SidebarMenuButton asChild isActive={active} tooltip={item.label}>
-							<Link href={item.href} onClick={closeMobile}>
+							<Link href={item.href} onClick={closeMobile} transitionTypes={["nav-lateral"]}>
 								<Icon />
 								<span>{item.label}</span>
 							</Link>
@@ -285,7 +285,11 @@ export function PortalShell(props: PortalShellProps) {
 				defaultOpen={false}
 				className="h-svh max-h-svh min-h-0 overflow-hidden"
 			>
-				<Sidebar collapsible="icon" variant="inset">
+				<Sidebar
+					collapsible="icon"
+					variant="inset"
+					style={{ viewTransitionName: 'portal-sidebar' }}
+				>
 					<SidebarHeader>
 						<Link href="/portal" className="flex items-center gap-2 px-2 py-1">
 							<img
@@ -314,7 +318,10 @@ export function PortalShell(props: PortalShellProps) {
 				</Sidebar>
 
 				<SidebarInset className="flex min-h-0 h-full max-h-full min-w-0 flex-1 flex-col overflow-hidden md:max-h-svh">
-					<header className="relative z-40 flex h-14 min-h-14 shrink-0 items-center justify-between gap-3 border-b border-border/60 bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/85">
+					<header
+						className="relative z-40 flex h-14 min-h-14 shrink-0 items-center justify-between gap-3 border-b border-border/60 bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/85"
+						style={{ viewTransitionName: 'portal-header' }}
+					>
 						<div className="flex items-center gap-2">
 							<SidebarTrigger />
 							<div className="text-sm text-muted-foreground hidden sm:block">

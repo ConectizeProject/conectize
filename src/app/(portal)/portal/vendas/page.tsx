@@ -56,6 +56,7 @@ import {
   isProductFiscalCorrectionError,
   fiscalEditorHref,
 } from '@/lib/fiscal/product-fiscal-errors'
+import { fiscalEmitFailureMessage } from '@/lib/fiscal/emit-failure-message'
 import {
   openNfceDanfePrint,
   openSalesOrderCupomPrint,
@@ -374,7 +375,7 @@ export default function PedidosVendaPage () {
         }
         toast({
           title: `${kind} não autorizada`,
-          description: data?.message || data?.error || `Não foi possível emitir a ${kind}.`,
+          description: fiscalEmitFailureMessage(res, data, kind),
           variant: 'destructive',
         })
         if (nextFiscalDocument?.id) {
@@ -676,7 +677,7 @@ export default function PedidosVendaPage () {
                       <TableRow
                         key={order.id}
                         className='cursor-pointer'
-                        onClick={() => router.push(`/portal/vendas/${order.id}`)}
+                        onClick={() => router.push(`/portal/vendas/${order.id}`, { transitionTypes: ['nav-forward'] })}
                       >
                         <TableCell className='font-medium'>
                           #{order.order_number}

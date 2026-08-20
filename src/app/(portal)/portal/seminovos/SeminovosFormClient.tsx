@@ -231,8 +231,13 @@ export function SeminovosFormClient ({
           setFormCondition(inited.condition)
           setFormInfo(inited.info)
           setFormImageUrl(inited.imageUrl)
-          const loaded = data.device as ResaleDevice & { display_image_url?: string | null }
-          setPhotoPreviewUrl(loaded.display_image_url ?? null)
+          const loaded = data.device as ResaleDevice & {
+            display_image_url?: string | null
+            display_image_full_url?: string | null
+          }
+          setPhotoPreviewUrl(
+            loaded.display_image_full_url ?? loaded.display_image_url ?? null,
+          )
           setHasStorageImage(Boolean(loaded.image_storage_path))
           setFormImei(inited.imei)
           setFormImei2(inited.imei2)
@@ -370,7 +375,9 @@ export function SeminovosFormClient ({
       if (data?.ok) {
         setHasStorageImage(true)
         setFormImageUrl('')
-        if (typeof data.signed_url === 'string' && data.signed_url) {
+        if (typeof data.signed_full_url === 'string' && data.signed_full_url) {
+          setPhotoPreviewUrl(data.signed_full_url)
+        } else if (typeof data.signed_url === 'string' && data.signed_url) {
           setPhotoPreviewUrl(data.signed_url)
         }
         toast({ description: 'Foto enviada.', duration: 2000 })
@@ -420,8 +427,14 @@ export function SeminovosFormClient ({
       const data = await res.json().catch(() => null)
       if (data?.ok && Array.isArray(data.image_gallery_paths)) {
         setFormGalleryPaths(data.image_gallery_paths as string[])
-        if (typeof data.path === 'string' && typeof data.signed_url === 'string' && data.signed_url) {
-          setGalleryPreviewByPath((prev) => ({ ...prev, [data.path]: data.signed_url }))
+        if (typeof data.path === 'string') {
+          const preview =
+            (typeof data.signed_full_url === 'string' && data.signed_full_url)
+            || (typeof data.signed_url === 'string' && data.signed_url)
+            || null
+          if (preview) {
+            setGalleryPreviewByPath((prev) => ({ ...prev, [data.path]: preview }))
+          }
         }
         toast({ description: 'Foto adicionada à galeria.', duration: 2000 })
       } else if (data?.error === 'gallery_full') {
