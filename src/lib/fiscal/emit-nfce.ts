@@ -15,11 +15,13 @@ import {
 import {
   isMissingColumnError,
   nfceNumberingPatch,
+  nfeNumberingPatch,
   parseAllocatedFiscalNumber,
   type FiscalNumberingEnvironment,
   type FiscalNumberingProfileRow,
+  type NfeNumberingProfileRow,
 } from '@/lib/fiscal/numbering'
-import { isSefazDenied } from '@/lib/fiscal/document-status'
+import { isSefazDenied, fiscalDocumentKind } from '@/lib/fiscal/document-status'
 import {
   asSignedNfceXml,
   buildNfeProcXml,
@@ -66,7 +68,7 @@ export type CancelNfceResult =
   | { ok: true, fiscalDocument: FiscalDocumentRow }
   | { ok: false, error: string, message: string }
 
-function errorMessage (err: unknown) {
+function errorMessage (err: unknown, kind = 'NFC-e') {
   if (err && typeof err === 'object') {
     const record = err as { cStat?: unknown, xMotivo?: unknown, message?: unknown }
     const status = record.cStat ? `[${String(record.cStat)}] ` : ''
@@ -79,9 +81,9 @@ function errorMessage (err: unknown) {
         ? reason
         : 'A SEFAZ respondeu, mas o envelope SOAP não pôde ser lido. Tente enviar novamente.'
     }
-    return `${status}${reason || 'Falha ao transmitir NFC-e.'}`
+    return `${status}${reason || `Falha ao transmitir ${kind}.`}`
   }
-  return 'Falha ao transmitir NFC-e.'
+  return `Falha ao transmitir ${kind}.`
 }
 
 function errorStatusCode (err: unknown) {
@@ -133,19 +135,70 @@ async function insertEvent (auth: AuthCtx, input: {
   })
 }
 
-async function getExistingNfce (auth: AuthCtx, orderId: string) {
+async function getExistingFiscalDocument (auth: AuthCtx, orderId: string, model: '55' | '65') {
   const { data } = await auth.supabase
     .from('fiscal_documents')
     .select(FISCAL_DOCUMENT_SELECT)
     .eq('organization_id', auth.organizationId)
     .eq('sales_order_id', orderId)
-    .eq('model', '65')
+    .eq('model', model)
     .neq('status', 'canceled')
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
 
   return data as FiscalDocumentRow | null
+}
+
+async function getBlockingOtherModel (
+  auth: AuthCtx,
+  orderId: string,
+  model: '55' | '65',
+) {
+  const other = model === '55' ? '65' : '55'
+  const { data } = await auth.supabase
+    .from('fiscal_documents')
+    .select('id, model, status')
+    .eq('organization_id', auth.organizationId)
+    .eq('sales_order_id', orderId)
+    .eq('model', other)
+    .in('status', ['authorized', 'pending'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  return data as { id: string, model: string, status: string } | null
+}
+
+async function allocateNfeNumberFromProfile (
+  service: ReturnType<typeof createSupabaseServiceClient>,
+  organizationId: string,
+) {
+  const { data, error } = await service
+    .from('organization_fiscal_profiles')
+    .select('nfe_series, nfe_next_number')
+    .eq('organization_id', organizationId)
+    .maybeSingle()
+
+  if (error || !data) {
+    console.error('[nfe] allocate fallback load', error)
+    return null
+  }
+
+  const { numbering, patch } = nfeNumberingPatch(data as NfeNumberingProfileRow)
+  const { error: updateError } = await service
+    .from('organization_fiscal_profiles')
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq('organization_id', organizationId)
+
+  if (updateError) {
+    console.error('[nfe] allocate fallback update', updateError)
+    return null
+  }
+
+  return {
+    series: numbering.series,
+    number: numbering.nextNumber,
+  }
 }
 
 async function allocateNumberFromProfile (
@@ -204,20 +257,27 @@ async function allocateNumberFromProfile (
   }
 }
 
-async function allocateNumber (auth: AuthCtx, environment: FiscalNumberingEnvironment) {
+async function allocateNumber (
+  auth: AuthCtx,
+  environment: FiscalNumberingEnvironment,
+  model: '55' | '65',
+) {
   const service = createSupabaseServiceClient()
   const { data, error } = await service.rpc('allocate_fiscal_document_number', {
     p_organization_id: auth.organizationId,
-    p_model: '65',
+    p_model: model,
     p_environment: environment,
   })
 
   const allocated = parseAllocatedFiscalNumber(data)
   if (allocated) return allocated
   if (error) {
-    console.error('[nfce] allocate_fiscal_document_number', error)
+    console.error('[fiscal] allocate_fiscal_document_number', error)
   }
 
+  if (model === '55') {
+    return allocateNfeNumberFromProfile(service, auth.organizationId)
+  }
   return allocateNumberFromProfile(service, auth.organizationId, environment)
 }
 
@@ -392,7 +452,7 @@ async function applyTransmitResult (
   if (result.authorized) return authorizedResult(row)
 
   const statusCode = String(result.statusCode || '').trim()
-  const statusMessage = String(result.statusMessage || '').trim() || 'A SEFAZ recusou a NFC-e.'
+  const statusMessage = String(result.statusMessage || '').trim() || `A SEFAZ recusou a ${fiscalDocumentKind(fiscalDocument.model)}.`
   return {
     ok: false,
     error: denied ? 'sefaz_denied' : 'sefaz_error',
@@ -402,18 +462,36 @@ async function applyTransmitResult (
 }
 
 export async function getSalesOrderNfceState (auth: AuthCtx, orderId: string) {
-  return getExistingNfce(auth, orderId)
+  return getExistingFiscalDocument(auth, orderId, '65')
 }
 
-export async function emitNfceForSalesOrder (auth: AuthCtx, orderId: string): Promise<EmitNfceResult> {
-  const [{ data: profile }, operationNature, existing] = await Promise.all([
+export async function getSalesOrderNfeState (auth: AuthCtx, orderId: string) {
+  return getExistingFiscalDocument(auth, orderId, '55')
+}
+
+export async function emitNfceForSalesOrder (auth: AuthCtx, orderId: string) {
+  return emitFiscalDocumentForSalesOrder(auth, orderId, '65')
+}
+
+export async function emitNfeForSalesOrder (auth: AuthCtx, orderId: string) {
+  return emitFiscalDocumentForSalesOrder(auth, orderId, '55')
+}
+
+export async function emitFiscalDocumentForSalesOrder (
+  auth: AuthCtx,
+  orderId: string,
+  model: '55' | '65',
+): Promise<EmitNfceResult> {
+  const kind = fiscalDocumentKind(model)
+  const [{ data: profile }, operationNature, existing, other] = await Promise.all([
     auth.supabase
       .from('organization_fiscal_profiles')
       .select('*')
       .eq('organization_id', auth.organizationId)
       .maybeSingle(),
-    getDefaultFiscalOperationNature(auth.organizationId, '65'),
-    getExistingNfce(auth, orderId),
+    getDefaultFiscalOperationNature(auth.organizationId, model),
+    getExistingFiscalDocument(auth, orderId, model),
+    getBlockingOtherModel(auth, orderId, model),
   ])
 
   if (!profile) {
@@ -422,6 +500,17 @@ export async function emitNfceForSalesOrder (auth: AuthCtx, orderId: string): Pr
 
   if (existing?.status === 'authorized') {
     return authorizedResult(existing, true)
+  }
+
+  if (other) {
+    const otherKind = fiscalDocumentKind(other.model)
+    return {
+      ok: false,
+      error: 'other_model_open',
+      message: other.status === 'authorized'
+        ? `Este pedido já tem ${otherKind} autorizada.`
+        : `Este pedido já tem uma ${otherKind} em andamento.`,
+    }
   }
 
   const service = createSupabaseServiceClient()
@@ -440,7 +529,7 @@ export async function emitNfceForSalesOrder (auth: AuthCtx, orderId: string): Pr
 
   const environment = profile.fiscal_environment === 'producao' ? 'producao' : 'homologacao'
   const cscPair = nfceCscForEnvironment(profile, environment)
-  if (!cscPair.id || !cscPair.ciphertext) {
+  if (model === '65' && (!cscPair.id || !cscPair.ciphertext)) {
     return {
       ok: false,
       error: 'missing_csc',
@@ -456,14 +545,17 @@ export async function emitNfceForSalesOrder (auth: AuthCtx, orderId: string): Pr
   if (isFiscalCertificateExpired(liveExpiry)) {
     return certificateExpiredResult(liveExpiry)
   }
-  const csc = decryptFiscalSecretToString(cscPair.ciphertext)
+  const csc = model === '65' && cscPair.ciphertext
+    ? decryptFiscalSecretToString(cscPair.ciphertext)
+    : undefined
   const signedPersist = { documentId: '' }
   const client = createSefazClient({
     pfx,
     password,
     environment,
     uf: String(profile.state || '').trim().toUpperCase(),
-    cscId: String(cscPair.id).trim(),
+    documentModel: model,
+    cscId: model === '65' ? String(cscPair.id || '').trim() || undefined : undefined,
     csc,
     async onSignedXml ({ xml, accessKey }) {
       if (!signedPersist.documentId) return
@@ -491,7 +583,7 @@ export async function emitNfceForSalesOrder (auth: AuthCtx, orderId: string): Pr
         documentId: reusable.id,
         type: 'error',
         statusCode: errorStatusCode(err),
-        statusMessage: errorMessage(err),
+        statusMessage: errorMessage(err, kind),
         payload: { operation: 'consulta', before: 'retry' },
       })
       return {
@@ -505,9 +597,9 @@ export async function emitNfceForSalesOrder (auth: AuthCtx, orderId: string): Pr
 
   const numbering = reusable
     ? { series: Number(reusable.series), number: Number(reusable.number) }
-    : await allocateNumber(auth, environment)
+    : await allocateNumber(auth, environment, model)
   if (!numbering) {
-    return { ok: false, error: 'numbering_failed', message: 'Não foi possível reservar a numeração da NFC-e.' }
+    return { ok: false, error: 'numbering_failed', message: `Não foi possível reservar a numeração da ${kind}.` }
   }
 
   let fiscalDocument = reusable
@@ -516,7 +608,7 @@ export async function emitNfceForSalesOrder (auth: AuthCtx, orderId: string): Pr
       .from('fiscal_documents')
       .insert({
         organization_id: auth.organizationId,
-        model: '65',
+        model,
         environment,
         series: numbering.series,
         number: numbering.number,
@@ -543,6 +635,7 @@ export async function emitNfceForSalesOrder (auth: AuthCtx, orderId: string): Pr
     operationNature,
     series: numbering.series,
     number: numbering.number,
+    model,
   })
   if (built.ok === false) {
     const needsCorrection = isProductFiscalCorrectionError(built.error)
@@ -581,7 +674,7 @@ export async function emitNfceForSalesOrder (auth: AuthCtx, orderId: string): Pr
       return recoverAfterUncertainSend(auth, client, fiscalDocument, accessKey, signedXml)
     }
 
-    const message = errorMessage(err)
+    const message = errorMessage(err, kind)
     const statusCode = errorStatusCode(err)
     const denied = isSefazDenied(statusCode)
     const updated = await persistFiscalDocument(auth, fiscalDocument.id, {
@@ -621,7 +714,6 @@ export async function cancelNfceDocument (
     .select('id, model, environment, series, number, access_key, status, protocol, qr_code_url, sefaz_status_code, sefaz_status_message, authorized_at')
     .eq('organization_id', auth.organizationId)
     .eq('id', fiscalDocumentId)
-    .eq('model', '65')
     .maybeSingle()
 
   const fiscalDocument = doc as FiscalDocumentRow | null
@@ -629,7 +721,7 @@ export async function cancelNfceDocument (
     return { ok: false, error: 'not_found', message: 'Documento fiscal não encontrado.' }
   }
   if (fiscalDocument.status !== 'authorized' || !fiscalDocument.access_key || !fiscalDocument.protocol) {
-    return { ok: false, error: 'not_authorized', message: 'Somente NFC-e autorizada pode ser cancelada.' }
+    return { ok: false, error: 'not_authorized', message: `Somente ${fiscalDocumentKind(fiscalDocument.model)} autorizada pode ser cancelada.` }
   }
 
   const [{ data: profile }, service] = await Promise.all([
@@ -682,6 +774,7 @@ export async function cancelNfceDocument (
       password,
       environment: fiscalDocument.environment,
       uf: String(profile.state || '').trim().toUpperCase(),
+      documentModel: String(fiscalDocument.model) === '55' ? '55' : '65',
       cscId: cscPair.id || undefined,
       csc: cscPair.ciphertext ? decryptFiscalSecretToString(cscPair.ciphertext) : undefined,
     })
@@ -705,7 +798,7 @@ export async function cancelNfceDocument (
         error: 'sefaz_error',
         message: result.statusCode
           ? `[${result.statusCode}] ${result.statusMessage || 'A SEFAZ não homologou o cancelamento.'}`
-          : (result.statusMessage || 'A SEFAZ não homologou o cancelamento. A NFC-e permanece autorizada.'),
+          : (result.statusMessage || `A SEFAZ não homologou o cancelamento. A ${fiscalDocumentKind(fiscalDocument.model)} permanece autorizada.`),
       }
     }
 

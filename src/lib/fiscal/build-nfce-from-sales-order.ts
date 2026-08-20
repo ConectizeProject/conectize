@@ -1,6 +1,6 @@
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { NFeProps, ProdutoProps } from '@brasil-fiscal/nfe'
+import type { DestinatarioProps, NFeProps, ProdutoProps } from '@brasil-fiscal/nfe'
 import { fiscalFciOrNull, originRequiresFci } from '@/lib/fiscal/fci'
 import { fiscalGtinOrNull } from '@/lib/fiscal/gtin'
 import { fiscalIeOrNull } from '@/lib/fiscal/ie'
@@ -8,6 +8,8 @@ import { validateCestNcmPair } from '@/lib/fiscal/cest-lookup'
 import { isNfceServiceItem } from '@/lib/fiscal/certificate-validity'
 import { fiscalCestOrNull, fiscalNcmOrNull } from '@/lib/fiscal/ncm'
 import { buildNfcePagamentoLine } from '@/lib/fiscal/nfce-payment'
+import { lookupIbgeCityCodeFromCep } from '@/lib/fiscal/viacep'
+import { fiscalDocumentKind } from '@/lib/fiscal/document-status'
 import {
   buildIbscbsItem,
   buildIbscbsTot,
@@ -70,6 +72,7 @@ type BuildNfceInput = {
   operationNature?: FiscalOperationNatureRow | null
   series: number
   number: number
+  model?: '55' | '65'
 }
 
 export type BuildNfceResult =
@@ -140,10 +143,17 @@ function toPresenceIndicator (value: unknown): 0 | 1 | 2 | 3 | 4 | 5 | 9 {
 
 const HOMOLOGACAO_DEST_NAME = 'NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL'
 
+function cfopForDestination (cfop: string, emitUf: string, destUf: string | null) {
+  if (!destUf || destUf === emitUf) return cfop
+  if (cfop.startsWith('5')) return `6${cfop.slice(1)}`
+  if (cfop.startsWith('1')) return `2${cfop.slice(1)}`
+  return cfop
+}
+
 function buildDestinatario (
   order: { customer_name?: string | null, customer_document?: string | null },
   isHomologacao: boolean,
-) {
+): DestinatarioProps | undefined {
   const document = onlyDigits(order.customer_document || '')
   const name = isHomologacao
     ? HOMOLOGACAO_DEST_NAME
@@ -161,10 +171,114 @@ function buildDestinatario (
   return undefined
 }
 
+type CustomerAddressRow = {
+  street?: string | null
+  street_number?: string | null
+  street_complement?: string | null
+  neighborhood?: string | null
+  city?: string | null
+  state?: string | null
+  zip_code?: string | null
+}
+
+async function loadCustomerAddress (
+  supabase: SupabaseClient,
+  organizationId: string,
+  document: string,
+): Promise<CustomerAddressRow | null> {
+  if (!document) return null
+  const { data } = await supabase
+    .from('customers')
+    .select('street, street_number, street_complement, neighborhood, city, state, zip_code')
+    .eq('organization_id', organizationId)
+    .or(`cpf.eq.${document},cnpj.eq.${document}`)
+    .limit(1)
+    .maybeSingle()
+  return (data || null) as CustomerAddressRow | null
+}
+
+async function buildNfeDestinatario (input: {
+  supabase: SupabaseClient
+  organizationId: string
+  order: { customer_name?: string | null, customer_document?: string | null }
+  emitUf: string
+  emitCity: string
+  emitIbgeCityCode: string
+  isHomologacao: boolean
+}): Promise<
+  | { ok: true, dest: DestinatarioProps, destUf: string }
+  | { ok: false, error: string, message: string }
+> {
+  const document = onlyDigits(input.order.customer_document || '')
+  if (document.length !== 11 && document.length !== 14) {
+    return {
+      ok: false,
+      error: 'nfe_customer_required',
+      message: 'A NF-e exige cliente com CPF ou CNPJ. Cadastre o destinatário no pedido.',
+    }
+  }
+
+  const customer = await loadCustomerAddress(input.supabase, input.organizationId, document)
+  const street = requiredText(customer?.street)
+  const number = requiredText(customer?.street_number)
+  const district = requiredText(customer?.neighborhood)
+  const city = requiredText(customer?.city)
+  const destUf = requiredText(customer?.state).toUpperCase()
+  const cep = onlyDigits(customer?.zip_code || '')
+  if (!street || !number || !district || !city || destUf.length !== 2 || cep.length !== 8) {
+    return {
+      ok: false,
+      error: 'nfe_customer_address_required',
+      message: 'Complete o endereço do cliente (CEP, logradouro, número, bairro, cidade e UF) para emitir a NF-e.',
+    }
+  }
+
+  let codigoMunicipio = ''
+  if (city.toLowerCase() === input.emitCity.toLowerCase() && destUf === input.emitUf) {
+    codigoMunicipio = input.emitIbgeCityCode
+  }
+  if (!codigoMunicipio) {
+    codigoMunicipio = await lookupIbgeCityCodeFromCep(cep) || ''
+  }
+  if (codigoMunicipio.length !== 7) {
+    return {
+      ok: false,
+      error: 'nfe_customer_ibge_required',
+      message: 'Não foi possível obter o código IBGE do município do cliente. Confira o CEP cadastrado.',
+    }
+  }
+
+  const name = input.isHomologacao
+    ? HOMOLOGACAO_DEST_NAME
+    : (requiredText(input.order.customer_name) || 'Destinatário')
+
+  return {
+    ok: true,
+    destUf,
+    dest: {
+      ...(document.length === 11 ? { cpf: document } : { cnpj: document }),
+      nome: name,
+      indicadorIE: 9 as const,
+      endereco: {
+        logradouro: street,
+        numero: number,
+        complemento: requiredText(customer?.street_complement) || undefined,
+        bairro: district,
+        codigoMunicipio,
+        municipio: city,
+        uf: destUf,
+        cep,
+      },
+    },
+  }
+}
+
 export async function buildNfceFromSalesOrder (input: BuildNfceInput): Promise<BuildNfceResult> {
   const { supabase, organizationId, orderId, profile } = input
   const operationNature = input.operationNature ?? null
   const isHomologacao = profile.fiscal_environment !== 'producao'
+  const model = input.model === '55' ? '55' : '65'
+  const kind = fiscalDocumentKind(model)
 
   const [{ data: order, error: orderError }, { data: items, error: itemsError }, { data: payments, error: paymentsError }] = await Promise.all([
     supabase
@@ -194,7 +308,7 @@ export async function buildNfceFromSalesOrder (input: BuildNfceInput): Promise<B
     return { ok: false, error: 'order_not_found', message: 'Venda não encontrada.' }
   }
   if (order.status !== 'paid') {
-    return { ok: false, error: 'order_not_paid', message: 'A NFC-e só pode ser emitida para venda paga.' }
+    return { ok: false, error: 'order_not_paid', message: `A ${kind} só pode ser emitida para venda paga.` }
   }
   if (!items?.length) {
     return { ok: false, error: 'empty_order', message: 'A venda não possui itens.' }
@@ -207,6 +321,23 @@ export async function buildNfceFromSalesOrder (input: BuildNfceInput): Promise<B
   const ibgeCityCode = onlyDigits(profile.ibge_city_code || '')
   if (!cnpj || (!ie && !isStateRegistrationExempt) || !uf || !ibgeCityCode || !profile.street || !profile.number || !profile.district || !profile.city || !profile.zip_code) {
     return { ok: false, error: 'fiscal_profile_incomplete', message: 'Complete CNPJ, IE, endereço fiscal e código IBGE antes de emitir.' }
+  }
+
+  let destinatario = buildDestinatario(order, isHomologacao)
+  let destUf: string | null = null
+  if (model === '55') {
+    const nfeDest = await buildNfeDestinatario({
+      supabase,
+      organizationId,
+      order,
+      emitUf: uf,
+      emitCity: requiredText(profile.city),
+      emitIbgeCityCode: ibgeCityCode,
+      isHomologacao,
+    })
+    if (nfeDest.ok === false) return nfeDest
+    destinatario = nfeDest.dest
+    destUf = nfeDest.destUf
   }
 
   const itemNets = items.map((item) => toCents(item.subtotal_cents))
@@ -245,7 +376,7 @@ export async function buildNfceFromSalesOrder (input: BuildNfceInput): Promise<B
       return {
         ok: false,
         error: 'nfce_service_item',
-        message: `A NFC-e não aceita serviço. Retire "${productName}" da venda.`,
+        message: `A ${kind} não aceita serviço. Retire "${productName}" da venda.`,
       }
     }
     const ncm = fiscalNcmOrNull(productTaxValue(product.ncm, null))
@@ -273,7 +404,11 @@ export async function buildNfceFromSalesOrder (input: BuildNfceInput): Promise<B
       }
     }
 
-    const cfop = onlyDigits(operationNature?.default_cfop || profile.default_cfop || '')
+    const cfop = cfopForDestination(
+      onlyDigits(operationNature?.default_cfop || profile.default_cfop || '') || '5102',
+      uf,
+      destUf,
+    )
     const quantity = Math.max(1, Number(item.quantity) || 1)
     const valorTotal = centsToValue(fiscalItemCents[index])
     const valorUnitario = quantity > 0 ? valorTotal / quantity : valorTotal
@@ -301,7 +436,7 @@ export async function buildNfceFromSalesOrder (input: BuildNfceInput): Promise<B
       descricao: requiredText(product.name) || 'Produto',
       ncm,
       ...(cest ? { cest } : {}),
-      cfop: cfop || '5102',
+      cfop,
       unidade: productTaxValue(product.fiscal_unit, operationNature?.default_unit ?? profile.default_unit) || 'UN',
       quantidade: quantity,
       valorUnitario,
@@ -329,7 +464,7 @@ export async function buildNfceFromSalesOrder (input: BuildNfceInput): Promise<B
   }))
 
   if (pagamentos.length === 0) {
-    return { ok: false, error: 'missing_payments', message: 'A venda não possui pagamentos para a NFC-e.' }
+    return { ok: false, error: 'missing_payments', message: `A venda não possui pagamentos para a ${kind}.` }
   }
 
   const paidCents = (payments || []).reduce((sum, payment) => sum + toCents(payment.amount_cents), 0)
@@ -338,20 +473,20 @@ export async function buildNfceFromSalesOrder (input: BuildNfceInput): Promise<B
     return {
       ok: false,
       error: 'payment_totals_mismatch',
-      message: 'A soma dos pagamentos menos o troco precisa ser igual ao total da NFC-e.',
+      message: `A soma dos pagamentos menos o troco precisa ser igual ao total da ${kind}.`,
     }
   }
 
   const payload: NFeProps & NfceIbscbsPayload = {
     identificacao: {
-      modelo: '65',
+      modelo: model,
       naturezaOperacao: requiredText(operationNature?.description) || 'Venda de mercadoria',
       tipoOperacao: 1,
-      destinoOperacao: 1,
+      destinoOperacao: destUf && destUf !== uf ? 2 : 1,
       finalidade: 1,
-      consumidorFinal: 1,
+      consumidorFinal: operationNature?.is_final_consumer === false ? 0 : 1,
       presencaComprador: toPresenceIndicator(operationNature?.presence_indicator),
-      tipoImpressao: 4,
+      tipoImpressao: model === '55' ? 1 : 4,
       tipoEmissao: 1,
       ambiente: profile.fiscal_environment === 'producao' ? 1 : 2,
       uf,
@@ -378,7 +513,7 @@ export async function buildNfceFromSalesOrder (input: BuildNfceInput): Promise<B
         cep: onlyDigits(profile.zip_code || ''),
       },
     },
-    destinatario: buildDestinatario(order, isHomologacao),
+    destinatario,
     produtos,
     transporte: { modalidadeFrete: 9 },
     pagamento: {

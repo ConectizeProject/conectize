@@ -69,3 +69,7 @@ export function isSefazDenied (statusCode: string | null | undefined) {
   return code === '110' || code === '301' || code === '302'
 }
 
+export function fiscalDocumentKind (model: '55' | '65' | string | null | undefined) {
+  return model === '55' ? 'NF-e' : 'NFC-e'
+}
+

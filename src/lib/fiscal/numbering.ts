@@ -92,3 +92,20 @@ export function nfceNumberingForEnvironment (
       || 1,
   }
 }
+
+export type NfeNumberingProfileRow = {
+  nfe_series?: number | null
+  nfe_next_number?: number | null
+}
+
+export function nfeNumberingPatch (profile: NfeNumberingProfileRow) {
+  const series = positiveInt(profile.nfe_series) || 1
+  const nextNumber = positiveInt(profile.nfe_next_number) || 1
+  return {
+    numbering: { series, nextNumber },
+    patch: {
+      nfe_series: series,
+      nfe_next_number: nextNumber + 1,
+    },
+  }
+}

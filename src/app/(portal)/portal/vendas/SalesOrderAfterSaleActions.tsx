@@ -21,11 +21,12 @@ import {
 } from '@/lib/fiscal/product-fiscal-errors'
 import {
   SalesOrderCupomPreview,
+  openNfceDanfePrint,
   openSalesOrderCupomPrint,
   salesOrderCupomPrintLabel,
 } from '@/app/(portal)/portal/vendas/SalesOrderCupomPrint'
 
-export { openSalesOrderCupomPrint, salesOrderCupomPrintLabel }
+export { openNfceDanfePrint, openSalesOrderCupomPrint, salesOrderCupomPrintLabel }
 
 export type SalesOrderBlingLinkState = {
   blingPedidoId: string | null
@@ -214,8 +215,8 @@ export function SalesOrderAfterSaleActions (props: {
   }
 
   async function handleNfce () {
-    if (canPrintFiscal && nfce.danfeUrl) {
-      window.open(nfce.danfeUrl, '_blank', 'noopener,noreferrer')
+    if (canPrintFiscal && nfce.fiscalDocument?.id) {
+      openNfceDanfePrint(nfce.fiscalDocument.id)
       return
     }
 
@@ -258,13 +259,13 @@ export function SalesOrderAfterSaleActions (props: {
       }
       setNfce(next)
 
-      if (next.danfeUrl) {
+      if (next.danfeUrl && next.fiscalDocument?.id) {
         toast({
           variant: 'success',
           title: data.already_authorized ? 'NFC-e já autorizada' : 'NFC-e autorizada',
-          description: 'Abrindo o cupom fiscal para impressão.',
+          description: 'Abrindo a NFC-e para impressão.',
         })
-        window.open(next.danfeUrl, '_blank', 'noopener,noreferrer')
+        openNfceDanfePrint(next.fiscalDocument.id)
         return
       }
 
@@ -411,20 +412,23 @@ export function SalesOrderAfterSaleDialog ({
             {error
               ? error
               : saving
-                ? 'Salvando a venda em segundo plano. A impressão será liberada em instantes.'
-                : 'O cupom será enviado à impressora automaticamente. Você também pode emitir NFC-e ou enviar ao Bling.'}
+                ? 'Salvando a venda em segundo plano. A impressão fica disponível em instantes.'
+                : 'Imprima o cupom, emita a NFC-e ou envie ao Bling quando quiser.'}
           </DialogDescription>
         </DialogHeader>
 
         {error ? null : isReady && orderId ? (
           <div className='space-y-3'>
-            <SalesOrderCupomPreview
-              orderId={orderId}
-              autoPrint
-              onPrintReady={(print) => {
-                printRef.current = print
-              }}
-            />
+            <div aria-hidden className='pointer-events-none fixed left-0 top-0 -z-10 h-0 w-0 overflow-hidden'>
+              <SalesOrderCupomPreview
+                orderId={orderId}
+                autoPrint={false}
+                className='h-[800px] w-[420px]'
+                onPrintReady={(print) => {
+                  printRef.current = print
+                }}
+              />
+            </div>
             <SalesOrderAfterSaleActions
               orderId={orderId}
               orderNumber={orderNumber}
@@ -442,9 +446,9 @@ export function SalesOrderAfterSaleDialog ({
           </div>
         ) : (
           <div className='space-y-3'>
-            <div className='flex items-center gap-2 rounded-md border border-dashed border-border bg-muted/40 px-3 py-6 text-sm text-muted-foreground'>
+            <div className='flex items-center gap-2 text-sm text-muted-foreground'>
               <Loader2 className='h-4 w-4 shrink-0 animate-spin' />
-              Preparando cupom…
+              Finalizando venda…
             </div>
             <div className='flex flex-col gap-2 sm:flex-row sm:flex-wrap'>
               <Button type='button' variant='outline' disabled className='justify-start'>

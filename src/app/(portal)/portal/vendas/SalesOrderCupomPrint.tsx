@@ -16,6 +16,10 @@ export function salesOrderCupomPreviewUrl (orderId: string) {
   return `/api/portal/sales-orders/${encodeURIComponent(orderId)}/print?preview=1`
 }
 
+export function nfceDanfePreviewUrl (documentId: string) {
+  return `/api/portal/fiscal/documents/${encodeURIComponent(documentId)}/danfe?preview=1`
+}
+
 export function printCupomIframe (iframe: HTMLIFrameElement | null) {
   const win = iframe?.contentWindow
   if (!win) return false
@@ -24,19 +28,23 @@ export function printCupomIframe (iframe: HTMLIFrameElement | null) {
   return true
 }
 
-type SalesOrderCupomPreviewProps = {
-  orderId: string
+type HtmlPrintPreviewProps = {
+  src: string
+  title: string
+  errorMessage: string
   autoPrint?: boolean
   className?: string
   onPrintReady?: (print: () => boolean) => void
 }
 
-export function SalesOrderCupomPreview ({
-  orderId,
+function HtmlPrintPreview ({
+  src,
+  title,
+  errorMessage,
   autoPrint = false,
   className,
   onPrintReady,
-}: SalesOrderCupomPreviewProps) {
+}: HtmlPrintPreviewProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const autoPrintedRef = useRef(false)
   const [isLoading, setIsLoading] = useState(true)
@@ -48,7 +56,7 @@ export function SalesOrderCupomPreview ({
     autoPrintedRef.current = false
     setIsLoading(true)
     setHasError(false)
-  }, [orderId])
+  }, [src])
 
   useEffect(() => {
     onPrintReady?.(doPrint)
@@ -72,14 +80,14 @@ export function SalesOrderCupomPreview ({
       ) : null}
       {hasError ? (
         <div className='flex min-h-[280px] items-center justify-center p-4 text-center text-sm text-muted-foreground'>
-          Não foi possível carregar o cupom.
+          {errorMessage}
         </div>
       ) : (
         <iframe
           ref={iframeRef}
-          key={orderId}
-          title='Pré-visualização do cupom'
-          src={salesOrderCupomPreviewUrl(orderId)}
+          key={src}
+          title={title}
+          src={src}
           className='h-[min(56vh,420px)] w-full border-0 bg-white'
           onLoad={handleLoad}
           onError={() => {
@@ -92,21 +100,57 @@ export function SalesOrderCupomPreview ({
   )
 }
 
-type CupomPrintRequest = {
+type SalesOrderCupomPreviewProps = {
   orderId: string
   autoPrint?: boolean
+  className?: string
+  onPrintReady?: (print: () => boolean) => void
 }
 
-type CupomPrintListener = (request: CupomPrintRequest | null) => void
+export function SalesOrderCupomPreview ({
+  orderId,
+  autoPrint = false,
+  className,
+  onPrintReady,
+}: SalesOrderCupomPreviewProps) {
+  return (
+    <HtmlPrintPreview
+      src={salesOrderCupomPreviewUrl(orderId)}
+      title='Pré-visualização do cupom'
+      errorMessage='Não foi possível carregar o cupom.'
+      autoPrint={autoPrint}
+      className={className}
+      onPrintReady={onPrintReady}
+    />
+  )
+}
 
-let cupomPrintListener: CupomPrintListener | null = null
+type PrintRequest =
+  | { kind: 'cupom', orderId: string, autoPrint?: boolean }
+  | { kind: 'nfce', documentId: string, autoPrint?: boolean }
+
+type PrintListener = (request: PrintRequest | null) => void
+
+let printListener: PrintListener | null = null
 
 export function openSalesOrderCupomPrint (
   orderId: string,
   opts?: { autoPrint?: boolean }
 ) {
-  cupomPrintListener?.({
+  printListener?.({
+    kind: 'cupom',
     orderId,
+    autoPrint: opts?.autoPrint !== false,
+  })
+}
+
+export function openNfceDanfePrint (
+  documentId: string,
+  opts?: { autoPrint?: boolean }
+) {
+  printListener?.({
+    kind: 'nfce',
+    documentId,
     autoPrint: opts?.autoPrint !== false,
   })
 }
@@ -117,14 +161,15 @@ export function salesOrderCupomPrintLabel (_status?: string | null) {
 
 /** Host global: montar uma vez no PortalShell para abrir o modal de qualquer tela. */
 export function SalesOrderCupomPrintHost () {
-  const [request, setRequest] = useState<CupomPrintRequest | null>(null)
+  const [request, setRequest] = useState<PrintRequest | null>(null)
   const printRef = useRef<(() => boolean) | null>(null)
   const [busyPrint, setBusyPrint] = useState(false)
+  const isNfce = request?.kind === 'nfce'
 
   useEffect(() => {
-    cupomPrintListener = setRequest
+    printListener = setRequest
     return () => {
-      if (cupomPrintListener === setRequest) cupomPrintListener = null
+      if (printListener === setRequest) printListener = null
     }
   }, [])
 
@@ -150,15 +195,27 @@ export function SalesOrderCupomPrintHost () {
     >
       <DialogContent aria-describedby={undefined} className='sm:max-w-md'>
         <DialogHeader>
-          <DialogTitle>Cupom do pedido</DialogTitle>
+          <DialogTitle>{isNfce ? 'NFC-e' : 'Cupom do pedido'}</DialogTitle>
           <DialogDescription>
             Pré-visualização. A impressão usa o diálogo do sistema, sem abrir outra página.
           </DialogDescription>
         </DialogHeader>
 
-        {request?.orderId ? (
-          <SalesOrderCupomPreview
-            orderId={request.orderId}
+        {request?.kind === 'cupom' ? (
+          <HtmlPrintPreview
+            src={salesOrderCupomPreviewUrl(request.orderId)}
+            title='Pré-visualização do cupom'
+            errorMessage='Não foi possível carregar o cupom.'
+            autoPrint={Boolean(request.autoPrint)}
+            onPrintReady={(print) => {
+              printRef.current = print
+            }}
+          />
+        ) : request?.kind === 'nfce' ? (
+          <HtmlPrintPreview
+            src={nfceDanfePreviewUrl(request.documentId)}
+            title='Pré-visualização da NFC-e'
+            errorMessage='Não foi possível carregar a NFC-e.'
             autoPrint={Boolean(request.autoPrint)}
             onPrintReady={(print) => {
               printRef.current = print
@@ -172,7 +229,7 @@ export function SalesOrderCupomPrintHost () {
           </Button>
           <Button type='button' disabled={busyPrint || !request} onClick={handlePrint}>
             {busyPrint ? <Loader2 className='h-4 w-4 animate-spin' /> : <Printer className='h-4 w-4' />}
-            <span className='ml-2'>Imprimir cupom</span>
+            <span className='ml-2'>{isNfce ? 'Imprimir NFC-e' : 'Imprimir cupom'}</span>
           </Button>
         </DialogFooter>
       </DialogContent>

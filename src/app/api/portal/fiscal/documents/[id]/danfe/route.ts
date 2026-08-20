@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 import { buildNfceDanfeHtml } from '@/lib/fiscal/nfce-danfe'
+import { buildNfeDanfePdf } from '@/lib/fiscal/nfe-danfe'
 
 export const runtime = 'nodejs'
 
@@ -18,6 +19,27 @@ export async function GET (
   const fiscalDocumentId = parseOptionalUuid(rawId)
   if (!fiscalDocumentId) {
     return NextResponse.json({ ok: false, error: 'invalid_id' }, { status: 400 })
+  }
+
+  const { data: doc } = await auth.supabase
+    .from('fiscal_documents')
+    .select('model')
+    .eq('organization_id', auth.organizationId)
+    .eq('id', fiscalDocumentId)
+    .maybeSingle()
+
+  if (String(doc?.model || '') === '55') {
+    const result = await buildNfeDanfePdf(auth, fiscalDocumentId)
+    if (!result.pdf) {
+      return NextResponse.json({ ok: false, error: 'danfe_unavailable' }, { status: result.status })
+    }
+    return new NextResponse(new Uint8Array(result.pdf), {
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': 'inline; filename="danfe-nfe.pdf"',
+        'Cache-Control': 'no-store',
+      },
+    })
   }
 
   const preview = request.nextUrl.searchParams.get('preview') === '1'

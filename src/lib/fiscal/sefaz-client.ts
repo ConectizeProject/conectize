@@ -19,6 +19,7 @@ export type SefazClientConfig = {
   password: string
   environment: 'homologacao' | 'producao'
   uf: string
+  documentModel?: '55' | '65'
   cscId?: string | null
   csc?: string | null
   onSignedXml?: (input: { xml: string, accessKey: string | null }) => void | Promise<void>
@@ -77,7 +78,10 @@ function capturingTransport (
   }
 }
 
-function nfceConsultaUrl (uf: string, environment: 'homologacao' | 'producao') {
+function consultaUrl (uf: string, environment: 'homologacao' | 'producao', model?: '55' | '65') {
+  if (model === '55') {
+    return getSefazUrl(uf, environment, 'NFeConsultaProtocolo')
+  }
   try {
     return getSefazUrl(uf, environment, 'NFCeConsultaProtocolo')
   } catch {
@@ -146,7 +150,7 @@ export function createSefazClient (config: SefazClientConfig) {
       }
     },
     async consultar (accessKey: string): Promise<SefazConsultaParse> {
-      const url = nfceConsultaUrl(config.uf, config.environment)
+      const url = consultaUrl(config.uf, config.environment, config.documentModel)
       const tpAmb = config.environment === 'producao' ? '1' : '2'
       const response = await consultTransport.send({
         url,

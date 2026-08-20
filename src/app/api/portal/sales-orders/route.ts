@@ -45,30 +45,31 @@ export async function GET (request: NextRequest) {
 
   const orders = data ?? []
   const orderIds = orders.map((order) => String(order.id))
-  const [stockPostedIds, financePostedIds, nfceRowsResult] = await Promise.all([
+  const [stockPostedIds, financePostedIds, fiscalRowsResult] = await Promise.all([
     mapSalesOrdersWithStockPosted(auth, orderIds),
     mapSalesOrdersWithFinancePosted(auth.supabase, auth.organizationId, orderIds),
     orderIds.length > 0
       ? auth.supabase
           .from('fiscal_documents')
-          .select('id, sales_order_id, status')
+          .select('id, sales_order_id, status, model')
           .eq('organization_id', auth.organizationId)
-          .eq('model', '65')
           .neq('status', 'canceled')
           .in('sales_order_id', orderIds)
           .order('created_at', { ascending: true })
       : Promise.resolve({ data: [], error: null }),
   ])
   const nfceByOrder = new Map<string, { status: string, id: string }>()
-  if (!nfceRowsResult.error) {
-    for (const row of nfceRowsResult.data ?? []) {
+  const nfeByOrder = new Map<string, { status: string, id: string }>()
+  if (!fiscalRowsResult.error) {
+    for (const row of fiscalRowsResult.data ?? []) {
       const salesOrderId = String(row.sales_order_id || '')
-      if (salesOrderId) {
-        nfceByOrder.set(salesOrderId, {
-          status: String(row.status || 'pending'),
-          id: String(row.id),
-        })
+      if (!salesOrderId) continue
+      const mapped = {
+        status: String(row.status || 'pending'),
+        id: String(row.id),
       }
+      if (String(row.model) === '55') nfeByOrder.set(salesOrderId, mapped)
+      else nfceByOrder.set(salesOrderId, mapped)
     }
   }
 
@@ -76,12 +77,15 @@ export async function GET (request: NextRequest) {
     ok: true,
     orders: orders.map((order) => {
       const nfce = nfceByOrder.get(String(order.id))
+      const nfe = nfeByOrder.get(String(order.id))
       return {
         ...order,
         has_stock_posted: stockPostedIds.has(String(order.id)),
         has_finance_posted: financePostedIds.has(String(order.id)),
         nfce_status: nfce?.status ?? null,
         nfce_document_id: nfce?.id ?? null,
+        nfe_status: nfe?.status ?? null,
+        nfe_document_id: nfe?.id ?? null,
       }
     }),
     total: count ?? 0,
@@ -96,6 +100,7 @@ export async function POST (request: NextRequest) {
 
   const body = await request.json().catch(() => null)
   const items = Array.isArray(body?.items) ? body.items : []
+  const standalone = body?.standalone === true
   const draft = {
     customer_name: body?.customer_name ?? undefined,
     customer_type: body?.customer_type ?? undefined,
@@ -104,7 +109,9 @@ export async function POST (request: NextRequest) {
     surcharge_cents: body?.surcharge_cents ?? undefined,
   }
 
-  const result = await createSalesOrder(auth, items, draft)
+  const result = await createSalesOrder(auth, items, draft, {
+    attachCashSession: !standalone,
+  })
   if (result.ok === false) {
     const status = result.error === 'cash_not_open' || result.error === 'invalid_product' ? 400 : 500
     return NextResponse.json({ ok: false, error: result.error }, { status })

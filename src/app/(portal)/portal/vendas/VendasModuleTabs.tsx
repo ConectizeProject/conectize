@@ -1,8 +1,12 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
+import { Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { portalFetch } from '@/lib/portal/portal-fetch'
+import { toast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
 
 const TABS = [
@@ -19,7 +23,36 @@ function activeTab (pathname: string) {
 
 export function VendasModuleTabs () {
   const pathname = usePathname() || '/portal/vendas'
+  const router = useRouter()
   const current = activeTab(pathname)
+  const [isCreating, setIsCreating] = useState(false)
+
+  async function createStandaloneOrder () {
+    if (isCreating) return
+    setIsCreating(true)
+    try {
+      const res = await portalFetch('/api/portal/sales-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ standalone: true, items: [] }),
+      })
+      const data = await res?.json().catch(() => null)
+      const orderId = String(data?.order_id || data?.order?.id || '')
+      if (!data?.ok || !orderId) {
+        toast({
+          title: 'Não foi possível criar o pedido',
+          description: data?.error === 'cash_not_open'
+            ? 'Este pedido não depende do caixa. Tente novamente.'
+            : (data?.message || data?.error || 'Erro ao criar pedido.'),
+          variant: 'destructive',
+        })
+        return
+      }
+      router.push(`/portal/vendas/${encodeURIComponent(orderId)}`)
+    } finally {
+      setIsCreating(false)
+    }
+  }
 
   return (
     <div className='flex flex-wrap items-center justify-between gap-3'>
@@ -43,9 +76,17 @@ export function VendasModuleTabs () {
           ))}
         </nav>
       </div>
-      <Link href='/portal/pdv'>
-        <Button variant='outline'>Frente de Caixa</Button>
-      </Link>
+      <div className='flex flex-wrap items-center gap-2'>
+        {current === 'pedidos' ? (
+          <Button type='button' disabled={isCreating} onClick={() => void createStandaloneOrder()}>
+            <Plus className='mr-1 h-4 w-4' />
+            {isCreating ? 'Criando...' : 'Novo pedido'}
+          </Button>
+        ) : null}
+        <Link href='/portal/pdv'>
+          <Button variant='outline'>Frente de Caixa</Button>
+        </Link>
+      </div>
     </div>
   )
 }

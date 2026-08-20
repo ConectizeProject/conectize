@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Ban, ExternalLink, FileCheck2, MoreHorizontal, Package, Printer, Send, Undo2, Wallet } from 'lucide-react'
+import { Ban, ExternalLink, FileCheck2, FileText, MoreHorizontal, Package, Printer, Send, Undo2, Wallet } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -54,9 +54,10 @@ import { maskedFromCents } from '@/lib/utils/money'
 import { toast } from '@/hooks/use-toast'
 import {
   isProductFiscalCorrectionError,
-  nfceEditorHref,
+  fiscalEditorHref,
 } from '@/lib/fiscal/product-fiscal-errors'
 import {
+  openNfceDanfePrint,
   openSalesOrderCupomPrint,
   salesOrderCupomPrintLabel,
 } from '@/app/(portal)/portal/vendas/SalesOrderAfterSaleActions'
@@ -77,6 +78,8 @@ type SalesOrder = {
   has_finance_posted?: boolean
   nfce_status?: 'pending' | 'authorized' | 'rejected' | 'canceled' | 'denied' | null
   nfce_document_id?: string | null
+  nfe_status?: 'pending' | 'authorized' | 'rejected' | 'canceled' | 'denied' | null
+  nfe_document_id?: string | null
 }
 
 type TeamUser = {
@@ -169,6 +172,35 @@ function nfceStatusLabel (status?: SalesOrder['nfce_status']) {
   if (status === 'denied') return 'NFC-e denegada'
   if (status === 'canceled') return 'NFC-e cancelada'
   return 'NFC-e vinculada'
+}
+
+function nfeStatusLabel (status?: SalesOrder['nfe_status']) {
+  if (status === 'authorized') return 'NF-e autorizada'
+  if (status === 'pending') return 'NF-e pendente'
+  if (status === 'rejected') return 'NF-e rejeitada'
+  if (status === 'denied') return 'NF-e denegada'
+  if (status === 'canceled') return 'NF-e cancelada'
+  return 'NF-e vinculada'
+}
+
+function withFiscalDocument (
+  row: SalesOrder,
+  model: '55' | '65',
+  status: SalesOrder['nfce_status'],
+  documentId: string | null | undefined,
+): SalesOrder {
+  if (model === '55') {
+    return {
+      ...row,
+      nfe_status: status,
+      nfe_document_id: documentId || row.nfe_document_id,
+    }
+  }
+  return {
+    ...row,
+    nfce_status: status,
+    nfce_document_id: documentId || row.nfce_document_id,
+  }
 }
 
 export default function PedidosVendaPage () {
@@ -269,11 +301,14 @@ export default function PedidosVendaPage () {
     }
   }
 
-  async function emitNfce (order: SalesOrder) {
+  async function emitFiscal (order: SalesOrder, model: '55' | '65') {
+    const kind = model === '55' ? 'NF-e' : 'NFC-e'
+    const emitPath = model === '55' ? 'emit-nfe' : 'emit-nfce'
+
     if (order.status !== 'paid') {
       toast({
         title: 'Venda ainda não está paga',
-        description: 'A NFC-e só pode ser emitida para vendas pagas.',
+        description: `A ${kind} só pode ser emitida para vendas pagas.`,
         variant: 'destructive',
       })
       return
@@ -281,7 +316,7 @@ export default function PedidosVendaPage () {
 
     setBusyId(order.id)
     try {
-      const stateRes = await portalFetch(`/api/portal/sales-orders/${encodeURIComponent(order.id)}/emit-nfce`)
+      const stateRes = await portalFetch(`/api/portal/sales-orders/${encodeURIComponent(order.id)}/${emitPath}`)
       const stateData = await stateRes?.json().catch(() => null)
       const fiscalDocument = (stateData?.fiscal_document ?? null) as FiscalDocumentState | null
 
@@ -290,84 +325,105 @@ export default function PedidosVendaPage () {
         fiscalDocument.status === 'denied' ||
         (fiscalDocument.status === 'pending' && isProductFiscalCorrectionError(fiscalDocument.sefaz_status_code))
       )) {
-        router.push(nfceEditorHref(fiscalDocument.id, {
+        router.push(fiscalEditorHref(model, fiscalDocument.id, {
           corrigir: isProductFiscalCorrectionError(fiscalDocument.sefaz_status_code),
         }))
         return
       }
 
-      if (stateData?.danfe_url) {
+      if (stateData?.danfe_url && fiscalDocument?.id) {
         setOrders((prev) => prev.map((row) => (
           row.id === order.id
-            ? { ...row, nfce_status: fiscalDocument?.status || 'authorized', nfce_document_id: fiscalDocument?.id || row.nfce_document_id }
+            ? withFiscalDocument(row, model, fiscalDocument.status || 'authorized', fiscalDocument.id)
             : row
         )))
         toast({
           variant: 'success',
-          title: 'NFC-e já autorizada',
-          description: 'Abrindo o cupom fiscal para impressão.',
+          title: `${kind} já autorizada`,
+          description: `Abrindo a ${kind} para impressão.`,
         })
-        window.open(String(stateData.danfe_url), '_blank', 'noopener,noreferrer')
+        openNfceDanfePrint(fiscalDocument.id)
         return
       }
 
       const endpoint = fiscalDocument?.id && fiscalDocument.status !== 'authorized'
         ? `/api/portal/fiscal/documents/${encodeURIComponent(fiscalDocument.id)}/retry`
-        : `/api/portal/sales-orders/${encodeURIComponent(order.id)}/emit-nfce`
+        : `/api/portal/sales-orders/${encodeURIComponent(order.id)}/${emitPath}`
 
       const res = await portalFetch(endpoint, { method: 'POST' })
       const data = await res?.json().catch(() => null)
       const nextFiscalDocument = (data?.fiscal_document ?? null) as FiscalDocumentState | null
       if (!data?.ok) {
+        if (data?.error === 'nfe_customer_required'
+          || data?.error === 'nfe_customer_address_required'
+          || data?.error === 'nfe_customer_ibge_required') {
+          toast({
+            title: 'Complete o destinatário',
+            description: data.message || 'A NF-e exige cliente com CPF/CNPJ e endereço.',
+          })
+          router.push(`/portal/vendas/${encodeURIComponent(order.id)}`)
+          return
+        }
         if (data?.needs_correction && nextFiscalDocument?.id) {
           toast({
             title: 'Complete NCM e CEST',
-            description: data.message || 'Preencha os dados fiscais dos produtos para emitir a NFC-e.',
+            description: data.message || `Preencha os dados fiscais dos produtos para emitir a ${kind}.`,
           })
-          router.push(nfceEditorHref(nextFiscalDocument.id, { corrigir: true }))
+          router.push(fiscalEditorHref(model, nextFiscalDocument.id, { corrigir: true }))
           return
         }
         toast({
-          title: 'NFC-e não autorizada',
-          description: data?.message || data?.error || 'Não foi possível emitir a NFC-e.',
+          title: `${kind} não autorizada`,
+          description: data?.message || data?.error || `Não foi possível emitir a ${kind}.`,
           variant: 'destructive',
         })
+        if (nextFiscalDocument?.id) {
+          router.push(fiscalEditorHref(model, nextFiscalDocument.id))
+        }
         return
       }
 
-      if (data.danfe_url) {
+      if (data.danfe_url && nextFiscalDocument?.id) {
         setOrders((prev) => prev.map((row) => (
           row.id === order.id
-            ? { ...row, nfce_status: nextFiscalDocument?.status || 'authorized', nfce_document_id: nextFiscalDocument?.id || row.nfce_document_id }
+            ? withFiscalDocument(row, model, nextFiscalDocument.status || 'authorized', nextFiscalDocument.id)
             : row
         )))
         toast({
           variant: 'success',
-          title: data.already_authorized ? 'NFC-e já autorizada' : 'NFC-e autorizada',
-          description: 'Abrindo o cupom fiscal para impressão.',
+          title: data.already_authorized ? `${kind} já autorizada` : `${kind} autorizada`,
+          description: `Abrindo a ${kind} para impressão.`,
         })
-        window.open(String(data.danfe_url), '_blank', 'noopener,noreferrer')
+        openNfceDanfePrint(nextFiscalDocument.id)
         return
       }
 
       if (nextFiscalDocument?.status) {
         setOrders((prev) => prev.map((row) => (
           row.id === order.id
-            ? { ...row, nfce_status: nextFiscalDocument.status, nfce_document_id: nextFiscalDocument.id || row.nfce_document_id }
+            ? withFiscalDocument(row, model, nextFiscalDocument.status, nextFiscalDocument.id)
             : row
         )))
       }
       toast({
-        title: 'NFC-e não autorizada',
+        title: `${kind} não autorizada`,
         description: nextFiscalDocument?.sefaz_status_message || nextFiscalDocument?.sefaz_status_code || 'A SEFAZ retornou a nota sem autorização.',
         variant: 'destructive',
       })
       if (nextFiscalDocument?.id) {
-        router.push(nfceEditorHref(nextFiscalDocument.id))
+        router.push(fiscalEditorHref(model, nextFiscalDocument.id))
       }
     } finally {
       setBusyId(null)
     }
+  }
+
+  async function emitNfce (order: SalesOrder) {
+    await emitFiscal(order, '65')
+  }
+
+  async function emitNfe (order: SalesOrder) {
+    await emitFiscal(order, '55')
   }
 
   async function runCancelOrder (order: SalesOrder, reason: string) {
@@ -691,6 +747,23 @@ export default function PedidosVendaPage () {
                                 <TooltipContent>{order.bling_nfce_id ? 'NFC-e no Bling' : nfceStatusLabel(order.nfce_status)}</TooltipContent>
                               </Tooltip>
                             ) : null}
+                            {order.nfe_status ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span
+                                    className={order.nfe_status === 'authorized'
+                                      ? 'inline-flex h-8 w-8 items-center justify-center text-emerald-600'
+                                      : order.nfe_status === 'rejected' || order.nfe_status === 'denied'
+                                        ? 'inline-flex h-8 w-8 items-center justify-center text-destructive'
+                                        : 'inline-flex h-8 w-8 items-center justify-center text-amber-500'}
+                                    aria-label={nfeStatusLabel(order.nfe_status)}
+                                  >
+                                    <FileText className='h-4 w-4' />
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent>{nfeStatusLabel(order.nfe_status)}</TooltipContent>
+                              </Tooltip>
+                            ) : null}
                             <DropdownMenu modal={false}>
                               <DropdownMenuTrigger asChild>
                                 <Button
@@ -733,6 +806,25 @@ export default function PedidosVendaPage () {
                                       >
                                         <FileCheck2 className='mr-2 h-4 w-4' />
                                         Gerar NFC-e
+                                      </DropdownMenuItem>
+                                    ) : null}
+                                    {order.nfe_document_id ? (
+                                      <DropdownMenuItem asChild>
+                                        <Link href={`/portal/vendas/nfe/${encodeURIComponent(order.nfe_document_id)}`}>
+                                          <FileText className='mr-2 h-4 w-4' />
+                                          Abrir NF-e
+                                        </Link>
+                                      </DropdownMenuItem>
+                                    ) : order.status === 'paid' ? (
+                                      <DropdownMenuItem
+                                        disabled={isBusy}
+                                        onSelect={(event) => {
+                                          event.preventDefault()
+                                          void emitNfe(order)
+                                        }}
+                                      >
+                                        <FileText className='mr-2 h-4 w-4' />
+                                        Gerar NF-e
                                       </DropdownMenuItem>
                                     ) : null}
                                     {order.status === 'paid' ? (
