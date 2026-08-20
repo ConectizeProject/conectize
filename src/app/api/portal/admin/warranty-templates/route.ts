@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth/portal-api'
 
-export async function GET() {
+export async function GET () {
   const auth = await requireAdmin()
   if (auth.ok === false) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
@@ -10,18 +10,20 @@ export async function GET() {
   const { data, error } = await auth.supabase
     .from('warranty_templates')
     .select('id, name, body, is_active, is_default, sort_order, created_at')
+    .eq('organization_id', auth.organizationId)
     .order('is_default', { ascending: false })
     .order('sort_order', { ascending: true })
     .order('created_at', { ascending: true })
 
   if (error) {
+    console.error('[warranty-templates] list', error)
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
   }
 
   return NextResponse.json({ ok: true, templates: data ?? [] })
 }
 
-export async function POST(request: NextRequest) {
+export async function POST (request: NextRequest) {
   const auth = await requireAdmin()
   if (auth.ok === false) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
@@ -41,12 +43,14 @@ export async function POST(request: NextRequest) {
     await auth.supabase
       .from('warranty_templates')
       .update({ is_default: false })
+      .eq('organization_id', auth.organizationId)
       .eq('is_default', true)
   }
 
   const { data: existing } = await auth.supabase
     .from('warranty_templates')
     .select('sort_order')
+    .eq('organization_id', auth.organizationId)
     .order('sort_order', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -59,6 +63,7 @@ export async function POST(request: NextRequest) {
   const { data, error } = await auth.supabase
     .from('warranty_templates')
     .insert({
+      organization_id: auth.organizationId,
       name,
       body: text,
       is_active: isActive,
@@ -69,9 +74,9 @@ export async function POST(request: NextRequest) {
     .single()
 
   if (error) {
+    console.error('[warranty-templates] create', error)
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
   }
 
   return NextResponse.json({ ok: true, template: data })
 }
-
