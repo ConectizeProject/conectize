@@ -17,14 +17,23 @@ let onlineListenerAttached = false
 function attachOnlineListenerOnce () {
   if (typeof window === 'undefined' || onlineListenerAttached) return
   onlineListenerAttached = true
+
   window.addEventListener('online', () => {
     consecutiveNetworkFailures = 0
     void clientHolder.current?.auth.startAutoRefresh()
+  })
+
+  // Offline imediato: não tentar refresh de token (pode invalidar sessão no client).
+  window.addEventListener('offline', () => {
+    void clientHolder.current?.auth.stopAutoRefresh()
   })
 }
 
 function buildFetchForSupabase (): typeof fetch {
   return async (input, init) => {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      throw new TypeError('Failed to fetch (offline)')
+    }
     try {
       const res = await fetch(input, init)
       consecutiveNetworkFailures = 0
@@ -52,5 +61,10 @@ export function createSupabaseBrowserClient () {
     },
   })
   clientHolder.current = client
+
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    void client.auth.stopAutoRefresh()
+  }
+
   return client
 }

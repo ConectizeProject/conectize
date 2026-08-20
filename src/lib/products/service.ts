@@ -131,6 +131,8 @@ export type StockMovement = {
 	externalReference: string | null;
 	salesOrderId: string | null;
 	salesOrderNumber: number | null;
+	serviceOrderId: string | null;
+	serviceOrderNumber: number | null;
 	createdAt: string;
 };
 
@@ -199,6 +201,11 @@ type ListStockMovementsResult =
 	  }
 	| AuthFailure
 	| { ok: false; error: "db_error" };
+
+type DeleteStockMovementResult =
+	| { ok: true; currentStock: number | null }
+	| AuthFailure
+	| { ok: false; error: "not_found" | "db_error" };
 
 type GetProductCurrentStockResult =
 	| { ok: true; currentStock: number }
@@ -1143,10 +1150,9 @@ export async function listStockMovements(
 		return { ok: false as const, error: "db_error" as const };
 	}
 
-	const items = await enrichStockMovementsWithSalesOrders(
-		auth.supabase,
-		data.map(mapRowToMovement),
-	);
+	const mapped = data.map(mapRowToMovement);
+	const withSales = await enrichStockMovementsWithSalesOrders(auth.supabase, mapped);
+	const items = await enrichStockMovementsWithServiceOrders(auth.supabase, withSales);
 
 	return {
 		ok: true as const,
@@ -1154,6 +1160,53 @@ export async function listStockMovements(
 		total: count ?? items.length,
 		page,
 		pageSize,
+	};
+}
+
+export async function deleteStockMovement(
+	productId: string,
+	movementId: string,
+): Promise<DeleteStockMovementResult> {
+	const auth = await requireAuth();
+	if (!auth.ok) return { ok: false, error: "not_authenticated" };
+
+	const productUuid = String(productId || "").trim().toLowerCase();
+	const movementUuid = String(movementId || "").trim().toLowerCase();
+	if (!UUID_RE.test(productUuid) || !UUID_RE.test(movementUuid)) {
+		return { ok: false as const, error: "not_found" as const };
+	}
+
+	const { data: existing, error: findError } = await auth.supabase
+		.from("product_stock_movements")
+		.select("id")
+		.eq("id", movementUuid)
+		.eq("product_id", productUuid)
+		.maybeSingle();
+
+	if (findError) {
+		return { ok: false as const, error: "db_error" as const };
+	}
+	if (!existing?.id) {
+		return { ok: false as const, error: "not_found" as const };
+	}
+
+	const { error: deleteError } = await auth.supabase
+		.from("product_stock_movements")
+		.delete()
+		.eq("id", movementUuid)
+		.eq("product_id", productUuid);
+
+	if (deleteError) {
+		return { ok: false as const, error: "db_error" as const };
+	}
+
+	const currentStock = await getProductCurrentStock(productId);
+	return {
+		ok: true as const,
+		currentStock:
+			currentStock.ok && "currentStock" in currentStock
+				? currentStock.currentStock
+				: null,
 	};
 }
 
@@ -1353,6 +1406,13 @@ function parseSalesOrderIdFromReference(ref: string | null): string | null {
 	return UUID_RE.test(id) ? id : null;
 }
 
+function parseServiceOrderIdFromReference(ref: string | null): string | null {
+	if (!ref) return null;
+	const match = ref.match(/^service_order:([0-9a-fA-F-]{36})(?::|$)/);
+	const id = match?.[1]?.toLowerCase() ?? "";
+	return UUID_RE.test(id) ? id : null;
+}
+
 async function enrichStockMovementsWithSalesOrders(
 	supabase: SupabaseServerClient,
 	items: StockMovement[],
@@ -1389,6 +1449,42 @@ async function enrichStockMovementsWithSalesOrders(
 	});
 }
 
+async function enrichStockMovementsWithServiceOrders(
+	supabase: SupabaseServerClient,
+	items: StockMovement[],
+): Promise<StockMovement[]> {
+	const orderIds = [
+		...new Set(
+			items
+				.map((item) => item.serviceOrderId)
+				.filter((id): id is string => Boolean(id)),
+		),
+	];
+	if (orderIds.length === 0) return items;
+
+	const { data, error } = await supabase
+		.from("service_orders")
+		.select("id, display_number")
+		.in("id", orderIds);
+
+	if (error || !data) return items;
+
+	const numbersById = new Map<string, number>();
+	for (const row of data) {
+		const id = String(row.id);
+		const n = Number(row.display_number);
+		if (id && Number.isFinite(n)) numbersById.set(id, n);
+	}
+
+	return items.map((item) => {
+		if (!item.serviceOrderId) return item;
+		return {
+			...item,
+			serviceOrderNumber: numbersById.get(item.serviceOrderId) ?? null,
+		};
+	});
+}
+
 function mapRowToMovement(row: Record<string, unknown>): StockMovement {
 	const source =
 		row.source === "bling"
@@ -1416,6 +1512,8 @@ function mapRowToMovement(row: Record<string, unknown>): StockMovement {
 		externalReference,
 		salesOrderId: salesOrderIdFromCol ?? parseSalesOrderIdFromReference(externalReference),
 		salesOrderNumber: null,
+		serviceOrderId: parseServiceOrderIdFromReference(externalReference),
+		serviceOrderNumber: null,
 		createdAt,
 	};
 }

@@ -34,7 +34,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { isSafeProductListImageUrl } from '@/app/(portal)/portal/produtos/product-list-shared'
-import { portalFetch } from '@/lib/portal/portal-fetch'
+import { isBrowserOffline, portalFetch } from '@/lib/portal/portal-fetch'
 import { maskedFromCents, moneyToCentsFromMasked, formatMoneyInput } from '@/lib/utils/money'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { toast } from '@/hooks/use-toast'
@@ -84,6 +84,17 @@ import {
   searchLocalCatalog,
   writeSessionCatalogSnapshot,
 } from './pdv-catalog-cache'
+import { PdvOfflineBanner } from './PdvOfflineBanner'
+import {
+  readOfflineCatalog,
+  readOfflinePaymentMethods,
+  writeOfflineCatalog,
+  writeOfflinePaymentMethods,
+} from '@/lib/pdv/offline/catalog-store'
+import {
+  enqueueOfflineSale,
+  isLikelyNetworkFailure,
+} from '@/lib/pdv/offline/sales-queue'
 import {
   DiscountField,
   inputGroupShell,
@@ -163,6 +174,7 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
   const [loadingTopProducts, setLoadingTopProducts] = useState(true)
   const [catalogCache, setCatalogCache] = useState<CatalogProduct[]>([])
   const [syncingCatalog, setSyncingCatalog] = useState(false)
+  const [offlineQueueVersion, setOfflineQueueVersion] = useState(0)
   const catalogPrefetchRef = useRef<AbortController | null>(null)
   const [selectedProduct, setSelectedProduct] = useState<CatalogProduct | null>(null)
 
@@ -346,12 +358,29 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
   }, [loadTopProducts, organizationId])
 
   const loadMethods = useCallback(async () => {
-    const res = await portalFetch('/api/portal/payment-methods')
-    const data = await res?.json().catch(() => null)
-    if (data?.ok && Array.isArray(data.paymentMethods)) {
-      setPaymentMethods(data.paymentMethods)
+    try {
+      const res = await portalFetch('/api/portal/payment-methods')
+      const data = await res?.json().catch(() => null)
+      if (data?.ok && Array.isArray(data.paymentMethods)) {
+        setPaymentMethods(data.paymentMethods)
+        if (organizationId) {
+          try {
+            await writeOfflinePaymentMethods(organizationId, data.paymentMethods)
+          } catch (err) {
+            console.warn('[pdv-offline] falha ao gravar formas de pagamento no IndexedDB', err)
+          }
+        }
+        return
+      }
+    } catch {
+      // cai no cache offline
     }
-  }, [])
+    if (!organizationId) return
+    const cached = await readOfflinePaymentMethods(organizationId)
+    if (cached?.length) {
+      setPaymentMethods(cached as PaymentMethod[])
+    }
+  }, [organizationId])
 
   const prefetchCatalogSnapshot = useCallback(async (options?: {
     force?: boolean
@@ -366,7 +395,35 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
       const sessionProducts = readSessionCatalogSnapshot(organizationId)
       if (sessionProducts?.length) {
         setCatalogCache(sessionProducts)
+      } else {
+        const offlineProducts = await readOfflineCatalog(organizationId)
+        if (offlineProducts?.length) {
+          setCatalogCache(offlineProducts as CatalogProduct[])
+          writeSessionCatalogSnapshot(organizationId, offlineProducts as CatalogProduct[])
+        }
       }
+    }
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      const offlineProducts = await readOfflineCatalog(organizationId)
+      if (offlineProducts?.length) {
+        setCatalogCache(offlineProducts as CatalogProduct[])
+        writeSessionCatalogSnapshot(organizationId, offlineProducts as CatalogProduct[])
+        if (notify) {
+          toast({
+            title: 'Catálogo offline',
+            description: `${offlineProducts.length} produto(s) do último sync.`,
+          })
+        }
+        return { ok: true as const, count: offlineProducts.length }
+      }
+      if (notify) {
+        toast({
+          title: 'Sem conexão e sem catálogo em cache',
+          variant: 'destructive',
+        })
+      }
+      return { ok: false as const, count: 0 }
     }
 
     catalogPrefetchRef.current?.abort()
@@ -395,13 +452,24 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
       const products = data.products.map((row: Record<string, unknown>) => mapCatalogProduct(row))
       setCatalogCache(products)
       writeSessionCatalogSnapshot(organizationId, products)
+      try {
+        await writeOfflineCatalog(organizationId, products)
+        if (typeof window !== 'undefined') {
+          ;(window as Window & { __pdvOfflineDebug?: () => Promise<unknown> }).__pdvOfflineDebug = async () => {
+            const { debugOfflineDb } = await import('@/lib/pdv/offline/idb')
+            return debugOfflineDb()
+          }
+        }
+      } catch (err) {
+        console.warn('[pdv-offline] falha ao gravar catálogo no IndexedDB', err)
+      }
 
       if (notify) {
         toast({
           title: 'Produtos sincronizados',
           description: products.length === 1
-            ? '1 produto disponível no PDV.'
-            : `${products.length} produtos disponíveis no PDV.`,
+            ? '1 produto disponível no PDV (também salvo offline).'
+            : `${products.length} produtos disponíveis no PDV (também salvos offline).`,
         })
       }
 
@@ -409,6 +477,18 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
         return { ok: false as const, count: 0 }
+      }
+      const offlineProducts = await readOfflineCatalog(organizationId)
+      if (offlineProducts?.length) {
+        setCatalogCache(offlineProducts as CatalogProduct[])
+        writeSessionCatalogSnapshot(organizationId, offlineProducts as CatalogProduct[])
+        if (notify) {
+          toast({
+            title: 'Usando catálogo em cache',
+            description: 'Não foi possível atualizar online.',
+          })
+        }
+        return { ok: true as const, count: offlineProducts.length }
       }
       if (notify) {
         toast({
@@ -430,6 +510,12 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
   }, [prefetchCatalogSnapshot, syncingCatalog])
 
   const prefetchPdvSessionData = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      ;(window as Window & { __pdvOfflineDebug?: () => Promise<unknown> }).__pdvOfflineDebug = async () => {
+        const { debugOfflineDb } = await import('@/lib/pdv/offline/idb')
+        return debugOfflineDb()
+      }
+    }
     void loadMethods()
     void prefetchCatalogSnapshot()
   }, [loadMethods, prefetchCatalogSnapshot])
@@ -447,9 +533,9 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
     if (catalogCache.length > 0) {
       const local = searchLocalCatalog(catalogCache, q, 10)
       setSearchResults(local)
-      setShowSearchDropdown(true)
+      setShowSearchDropdown(local.length > 0)
       setLoadingProducts(false)
-      return
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return
     }
 
     searchAbortRef.current?.abort()
@@ -467,15 +553,21 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
       if (data?.ok && Array.isArray(data.products)) {
         setSearchResults(data.products.slice(0, 10).map((row: Record<string, unknown>) => mapCatalogProduct(row)))
         setShowSearchDropdown(true)
-      } else {
+      } else if (catalogCache.length === 0) {
         setSearchResults([])
         setShowSearchDropdown(false)
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return
       if (controller.signal.aborted) return
-      setSearchResults([])
-      setShowSearchDropdown(false)
+      if (catalogCache.length > 0) {
+        const local = searchLocalCatalog(catalogCache, q, 10)
+        setSearchResults(local)
+        setShowSearchDropdown(local.length > 0)
+      } else {
+        setSearchResults([])
+        setShowSearchDropdown(false)
+      }
     } finally {
       if (!controller.signal.aborted) setLoadingProducts(false)
     }
@@ -487,16 +579,21 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
 
     const local = findLocalCatalogByCode(catalogCache, barcode)
     if (local) return local
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return null
 
-    const res = await portalFetch(`/api/portal/pdv/catalog?barcode=${encodeURIComponent(barcode)}`)
-    const data = await res?.json().catch(() => null)
-    if (!data?.ok || !Array.isArray(data.products) || data.products.length === 0) return null
-    const exact = data.products.find((row: Record<string, unknown>) => {
-      const rowBarcode = row.barcode != null ? String(row.barcode).trim() : ''
-      const rowSku = row.sku != null ? String(row.sku).trim() : ''
-      return rowBarcode === barcode || rowSku === barcode
-    })
-    return mapCatalogProduct((exact || data.products[0]) as Record<string, unknown>)
+    try {
+      const res = await portalFetch(`/api/portal/pdv/catalog?barcode=${encodeURIComponent(barcode)}`)
+      const data = await res?.json().catch(() => null)
+      if (!data?.ok || !Array.isArray(data.products) || data.products.length === 0) return null
+      const exact = data.products.find((row: Record<string, unknown>) => {
+        const rowBarcode = row.barcode != null ? String(row.barcode).trim() : ''
+        const rowSku = row.sku != null ? String(row.sku).trim() : ''
+        return rowBarcode === barcode || rowSku === barcode
+      })
+      return mapCatalogProduct((exact || data.products[0]) as Record<string, unknown>)
+    } catch {
+      return null
+    }
   }, [catalogCache])
 
   useEffect(() => {
@@ -657,6 +754,8 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
     },
   ): Promise<{ ok: boolean, orderId?: string | null, orderNumber?: number | null }> => {
     if (!cashOpen || payload.items.length === 0) return { ok: false }
+    // Offline: não tenta gravar rascunho no servidor (evita falhas/auth redirect).
+    if (isBrowserOffline()) return { ok: false }
 
     const silent = Boolean(options?.silent)
     const applyToActiveDraft = Boolean(options?.applyToActiveDraft)
@@ -667,6 +766,7 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        skipAuthRedirect: true,
       })
       const data = await res?.json().catch(() => null)
       if (data?.ok && data.order_id) {
@@ -688,6 +788,7 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+      skipAuthRedirect: true,
     })
     const data = await res?.json().catch(() => null)
     if (data?.ok) {
@@ -706,6 +807,7 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
     orderId: string | null,
     options?: { successToast?: boolean },
   ) {
+    if (isBrowserOffline()) return
     void persistOrderDraft(payload, orderId, {
       silent: true,
       applyToActiveDraft: false,
@@ -871,17 +973,23 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
 
   async function lookupCustomerByDocument (digits: string) {
     if (digits.length < 5) return null
-    const res = await portalFetch(
-      `/api/portal/customers/search?documentPrefix=${encodeURIComponent(digits)}`
-    )
-    const data = await res?.json().catch(() => null)
-    if (!data?.ok || !Array.isArray(data.customers)) return null
-    const exact = data.customers.find((row: { cpf?: string | null, cnpj?: string | null }) => {
-      const cpf = String(row.cpf || '').replace(/\D/g, '')
-      const cnpj = String(row.cnpj || '').replace(/\D/g, '')
-      return cpf === digits || cnpj === digits
-    })
-    return (exact as CustomerMatch['raw'] | undefined) || null
+    if (isBrowserOffline()) return null
+    try {
+      const res = await portalFetch(
+        `/api/portal/customers/search?documentPrefix=${encodeURIComponent(digits)}`,
+        { skipAuthRedirect: true },
+      )
+      const data = await res?.json().catch(() => null)
+      if (!data?.ok || !Array.isArray(data.customers)) return null
+      const exact = data.customers.find((row: { cpf?: string | null, cnpj?: string | null }) => {
+        const cpf = String(row.cpf || '').replace(/\D/g, '')
+        const cnpj = String(row.cnpj || '').replace(/\D/g, '')
+        return cpf === digits || cnpj === digits
+      })
+      return (exact as CustomerMatch['raw'] | undefined) || null
+    } catch {
+      return null
+    }
   }
 
   async function searchCustomersByName (name: string) {
@@ -891,31 +999,45 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
       setShowCustomerDropdown(false)
       return
     }
-    setLoadingCustomers(true)
-    const res = await portalFetch(`/api/portal/customers/search?q=${encodeURIComponent(q)}`)
-    const data = await res?.json().catch(() => null)
-    setLoadingCustomers(false)
-    if (!data?.ok || !Array.isArray(data.customers)) {
+    if (isBrowserOffline()) {
       setCustomerMatches([])
       setShowCustomerDropdown(false)
       return
     }
-    const matches: CustomerMatch[] = data.customers.slice(0, 10).map((row: CustomerMatch['raw']) => {
-      const isCompany = Boolean(row.is_company)
-      const digits = String(isCompany ? row.cnpj || '' : row.cpf || '').replace(/\D/g, '')
-      return {
-        id: String(row.id),
-        label: customerDisplayName(row),
-        document: formatCpfCnpj(digits),
-        isCompany,
-        raw: row,
+    setLoadingCustomers(true)
+    try {
+      const res = await portalFetch(`/api/portal/customers/search?q=${encodeURIComponent(q)}`, {
+        skipAuthRedirect: true,
+      })
+      const data = await res?.json().catch(() => null)
+      if (!data?.ok || !Array.isArray(data.customers)) {
+        setCustomerMatches([])
+        setShowCustomerDropdown(false)
+        return
       }
-    })
-    setCustomerMatches(matches)
-    setShowCustomerDropdown(matches.length > 0)
+      const matches: CustomerMatch[] = data.customers.slice(0, 10).map((row: CustomerMatch['raw']) => {
+        const isCompany = Boolean(row.is_company)
+        const digits = String(isCompany ? row.cnpj || '' : row.cpf || '').replace(/\D/g, '')
+        return {
+          id: String(row.id),
+          label: customerDisplayName(row),
+          document: formatCpfCnpj(digits),
+          isCompany,
+          raw: row,
+        }
+      })
+      setCustomerMatches(matches)
+      setShowCustomerDropdown(matches.length > 0)
+    } catch {
+      setCustomerMatches([])
+      setShowCustomerDropdown(false)
+    } finally {
+      setLoadingCustomers(false)
+    }
   }
 
   async function ensureCustomerInCadastro () {
+    if (isBrowserOffline()) return { ok: true as const, skipped: true as const }
     const digits = customerDocument.replace(/\D/g, '')
     const name = customerName.trim()
     const isDefaultConsumer = !digits && (
@@ -944,6 +1066,7 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
         fullName: customerType === 'pf' ? name : '',
         companyName: customerType === 'pj' ? name : '',
       }),
+      skipAuthRedirect: true,
     })
     const data = await res?.json().catch(() => null)
     if (data?.ok && data.id) {
@@ -1620,6 +1743,50 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
     const checkoutChangeCents = changeCents
     const checkoutOrderId = currentOrderId
 
+    async function queueSaleOffline (reason: 'offline' | 'network') {
+      if (!organizationId) {
+        toast({
+          title: 'Não foi possível salvar offline',
+          description: 'Organização não identificada.',
+          variant: 'destructive',
+        })
+        return false
+      }
+      try {
+        await enqueueOfflineSale({
+          organizationId,
+          payload: {
+            customer_name: orderPayload.customer_name,
+            customer_type: orderPayload.customer_type,
+            customer_document: orderPayload.customer_document,
+            discount_total_cents: orderPayload.discount_total_cents,
+            surcharge_cents: orderPayload.surcharge_cents,
+            items: orderPayload.items,
+            payments: paymentPayload,
+            change_cents: checkoutChangeCents,
+          },
+        })
+        setOfflineQueueVersion((n) => n + 1)
+        resetDraft()
+        toast({
+          title: reason === 'offline' ? 'Venda salva offline' : 'Venda na fila (sem rede)',
+          description: 'Será enviada automaticamente quando a conexão voltar.',
+        })
+        return true
+      } catch {
+        toast({
+          title: 'Não foi possível salvar a venda offline',
+          variant: 'destructive',
+        })
+        return false
+      }
+    }
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      void queueSaleOffline('offline')
+      return
+    }
+
     setAfterSaleError(null)
     setAfterSaleOrderId(null)
     setAfterSaleOrderNumber(currentOrderNumber)
@@ -1627,51 +1794,66 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
     setAfterSaleOpen(true)
 
     void (async () => {
-      const customerSync = await ensureCustomerInCadastro()
-      if (!customerSync.ok) {
+      try {
+        const customerSync = await ensureCustomerInCadastro()
+        if (!customerSync.ok) {
+          toast({
+            title: 'Não foi possível cadastrar o cliente',
+            description: String(customerSync.error || 'A venda seguirá mesmo assim.'),
+            variant: 'destructive',
+          })
+        } else if ('created' in customerSync && customerSync.created) {
+          toast({ title: 'Cliente cadastrado', description: customerName.trim() })
+        }
+
+        const checkoutRes = await portalFetch('/api/portal/pdv/checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...orderPayload,
+            order_id: checkoutOrderId,
+            payments: paymentPayload,
+            change_cents: checkoutChangeCents,
+          }),
+          skipAuthRedirect: true,
+        })
+        const finalizeData = await checkoutRes?.json().catch(() => null)
+
+        if (!finalizeData?.ok) {
+          const errorTitle = finalizeData?.error === 'finance_sync_failed'
+            ? 'Venda paga, mas não foi possível lançar no financeiro'
+            : finalizeData?.error === 'db_error'
+              ? 'Erro ao finalizar'
+              : (finalizeData?.error || 'Erro ao finalizar')
+          const errorDescription = finalizeData?.error === 'finance_sync_failed'
+            ? 'Vincule cada forma de pagamento a uma carteira em Financeiro > Formas de pagamento.'
+            : undefined
+          setAfterSaleSaving(false)
+          setAfterSaleError(errorDescription ? `${errorTitle}. ${errorDescription}` : String(errorTitle))
+          toast({ title: errorTitle, description: errorDescription, variant: 'destructive' })
+          return
+        }
+
+        const finalOrderId = String(finalizeData.order_id || finalizeData.order?.id || '')
+        setAfterSaleOrderId(finalOrderId || null)
+        setAfterSaleOrderNumber(finalizeData.order.order_number ?? null)
+        setAfterSaleSaving(false)
+        setAfterSaleError(null)
+        resetDraft()
+        void loadSessionOrders()
+      } catch (err) {
+        setAfterSaleSaving(false)
+        setAfterSaleOpen(false)
+        if (isLikelyNetworkFailure(err)) {
+          await queueSaleOffline('network')
+          return
+        }
         toast({
-          title: 'Não foi possível cadastrar o cliente',
-          description: String(customerSync.error || 'A venda seguirá mesmo assim.'),
+          title: 'Erro ao finalizar',
+          description: err instanceof Error ? err.message : 'Falha inesperada.',
           variant: 'destructive',
         })
-      } else if ('created' in customerSync && customerSync.created) {
-        toast({ title: 'Cliente cadastrado', description: customerName.trim() })
       }
-
-      const checkoutRes = await portalFetch('/api/portal/pdv/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...orderPayload,
-          order_id: checkoutOrderId,
-          payments: paymentPayload,
-          change_cents: checkoutChangeCents,
-        }),
-      })
-      const finalizeData = await checkoutRes?.json().catch(() => null)
-
-      if (!finalizeData?.ok) {
-        const errorTitle = finalizeData?.error === 'finance_sync_failed'
-          ? 'Venda paga, mas não foi possível lançar no financeiro'
-          : finalizeData?.error === 'db_error'
-            ? 'Erro ao finalizar'
-            : (finalizeData?.error || 'Erro ao finalizar')
-        const errorDescription = finalizeData?.error === 'finance_sync_failed'
-          ? 'Vincule cada forma de pagamento a uma carteira em Financeiro > Formas de pagamento.'
-          : undefined
-        setAfterSaleSaving(false)
-        setAfterSaleError(errorDescription ? `${errorTitle}. ${errorDescription}` : String(errorTitle))
-        toast({ title: errorTitle, description: errorDescription, variant: 'destructive' })
-        return
-      }
-
-      const finalOrderId = String(finalizeData.order_id || finalizeData.order?.id || '')
-      setAfterSaleOrderId(finalOrderId || null)
-      setAfterSaleOrderNumber(finalizeData.order.order_number ?? null)
-      setAfterSaleSaving(false)
-      setAfterSaleError(null)
-      resetDraft()
-      void loadSessionOrders()
     })()
   }
 
@@ -1822,6 +2004,16 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
           )}
         </div>
       </header>
+
+      <PdvOfflineBanner
+        organizationId={organizationId}
+        cashOpen={cashOpen}
+        queueVersion={offlineQueueVersion}
+        onSynced={() => {
+          void loadSessionOrders()
+          setOfflineQueueVersion((n) => n + 1)
+        }}
+      />
 
       <div className='relative grid min-h-0 flex-1 grid-cols-12 gap-0 overflow-hidden rounded-b-xl'>
         {!cashOpen && !loadingCash ? (
