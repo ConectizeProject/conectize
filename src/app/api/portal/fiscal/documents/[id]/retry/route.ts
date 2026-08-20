@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
-import { emitNfceForSalesOrder } from '@/lib/fiscal/emit-nfce'
+import { emitFiscalDocumentForSalesOrder } from '@/lib/fiscal/emit-nfce'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -34,18 +34,12 @@ export async function POST (
   if (!doc?.sales_order_id) {
     return NextResponse.json({ ok: false, error: 'not_found' }, { status: 404 })
   }
-  if (String(doc.model) === '55') {
-    return NextResponse.json({
-      ok: false,
-      error: 'nfe_not_available',
-      message: 'A emissão de NF-e ainda não está disponível. Use NFC-e para venda no PDV.',
-    }, { status: 400 })
-  }
   if (doc.status === 'authorized') {
     return NextResponse.json({ ok: false, error: 'already_authorized' }, { status: 400 })
   }
 
-  const result = await emitNfceForSalesOrder(auth, String(doc.sales_order_id))
+  const model = String(doc.model) === '55' ? '55' : '65'
+  const result = await emitFiscalDocumentForSalesOrder(auth, String(doc.sales_order_id), model)
   if (result.ok === false) {
     return NextResponse.json(
       {

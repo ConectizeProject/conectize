@@ -42,6 +42,7 @@ import {
   type NfcePaymentType,
 } from '@/lib/fiscal/payment-method-type'
 import { fiscalRejectionGuidance } from '@/lib/fiscal/rejection-guidance'
+import { openNfceDanfePrint } from '@/app/(portal)/portal/vendas/SalesOrderCupomPrint'
 
 const ORIGIN_OPTIONS = [
   { value: '0', label: '0 - Nacional' },
@@ -288,10 +289,10 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
         toast({
           variant: 'success',
           title: `${kind} autorizada`,
-          description: 'Abrindo o DANFE para impressão.',
+          description: 'Abrindo a nota para impressão.',
         })
-        window.open(String(data.danfe_url), '_blank', 'noopener,noreferrer')
-        const authorizedId = String(data.fiscal_document?.id || '')
+        const authorizedId = String(data.fiscal_document?.id || documentId)
+        openNfceDanfePrint(authorizedId)
         if (authorizedId && authorizedId !== documentId) {
           router.replace(`${listHref(document.model)}/${encodeURIComponent(authorizedId)}`)
           return
@@ -404,8 +405,12 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
             </Button>
           ) : null}
           {canPrintFiscalDocument(document.status) && danfeUrl ? (
-            <Button type='button' variant='outline' asChild>
-              <a href={danfeUrl} target='_blank' rel='noopener noreferrer'>Imprimir DANFE</a>
+            <Button
+              type='button'
+              variant='outline'
+              onClick={() => openNfceDanfePrint(document.id)}
+            >
+              Imprimir DANFE
             </Button>
           ) : null}
           {canDownloadFiscalXml(document.status) && xmlUrl ? (

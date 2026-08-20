@@ -14,6 +14,20 @@ export function isProductFiscalCorrectionError (error: unknown) {
 }
 
 export function nfceEditorHref (documentId: string, options?: { corrigir?: boolean }) {
-  const path = `/portal/vendas/nfce/${encodeURIComponent(documentId)}`
+  return fiscalEditorHref('65', documentId, options)
+}
+
+export function nfeEditorHref (documentId: string, options?: { corrigir?: boolean }) {
+  return fiscalEditorHref('55', documentId, options)
+}
+
+export function fiscalEditorHref (
+  model: '55' | '65',
+  documentId: string,
+  options?: { corrigir?: boolean },
+) {
+  const path = model === '55'
+    ? `/portal/vendas/nfe/${encodeURIComponent(documentId)}`
+    : `/portal/vendas/nfce/${encodeURIComponent(documentId)}`
   return options?.corrigir ? `${path}?corrigir=1` : path
 }

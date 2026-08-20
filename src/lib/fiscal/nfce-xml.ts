@@ -15,7 +15,6 @@ export async function loadNfceXmlDownload (
     .select('id, model, status, access_key, series, number, authorized_xml, submitted_xml')
     .eq('organization_id', auth.organizationId)
     .eq('id', fiscalDocumentId)
-    .eq('model', '65')
     .maybeSingle()
 
   if (error) return { status: 500 }

@@ -37,6 +37,7 @@ import {
   fiscalDocumentStatusLabel,
 } from '@/lib/fiscal/document-status'
 import type { FiscalDocumentListRow } from '@/lib/fiscal/document-types'
+import { openNfceDanfePrint } from '@/app/(portal)/portal/vendas/SalesOrderCupomPrint'
 
 type Props = {
   model: '55' | '65'
@@ -106,13 +107,13 @@ export function FiscalDocumentsList ({ model }: Props) {
       }
       const next = data.fiscal_document as { id?: string, status?: string, sefaz_status_message?: string | null } | null
       await load()
-      if (data.danfe_url) {
+      if (data.danfe_url && next?.id) {
         toast({
           variant: 'success',
           title: `${model === '55' ? 'NF-e' : 'NFC-e'} autorizada`,
-          description: 'Abrindo o DANFE para impressão.',
+          description: 'Abrindo a nota para impressão.',
         })
-        window.open(String(data.danfe_url), '_blank', 'noopener,noreferrer')
+        openNfceDanfePrint(String(next.id))
         return
       }
       toast({
@@ -170,7 +171,7 @@ export function FiscalDocumentsList ({ model }: Props) {
 
   const kind = model === '55' ? 'NF-e' : 'NFC-e'
   const emptyHint = model === '55'
-    ? 'Ainda não há NF-e (modelo 55). A venda no PDV emite NFC-e.'
+    ? 'Ainda não há NF-e (modelo 55). Gere a partir de um pedido pago em Pedidos.'
     : 'Nenhuma NFC-e encontrada. Emita a partir de um pedido pago.'
 
   return (
@@ -297,15 +298,14 @@ export function FiscalDocumentsList ({ model }: Props) {
                               </DropdownMenuItem>
                             ) : null}
                             {canPrintFiscalDocument(doc.status) ? (
-                              <DropdownMenuItem asChild>
-                                <a
-                                  href={`/api/portal/fiscal/documents/${encodeURIComponent(doc.id)}/danfe`}
-                                  target='_blank'
-                                  rel='noopener noreferrer'
-                                >
-                                  <Printer className='mr-2 h-4 w-4' />
-                                  Imprimir DANFE
-                                </a>
+                              <DropdownMenuItem
+                                onSelect={(event) => {
+                                  event.preventDefault()
+                                  openNfceDanfePrint(doc.id)
+                                }}
+                              >
+                                <Printer className='mr-2 h-4 w-4' />
+                                Imprimir DANFE
                               </DropdownMenuItem>
                             ) : null}
                             {canDownloadFiscalXml(doc.status) ? (

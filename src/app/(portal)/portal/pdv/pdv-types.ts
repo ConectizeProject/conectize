@@ -62,6 +62,8 @@ export type OrderSummary = {
   customer_name: string | null
   total_cents: number
   created_at: string
+  nfce_status?: 'pending' | 'authorized' | 'rejected' | 'canceled' | 'denied' | null
+  nfce_document_id?: string | null
 }
 
 export type PdvClientProps = {

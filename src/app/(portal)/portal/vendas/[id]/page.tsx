@@ -29,6 +29,10 @@ import { onlyDigits } from '@/lib/utils/strings'
 import { toast } from '@/hooks/use-toast'
 import { appConfirm, appPrompt } from '@/lib/ui/app-dialogs'
 import { SalesOrderAfterSaleActions } from '@/app/(portal)/portal/vendas/SalesOrderAfterSaleActions'
+import {
+  SalesOrderProductSearch,
+  type SalesOrderCatalogHit,
+} from '@/app/(portal)/portal/vendas/SalesOrderProductSearch'
 import { fromDbCustomerType } from '@/lib/sales-orders/customer-type'
 import {
   CreateCustomerDialog,
@@ -194,6 +198,7 @@ export default function PedidoVendaDetailPage () {
   const [surchargeMasked, setSurchargeMasked] = useState('')
   const [busy, setBusy] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [finalizing, setFinalizing] = useState(false)
   const [isCreateCustomerOpen, setIsCreateCustomerOpen] = useState(false)
   const [isEditCustomerOpen, setIsEditCustomerOpen] = useState(false)
 
@@ -301,83 +306,184 @@ export default function PedidoVendaDetailPage () {
     setItems((prev) => prev.filter((item) => item.key !== key))
   }
 
-  async function saveOrder () {
-    if (!order || !isEditable) return
-    if (items.length === 0) {
+  function addProduct (product: SalesOrderCatalogHit) {
+    setItems((prev) => {
+      const existing = prev.find((item) => item.product_id === product.id)
+      if (existing) {
+        return prev.map((item) => (
+          item.key === existing.key
+            ? { ...item, quantity: item.quantity + 1 }
+            : item
+        ))
+      }
+      const key = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `item-${Date.now()}`
+      return [...prev, {
+        key,
+        product_id: product.id,
+        name: product.name,
+        sku: product.sku,
+        quantity: 1,
+        unit_price_masked: maskedFromCents(Math.max(0, Number(product.sale_price_cents) || 0)),
+        discount_masked: '',
+        unit_cost_cents: Math.max(0, Number(product.cost_price_cents) || 0),
+      }]
+    })
+  }
+
+  function applyLoadedOrder (
+    nextOrder: OrderDetail,
+    nextItems: OrderItem[],
+    nextPayments: OrderPayment[],
+  ) {
+    setOrder(nextOrder)
+    setItems(toEditableItems(nextItems))
+    setPayments(nextPayments)
+    setPaymentEntries(paymentsToEntries(nextPayments))
+    setDiscountMasked(maskedFromCents(nextOrder.discount_total_cents))
+    setSurchargeMasked(maskedFromCents(nextOrder.surcharge_cents ?? 0))
+    const matched = selectedCustomer?.id && !selectedCustomer.id.startsWith('local:')
+      ? selectedCustomer
+      : customerHitFromOrder(nextOrder)
+    if (matched) {
+      setSelectedCustomer(matched)
+      const fields = applyCustomerFields(matched)
+      setCustomerName(nextOrder.customer_name || fields.customerName)
+      setCustomerType(fromDbCustomerType(nextOrder.customer_type))
+      setCustomerDocument(onlyDigits(String(nextOrder.customer_document || '')))
+    }
+  }
+
+  async function persistOrder (mode: 'draft' | 'finalize') {
+    if (!order || !isEditable) return false
+    const isInProgress = order.status === 'in_progress'
+    const isFinalize = mode === 'finalize'
+
+    if (items.length === 0 && (isFinalize || !isInProgress)) {
       toast({ title: 'Inclua ao menos um item', variant: 'destructive' })
-      return
+      return false
     }
 
     const paymentPayload = paymentEntriesToSalesPayload(paymentEntries, paymentMethodsCatalog)
+    const requiresPayment = isFinalize || !isInProgress
 
-    if (paymentPayload.length === 0) {
+    if (requiresPayment && paymentPayload.length === 0) {
       toast({ title: 'Informe ao menos uma forma de pagamento', variant: 'destructive' })
-      return
+      return false
     }
 
-    if (paymentsTotal < previewTotal) {
+    if ((requiresPayment || paymentPayload.length > 0) && paymentsTotal < previewTotal) {
       toast({
         title: 'Pagamento insuficiente',
         description: 'A soma das formas de pagamento precisa cobrir o total da venda.',
         variant: 'destructive',
       })
-      return
+      return false
     }
 
+    const payload: Record<string, unknown> = {
+      customer_name: customerName.trim() || null,
+      customer_type: customerType,
+      customer_document: customerDocument.replace(/\D/g, '') || null,
+      discount_total_cents: moneyToCentsFromMasked(discountMasked) ?? 0,
+      surcharge_cents: moneyToCentsFromMasked(surchargeMasked) ?? 0,
+      items: items.map((item) => ({
+        product_id: item.product_id,
+        quantity: Math.max(1, Number(item.quantity) || 1),
+        unit_price_cents: moneyToCentsFromMasked(item.unit_price_masked) ?? 0,
+        unit_cost_cents: item.unit_cost_cents,
+        discount_cents: moneyToCentsFromMasked(item.discount_masked) ?? 0,
+      })),
+    }
+    if (paymentPayload.length > 0) payload.payments = paymentPayload
+
+    const res = await portalFetch(`/api/portal/sales-orders/${encodeURIComponent(order.id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    const data = await res?.json().catch(() => null)
+    if (!data?.ok) {
+      toast({
+        title: data?.message || data?.error || 'Erro ao salvar pedido',
+        variant: 'destructive',
+      })
+      return false
+    }
+
+    applyLoadedOrder(
+      data.order as OrderDetail,
+      (data.items ?? []) as OrderItem[],
+      (data.payments ?? []) as OrderPayment[],
+    )
+
+    if (!isFinalize) return true
+
+    const changeCents = Math.max(0, paymentsTotal - previewTotal)
+    const finalizeRes = await portalFetch(
+      `/api/portal/sales-orders/${encodeURIComponent(order.id)}/finalize`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ change_cents: changeCents }),
+      },
+    )
+    const finalizeData = await finalizeRes?.json().catch(() => null)
+    if (!finalizeData?.ok) {
+      toast({
+        title: 'Pedido salvo, mas não foi possível finalizar',
+        description: finalizeData?.error === 'payment_insufficient'
+          ? 'A soma das formas de pagamento precisa cobrir o total da venda.'
+          : finalizeData?.error === 'empty_order'
+            ? 'Inclua ao menos um item.'
+            : (finalizeData?.message || finalizeData?.error || 'Erro ao finalizar.'),
+        variant: 'destructive',
+      })
+      return false
+    }
+
+    if (finalizeData.order) {
+      setOrder((prev) => prev
+        ? {
+          ...prev,
+          ...finalizeData.order,
+          status: 'paid',
+        }
+        : prev)
+    }
+    return true
+  }
+
+  async function saveOrder () {
     setSaving(true)
     try {
-      const payload = {
-        customer_name: customerName.trim() || null,
-        customer_type: customerType,
-        customer_document: customerDocument.replace(/\D/g, '') || null,
-        discount_total_cents: moneyToCentsFromMasked(discountMasked) ?? 0,
-        surcharge_cents: moneyToCentsFromMasked(surchargeMasked) ?? 0,
-        items: items.map((item) => ({
-          product_id: item.product_id,
-          quantity: Math.max(1, Number(item.quantity) || 1),
-          unit_price_cents: moneyToCentsFromMasked(item.unit_price_masked) ?? 0,
-          unit_cost_cents: item.unit_cost_cents,
-          discount_cents: moneyToCentsFromMasked(item.discount_masked) ?? 0,
-        })),
-        payments: paymentPayload,
+      const ok = await persistOrder('draft')
+      if (ok) {
+        toast({ title: 'Pedido atualizado' })
+        router.refresh()
       }
-
-      const res = await portalFetch(`/api/portal/sales-orders/${encodeURIComponent(order.id)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-      const data = await res?.json().catch(() => null)
-      if (!data?.ok) {
-        toast({
-          title: data?.message || data?.error || 'Erro ao salvar pedido',
-          variant: 'destructive',
-        })
-        return
-      }
-
-      const nextOrder = data.order as OrderDetail
-      const nextPayments = (data.payments ?? []) as OrderPayment[]
-      setOrder(nextOrder)
-      setItems(toEditableItems((data.items ?? []) as OrderItem[]))
-      setPayments(nextPayments)
-      setPaymentEntries(paymentsToEntries(nextPayments))
-      setDiscountMasked(maskedFromCents(nextOrder.discount_total_cents))
-      setSurchargeMasked(maskedFromCents(nextOrder.surcharge_cents ?? 0))
-      const matched = selectedCustomer?.id && !selectedCustomer.id.startsWith('local:')
-        ? selectedCustomer
-        : customerHitFromOrder(nextOrder)
-      if (matched) {
-        setSelectedCustomer(matched)
-        const fields = applyCustomerFields(matched)
-        setCustomerName(nextOrder.customer_name || fields.customerName)
-        setCustomerType(fromDbCustomerType(nextOrder.customer_type))
-        setCustomerDocument(onlyDigits(String(nextOrder.customer_document || '')))
-      }
-      toast({ title: 'Pedido atualizado' })
-      router.refresh()
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function finalizeOrder () {
+    if (!(await appConfirm({
+      title: 'Finalizar pedido?',
+      description: 'Estoque e financeiro serão lançados e o pedido passará a Pago.',
+      confirmLabel: 'Finalizar',
+    }))) return
+
+    setFinalizing(true)
+    try {
+      const ok = await persistOrder('finalize')
+      if (ok) {
+        toast({ title: 'Pedido finalizado' })
+        router.refresh()
+      }
+    } finally {
+      setFinalizing(false)
     }
   }
 
@@ -458,12 +564,25 @@ export default function PedidoVendaDetailPage () {
             <p className='mt-2 text-sm text-muted-foreground'>
               Pedido finalizado: alterações atualizam estoque e financeiro automaticamente.
             </p>
-          ) : null}
+          ) : (
+            <p className='mt-2 text-sm text-muted-foreground'>
+              Pedido em andamento. Inclua itens e, quando estiver pronto, informe o pagamento e finalize.
+            </p>
+          )}
         </div>
         <div className='flex flex-wrap items-center gap-2'>
           {isEditable ? (
-            <Button type='button' disabled={saving} onClick={() => void saveOrder()}>
+            <Button type='button' disabled={saving || finalizing} onClick={() => void saveOrder()}>
               {saving ? 'Salvando...' : 'Salvar alterações'}
+            </Button>
+          ) : null}
+          {order.status === 'in_progress' ? (
+            <Button
+              type='button'
+              disabled={saving || finalizing}
+              onClick={() => void finalizeOrder()}
+            >
+              {finalizing ? 'Finalizando...' : 'Finalizar pedido'}
             </Button>
           ) : null}
           <SalesOrderAfterSaleActions
@@ -700,6 +819,12 @@ export default function PedidoVendaDetailPage () {
       <Card>
         <CardHeader><CardTitle>Itens</CardTitle></CardHeader>
         <CardContent className='space-y-3'>
+          {isEditable ? (
+            <SalesOrderProductSearch
+              disabled={saving || finalizing}
+              onPick={addProduct}
+            />
+          ) : null}
           {items.map((item) => (
             <div
               key={item.key}

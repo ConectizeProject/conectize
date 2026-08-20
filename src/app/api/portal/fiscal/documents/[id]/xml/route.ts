@@ -24,7 +24,7 @@ export async function GET (
   if (!result.xml || !result.filename) {
     const error = result.status === 409 ? 'xml_unavailable' : 'xml_not_found'
     const message = result.status === 409
-      ? 'Só é possível baixar o XML de NFC-e autorizada ou cancelada.'
+      ? 'Só é possível baixar o XML de nota autorizada ou cancelada.'
       : 'O XML desta nota ainda não está gravado. Notas antigas podem não ter o arquivo.'
     return NextResponse.json({ ok: false, error, message }, { status: result.status })
   }

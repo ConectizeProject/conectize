@@ -370,17 +370,28 @@ async function updateOrderTotals (
   return { ok: true as const, totals }
 }
 
+export type CreateSalesOrderOptions = {
+  /** PDV precisa de caixa aberto. Pedidos avulsos de Vendas podem omitir a sessão. */
+  attachCashSession?: boolean
+}
+
 export async function createSalesOrder (
   auth: AuthCtx,
   items: SalesOrderItemInput[],
   draft: SalesOrderDraftInput = {},
+  options?: CreateSalesOrderOptions,
 ): Promise<
   | { ok: true, orderId: string }
   | { ok: false, error: 'db_error' | 'cash_not_open' | 'invalid_product' }
 > {
-  const session = await getOpenCashSession(auth)
-  if (!session.ok) {
-    return { ok: false, error: session.error === 'cash_not_open' ? 'cash_not_open' : 'db_error' }
+  const attachCashSession = options?.attachCashSession !== false
+  let cashSessionId: string | null = null
+  if (attachCashSession) {
+    const session = await getOpenCashSession(auth)
+    if (!session.ok) {
+      return { ok: false, error: session.error === 'cash_not_open' ? 'cash_not_open' : 'db_error' }
+    }
+    cashSessionId = session.session.id
   }
 
   const discountTotalCents = toInt(draft.discount_total_cents ?? 0, 0)
@@ -391,7 +402,7 @@ export async function createSalesOrder (
     .from('sales_orders')
     .insert({
       organization_id: auth.organizationId,
-      cash_session_id: session.session.id,
+      cash_session_id: cashSessionId,
       status: 'in_progress',
       seller_user_id: auth.userId,
       customer_name: draft.customer_name ?? 'Consumidor Final',

@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
+  AlertCircle,
   Barcode,
   Loader2,
   MoreVertical,
@@ -13,7 +15,6 @@ import {
   Search,
   Trash2,
   UserCheck,
-  AlertCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -45,6 +46,10 @@ import {
   type PaymentMethodType,
 } from '@/lib/pdv/cash-close-summary'
 import { salesOrderCupomPrintLabel } from '@/app/(portal)/portal/vendas/SalesOrderCupomPrint'
+import {
+  isProductFiscalCorrectionError,
+  nfceEditorHref,
+} from '@/lib/fiscal/product-fiscal-errors'
 import type {
   CartItem,
   CatalogProduct,
@@ -107,7 +112,42 @@ async function openSalesOrderCupomPrintLazy (orderId: string) {
   return openSalesOrderCupomPrint(orderId)
 }
 
+async function openNfceDanfePrintLazy (documentId: string) {
+  const { openNfceDanfePrint } = await import('@/app/(portal)/portal/vendas/SalesOrderCupomPrint')
+  return openNfceDanfePrint(documentId)
+}
+
+type PdvNfceDocument = {
+  id: string
+  status: 'pending' | 'authorized' | 'rejected' | 'canceled' | 'denied' | string
+  sefaz_status_code?: string | null
+  sefaz_status_message?: string | null
+}
+
+function pdvNfceMenuLabel (order: OrderSummary) {
+  if (order.nfce_status === 'authorized') return 'Imprimir NFC-e'
+  if (order.nfce_status === 'rejected' || order.nfce_status === 'denied') return 'Abrir NFC-e'
+  return 'Gerar NFC-e'
+}
+
+function patchSessionOrderNfce (
+  orders: OrderSummary[],
+  orderId: string,
+  nfce: { status?: string | null, id?: string | null },
+) {
+  return orders.map((row) => (
+    row.id === orderId
+      ? {
+        ...row,
+        nfce_status: (nfce.status || row.nfce_status) as OrderSummary['nfce_status'],
+        nfce_document_id: nfce.id || row.nfce_document_id,
+      }
+      : row
+  ))
+}
+
 export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps) {
+  const router = useRouter()
   const [loadingCash, setLoadingCash] = useState(true)
   const [loadingProducts, setLoadingProducts] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -156,6 +196,7 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
   const [surchargeMasked, setSurchargeMasked] = useState('')
   const [cashReceivedMasked, setCashReceivedMasked] = useState('')
   const [loadingOrderId, setLoadingOrderId] = useState<string | null>(null)
+  const [nfceBusyId, setNfceBusyId] = useState<string | null>(null)
 
   const [sangriaOpen, setSangriaOpen] = useState(false)
   const [suprimentoOpen, setSuprimentoOpen] = useState(false)
@@ -783,6 +824,7 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
     setInsertUnitPriceMasked('')
     setItemDiscountMasked('')
     setEditingCartLineId(null)
+    setActiveTab('produto')
   }
 
   function startNewSale () {
@@ -1435,6 +1477,100 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
       title: data?.message || data?.error || 'Erro ao cancelar',
       variant: 'destructive',
     })
+  }
+
+  async function emitNfceForOrder (order: OrderSummary) {
+    if (order.status !== 'paid') {
+      toast({
+        title: 'Venda ainda não está paga',
+        description: 'A NFC-e só pode ser emitida para vendas pagas.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setNfceBusyId(order.id)
+    try {
+      const stateRes = await portalFetch(`/api/portal/sales-orders/${encodeURIComponent(order.id)}/emit-nfce`)
+      const stateData = await stateRes?.json().catch(() => null)
+      const fiscalDocument = (stateData?.fiscal_document ?? null) as PdvNfceDocument | null
+
+      if (fiscalDocument?.id && (
+        fiscalDocument.status === 'rejected' ||
+        fiscalDocument.status === 'denied' ||
+        (fiscalDocument.status === 'pending' && isProductFiscalCorrectionError(fiscalDocument.sefaz_status_code))
+      )) {
+        setSessionOrders((prev) => patchSessionOrderNfce(prev, order.id, fiscalDocument))
+        router.push(nfceEditorHref(fiscalDocument.id, {
+          corrigir: isProductFiscalCorrectionError(fiscalDocument.sefaz_status_code),
+        }))
+        return
+      }
+
+      if (stateData?.danfe_url && fiscalDocument?.id) {
+        setSessionOrders((prev) => patchSessionOrderNfce(prev, order.id, {
+          status: fiscalDocument.status || 'authorized',
+          id: fiscalDocument.id,
+        }))
+        toast({
+          variant: 'success',
+          title: 'NFC-e já autorizada',
+          description: 'Abrindo a NFC-e para impressão.',
+        })
+        await openNfceDanfePrintLazy(fiscalDocument.id)
+        return
+      }
+
+      const endpoint = fiscalDocument?.id && fiscalDocument.status !== 'authorized'
+        ? `/api/portal/fiscal/documents/${encodeURIComponent(fiscalDocument.id)}/retry`
+        : `/api/portal/sales-orders/${encodeURIComponent(order.id)}/emit-nfce`
+
+      const res = await portalFetch(endpoint, { method: 'POST' })
+      const data = await res?.json().catch(() => null)
+      const nextDocument = (data?.fiscal_document ?? null) as PdvNfceDocument | null
+      if (!data?.ok) {
+        if (data?.needs_correction && nextDocument?.id) {
+          setSessionOrders((prev) => patchSessionOrderNfce(prev, order.id, nextDocument))
+          toast({
+            title: 'Complete NCM e CEST',
+            description: data.message || 'Preencha os dados fiscais dos produtos para emitir a NFC-e.',
+          })
+          router.push(nfceEditorHref(nextDocument.id, { corrigir: true }))
+          return
+        }
+        toast({
+          title: 'NFC-e não autorizada',
+          description: data?.message || data?.error || 'Não foi possível emitir a NFC-e.',
+          variant: 'destructive',
+        })
+        return
+      }
+
+      if (nextDocument?.id) {
+        setSessionOrders((prev) => patchSessionOrderNfce(prev, order.id, nextDocument))
+      }
+
+      if (data.danfe_url && nextDocument?.id) {
+        toast({
+          variant: 'success',
+          title: data.already_authorized ? 'NFC-e já autorizada' : 'NFC-e autorizada',
+          description: 'Abrindo a NFC-e para impressão.',
+        })
+        await openNfceDanfePrintLazy(nextDocument.id)
+        return
+      }
+
+      toast({
+        title: 'NFC-e não autorizada',
+        description: nextDocument?.sefaz_status_message || 'A SEFAZ retornou a nota sem autorização.',
+        variant: 'destructive',
+      })
+      if (nextDocument?.id) {
+        router.push(nfceEditorHref(nextDocument.id))
+      }
+    } finally {
+      setNfceBusyId(null)
+    }
   }
 
   function finalizeOrder () {
@@ -2353,6 +2489,27 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
                           >
                             {salesOrderCupomPrintLabel(order.status)}
                           </DropdownMenuItem>
+                          {order.status === 'paid' ? (
+                            <DropdownMenuItem
+                              disabled={nfceBusyId === order.id}
+                              onClick={() => {
+                                if (order.nfce_status === 'authorized' && order.nfce_document_id) {
+                                  void openNfceDanfePrintLazy(order.nfce_document_id)
+                                  return
+                                }
+                                if (order.nfce_document_id && (
+                                  order.nfce_status === 'rejected' ||
+                                  order.nfce_status === 'denied'
+                                )) {
+                                  router.push(nfceEditorHref(order.nfce_document_id))
+                                  return
+                                }
+                                void emitNfceForOrder(order)
+                              }}
+                            >
+                              {nfceBusyId === order.id ? 'Gerando NFC-e…' : pdvNfceMenuLabel(order)}
+                            </DropdownMenuItem>
+                          ) : null}
                           {isActive || order.status === 'paid' ? (
                             <DropdownMenuItem
                               className='text-destructive focus:text-destructive'
