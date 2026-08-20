@@ -206,7 +206,7 @@ export async function DELETE (
   }
 
   const result = await deleteStockMovement(id, movementId)
-  if (!result.ok) {
+  if (result.ok === false) {
     const status = result.error === 'not_authenticated'
       ? 401
       : result.error === 'not_found'
