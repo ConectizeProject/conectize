@@ -30,6 +30,9 @@ function buildSecurityHeaders () {
 
 const nextConfig = {
 	reactStrictMode: true,
+	experimental: {
+		viewTransition: true,
+	},
 	// sharp 0.35 + Turbopack no Vercel: libvips não entra no bundle → 500 HTML em upload.
 	serverExternalPackages: ['sharp'],
 	outputFileTracingIncludes: {
@@ -109,6 +112,25 @@ const nextConfig = {
 			permanent: true,
 		}))
 
+		// Portal: URLs antigas de seminovos → listagem unificada de revenda
+		const legacyPortalRedirects = [
+			{
+				source: '/portal/seminovos',
+				destination: '/portal/revendaaparelhos',
+				permanent: true,
+			},
+			{
+				source: '/portal/seminovos/:path*',
+				destination: '/portal/revendaaparelhos',
+				permanent: true,
+			},
+			{
+				source: '/portal/revendaaparelhos/seminovos',
+				destination: '/portal/revendaaparelhos',
+				permanent: true,
+			},
+		]
+
 		// URLs fantasma de loja/ML antiga + home legado (~45% dos 404 do GSC)
 		const legacyStoreRedirects = [
 			{
@@ -145,7 +167,12 @@ const nextConfig = {
 			},
 		]
 
-		return [...hostRedirects, ...serviceRedirects, ...legacyStoreRedirects]
+		return [
+			...hostRedirects,
+			...serviceRedirects,
+			...legacyPortalRedirects,
+			...legacyStoreRedirects,
+		]
 	},
 	async headers () {
 		return [

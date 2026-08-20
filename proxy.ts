@@ -74,6 +74,18 @@ export async function proxy(request: NextRequest) {
 
   if (pathname === '/portal' || pathname.startsWith('/portal/')) {
     const url = request.nextUrl.clone()
+
+    // URLs legadas de seminovos → listagem unificada
+    if (
+      pathname === '/portal/seminovos' ||
+      pathname.startsWith('/portal/seminovos/') ||
+      pathname === '/portal/revendaaparelhos/seminovos' ||
+      pathname.startsWith('/portal/revendaaparelhos/seminovos/')
+    ) {
+      url.pathname = '/portal/revendaaparelhos'
+      return NextResponse.redirect(url, 308)
+    }
+
     const intendedPath = `${pathname}${request.nextUrl.search}`
 
     const isPublicPortalPath =

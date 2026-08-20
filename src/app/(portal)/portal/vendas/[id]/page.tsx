@@ -612,7 +612,7 @@ export default function PedidoVendaDetailPage () {
               {order.status === 'paid' ? 'Estornar venda' : 'Cancelar pedido'}
             </Button>
           ) : null}
-          <Link href='/portal/vendas'><Button variant='outline'>Voltar</Button></Link>
+          <Link href='/portal/vendas' transitionTypes={['nav-back']}><Button variant='outline'>Voltar</Button></Link>
         </div>
       </div>
 

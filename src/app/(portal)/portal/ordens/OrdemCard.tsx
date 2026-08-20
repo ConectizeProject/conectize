@@ -87,6 +87,7 @@ export function OrdemCard({ order, canDelete, layout = 'carousel', onLinkClick }
 			draggable={false}
 			onDragStart={(e) => e.preventDefault()}
 			onClick={onLinkClick}
+			transitionTypes={['nav-forward']}
 			className={linkClass}
 		>
 			<Card className="h-full cursor-pointer transition-colors hover:bg-muted/50" draggable={false}>

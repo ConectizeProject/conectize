@@ -195,7 +195,7 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
 					) : null}
 					<DropdownMenuSeparator className="my-1" />
 					<DropdownMenuItem asChild className={itemClass}>
-						<Link href={`/portal/ordens/nova?duplicate=${order.id}`} className="flex items-center">
+						<Link href={`/portal/ordens/nova?duplicate=${order.id}`} transitionTypes={['nav-forward']} className="flex items-center">
 							<Copy className={iconClass} />
 							Duplicar OS
 						</Link>

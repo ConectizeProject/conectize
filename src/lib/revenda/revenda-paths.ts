@@ -6,6 +6,7 @@ export const REVENDA_RESERVED_SEGMENTS = [
 	'nova',
 	'listagem',
 	'referencia-precos',
+	'seminovos',
 ] as const
 
 export function isRevendaReservedSegment (id: string): boolean {

@@ -67,7 +67,7 @@ export default async function OrdemDetalhePage ({
 				</CardHeader>
 				<CardContent>
 					<Button asChild variant="outline">
-						<Link href={isPortalReadOnly ? '/portal/minhas-ordens' : '/portal/ordens'}>Voltar</Link>
+						<Link href={isPortalReadOnly ? '/portal/minhas-ordens' : '/portal/ordens'} transitionTypes={['nav-back']}>Voltar</Link>
 					</Button>
 				</CardContent>
 			</Card>
@@ -87,7 +87,7 @@ export default async function OrdemDetalhePage ({
 				</CardHeader>
 				<CardContent>
 					<Button asChild variant="outline">
-						<Link href={isPortalReadOnly ? '/portal/minhas-ordens' : '/portal/ordens'}>Voltar</Link>
+						<Link href={isPortalReadOnly ? '/portal/minhas-ordens' : '/portal/ordens'} transitionTypes={['nav-back']}>Voltar</Link>
 					</Button>
 				</CardContent>
 			</Card>
@@ -142,7 +142,7 @@ export default async function OrdemDetalhePage ({
 				</CardHeader>
 				<CardContent>
 					<Button asChild variant="outline">
-						<Link href={isPortalReadOnly ? '/portal/minhas-ordens' : '/portal/ordens'}>Voltar</Link>
+						<Link href={isPortalReadOnly ? '/portal/minhas-ordens' : '/portal/ordens'} transitionTypes={['nav-back']}>Voltar</Link>
 					</Button>
 				</CardContent>
 			</Card>

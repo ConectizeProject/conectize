@@ -369,7 +369,10 @@ export function OrdemDetalhePageContent (props: Props) {
 							asChild
 							className="font-medium text-muted-foreground hover:text-foreground"
 						>
-							<Link href={isPortalReadOnly ? '/portal/minhas-ordens' : '/portal/ordens'}>
+							<Link
+								href={isPortalReadOnly ? '/portal/minhas-ordens' : '/portal/ordens'}
+								transitionTypes={['nav-back']}
+							>
 								{isPortalReadOnly ? 'Voltar às ordens' : isFinalized ? 'Voltar à lista' : 'Voltar'}
 							</Link>
 						</Button>
@@ -379,7 +382,7 @@ export function OrdemDetalhePageContent (props: Props) {
 								asChild
 								className="font-medium border-sky-600/70 text-sky-800 bg-sky-50/60 hover:bg-sky-100/90 hover:text-sky-900 dark:border-sky-500 dark:text-sky-200 dark:bg-sky-950/50 dark:hover:bg-sky-900/60"
 							>
-								<Link href="/portal/ordens/nova">
+								<Link href="/portal/ordens/nova" transitionTypes={['nav-forward']}>
 									<Plus className="mr-2 h-4 w-4" aria-hidden />
 									Nova OS
 								</Link>

@@ -34,6 +34,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { isSafeProductListImageUrl } from '@/app/(portal)/portal/produtos/product-list-shared'
+import { fiscalEmitFailureMessage } from '@/lib/fiscal/emit-failure-message'
 import { isBrowserOffline, portalFetch } from '@/lib/portal/portal-fetch'
 import { maskedFromCents, moneyToCentsFromMasked, formatMoneyInput } from '@/lib/utils/money'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
@@ -1663,7 +1664,7 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
         }
         toast({
           title: 'NFC-e não autorizada',
-          description: data?.message || data?.error || 'Não foi possível emitir a NFC-e.',
+          description: fiscalEmitFailureMessage(res, data, 'NFC-e'),
           variant: 'destructive',
         })
         return
@@ -1691,6 +1692,15 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
       if (nextDocument?.id) {
         router.push(nfceEditorHref(nextDocument.id))
       }
+    } catch (err) {
+      console.error('[pdv] emitNfceForOrder', err)
+      toast({
+        title: 'NFC-e não autorizada',
+        description: err instanceof Error && err.message
+          ? err.message
+          : 'Não foi possível emitir a NFC-e.',
+        variant: 'destructive',
+      })
     } finally {
       setNfceBusyId(null)
     }

@@ -422,7 +422,7 @@ export function NovaOrdemClient(props: Props) {
 					const fd = buildFormDataFromValues(values, documentDigits);
 					const result = await props.action(fd);
 					if (result && "redirectTo" in result && result.redirectTo)
-						router.push(result.redirectTo);
+						router.push(result.redirectTo, { transitionTypes: ['nav-forward'] });
 				}}
 			>
 				{(formik) => (
@@ -597,7 +597,7 @@ export function NovaOrdemClient(props: Props) {
 										asChild
 										className="font-medium text-muted-foreground hover:text-foreground"
 									>
-										<Link href="/portal/ordens">Voltar</Link>
+										<Link href="/portal/ordens" transitionTypes={['nav-back']}>Voltar</Link>
 									</Button>
 									<Button
 										type="submit"
