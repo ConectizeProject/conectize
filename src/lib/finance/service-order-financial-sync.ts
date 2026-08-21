@@ -516,6 +516,7 @@ export async function syncResaleDeviceFinancialTransactions ({
     .from('financial_transactions')
     .delete()
     .eq('resale_device_id', device.id)
+    .eq('type', 'entrada')
   if (deleteError) {
     throw new Error(`Erro ao limpar transações financeiras antigas do aparelho vendido: ${deleteError.message}`)
   }
@@ -578,6 +579,158 @@ export async function syncResaleDeviceFinancialTransactions ({
     supabase: financeSupabase,
     resaleDeviceId: device.id,
   })
+}
+
+export async function syncResaleDevicePurchaseFinancialTransactions ({
+  supabase,
+  organizationId,
+  resaleDeviceId,
+  deviceRow,
+}: {
+  supabase: SupabaseClient
+  organizationId: string
+  resaleDeviceId: string
+  deviceRow?: ResalePurchaseFinanceRow
+}) {
+  const device = deviceRow ?? await fetchResaleDeviceForPurchaseSync({
+    supabase,
+    organizationId,
+    resaleDeviceId,
+  })
+  if (!device) return
+
+  const financeSupabase = getFinanceWriteClient(supabase)
+
+  const { error: deleteError } = await financeSupabase
+    .from('financial_transactions')
+    .delete()
+    .eq('resale_device_id', device.id)
+    .eq('type', 'saida')
+  if (deleteError) {
+    throw new Error(`Erro ao limpar saídas financeiras da compra do aparelho: ${deleteError.message}`)
+  }
+
+  if (device.acquisition_source !== 'customer_purchase') return
+
+  const purchaseValue = Math.max(0, Number(device.purchase_value_cents) || 0)
+  if (purchaseValue <= 0) return
+
+  const parsedPayments = parseResalePurchasePaymentsForFinance(device)
+  if (parsedPayments.length === 0) return
+
+  const uniqueMethodIds = [...new Set(parsedPayments.map((item) => item.payment_method_id))]
+  const { data: paymentMethods, error: paymentMethodsError } = await supabase
+    .from('payment_methods')
+    .select('id, conta_id, description')
+    .eq('organization_id', organizationId)
+    .in('id', uniqueMethodIds)
+  if (paymentMethodsError) {
+    throw new Error(`Erro ao buscar formas de pagamento da compra do aparelho: ${paymentMethodsError.message}`)
+  }
+
+  const contaByPaymentMethodId = new Map<string, string>()
+  const descriptionByPaymentMethodId = new Map<string, string>()
+  for (const method of (paymentMethods ?? []) as PaymentMethodRow[]) {
+    if (!method.conta_id) continue
+    contaByPaymentMethodId.set(method.id, method.conta_id)
+    descriptionByPaymentMethodId.set(method.id, String(method.description || '').trim())
+  }
+
+  const occurredAt = buildResalePurchaseOccurredAt(device)
+  const rows = parsedPayments
+    .map((item) => {
+      const contaId = contaByPaymentMethodId.get(item.payment_method_id)
+      if (!contaId) return null
+      const paymentMethodLabel = descriptionByPaymentMethodId.get(item.payment_method_id) || 'Metodo de pagamento'
+      const resaleLabel = buildResaleDeviceLabel(device)
+      return {
+        organization_id: organizationId,
+        conta_id: contaId,
+        amount_cents: -Math.abs(item.value_cents),
+        type: 'saida',
+        occurred_at: occurredAt,
+        resale_device_id: device.id,
+        description: `Compra usado — ${resaleLabel} - ${paymentMethodLabel}`,
+      }
+    })
+    .filter(Boolean)
+
+  if (rows.length === 0) return
+
+  const { error: insertError } = await financeSupabase
+    .from('financial_transactions')
+    .insert(rows)
+  if (insertError) {
+    throw new Error(`Erro ao inserir saídas financeiras da compra do aparelho: ${insertError.message}`)
+  }
+}
+
+type ResalePurchaseFinanceRow = {
+  id: string
+  organization_id: string
+  device_name: string | null
+  model: string | null
+  acquisition_source: string | null
+  purchase_value_cents: number | null
+  purchase_payment_methods: unknown
+  purchase_date: string | null
+  updated_at: string | null
+}
+
+function parseResalePurchasePaymentsForFinance (device: ResalePurchaseFinanceRow) {
+  const purchaseValue = Math.max(0, Number(device.purchase_value_cents) || 0)
+  const fromJson = coerceRawSalePaymentsToArray(device.purchase_payment_methods)
+    .map(mapLooseEntryToSalePaymentRow)
+    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    .map((item) => ({
+      payment_method_id: parseOptionalUuid(item.payment_method_id) || '',
+      value_cents: item.value_cents != null ? Math.max(0, Number(item.value_cents) || 0) : null,
+    }))
+    .filter((item) => Boolean(item.payment_method_id))
+
+  if (fromJson.length > 0) {
+    const withKnownValues = fromJson.filter((item) => (item.value_cents ?? 0) > 0)
+    if (withKnownValues.length > 0) {
+      return withKnownValues.map((item) => ({
+        payment_method_id: item.payment_method_id,
+        value_cents: item.value_cents as number,
+      }))
+    }
+    if (purchaseValue > 0 && fromJson.length === 1) {
+      return [{
+        payment_method_id: fromJson[0].payment_method_id,
+        value_cents: purchaseValue,
+      }]
+    }
+  }
+
+  return []
+}
+
+function buildResalePurchaseOccurredAt (row: ResalePurchaseFinanceRow) {
+  const base = row.purchase_date || row.updated_at || new Date().toISOString()
+  return toSaoPauloDate(base)
+}
+
+async function fetchResaleDeviceForPurchaseSync ({
+  supabase,
+  organizationId,
+  resaleDeviceId,
+}: {
+  supabase: SupabaseClient
+  organizationId: string
+  resaleDeviceId: string
+}) {
+  const { data, error } = await supabase
+    .from('resale_devices')
+    .select('id, organization_id, device_name, model, acquisition_source, purchase_value_cents, purchase_payment_methods, purchase_date, updated_at')
+    .eq('id', resaleDeviceId)
+    .eq('organization_id', organizationId)
+    .maybeSingle()
+  if (error) {
+    throw new Error(`Erro ao carregar aparelho para sincronização da compra: ${error.message}`)
+  }
+  return (data ?? null) as ResalePurchaseFinanceRow | null
 }
 
 function parseResalePaymentsForFinance (device: ResaleDeviceFinanceRow) {
@@ -781,7 +934,11 @@ async function dedupeResaleDeviceFinancialTransactions ({
   }
 }
 
-function buildResaleDeviceLabel (device: ResaleDeviceFinanceRow) {
+function buildResaleDeviceLabel (device: {
+  id: string
+  device_name: string | null
+  model: string | null
+}) {
   const deviceName = String(device.device_name || '').trim()
   const model = String(device.model || '').trim()
   if (deviceName) return deviceName

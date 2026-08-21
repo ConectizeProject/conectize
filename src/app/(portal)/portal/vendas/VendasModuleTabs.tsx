@@ -83,6 +83,14 @@ export function VendasModuleTabs () {
             {isCreating ? 'Criando...' : 'Novo pedido'}
           </Button>
         ) : null}
+        {current === 'nfe' ? (
+          <Link href='/portal/vendas/nfe/entradas/nova'>
+            <Button type='button'>
+              <Plus className='mr-1 h-4 w-4' />
+              NF-e de entrada
+            </Button>
+          </Link>
+        ) : null}
         <Link href='/portal/pdv'>
           <Button variant='outline'>Frente de Caixa</Button>
         </Link>

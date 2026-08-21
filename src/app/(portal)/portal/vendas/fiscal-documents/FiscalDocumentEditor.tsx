@@ -189,8 +189,15 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
   useEffect(() => {
     if (!askedToCorrect || !document || correctionToastShown.current) return
     correctionToastShown.current = true
+    const code = document.sefaz_status_code
     toast({
-      title: 'Preencha NCM e CEST',
+      title: code === 'cest_not_required'
+        ? 'Remova o CEST'
+        : code === 'cest_required' || code === 'cest_mismatch'
+          ? 'Ajuste o CEST'
+          : code === 'product_missing_fci'
+            ? 'Informe o FCI'
+            : 'Preencha NCM e CEST',
       description: document.sefaz_status_message
         || 'Alguns produtos desta venda estão sem os dados fiscais necessários para emitir a NFC-e.',
     })
@@ -249,6 +256,9 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
         title: 'Dados da nota salvos',
         description: 'NCM, CEST e forma de pagamento foram atualizados. A NFC-e só muda na SEFAZ depois de reenviar.',
       })
+      if (askedToCorrect) {
+        router.replace(`${listHref(model)}/${encodeURIComponent(documentId)}`)
+      }
     } finally {
       setIsSaving(false)
     }
@@ -371,6 +381,13 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
   const isCorrection = isProductFiscalCorrectionError(document.sefaz_status_code)
   const showError = document.status === 'rejected' || document.status === 'denied' || (document.status === 'pending' && Boolean(sefazError))
   const rejectionHelp = fiscalRejectionGuidance(document.sefaz_status_code, document.environment)
+  const correctionTitle = document.sefaz_status_code === 'cest_not_required'
+    ? 'Remova o CEST para emitir'
+    : document.sefaz_status_code === 'cest_required' || document.sefaz_status_code === 'cest_mismatch'
+      ? 'Ajuste o CEST para emitir'
+      : document.sefaz_status_code === 'product_missing_fci'
+        ? 'Informe o FCI para emitir'
+        : 'Complete NCM e CEST para emitir'
 
   return (
     <div className='space-y-4'>
@@ -439,7 +456,7 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
           <CardHeader className='pb-2'>
             <CardTitle className={isCorrection ? 'text-base' : 'text-base text-destructive'}>
               {isCorrection
-                ? 'Complete NCM e CEST para emitir'
+                ? correctionTitle
                 : document.status === 'denied' ? 'Nota denegada' : 'Nota rejeitada'}
             </CardTitle>
           </CardHeader>
@@ -447,7 +464,7 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
             <p>{document.sefaz_status_message || sefazError}</p>
             {isCorrection ? (
               <p className='text-muted-foreground'>
-                Preencha os campos nos itens abaixo, salve e envie a NFC-e. A nota ainda não foi transmitida à SEFAZ.
+                Ajuste os campos nos itens abaixo e salve. O aviso some após a correção; depois envie a {kind} para a SEFAZ.
               </p>
             ) : rejectionHelp ? (
               <>

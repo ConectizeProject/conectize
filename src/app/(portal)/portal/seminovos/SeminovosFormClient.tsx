@@ -85,6 +85,10 @@ type ResaleDevice = {
   buyer_cpf: string | null
   sale_details: string | null
   stock_type?: string | null
+  acquisition_source?: string | null
+  seller_customer_id?: string | null
+  seller_name?: string | null
+  seller_document?: string | null
   sale_commission_user_id?: string | null
   image_url?: string | null
   image_storage_path?: string | null
@@ -855,6 +859,27 @@ export function SeminovosFormClient ({
         <Alert variant="destructive">
           <AlertTitle>Erro</AlertTitle>
           <AlertDescription>{errorMessage}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {!isCreate && initialDevice?.acquisition_source === 'customer_purchase' ? (
+        <Alert>
+          <AlertTitle>Entrada de usado (cliente)</AlertTitle>
+          <AlertDescription>
+            {[
+              initialDevice.seller_name ? `Vendedor: ${initialDevice.seller_name}` : null,
+              initialDevice.seller_document ? `Doc: ${initialDevice.seller_document}` : null,
+            ].filter(Boolean).join(' · ') || 'Compra registrada via entrada de usados.'}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {!isCreate && initialDevice?.acquisition_source === 'trade_in' ? (
+        <Alert>
+          <AlertTitle>Aparelho de troca</AlertTitle>
+          <AlertDescription>
+            Este seminovo entrou no estoque como troca em uma venda.
+          </AlertDescription>
         </Alert>
       ) : null}
 
