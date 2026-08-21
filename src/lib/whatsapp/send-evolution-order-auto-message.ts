@@ -93,12 +93,13 @@ function servicesTotalCentsFromRaw(raw: unknown): number {
 	try {
 		const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
 		const data = parsed as Record<string, unknown>
-		const items = Array.isArray(data?.items)
+		const items: unknown[] = Array.isArray(data?.items)
 			? data.items
 			: Array.isArray(parsed)
 				? parsed
 				: []
-		return (items as unknown[]).reduce((acc, item) => {
+		let total = 0
+		for (const item of items) {
 			const i = item as Record<string, unknown>
 			const kind = i.kind === 'product' ? 'product' : 'service'
 			const quantity =
@@ -109,8 +110,9 @@ function servicesTotalCentsFromRaw(raw: unknown): number {
 				0,
 				Number(i.unitValueCents ?? i.valueCents ?? 0) || 0,
 			)
-			return acc + unitValue * quantity
-		}, 0)
+			total += unitValue * quantity
+		}
+		return total
 	} catch {
 		return 0
 	}
@@ -308,7 +310,7 @@ export async function sendViaEvolutionHub(
 		toTarget: opts.toTarget,
 		body: opts.body,
 	})
-	if (!sent.ok) return { ok: false, error: sent.error }
+	if (sent.ok === false) return { ok: false, error: sent.error }
 	return { ok: true, messageId: sent.messageId }
 }
 
@@ -326,7 +328,7 @@ export async function sendEvolutionOrderAutoMessage(
 		toTarget: ctx.toTarget,
 		body,
 	})
-	if (!sent.ok) {
+	if (sent.ok === false) {
 		console.error(
 			'[evolution-auto-message] send failed',
 			opts.event,

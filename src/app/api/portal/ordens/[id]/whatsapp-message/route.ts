@@ -141,7 +141,7 @@ export async function POST(
 		toTarget: ctx.toTarget,
 		body: message,
 	})
-	if (!sent.ok) {
+	if (sent.ok === false) {
 		return NextResponse.json(
 			{ ok: false, error: 'send_failed', detail: sent.error },
 			{ status: 502 },
