@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildNfcePagamentoLine, nfceTpagFromPaymentType } from '@/lib/fiscal/nfce-payment'
+import { buildNfcePagamentoLine, nfceTpagFromPaymentType, resolveNfcePaymentAmountsWithChange } from '@/lib/fiscal/nfce-payment'
 
 describe('nfceTpagFromPaymentType', () => {
   it('maps PDV types to SEFAZ tPag', () => {
@@ -34,5 +34,46 @@ describe('buildNfcePagamentoLine', () => {
       formaPagamento: '01',
       valor: 5,
     })
+  })
+})
+
+describe('resolveNfcePaymentAmountsWithChange', () => {
+  it('keeps gross payments (paid − change === total)', () => {
+    const resolved = resolveNfcePaymentAmountsWithChange({
+      payments: [{ payment_method_type: 'dinheiro', amount_cents: 15000 }],
+      changeCents: 5000,
+      fiscalTotalCents: 10000,
+    })
+    expect(resolved).toEqual({
+      ok: true,
+      amountsCents: [15000],
+      changeCents: 5000,
+    })
+  })
+
+  it('inflates cash for PDV net payments (paid === total, change separate)', () => {
+    const resolved = resolveNfcePaymentAmountsWithChange({
+      payments: [
+        { payment_method_type: 'pix', amount_cents: 4000 },
+        { payment_method_type: 'dinheiro', amount_cents: 6000 },
+      ],
+      changeCents: 2000,
+      fiscalTotalCents: 10000,
+    })
+    expect(resolved).toEqual({
+      ok: true,
+      amountsCents: [4000, 8000],
+      changeCents: 2000,
+    })
+  })
+
+  it('rejects inconsistent totals', () => {
+    expect(
+      resolveNfcePaymentAmountsWithChange({
+        payments: [{ payment_method_type: 'pix', amount_cents: 9000 }],
+        changeCents: 0,
+        fiscalTotalCents: 10000,
+      }),
+    ).toEqual({ ok: false, error: 'payment_totals_mismatch' })
   })
 })
