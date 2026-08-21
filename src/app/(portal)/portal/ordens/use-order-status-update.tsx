@@ -23,12 +23,9 @@ export type UpdateOrderStatusExtraOptions = {
 
 export type UpdateOrderStatusResult = 'ok' | 'blocked' | 'error' | 'cancelled'
 
-type ReadyPickupConfirmState = {
+type ReadyPickupWhatsappState = {
   orderId: string
-  status: string
   message: string
-  options?: UpdateOrderStatusExtraOptions
-  resolve: (result: UpdateOrderStatusResult) => void
 }
 
 type WhatsappPreviewResponse = {
@@ -42,14 +39,14 @@ type WhatsappPreviewResponse = {
 
 /**
  * Atualização de status com os mesmos fluxos de confirmação da lista/detalhe (saída / garantia).
- * Em "Aguardando retirada", se mensagens automáticas Evolution estiverem ativas, pede confirmação
- * mostrando o texto que será enviado (e só então altera o status + envia).
+ * Em "Aguardando retirada", o status é aplicado na hora; o WhatsApp (Evolution) fica opcional
+ * na modal (Não enviar / Enviar).
  */
 export function useOrderStatusUpdate () {
   const router = useRouter()
   const [updating, setUpdating] = useState(false)
   const [blockerDialog, setBlockerDialog] = useState<OrderStatusBlockerDialogState | null>(null)
-  const [readyPickupConfirm, setReadyPickupConfirm] = useState<ReadyPickupConfirmState | null>(null)
+  const [readyPickupWhatsapp, setReadyPickupWhatsapp] = useState<ReadyPickupWhatsappState | null>(null)
   const [readyPickupSending, setReadyPickupSending] = useState(false)
 
   const dismissBlockers = useCallback(() => {
@@ -102,67 +99,52 @@ export function useOrderStatusUpdate () {
     }
   }, [router])
 
+  const maybeOfferReadyPickupWhatsapp = useCallback(async (orderId: string) => {
+    try {
+      const res = await fetch(
+        `/api/portal/ordens/${orderId}/whatsapp-message?mode=os_ready_for_pickup`,
+      )
+      const data = (await res.json().catch(() => null)) as WhatsappPreviewResponse | null
+      if (
+        res.ok &&
+        data?.ok &&
+        data.auto_messages_enabled === true &&
+        data.evolution_available === true &&
+        data.has_phone === true &&
+        String(data.message || '').trim()
+      ) {
+        setReadyPickupWhatsapp({
+          orderId,
+          message: String(data.message),
+        })
+      }
+    } catch {
+      // status já foi aplicado; WhatsApp continua opcional
+    }
+  }, [])
+
   const updateStatus = useCallback(async (
     orderId: string,
     newStatus: string,
     options?: UpdateOrderStatusExtraOptions,
   ): Promise<UpdateOrderStatusResult> => {
-    if (newStatus === 'aguardando_retirada') {
-      try {
-        const res = await fetch(
-          `/api/portal/ordens/${orderId}/whatsapp-message?mode=os_ready_for_pickup`,
-        )
-        const data = (await res.json().catch(() => null)) as WhatsappPreviewResponse | null
-        if (
-          res.ok &&
-          data?.ok &&
-          data.auto_messages_enabled === true &&
-          data.evolution_available === true &&
-          data.has_phone === true &&
-          String(data.message || '').trim()
-        ) {
-          return await new Promise<UpdateOrderStatusResult>((resolve) => {
-            setReadyPickupConfirm({
-              orderId,
-              status: newStatus,
-              message: String(data.message),
-              options,
-              resolve,
-            })
-          })
-        }
-      } catch {
-        // segue sem confirmação de WhatsApp
-      }
+    const statusResult = await applyStatusChange(orderId, newStatus, options)
+    if (statusResult === 'ok' && newStatus === 'aguardando_retirada') {
+      await maybeOfferReadyPickupWhatsapp(orderId)
     }
+    return statusResult
+  }, [applyStatusChange, maybeOfferReadyPickupWhatsapp])
 
-    return applyStatusChange(orderId, newStatus, options)
-  }, [applyStatusChange])
-
-  const dismissReadyPickupConfirm = useCallback(() => {
+  const dismissReadyPickupWhatsapp = useCallback(() => {
     if (readyPickupSending) return
-    setReadyPickupConfirm((current) => {
-      if (current) current.resolve('cancelled')
-      return null
-    })
+    setReadyPickupWhatsapp(null)
   }, [readyPickupSending])
 
-  const confirmReadyPickupWhatsapp = useCallback(async () => {
-    if (!readyPickupConfirm) return
-    const pending = readyPickupConfirm
+  const sendReadyPickupWhatsapp = useCallback(async () => {
+    if (!readyPickupWhatsapp) return
+    const pending = readyPickupWhatsapp
     setReadyPickupSending(true)
     try {
-      const statusResult = await applyStatusChange(
-        pending.orderId,
-        pending.status,
-        pending.options,
-      )
-      if (statusResult !== 'ok') {
-        pending.resolve(statusResult)
-        setReadyPickupConfirm(null)
-        return
-      }
-
       const sendRes = await fetch(
         `/api/portal/ordens/${pending.orderId}/whatsapp-message`,
         {
@@ -177,7 +159,7 @@ export function useOrderStatusUpdate () {
       const sendData = await sendRes.json().catch(() => null)
       if (!sendRes.ok || !sendData?.ok) {
         toast({
-          title: 'Status atualizado, mas o WhatsApp falhou',
+          title: 'Não foi possível enviar o WhatsApp',
           description: String(
             sendData?.detail ||
               sendData?.error ||
@@ -192,37 +174,35 @@ export function useOrderStatusUpdate () {
           description: 'Mensagem de pronta para retirada enviada ao cliente.',
         })
       }
-      pending.resolve('ok')
-      setReadyPickupConfirm(null)
+      setReadyPickupWhatsapp(null)
     } finally {
       setReadyPickupSending(false)
     }
-  }, [applyStatusChange, readyPickupConfirm])
+  }, [readyPickupWhatsapp])
 
-  const isDialogOpen = readyPickupConfirm != null
-  const dialogMessage = readyPickupConfirm?.message || ''
-  const isBusy = readyPickupSending || updating
+  const isDialogOpen = readyPickupWhatsapp != null
+  const dialogMessage = readyPickupWhatsapp?.message || ''
 
   const ReadyPickupConfirmDialog = (
     <OrderWhatsappMessageDialog
       open={isDialogOpen}
       onOpenChange={(open) => {
-        if (!open) dismissReadyPickupConfirm()
+        if (!open) dismissReadyPickupWhatsapp()
       }}
-      title="Enviar WhatsApp automático?"
-      description="A OS passará para Aguardando retirada e esta mensagem será enviada pela Evolution:"
+      title="Enviar WhatsApp?"
+      description="O status já foi atualizado para Aguardando retirada. Deseja enviar esta mensagem pela Evolution?"
       message={dialogMessage}
-      confirmLabel="Confirmar e enviar"
-      cancelLabel="Cancelar"
-      sending={isBusy}
+      confirmLabel="Enviar"
+      cancelLabel="Não enviar"
+      sending={readyPickupSending}
       onConfirm={() => {
-        void confirmReadyPickupWhatsapp()
+        void sendReadyPickupWhatsapp()
       }}
     />
   )
 
   return {
-    updating: updating || readyPickupSending || isDialogOpen,
+    updating: updating || readyPickupSending,
     updateStatus,
     blockerDialog,
     dismissBlockers,

@@ -34,7 +34,11 @@ import {
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { toast } from '@/hooks/use-toast'
-import { getLabelWindowFeatures, getPrintWindowFeatures } from '@/lib/ordem-print'
+import { getPrintWindowFeatures } from '@/lib/ordem-print'
+import {
+	openOrdemCupomPrint,
+	openOrdemLabelPrint,
+} from '../OrdemPrintPreview'
 import {
 	buildOrderEmailSubject,
 	buildOrderMessage,
@@ -243,27 +247,11 @@ export function OrdemActionsMenu({
 						<Printer className="h-4 w-4 mr-2" />
 						Imprimir OS
 					</DropdownMenuItem>
-					<DropdownMenuItem
-						onClick={() =>
-							window.open(
-								`/api/portal/ordens/${orderId}/cupom`,
-								'_blank',
-								getPrintWindowFeatures(),
-							)
-						}
-					>
+					<DropdownMenuItem onClick={() => openOrdemCupomPrint(orderId)}>
 						<Receipt className="h-4 w-4 mr-2" />
 						Imprimir cupom
 					</DropdownMenuItem>
-					<DropdownMenuItem
-						onClick={() =>
-							window.open(
-								`/api/portal/ordens/${orderId}/label`,
-								'_blank',
-								getLabelWindowFeatures(),
-							)
-						}
-					>
+					<DropdownMenuItem onClick={() => openOrdemLabelPrint(orderId)}>
 						<Tag className="h-4 w-4 mr-2" />
 						Imprimir etiqueta
 					</DropdownMenuItem>

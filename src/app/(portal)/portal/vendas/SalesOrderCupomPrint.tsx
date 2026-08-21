@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Loader2, Printer } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -11,6 +11,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  HtmlPrintPreview,
+} from '@/components/print/html-print-preview'
 
 export function salesOrderCupomPreviewUrl (orderId: string) {
   return `/api/portal/sales-orders/${encodeURIComponent(orderId)}/print?preview=1`
@@ -18,86 +21,6 @@ export function salesOrderCupomPreviewUrl (orderId: string) {
 
 export function nfceDanfePreviewUrl (documentId: string) {
   return `/api/portal/fiscal/documents/${encodeURIComponent(documentId)}/danfe?preview=1`
-}
-
-export function printCupomIframe (iframe: HTMLIFrameElement | null) {
-  const win = iframe?.contentWindow
-  if (!win) return false
-  win.focus()
-  win.print()
-  return true
-}
-
-type HtmlPrintPreviewProps = {
-  src: string
-  title: string
-  errorMessage: string
-  autoPrint?: boolean
-  className?: string
-  onPrintReady?: (print: () => boolean) => void
-}
-
-function HtmlPrintPreview ({
-  src,
-  title,
-  errorMessage,
-  autoPrint = false,
-  className,
-  onPrintReady,
-}: HtmlPrintPreviewProps) {
-  const iframeRef = useRef<HTMLIFrameElement>(null)
-  const autoPrintedRef = useRef(false)
-  const [isLoading, setIsLoading] = useState(true)
-  const [hasError, setHasError] = useState(false)
-
-  const doPrint = useCallback(() => printCupomIframe(iframeRef.current), [])
-
-  useEffect(() => {
-    autoPrintedRef.current = false
-    setIsLoading(true)
-    setHasError(false)
-  }, [src])
-
-  useEffect(() => {
-    onPrintReady?.(doPrint)
-  }, [doPrint, onPrintReady])
-
-  function handleLoad () {
-    setIsLoading(false)
-    if (!autoPrint || autoPrintedRef.current) return
-    autoPrintedRef.current = true
-    window.setTimeout(() => {
-      doPrint()
-    }, 200)
-  }
-
-  return (
-    <div className={className || 'relative overflow-hidden rounded-md border bg-muted/30'}>
-      {isLoading ? (
-        <div className='absolute inset-0 z-10 flex items-center justify-center bg-background/70'>
-          <Loader2 className='h-5 w-5 animate-spin text-muted-foreground' />
-        </div>
-      ) : null}
-      {hasError ? (
-        <div className='flex min-h-[280px] items-center justify-center p-4 text-center text-sm text-muted-foreground'>
-          {errorMessage}
-        </div>
-      ) : (
-        <iframe
-          ref={iframeRef}
-          key={src}
-          title={title}
-          src={src}
-          className='h-[min(56vh,420px)] w-full border-0 bg-white'
-          onLoad={handleLoad}
-          onError={() => {
-            setIsLoading(false)
-            setHasError(true)
-          }}
-        />
-      )}
-    </div>
-  )
 }
 
 type SalesOrderCupomPreviewProps = {
