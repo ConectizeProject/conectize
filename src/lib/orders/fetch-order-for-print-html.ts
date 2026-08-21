@@ -89,6 +89,7 @@ const ORDER_PRINT_SELECT = `
   passcode_type,
   passcode_text,
   passcode_pattern,
+  payment_methods,
   customer_description,
   receiving_notes,
   warranty_text,
@@ -106,6 +107,39 @@ const ORDER_PRINT_SELECT = `
     device_types ( name, device_brands ( name ) )
   )
 `
+
+const PAYMENT_TYPE_LABELS: Record<string, string> = {
+  dinheiro: 'Dinheiro',
+  pix: 'PIX',
+  pix_direto: 'PIX',
+  pix_maquina: 'PIX',
+  credito: 'Cartão de crédito',
+  debito: 'Cartão de débito',
+}
+
+function parseOrderPaymentsRaw (raw: unknown): Array<{
+  payment_method_id: string
+  value_cents: number
+}> {
+  let pm = raw
+  if (typeof pm === 'string') {
+    try {
+      pm = JSON.parse(pm)
+    } catch {
+      return []
+    }
+  }
+  if (!Array.isArray(pm) || pm.length === 0) return []
+  return pm
+    .map((entry) => {
+      const row = entry as { payment_method_id?: unknown, value_cents?: unknown }
+      const id = String(row.payment_method_id || '').trim()
+      const amountCents = Math.max(0, Number(row.value_cents) || 0)
+      if (!id || amountCents <= 0) return null
+      return { payment_method_id: id, value_cents: amountCents }
+    })
+    .filter((row): row is { payment_method_id: string, value_cents: number } => Boolean(row))
+}
 
 export async function buildOrderPrintAndLabelHtml (
   supabase: SupabaseClient,
@@ -168,6 +202,37 @@ export async function buildOrderPrintAndLabelHtml (
     : null
 
   const isCompany = Boolean(customer?.is_company)
+
+  const paymentRows = parseOrderPaymentsRaw(o.payment_methods)
+  let paymentsForCupom: OrdemPrintData['payments'] = []
+  if (orgId && paymentRows.length > 0) {
+    const methodIds = [...new Set(paymentRows.map((row) => row.payment_method_id))]
+    const { data: methodCatalog } = await supabase
+      .from('payment_methods')
+      .select('id, name, type')
+      .eq('organization_id', orgId)
+      .in('id', methodIds)
+    const byId = new Map(
+      (methodCatalog || []).map((row) => [
+        String(row.id),
+        {
+          name: String(row.name || '').trim(),
+          type: String(row.type || '').trim(),
+        },
+      ]),
+    )
+    paymentsForCupom = paymentRows.map((row) => {
+      const method = byId.get(row.payment_method_id)
+      const typeLabel = method?.type
+        ? (PAYMENT_TYPE_LABELS[method.type] || method.type)
+        : 'Pagamento'
+      return {
+        label: method?.name || typeLabel,
+        amountCents: row.value_cents,
+      }
+    })
+  }
+
   const printData: OrdemPrintData = {
     displayNumber: o.display_number as number | string | null,
     status: String(o.status ?? ''),
@@ -197,6 +262,7 @@ export async function buildOrderPrintAndLabelHtml (
     assistanceInfo,
     warrantyText: o.warranty_text != null ? String(o.warranty_text) : null,
     services: normalizeServicesForPrint(o.services),
+    payments: paymentsForCupom,
     deviceEntryChecks: o.device_entry_checks ?? null,
   }
 

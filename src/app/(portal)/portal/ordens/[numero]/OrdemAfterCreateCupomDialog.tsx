@@ -11,8 +11,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  HtmlPrintPreview,
+} from '@/components/print/html-print-preview'
 import { getPrintWindowFeatures } from '@/lib/ordem-print'
 import { appAlert } from '@/lib/ui/app-dialogs'
+import { ordemCupomPreviewUrl } from '../OrdemPrintPreview'
 
 type Props = {
   open: boolean
@@ -21,38 +25,26 @@ type Props = {
   displayNumber: string | number | null
 }
 
-function printCupomIframe (iframe: HTMLIFrameElement | null) {
-  const win = iframe?.contentWindow
-  if (!win) return false
-  win.focus()
-  win.print()
-  return true
-}
-
 export function OrdemAfterCreateCupomDialog ({
   open,
   onOpenChange,
   orderId,
   displayNumber,
 }: Props) {
-  const iframeRef = useRef<HTMLIFrameElement>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [hasError, setHasError] = useState(false)
+  const printRef = useRef<(() => boolean) | null>(null)
   const [busyPrint, setBusyPrint] = useState(false)
 
-  const previewSrc = `/api/portal/ordens/${encodeURIComponent(orderId)}/cupom?preview=1`
+  const previewSrc = ordemCupomPreviewUrl(orderId)
   const osLabel = displayNumber != null ? `#${displayNumber}` : ''
 
   useEffect(() => {
-    if (!open) return
-    setIsLoading(true)
-    setHasError(false)
+    if (!open) printRef.current = null
   }, [open, orderId])
 
   const handlePrint = useCallback(async () => {
     setBusyPrint(true)
     try {
-      const printed = printCupomIframe(iframeRef.current)
+      const printed = printRef.current?.()
       if (printed) return
       const w = window.open(
         `/api/portal/ordens/${encodeURIComponent(orderId)}/cupom`,
@@ -83,36 +75,21 @@ export function OrdemAfterCreateCupomDialog ({
         </DialogHeader>
 
         <div className="space-y-3">
-          <div className="relative flex min-h-[280px] items-start justify-center overflow-hidden rounded-md border bg-muted/40 p-3">
-            {isLoading ? (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/70">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              </div>
-            ) : null}
-            {hasError ? (
-              <p className="text-center text-sm text-muted-foreground">
-                Não foi possível carregar a pré-visualização do cupom.
-              </p>
-            ) : (
-              <iframe
-                ref={iframeRef}
-                key={previewSrc}
-                title={`Pré-visualização cupom OS ${osLabel}`}
-                src={previewSrc}
-                className="h-[360px] w-[80mm] max-w-full border-0 bg-white shadow-sm"
-                onLoad={() => setIsLoading(false)}
-                onError={() => {
-                  setIsLoading(false)
-                  setHasError(true)
-                }}
-              />
-            )}
-          </div>
+          <HtmlPrintPreview
+            src={previewSrc}
+            title={`Pré-visualização cupom OS ${osLabel}`}
+            errorMessage="Não foi possível carregar a pré-visualização do cupom."
+            className="relative flex min-h-[280px] items-start justify-center overflow-hidden rounded-md border bg-muted/40 p-3"
+            iframeClassName="h-[360px] w-[80mm] max-w-full border-0 bg-white shadow-sm"
+            onPrintReady={(print) => {
+              printRef.current = print
+            }}
+          />
 
           <Button
             type="button"
             className="w-full"
-            disabled={busyPrint || isLoading || hasError}
+            disabled={busyPrint}
             onClick={() => void handlePrint()}
           >
             {busyPrint ? (

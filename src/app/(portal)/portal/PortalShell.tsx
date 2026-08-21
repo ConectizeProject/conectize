@@ -26,6 +26,7 @@ import {
 	SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { useSidebar } from "@/components/ui/use-sidebar";
+import { OrdemPrintPreviewHost } from "@/app/(portal)/portal/ordens/OrdemPrintPreview";
 import { SalesOrderCupomPrintHost } from "@/app/(portal)/portal/vendas/SalesOrderCupomPrint";
 import { PortalBrandingProvider } from "@/lib/portal/portal-branding-context";
 import type { SupabasePlatformStatusBanner } from "@/lib/supabase/platform-status";
@@ -489,6 +490,7 @@ export function PortalShell(props: PortalShellProps) {
 				</SidebarInset>
 			</SidebarProvider>
 			<SalesOrderCupomPrintHost />
+			<OrdemPrintPreviewHost />
 		</PortalBrandingProvider>
 	);
 }

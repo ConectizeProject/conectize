@@ -1,4 +1,5 @@
 import type { FormaPagamentoProps } from '@brasil-fiscal/nfe'
+import { nfcePaymentTypeFromCatalog } from '@/lib/fiscal/payment-method-type'
 
 const PAYMENT_TO_TPAG: Record<string, string> = {
   dinheiro: '01',
@@ -8,11 +9,16 @@ const PAYMENT_TO_TPAG: Record<string, string> = {
   outro: '99',
 }
 
-/** tPag 03 crédito e 04 débito exigem o grupo card (rejeição 391). */
-const CARD_PAYMENT_CODES = new Set(['03', '04'])
+/**
+ * NT 2024.003 / rejeição 391: tPag 03 (crédito), 04 (débito) e 17 (PIX)
+ * exigem o grupo card com pelo menos tpIntegra.
+ * Sem integração TEF/POS no Conectize → tpIntegra = 2.
+ */
+const ELECTRONIC_PAYMENT_CODES = new Set(['03', '04', '17'])
 
 export function nfceTpagFromPaymentType (paymentMethodType: unknown) {
-  return PAYMENT_TO_TPAG[String(paymentMethodType || '')] || '99'
+  const normalized = nfcePaymentTypeFromCatalog(paymentMethodType)
+  return PAYMENT_TO_TPAG[normalized] || '99'
 }
 
 export function buildNfcePagamentoLine (input: {
@@ -20,7 +26,7 @@ export function buildNfcePagamentoLine (input: {
   amount: number
 }): FormaPagamentoProps {
   const formaPagamento = nfceTpagFromPaymentType(input.paymentMethodType)
-  if (CARD_PAYMENT_CODES.has(formaPagamento)) {
+  if (ELECTRONIC_PAYMENT_CODES.has(formaPagamento)) {
     return {
       formaPagamento,
       valor: input.amount,

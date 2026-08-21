@@ -186,6 +186,11 @@ export type OrdemPrintData = {
 		valueCents?: number | null
 		costCents?: number | null
 	}> | null
+	/** Pagamentos já registrados na OS (cupom térmico). */
+	payments?: Array<{
+		label: string
+		amountCents: number
+	}> | null
 	deviceEntryChecks?: unknown | null
 }
 
