@@ -142,6 +142,13 @@ function cleanText (value: unknown) {
   return String(value ?? '').trim()
 }
 
+function asRowWithId (row: unknown): { id: string } | null {
+  if (!row || typeof row !== 'object') return null
+  const id = String((row as { id?: unknown }).id || '').trim()
+  if (!id) return null
+  return { id }
+}
+
 function stockQuantityFromXml (quantity: number) {
   if (!Number.isFinite(quantity) || quantity <= 0) return null
   const rounded = Math.round(quantity)
@@ -304,7 +311,7 @@ export async function listInboundNfeDocuments (auth: AuthCtx) {
 
   return {
     ok: true as const,
-    documents: (data || []) as InboundNfeDocumentRow[],
+    documents: (data || []) as unknown as InboundNfeDocumentRow[],
   }
 }
 
@@ -337,8 +344,8 @@ export async function getInboundNfeDocument (auth: AuthCtx, documentId: string) 
   return {
     ok: true as const,
     document: {
-      ...(doc as InboundNfeDocumentRow),
-      items: (items || []).map((row) => mapItemRow(row as Record<string, unknown>)),
+      ...(doc as unknown as InboundNfeDocumentRow),
+      items: (items || []).map((row) => mapItemRow(row as unknown as Record<string, unknown>)),
     },
   }
 }
@@ -352,7 +359,7 @@ export async function importInboundNfeXml (auth: AuthCtx, xmlContent: string) {
   const doc = parsed.document
   const matches = await suggestProductMatches(auth, doc.items)
 
-  const { data: inserted, error } = await auth.supabase
+  const { data: insertedRaw, error } = await auth.supabase
     .from('inbound_nfe_documents')
     .insert({
       organization_id: auth.organizationId,
@@ -371,9 +378,10 @@ export async function importInboundNfeXml (auth: AuthCtx, xmlContent: string) {
       xml_content: xmlContent,
       created_by: auth.userId,
     })
-    .select(DOC_SELECT)
+    .select('id')
     .single()
 
+  const inserted = asRowWithId(insertedRaw)
   if (error || !inserted) {
     if (String(error?.code || '') === '23505') {
       return {
@@ -417,7 +425,7 @@ export async function importInboundNfeXml (auth: AuthCtx, xmlContent: string) {
     return { ok: false as const, error: 'db_error' as const, message: 'Não foi possível salvar os itens da NF-e.' }
   }
 
-  return getInboundNfeDocument(auth, String(inserted.id))
+  return getInboundNfeDocument(auth, inserted.id)
 }
 
 export async function createManualProductsInbound (
@@ -463,7 +471,7 @@ export async function createManualProductsInbound (
   const number = await nextInboundNumber(auth)
   const issuedAt = input.issuedAt ? new Date(input.issuedAt).toISOString() : new Date().toISOString()
 
-  const { data: inserted, error } = await auth.supabase
+  const { data: insertedRaw, error } = await auth.supabase
     .from('inbound_nfe_documents')
     .insert({
       organization_id: auth.organizationId,
@@ -480,9 +488,10 @@ export async function createManualProductsInbound (
       notes: cleanText(input.notes) || null,
       created_by: auth.userId,
     })
-    .select(DOC_SELECT)
+    .select('id')
     .single()
 
+  const inserted = asRowWithId(insertedRaw)
   if (error || !inserted) {
     console.error('[inbound-nfe] manual insert', error)
     return { ok: false as const, error: 'db_error' as const, message: 'Não foi possível criar a NF-e de entrada.' }
@@ -514,7 +523,7 @@ export async function createManualProductsInbound (
     return { ok: false as const, error: 'db_error' as const, message: 'Não foi possível salvar os itens.' }
   }
 
-  return getInboundNfeDocument(auth, String(inserted.id))
+  return getInboundNfeDocument(auth, inserted.id)
 }
 
 export async function createUsedDevicesInbound (
@@ -580,7 +589,7 @@ export async function createUsedDevicesInbound (
   const purchaseDate = cleanText(input.purchaseDate) || new Date().toISOString().slice(0, 10)
   const issuedAt = new Date(`${purchaseDate}T12:00:00`).toISOString()
 
-  const { data: inserted, error } = await auth.supabase
+  const { data: insertedRaw, error } = await auth.supabase
     .from('inbound_nfe_documents')
     .insert({
       organization_id: auth.organizationId,
@@ -601,9 +610,10 @@ export async function createUsedDevicesInbound (
       notes: cleanText(input.notes) || null,
       created_by: auth.userId,
     })
-    .select(DOC_SELECT)
+    .select('id')
     .single()
 
+  const inserted = asRowWithId(insertedRaw)
   if (error || !inserted) {
     console.error('[inbound-nfe] used insert', error)
     return { ok: false as const, error: 'db_error' as const, message: 'Não foi possível criar a entrada de usados.' }
@@ -632,7 +642,7 @@ export async function createUsedDevicesInbound (
     return { ok: false as const, error: 'db_error' as const, message: 'Não foi possível salvar os aparelhos.' }
   }
 
-  return getInboundNfeDocument(auth, String(inserted.id))
+  return getInboundNfeDocument(auth, inserted.id)
 }
 
 export async function linkInboundNfeItem (
@@ -836,7 +846,7 @@ async function postUsedDevicesInbound (auth: AuthCtx, documentId: string, doc: I
     }
 
     const purchaseValueCents = Math.max(0, Math.round(item.unit_value_cents || 0))
-    const { data: device, error: deviceError } = await service
+    const { data: deviceRaw, error: deviceError } = await service
       .from('resale_devices')
       .insert({
         organization_id: auth.organizationId,
@@ -866,7 +876,14 @@ async function postUsedDevicesInbound (auth: AuthCtx, documentId: string, doc: I
       .select('id, device_name, model, purchase_value_cents, purchase_payment_methods, purchase_date, updated_at')
       .single()
 
-    if (deviceError || !device) {
+    const device = deviceRaw as unknown as {
+      id: string
+      device_name: string | null
+      model: string | null
+      updated_at: string | null
+    } | null
+
+    if (deviceError || !device?.id) {
       console.error('[inbound-nfe] used device insert', deviceError)
       return {
         ok: false as const,
@@ -888,9 +905,9 @@ async function postUsedDevicesInbound (auth: AuthCtx, documentId: string, doc: I
       await syncResaleDevicePurchaseFinancialTransactions({
         supabase: auth.supabase,
         organizationId: auth.organizationId,
-        resaleDeviceId: String(device.id),
+        resaleDeviceId: device.id,
         deviceRow: {
-          id: String(device.id),
+          id: device.id,
           organization_id: auth.organizationId,
           device_name: device.device_name ?? null,
           model: device.model ?? null,
