@@ -134,6 +134,7 @@ export async function insertTradeInDevicesOnSale (opts: {
         purchase_date: purchaseDate,
         sold: false,
         stock_type: 'seminovo',
+        acquisition_source: 'trade_in',
         advertised: false,
         tested: false,
         image_gallery_paths: [],

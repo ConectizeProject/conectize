@@ -181,6 +181,14 @@ function originCell (m: Movement) {
   }
   if (m.source === 'bling') return <span className="text-muted-foreground">Bling</span>
   if (m.source === 'system') return <span className="text-muted-foreground">Sistema</span>
+  if (m.source === 'nfe_entrada') {
+    const key = ref.startsWith('nfe:') ? ref.slice(4) : ''
+    return (
+      <span className="text-muted-foreground">
+        NF-e entrada{key ? ` (${key.slice(0, 8)}…)` : ''}
+      </span>
+    )
+  }
   return <span className="text-muted-foreground">Portal</span>
 }
 

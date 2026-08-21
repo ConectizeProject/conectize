@@ -9,6 +9,7 @@ import {
 import { validateCestNcmPair } from '@/lib/fiscal/cest-lookup'
 import { normalizeOptionalFci, originRequiresFci } from '@/lib/fiscal/fci'
 import { normalizeOptionalCest, normalizeOptionalNcm } from '@/lib/fiscal/ncm'
+import { isProductFiscalCorrectionError } from '@/lib/fiscal/product-fiscal-errors'
 import { updateProduct } from '@/lib/products/service'
 import { syncSalesOrderFinancialTransactions } from '@/lib/finance/service-order-financial-sync'
 import {
@@ -369,6 +370,22 @@ export async function updateFiscalDocumentDraft (
   if (input.payments) {
     const paymentsResult = await applyFiscalDocumentPayments(auth, doc, input.payments)
     if (paymentsResult.ok === false) return paymentsResult
+  }
+
+  // Correção de NCM/CEST/FCI já validada nos itens: some o aviso antigo da tela.
+  if (itemInputs.length > 0 && isProductFiscalCorrectionError(doc.sefaz_status_code)) {
+    const { error: clearError } = await auth.supabase
+      .from('fiscal_documents')
+      .update({
+        sefaz_status_code: null,
+        sefaz_status_message: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', fiscalDocumentId)
+      .eq('organization_id', auth.organizationId)
+    if (clearError) {
+      console.error('[fiscal] clear product correction status', clearError)
+    }
   }
 
   return loadFiscalDocumentDetail(auth, fiscalDocumentId)

@@ -176,6 +176,16 @@ export function FiscalDocumentsList ({ model }: Props) {
 
   return (
     <div className='space-y-4'>
+      {model === '55' ? (
+        <div className='flex flex-wrap items-center justify-end gap-2'>
+          <Link href='/portal/vendas/nfe/entradas'>
+            <Button type='button' variant='outline'>Entradas</Button>
+          </Link>
+          <Link href='/portal/vendas/nfe/entradas/nova'>
+            <Button type='button'>Nova NF-e de entrada</Button>
+          </Link>
+        </div>
+      ) : null}
       <Card>
         <CardHeader><CardTitle>Filtros</CardTitle></CardHeader>
         <CardContent className='grid gap-3 sm:grid-cols-2 lg:grid-cols-4'>
