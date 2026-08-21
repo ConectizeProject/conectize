@@ -115,7 +115,10 @@ export function OrdemDetalhePageContent (props: Props) {
 
 	return (
 		<div className="max-w-4xl shrink-0 space-y-6">
-			<OrdemDetalheToastClient />
+			<OrdemDetalheToastClient
+				orderId={order.id}
+				displayNumber={order.display_number ?? order.id}
+			/>
 
 			<div className="space-y-1.5">
 				<div>

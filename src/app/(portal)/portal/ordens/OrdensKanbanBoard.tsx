@@ -258,7 +258,7 @@ export function OrdensKanbanBoard ({
     }
   }, [cancelOverRaf])
 
-  const { updating, updateStatus, blockerDialog, dismissBlockers } =
+  const { updating, updateStatus, blockerDialog, dismissBlockers, ReadyPickupConfirmDialog } =
     useOrderStatusUpdate()
 
   const fetchFinalColumnPage = useCallback(
@@ -682,6 +682,7 @@ export function OrdensKanbanBoard ({
             })
           }}
         />
+        {ReadyPickupConfirmDialog}
       </div>
     </div>
   )

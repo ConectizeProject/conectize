@@ -6,6 +6,7 @@ import {
   type OrdemLabelData,
   type OrdemPrintData,
 } from '@/lib/ordem-print'
+import { buildOrdemCupomHtml } from '@/lib/orders/ordem-cupom-print'
 import { formatPhoneBr } from '@/lib/utils/format-phone'
 import {
   getDefaultPrevisao,
@@ -110,7 +111,8 @@ export async function buildOrderPrintAndLabelHtml (
   supabase: SupabaseClient,
   orderId: string,
   requestOrigin: string,
-): Promise<{ status: number; html?: string; labelHtml?: string }> {
+  options?: { labelAutoPrint?: boolean, cupomAutoPrint?: boolean },
+): Promise<{ status: number; html?: string; labelHtml?: string; cupomHtml?: string }> {
   const { data: order, error } = await supabase
     .from('service_orders')
     .select(ORDER_PRINT_SELECT)
@@ -215,9 +217,15 @@ export async function buildOrderPrintAndLabelHtml (
   }
 
   const html = buildOrdemPrintHtml(printData, company, requestOrigin)
-  const labelHtml = buildOrdemLabelHtml(labelData)
+  const labelHtml = buildOrdemLabelHtml(labelData, {
+    autoPrint: options?.labelAutoPrint !== false,
+  })
+  const cupomHtml = buildOrdemCupomHtml(printData, company, {
+    autoPrint: options?.cupomAutoPrint !== false,
+    baseUrl: requestOrigin,
+  })
 
-  return { status: 200, html, labelHtml }
+  return { status: 200, html, labelHtml, cupomHtml }
 }
 
 export function requestOriginFromNext (request: Request): string {

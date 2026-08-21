@@ -9,6 +9,12 @@ export type WhatsappEvolutionHubMetadata = {
   preferred_for_messages?: boolean
   api_base_url_override?: string
   automation_enabled?: boolean
+  /** Mensagens de OS (abertura / pronta para retirada), independente da IA. */
+  auto_messages_enabled?: boolean
+  auto_message_templates?: {
+    os_opened?: string
+    os_ready_for_pickup?: string
+  }
 }
 
 export type EvolutionHubRow = {

@@ -37,14 +37,16 @@ import {
   Zap,
 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
-import { appConfirm } from '@/lib/ui/app-dialogs'
 import { blingRefreshTokenErrorToMessage } from '@/lib/integrations/bling/refresh-token-errors'
+import { usePortalOrganizationName } from '@/lib/portal/portal-branding-context'
+import { appConfirm } from '@/lib/ui/app-dialogs'
 import { cn } from '@/lib/utils'
+import { DEFAULT_EVOLUTION_AUTO_MESSAGE_TEMPLATES } from '@/lib/whatsapp/evolution-auto-messages'
+import { EvolutionAutoMessagesFields } from './EvolutionAutoMessagesFields'
 import {
   HubInboxViewersPicker,
   type InboxAccessState,
 } from './HubInboxViewersPicker'
-import { usePortalOrganizationName } from '@/lib/portal/portal-branding-context'
 
 type SetupStep = { text: string; link?: { url: string; label: string } }
 
@@ -177,6 +179,12 @@ type WhatsappEvolutionInstance = {
   preferred_for_messages: boolean
   api_base_url_override: string
   automation_enabled: boolean
+  auto_messages_enabled: boolean
+  auto_message_templates: {
+    os_opened?: string
+    os_ready_for_pickup?: string
+  }
+  has_api_key?: boolean
   access_token_masked: string | null
 }
 
@@ -187,6 +195,20 @@ type WhatsappEvolutionConfig = {
   env_api_key_fallback: boolean
   webhook_url: string
   webhook_secret_configured: boolean
+}
+
+function evolutionAutoMessageFormFromInstance (inst?: WhatsappEvolutionInstance | null) {
+  return {
+    enabled: inst?.auto_messages_enabled === true,
+    osOpened:
+      typeof inst?.auto_message_templates?.os_opened === 'string'
+        ? inst.auto_message_templates.os_opened
+        : DEFAULT_EVOLUTION_AUTO_MESSAGE_TEMPLATES.os_opened,
+    ready:
+      typeof inst?.auto_message_templates?.os_ready_for_pickup === 'string'
+        ? inst.auto_message_templates.os_ready_for_pickup
+        : DEFAULT_EVOLUTION_AUTO_MESSAGE_TEMPLATES.os_ready_for_pickup,
+  }
 }
 
 type LojistasRoutineRun = {
@@ -602,6 +624,13 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
   const [evolutionBaseOverride, setEvolutionBaseOverride] = useState('')
   const [evolutionPreferred, setEvolutionPreferred] = useState(false)
   const [evolutionAutomation, setEvolutionAutomation] = useState(false)
+  const [evolutionAutoMessagesEnabled, setEvolutionAutoMessagesEnabled] = useState(false)
+  const [evolutionTplOsOpened, setEvolutionTplOsOpened] = useState(
+    DEFAULT_EVOLUTION_AUTO_MESSAGE_TEMPLATES.os_opened,
+  )
+  const [evolutionTplReadyPickup, setEvolutionTplReadyPickup] = useState(
+    DEFAULT_EVOLUTION_AUTO_MESSAGE_TEMPLATES.os_ready_for_pickup,
+  )
   const [evolutionTestTo, setEvolutionTestTo] = useState('')
   const [evolutionStatusChecking, setEvolutionStatusChecking] = useState(false)
   const [evolutionStatusHints, setEvolutionStatusHints] = useState<string[] | null>(null)
@@ -1161,6 +1190,10 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
       setEvolutionLabel(String(editing?.label || ''))
       setEvolutionPreferred(editing?.preferred_for_messages === true)
       setEvolutionAutomation(editing?.automation_enabled === true)
+      const autoMsgs = evolutionAutoMessageFormFromInstance(editing)
+      setEvolutionAutoMessagesEnabled(autoMsgs.enabled)
+      setEvolutionTplOsOpened(autoMsgs.osOpened)
+      setEvolutionTplReadyPickup(autoMsgs.ready)
       setEvolutionBaseOverride(String(editing?.api_base_url_override || ''))
       return config
     } finally {
@@ -1176,6 +1209,10 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
     setEvolutionLabel(String(inst.label || ''))
     setEvolutionPreferred(inst.preferred_for_messages)
     setEvolutionAutomation(inst.automation_enabled)
+    const autoMsgs = evolutionAutoMessageFormFromInstance(inst)
+    setEvolutionAutoMessagesEnabled(autoMsgs.enabled)
+    setEvolutionTplOsOpened(autoMsgs.osOpened)
+    setEvolutionTplReadyPickup(autoMsgs.ready)
     setEvolutionBaseOverride(String(inst.api_base_url_override || ''))
     setEvolutionApiKey('')
   }
@@ -1187,6 +1224,9 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
     setEvolutionLabel('')
     setEvolutionPreferred(false)
     setEvolutionAutomation(false)
+    setEvolutionAutoMessagesEnabled(false)
+    setEvolutionTplOsOpened(DEFAULT_EVOLUTION_AUTO_MESSAGE_TEMPLATES.os_opened)
+    setEvolutionTplReadyPickup(DEFAULT_EVOLUTION_AUTO_MESSAGE_TEMPLATES.os_ready_for_pickup)
     setEvolutionBaseOverride('')
     setEvolutionApiKey('')
     setEvolutionInboxAccess({ unrestricted: true, userIds: [] })
@@ -1217,6 +1257,11 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
           api_base_url_override: evolutionBaseOverride.trim() || undefined,
           preferred_for_messages: evolutionPreferred,
           automation_enabled: evolutionAutomation,
+          auto_messages_enabled: evolutionAutoMessagesEnabled,
+          auto_message_templates: {
+            os_opened: evolutionTplOsOpened,
+            os_ready_for_pickup: evolutionTplReadyPickup,
+          },
           inbox_access: {
             unrestricted: evolutionInboxAccess.unrestricted,
             viewer_user_ids: evolutionInboxAccess.userIds,
@@ -2261,6 +2306,7 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
                     <p key={inst.connection_id} className="text-xs text-muted-foreground">
                       · {inst.display_label}
                       {inst.preferred_for_messages ? ' (preferida)' : ''}
+                      {inst.auto_messages_enabled ? ' · msgs auto' : ''}
                     </p>
                   ))}
                 </div>
@@ -2467,14 +2513,32 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
                   value={evolutionApiKey}
                   onChange={(e) => setEvolutionApiKey(e.target.value)}
                   placeholder={
-                    evolutionConfig?.env_api_key_fallback
-                      ? 'Opcional se WHATSAPP_EVOLUTION_API_KEY estiver no servidor'
-                      : evolutionConfig?.instances.find((i) => i.connection_id === evolutionEditingConnectionId)?.access_token_masked
-                        ? `Atual: ${evolutionConfig.instances.find((i) => i.connection_id === evolutionEditingConnectionId)?.access_token_masked}`
-                        : 'Mesmo AUTHENTICATION_API_KEY da Evolution'
+                    (() => {
+                      const editing = evolutionConfig?.instances.find(
+                        (i) => i.connection_id === evolutionEditingConnectionId,
+                      )
+                      if (editing?.access_token_masked) {
+                        return `Mantém atual (${editing.access_token_masked}) — preencha só para trocar`
+                      }
+                      if (editing?.has_api_key) {
+                        return 'Mantém a chave já salva — preencha só para trocar'
+                      }
+                      if (evolutionConfig?.env_api_key_fallback) {
+                        return 'Opcional se WHATSAPP_EVOLUTION_API_KEY estiver no servidor'
+                      }
+                      return 'Mesmo AUTHENTICATION_API_KEY da Evolution'
+                    })()
                   }
                   autoComplete="off"
                 />
+                {evolutionEditingConnectionId
+                  && (evolutionConfig?.instances.find((i) => i.connection_id === evolutionEditingConnectionId)?.has_api_key
+                    || evolutionConfig?.instances.find((i) => i.connection_id === evolutionEditingConnectionId)?.access_token_masked)
+                  && !evolutionApiKey.trim() ? (
+                    <p className="text-xs text-muted-foreground">
+                      A chave já está salva nesta instância. Deixe em branco para mantê-la.
+                    </p>
+                  ) : null}
               </div>
 
               <div className="space-y-2">
@@ -2511,6 +2575,15 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
                 </div>
                 <Switch checked={evolutionAutomation} onCheckedChange={setEvolutionAutomation} />
               </div>
+
+              <EvolutionAutoMessagesFields
+                enabled={evolutionAutoMessagesEnabled}
+                osOpened={evolutionTplOsOpened}
+                readyForPickup={evolutionTplReadyPickup}
+                onEnabledChange={setEvolutionAutoMessagesEnabled}
+                onOsOpenedChange={setEvolutionTplOsOpened}
+                onReadyForPickupChange={setEvolutionTplReadyPickup}
+              />
 
               {isAdmin ? (
                 <HubInboxViewersPicker

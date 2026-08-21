@@ -1,18 +1,18 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuSeparator,
-	DropdownMenuSub,
-	DropdownMenuSubContent,
-	DropdownMenuSubTrigger,
-	DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+	Copy,
+	Mail,
+	MessageCircle,
+	MoreVertical,
+	Printer,
+	Receipt,
+	Tag,
+	Trash2,
+} from 'lucide-react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -23,17 +23,33 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+	DropdownMenuSub,
+	DropdownMenuSubContent,
+	DropdownMenuSubTrigger,
+	DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { toast } from '@/hooks/use-toast'
+import {
+	getLabelWindowFeatures,
+	getPrintWindowFeatures,
+} from '@/lib/ordem-print'
+import {
+	buildOrderEmailSubject,
+	buildOrderMessage,
+} from '@/lib/ordem-share-message'
+import { ORDER_STATUS_LABELS } from '@/lib/orders/order-status'
+import type { PortalOrdensListRow } from '@/lib/orders/portal-ordens-list-types'
+import { usePortalOrganizationName } from '@/lib/portal/portal-branding-context'
+import { formatPhoneForWhatsApp } from '@/lib/utils/format-phone'
 import { OrderStatusBlockerAlertDialog } from './OrderStatusBlockerAlertDialog'
 import { useOrderStatusUpdate } from './use-order-status-update'
-import { Button } from '@/components/ui/button'
-import { Printer, MessageCircle, Mail, Copy, Tag, MoreVertical, Trash2 } from 'lucide-react'
-import { toast } from '@/hooks/use-toast'
-import { getLabelWindowFeatures, getPrintWindowFeatures } from '@/lib/ordem-print'
-import { buildOrderEmailSubject, buildOrderMessage } from '@/lib/ordem-share-message'
-import { usePortalOrganizationName } from '@/lib/portal/portal-branding-context'
-import { ORDER_STATUS_LABELS } from '@/lib/orders/order-status'
-import { formatPhoneForWhatsApp } from '@/lib/utils/format-phone'
-import type { PortalOrdensListRow } from '@/lib/orders/portal-ordens-list-types'
+import { useOrderWhatsappShare } from './use-order-whatsapp-share'
 
 type Props = {
 	order: PortalOrdensListRow
@@ -43,7 +59,16 @@ type Props = {
 export function OrdensRowActions({ order, canDelete = false }: Props) {
 	const organizationName = usePortalOrganizationName()
 	const router = useRouter()
-	const { updating, updateStatus, blockerDialog, dismissBlockers } = useOrderStatusUpdate()
+	const {
+		updating,
+		updateStatus,
+		blockerDialog,
+		dismissBlockers,
+		ReadyPickupConfirmDialog,
+	} = useOrderStatusUpdate()
+	const { openShare, shareLoading, ShareDialog } = useOrderWhatsappShare(
+		order.id,
+	)
 	const [fetchedPublicUrl, setFetchedPublicUrl] = useState<string | null>(null)
 	const [deleteOpen, setDeleteOpen] = useState(false)
 	const [deleteSubmitting, setDeleteSubmitting] = useState(false)
@@ -51,16 +76,22 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
 	const customer = order.customers
 	const deviceModel = order.device_models
 	const displayNumber = order.display_number ?? order.id
-	const customerName = customer?.is_company ? (customer?.company_name || customer?.full_name || '') : (customer?.full_name || '')
+	const customerName = customer?.is_company
+		? customer?.company_name || customer?.full_name || ''
+		: customer?.full_name || ''
 	const device = deviceModel
-		? [deviceModel.brand, deviceModel.device_type, deviceModel.model].filter(Boolean).join(' • ') || '-'
+		? [deviceModel.brand, deviceModel.device_type, deviceModel.model]
+				.filter(Boolean)
+				.join(' • ') || '-'
 		: '-'
 	const statusLabel = ORDER_STATUS_LABELS[order.status] || order.status
 
 	const publicPath = order.share_token ? `/os/${order.share_token}` : null
 	const orderHref =
 		fetchedPublicUrl ??
-		(publicPath && typeof window !== 'undefined' ? `${window.location.origin}${publicPath}` : '')
+		(publicPath && typeof window !== 'undefined'
+			? `${window.location.origin}${publicPath}`
+			: '')
 
 	useEffect(() => {
 		if (publicPath || fetchedPublicUrl) return
@@ -70,26 +101,36 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
 			.then((data) => {
 				if (!cancelled && data?.url) setFetchedPublicUrl(data.url)
 			})
-			.catch(() => { })
-		return () => { cancelled = true }
+			.catch(() => {})
+		return () => {
+			cancelled = true
+		}
 	}, [order.id, publicPath, fetchedPublicUrl])
-	const message = orderHref ? buildOrderMessage({
-		displayNumber,
-		title: order.title,
-		customerName,
-		device,
-		status: statusLabel,
-		estimatedReadyAt: order.estimated_ready_at,
-		orderHref,
-		titleSuffix: false,
-		includeStatus: false,
-	}) : ''
+	const message = orderHref
+		? buildOrderMessage({
+				displayNumber,
+				title: order.title,
+				customerName,
+				device,
+				status: statusLabel,
+				estimatedReadyAt: order.estimated_ready_at,
+				orderHref,
+				titleSuffix: false,
+				includeStatus: false,
+			})
+		: ''
 
-	const whatsappNumber = customer?.mobile_phone ? formatPhoneForWhatsApp(customer.mobile_phone) : ''
-	const whatsappHref = whatsappNumber && message ? `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}` : null
-	const mailtoHref = customer?.email && message
-		? `mailto:${customer.email}?subject=${encodeURIComponent(buildOrderEmailSubject(displayNumber, organizationName))}&body=${encodeURIComponent(message)}`
-		: null
+	const whatsappNumber = customer?.mobile_phone
+		? formatPhoneForWhatsApp(customer.mobile_phone)
+		: ''
+	const whatsappHref =
+		whatsappNumber && message
+			? `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`
+			: null
+	const mailtoHref =
+		customer?.email && message
+			? `mailto:${customer.email}?subject=${encodeURIComponent(buildOrderEmailSubject(displayNumber, organizationName))}&body=${encodeURIComponent(message)}`
+			: null
 
 	async function handleStatusChange(
 		newStatus: string,
@@ -134,51 +175,91 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
 		<>
 			<DropdownMenu>
 				<DropdownMenuTrigger asChild>
-					<Button variant="ghost" size="sm" className="h-7 w-3 p-0" aria-label="Mais opções">
+					<Button
+						variant="ghost"
+						size="sm"
+						className="h-7 w-3 p-0"
+						aria-label="Mais opções"
+					>
 						<MoreVertical className="h-3.5 w-3.5" />
 					</Button>
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="end" className="min-w-36 p-1">
 					<DropdownMenuItem
 						className={itemClass}
-						onClick={() => window.open(`/api/portal/ordens/${order.id}/print`, '_blank', getPrintWindowFeatures())}
+						onClick={() =>
+							window.open(
+								`/api/portal/ordens/${order.id}/print`,
+								'_blank',
+								getPrintWindowFeatures(),
+							)
+						}
 					>
 						<Printer className={iconClass} />
 						Imprimir OS
 					</DropdownMenuItem>
 					<DropdownMenuItem
 						className={itemClass}
-						onClick={() => window.open(`/api/portal/ordens/${order.id}/label`, '_blank', getLabelWindowFeatures())}
+						onClick={() =>
+							window.open(
+								`/api/portal/ordens/${order.id}/cupom`,
+								'_blank',
+								getPrintWindowFeatures(),
+							)
+						}
+					>
+						<Receipt className={iconClass} />
+						Imprimir cupom
+					</DropdownMenuItem>
+					<DropdownMenuItem
+						className={itemClass}
+						onClick={() =>
+							window.open(
+								`/api/portal/ordens/${order.id}/label`,
+								'_blank',
+								getLabelWindowFeatures(),
+							)
+						}
 					>
 						<Tag className={iconClass} />
 						Imprimir etiqueta
 					</DropdownMenuItem>
-					{whatsappHref ? (
-						<DropdownMenuItem asChild>
-							<a href={whatsappHref} target="_blank" rel="noopener noreferrer" className={itemClass}>
-								<MessageCircle className={iconClass} />
-								Enviar WhatsApp
-							</a>
+					{whatsappHref || message ? (
+						<DropdownMenuItem
+							className={itemClass}
+							disabled={shareLoading || (!whatsappHref && !message)}
+							onSelect={(e) => {
+								e.preventDefault()
+								void openShare(message, whatsappHref)
+							}}
+						>
+							<MessageCircle className={iconClass} />
+							{shareLoading ? 'Preparando…' : 'Enviar WhatsApp'}
 						</DropdownMenuItem>
 					) : null}
 					{message ? (
 						<DropdownMenuItem
 							className={itemClass}
 							onClick={() => {
-								navigator?.clipboard?.writeText(message).then(() => {
-									toast({
-										variant: 'success',
-										title: 'Copiado',
-										description: 'Dados copiados para a área de transferência.',
-										duration: 2000,
+								navigator?.clipboard
+									?.writeText(message)
+									.then(() => {
+										toast({
+											variant: 'success',
+											title: 'Copiado',
+											description:
+												'Dados copiados para a área de transferência.',
+											duration: 2000,
+										})
 									})
-								}).catch(() => {
-									toast({
-										variant: 'destructive',
-										title: 'Não foi possível copiar',
-										description: 'Permita o uso da área de transferência ou copie manualmente.',
+									.catch(() => {
+										toast({
+											variant: 'destructive',
+											title: 'Não foi possível copiar',
+											description:
+												'Permita o uso da área de transferência ou copie manualmente.',
+										})
 									})
-								})
 							}}
 						>
 							<Copy className={iconClass} />
@@ -195,7 +276,11 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
 					) : null}
 					<DropdownMenuSeparator className="my-1" />
 					<DropdownMenuItem asChild className={itemClass}>
-						<Link href={`/portal/ordens/nova?duplicate=${order.id}`} transitionTypes={['nav-forward']} className="flex items-center">
+						<Link
+							href={`/portal/ordens/nova?duplicate=${order.id}`}
+							transitionTypes={['nav-forward']}
+							className="flex items-center"
+						>
 							<Copy className={iconClass} />
 							Duplicar OS
 						</Link>
@@ -253,17 +338,23 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
 				}}
 			/>
 
+			{ReadyPickupConfirmDialog}
+			{ShareDialog}
+
 			{canDelete ? (
 				<AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
 					<AlertDialogContent>
 						<AlertDialogHeader>
 							<AlertDialogTitle>Excluir ordem de serviço?</AlertDialogTitle>
 							<AlertDialogDescription>
-								A ordem <strong>#{displayNumber}</strong> — {order.title} — será excluída permanentemente. Esta ação não pode ser desfeita.
+								A ordem <strong>#{displayNumber}</strong> — {order.title} — será
+								excluída permanentemente. Esta ação não pode ser desfeita.
 							</AlertDialogDescription>
 						</AlertDialogHeader>
 						<AlertDialogFooter>
-							<AlertDialogCancel disabled={deleteSubmitting}>Cancelar</AlertDialogCancel>
+							<AlertDialogCancel disabled={deleteSubmitting}>
+								Cancelar
+							</AlertDialogCancel>
 							<AlertDialogAction
 								onClick={(e) => {
 									e.preventDefault()

@@ -71,10 +71,19 @@ function getPasscodeDisplay(data: OrdemLabelData): string {
 	return ''
 }
 
+export type BuildOrdemLabelHtmlOptions = {
+	/** Se false, não dispara window.print no load (pré-visualização). Default true. */
+	autoPrint?: boolean
+}
+
 /**
  * Gera o HTML da etiqueta para impressão.
  */
-export function buildOrdemLabelHtml(data: OrdemLabelData): string {
+export function buildOrdemLabelHtml(
+	data: OrdemLabelData,
+	options?: BuildOrdemLabelHtmlOptions,
+): string {
+	const autoPrint = options?.autoPrint !== false
 	const titleDisplay = `#${data.displayNumber} - ${(data.title || '-').slice(0, 35)}`
 	const entrada = formatDateShort(data.createdAt)
 	const previsao = formatDateShort(data.estimatedReadyAt)
@@ -122,9 +131,7 @@ export function buildOrdemLabelHtml(data: OrdemLabelData): string {
   ${modeloLinha ? `<div class="label-row">${escapeHtml(modeloLinha)}</div>` : ''}
   <div class="label-row date">${escapeHtml(entrada)} - ${escapeHtml(previsao)}</div>
   <div class="label-row">${escapeHtml(senha)}</div>
-  <script>
-    window.onload = function() { window.print(); }
-  </script>
+  ${autoPrint ? `<script>window.onload = function() { window.print(); }</script>` : ''}
 </body>
 </html>
 `

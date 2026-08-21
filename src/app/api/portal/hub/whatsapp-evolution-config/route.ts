@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth/portal-api'
+import { parseEvolutionAutoMessageTemplates } from '@/lib/whatsapp/evolution-auto-messages'
 import {
   evolutionHubDisplayLabel,
   isLikelyEvolutionApiKey,
@@ -50,6 +51,9 @@ export async function GET () {
         preferred_for_messages: meta.preferred_for_messages === true,
         api_base_url_override: String(meta.api_base_url_override || ''),
         automation_enabled: meta.automation_enabled === true,
+        auto_messages_enabled: meta.auto_messages_enabled === true,
+        auto_message_templates: parseEvolutionAutoMessageTemplates(meta.auto_message_templates),
+        has_api_key: Boolean(token && isLikelyEvolutionApiKey(token)),
         access_token_masked: masked,
         created_at: r.created_at,
       }
@@ -101,6 +105,11 @@ export async function POST (request: Request) {
     body.preferred_for_messages === true || body.preferredForMessages === true
   const automationEnabled =
     body.automation_enabled === true || body.automationEnabled === true
+  const autoMessagesEnabled =
+    body.auto_messages_enabled === true || body.autoMessagesEnabled === true
+  const autoMessageTemplates = parseEvolutionAutoMessageTemplates(
+    body.auto_message_templates ?? body.autoMessageTemplates,
+  )
   const apiKey = String(body.api_key || body.apiKey || '').trim()
   const apiBaseOverride = String(body.api_base_url_override || body.apiBaseUrlOverride || '').trim()
   const inboxAccess = body.inbox_access as {
@@ -123,18 +132,6 @@ export async function POST (request: Request) {
     )
   }
 
-  const envKey = Boolean(process.env.WHATSAPP_EVOLUTION_API_KEY?.trim())
-  if (!apiKey && !envKey) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: 'api_key_required',
-        hint: 'Defina WHATSAPP_EVOLUTION_API_KEY no servidor ou informe api_key ao salvar.',
-      },
-      { status: 400 },
-    )
-  }
-
   const { data: existing } = connectionId
     ? await auth.supabase
         .from('hub_connections')
@@ -149,6 +146,24 @@ export async function POST (request: Request) {
     return NextResponse.json({ ok: false, error: 'connection_not_found' }, { status: 404 })
   }
 
+  const envKey = Boolean(process.env.WHATSAPP_EVOLUTION_API_KEY?.trim())
+  const existingToken = existing?.access_token
+    ? String(existing.access_token).trim()
+    : ''
+  const hasExistingApiKey = Boolean(existingToken && isLikelyEvolutionApiKey(existingToken))
+
+  // Atualização: manter chave já salva se o formulário vier vazio (GET só devolve máscara).
+  if (!apiKey && !envKey && !hasExistingApiKey) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: 'api_key_required',
+        hint: 'Defina WHATSAPP_EVOLUTION_API_KEY no servidor ou informe api_key ao salvar.',
+      },
+      { status: 400 },
+    )
+  }
+
   const prevMeta = (existing?.metadata as Record<string, unknown>) || {}
 
   const metadata: WhatsappEvolutionHubMetadata & Record<string, unknown> = {
@@ -156,6 +171,13 @@ export async function POST (request: Request) {
     instance_name: instanceName,
     preferred_for_messages: preferredForMessages,
     automation_enabled: automationEnabled,
+    auto_messages_enabled: autoMessagesEnabled,
+    auto_message_templates: {
+      ...parseEvolutionAutoMessageTemplates(
+        (prevMeta as WhatsappEvolutionHubMetadata).auto_message_templates,
+      ),
+      ...autoMessageTemplates,
+    },
   }
 
   if (label) metadata.label = label
@@ -196,12 +218,10 @@ export async function POST (request: Request) {
 
   if (apiKey) {
     row.access_token = apiKey
-  } else if (
-    existing?.access_token &&
-    isLikelyEvolutionApiKey(String(existing.access_token))
-  ) {
-    row.access_token = existing.access_token
+  } else if (hasExistingApiKey) {
+    row.access_token = existingToken
   } else {
+    // Sem chave no body: usa fallback do .env (access_token null no banco).
     row.access_token = null
   }
 
