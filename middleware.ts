@@ -38,7 +38,11 @@ function copyCookiesToResponse(
 
 /**
  * Valida sessão via getClaims (JWT nos cookies, sem chamada ao Auth server).
- * Proxy roda em Node.js (Next.js 16+); getClaims() valida localmente.
+ * Middleware/proxy roda em Node.js (Next.js 16+); getClaims() valida localmente.
+ *
+ * Nota: mantemos `middleware.ts` (não `proxy.ts`) por bug do Turbopack no Next 16.2.4
+ * que faz rotas do matcher retornarem 404 em `next dev` com proxy.ts.
+ * Ver: https://github.com/vercel/next.js/issues/92921
  */
 async function getUserRole(supabase: SupabaseClient, request: NextRequest) {
   const { data: claimsData } = await supabase.auth.getClaims()
@@ -59,7 +63,7 @@ async function getUserRole(supabase: SupabaseClient, request: NextRequest) {
   return { user: { id: sub }, role, realRole }
 }
 
-export async function proxy(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   if (
