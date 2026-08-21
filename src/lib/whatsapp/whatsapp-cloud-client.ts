@@ -3,6 +3,26 @@ export type SendTextMessageResult =
 	| { ok: false; error: string; status?: number }
 
 /**
+ * Type guard para unions discriminadas por `ok`.
+ *
+ * Não use `if (!result.ok)` para acessar `result.error`: o TypeScript
+ * estreita só a propriedade `ok`, não o objeto inteiro. Com
+ * `result.ok === false` (ou este helper), o discriminante fecha o union
+ * e `error` passa a existir no tipo.
+ */
+export function isSendFailure<T extends { ok: true | false }> (
+  result: T,
+): result is Extract<T, { ok: false }> {
+  return result.ok === false
+}
+
+export function isSendSuccess<T extends { ok: true | false }> (
+  result: T,
+): result is Extract<T, { ok: true }> {
+  return result.ok === true
+}
+
+/**
  * Envia mensagem de texto via WhatsApp Cloud API.
  */
 export async function sendWhatsAppTextMessage(opts: {

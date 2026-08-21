@@ -1,0 +1,53 @@
+---
+description: Não use !result.ok em unions discriminadas — estreita o tipo e quebra o build
+globs: "**/*.{ts,tsx}"
+alwaysApply: false
+---
+
+# Unions `{ ok: true | false }` — narrowing seguro
+
+Resultados como `SendTextMessageResult` são unions discriminadas:
+
+```ts
+| { ok: true; messageId?: string }
+| { ok: false; error: string }
+```
+
+`error` / `messageId` só existem no ramo correspondente.
+
+## Proibido
+
+```ts
+if (!sent.ok) {
+  return sent.error // ❌ TS: Property 'error' does not exist
+}
+```
+
+`!sent.ok` estreita só o boolean, **não** o objeto `sent`. Isso já quebrou o `next build`.
+
+## Obrigatório
+
+```ts
+if (sent.ok === false) {
+  return sent.error // ✅
+}
+
+if (sent.ok === true) {
+  return sent.messageId // ✅
+}
+
+// Preferir o helper do projeto:
+import { isSendFailure, isSendSuccess } from '@/lib/whatsapp/whatsapp-cloud-client'
+
+if (isSendFailure(sent)) {
+  return sent.error // ✅
+}
+```
+
+## Regra
+
+Em qualquer `{ ok: true } | { ok: false; … }`:
+
+1. Nunca use `!result.ok` / `!!result.ok` para acessar campos do ramo.
+2. Use `result.ok === false` / `result.ok === true`, ou `isSendFailure` / `isSendSuccess`.
+3. O mesmo vale para wrappers (`sendViaEvolutionHub`, outbound WhatsApp, etc.).

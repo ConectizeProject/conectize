@@ -7,6 +7,7 @@ import {
 	loadOrderWhatsappContext,
 	sendViaEvolutionHub,
 } from '@/lib/whatsapp/send-evolution-order-auto-message'
+import { isSendFailure } from '@/lib/whatsapp/whatsapp-cloud-client'
 
 type PreviewMode = 'share' | 'os_opened' | 'os_ready_for_pickup'
 
@@ -141,7 +142,7 @@ export async function POST(
 		toTarget: ctx.toTarget,
 		body: message,
 	})
-	if (sent.ok === false) {
+	if (isSendFailure(sent)) {
 		return NextResponse.json(
 			{ ok: false, error: 'send_failed', detail: sent.error },
 			{ status: 502 },
