@@ -53,6 +53,11 @@ type SalesOrderStockItem = {
   unit_cost_cents?: number | null
 }
 
+/** Referência estável por item — usada para não duplicar saída em retry de finalize. */
+export function salesOrderItemStockExternalReference (orderId: string, itemId: string) {
+  return `sales_order:${orderId}:item:${itemId}`
+}
+
 type SalesOrderStockNetRow = {
   product_id: string
   net_exit: number
@@ -248,7 +253,21 @@ async function applySalesOrderStockExits (
     if (!itemId) return { ok: false as const, error: 'db_error' as const }
     const quantity = toInt(item.quantity, 1)
     const unitCost = toInt(item.unit_cost_cents ?? 0, 0)
-    const ref = `sales_order:${orderId}:item:${itemId}`
+    const ref = salesOrderItemStockExternalReference(orderId, itemId)
+
+    // Idempotência: retry de finalize após falha parcial não duplica a saída.
+    // Em edição de pedido pago, replaceSalesOrderItems gera novos IDs → refs novas.
+    const { data: existingExit, error: existingError } = await auth.supabase
+      .from('product_stock_movements')
+      .select('id')
+      .eq('organization_id', auth.organizationId)
+      .eq('source', 'sales_order')
+      .eq('type', 'exit')
+      .eq('external_reference', ref)
+      .maybeSingle()
+    if (existingError) return { ok: false as const, error: 'stock_apply_failed' as const }
+    if (existingExit?.id) continue
+
     const inserted = await insertSalesOrderStockMovement(auth, {
       orderId,
       productId: item.product_id,
@@ -757,14 +776,42 @@ export async function finalizeSalesOrder (
 ) {
   const orderData = await loadSalesOrder(auth, orderId)
   if (!orderData.ok) return orderData
-  if (orderData.order.status === 'paid') return { ok: true as const, order: orderData.order }
-  if (orderData.order.status === 'canceled') return { ok: false as const, error: 'order_canceled' as const }
+  if (orderData.order.status === 'canceled') {
+    return { ok: false as const, error: 'order_canceled' as const }
+  }
+
+  const paidAmountForSync = orderData.payments.reduce((acc, p) => acc + toInt(p.amount_cents, 0), 0)
+  const totalForSync = toInt(orderData.order.total_cents, 0)
+
+  // Pedido já pago: ainda assim re-sincroniza o financeiro (ex.: falha anterior em finance_sync_failed).
+  if (orderData.order.status === 'paid') {
+    try {
+      await syncSalesOrderFinancialTransactions({
+        supabase: auth.supabase,
+        organizationId: auth.organizationId,
+        orderId,
+        orderRow: {
+          id: orderData.order.id,
+          organization_id: auth.organizationId,
+          order_number: orderData.order.order_number ?? null,
+          status: 'paid',
+          updated_at: orderData.order.updated_at ?? new Date().toISOString(),
+          change_cents: toInt(orderData.order.change_cents, 0),
+          total_cents: totalForSync,
+        },
+      })
+    } catch (err) {
+      console.error('[finalizeSalesOrder] finance sync failed (already paid)', err)
+      return { ok: false as const, error: 'finance_sync_failed' as const }
+    }
+    return { ok: true as const, order: orderData.order }
+  }
 
   const itemsResult = await loadSalesOrderItemsForFinalize(auth, orderId)
   if (!itemsResult.ok) return itemsResult
 
-  const paidAmount = orderData.payments.reduce((acc, p) => acc + toInt(p.amount_cents, 0), 0)
-  const total = toInt(orderData.order.total_cents, 0)
+  const paidAmount = paidAmountForSync
+  const total = totalForSync
   if (paidAmount < total) return { ok: false as const, error: 'payment_insufficient' as const }
 
   const hasCash = orderData.payments.some((p) => p.payment_method_type === 'dinheiro')
@@ -780,7 +827,7 @@ export async function finalizeSalesOrder (
   const stockApplied = await applySalesOrderStockExits(auth, orderId, itemsResult.items)
   if (!stockApplied.ok) return { ok: false as const, error: 'db_error' as const }
 
-  const { error: updError } = await auth.supabase
+  const { data: marked, error: updError } = await auth.supabase
     .from('sales_orders')
     .update({
       status: 'paid',
@@ -790,8 +837,38 @@ export async function finalizeSalesOrder (
     })
     .eq('organization_id', auth.organizationId)
     .eq('id', orderId)
+    .eq('status', 'in_progress')
+    .select('id')
+    .maybeSingle()
 
   if (updError) return { ok: false as const, error: 'db_error' as const }
+
+  if (!marked) {
+    const reloaded = await loadSalesOrder(auth, orderId)
+    if (reloaded.ok && reloaded.order.status === 'paid') {
+      try {
+        await syncSalesOrderFinancialTransactions({
+          supabase: auth.supabase,
+          organizationId: auth.organizationId,
+          orderId,
+          orderRow: {
+            id: reloaded.order.id,
+            organization_id: auth.organizationId,
+            order_number: reloaded.order.order_number ?? null,
+            status: 'paid',
+            updated_at: reloaded.order.updated_at ?? new Date().toISOString(),
+            change_cents: toInt(reloaded.order.change_cents, 0),
+            total_cents: toInt(reloaded.order.total_cents, 0),
+          },
+        })
+      } catch (err) {
+        console.error('[finalizeSalesOrder] finance sync failed (race paid)', err)
+        return { ok: false as const, error: 'finance_sync_failed' as const }
+      }
+      return { ok: true as const, order: reloaded.order }
+    }
+    return { ok: false as const, error: 'db_error' as const }
+  }
 
   try {
     await syncSalesOrderFinancialTransactions({
