@@ -1,5 +1,6 @@
 import 'server-only'
 import type { PortalAuthStaffSuccess } from '@/lib/auth/portal-api'
+import { inboundNfeItemStockExternalReference } from '@/lib/fiscal/inbound-nfe-stock-ref'
 import { parseInboundNfeXml } from '@/lib/fiscal/parse-inbound-nfe-xml'
 import { syncResaleDevicePurchaseFinancialTransactions } from '@/lib/finance/service-order-financial-sync'
 import {
@@ -714,11 +715,11 @@ async function postProductsInbound (auth: AuthCtx, documentId: string, doc: Inbo
   }
 
   const service = createSupabaseServiceClient()
-  const externalReference = doc.access_key
-    ? `nfe:${doc.access_key}`
-    : `nfe_entrada:${documentId}`
 
   for (const item of items) {
+    // Retry após falha parcial: não relança itens já vinculados a movimento.
+    if (item.stock_movement_id) continue
+
     const quantity = stockQuantityFromXml(item.quantity)
     if (!quantity) {
       return {
@@ -758,54 +759,76 @@ async function postProductsInbound (auth: AuthCtx, documentId: string, doc: Inbo
       }
     }
 
-    const unitValueCents = Math.max(0, Math.round(item.unit_value_cents || 0))
-    const { data: movement, error: movementError } = await service
-      .from('product_stock_movements')
-      .insert({
-        organization_id: auth.organizationId,
-        product_id: item.product_id,
-        type: 'entry',
-        quantity,
-        unit_value_cents: unitValueCents,
-        total_value_cents: unitValueCents * quantity,
-        source: 'nfe_entrada',
-        external_reference: externalReference,
-        created_by: auth.userId,
-      })
-      .select('id')
-      .single()
+    const externalReference = inboundNfeItemStockExternalReference({
+      accessKey: doc.access_key,
+      documentId,
+      itemId: item.id,
+    })
 
-    if (movementError || !movement) {
-      console.error('[inbound-nfe] stock insert', movementError)
-      return {
-        ok: false as const,
-        error: 'stock_error' as const,
-        message: `Não foi possível lançar estoque do item "${item.description}".`,
+    // Idempotência se o vínculo no item falhou após o insert do movimento.
+    const { data: existingMovement } = await service
+      .from('product_stock_movements')
+      .select('id')
+      .eq('organization_id', auth.organizationId)
+      .eq('source', 'nfe_entrada')
+      .eq('external_reference', externalReference)
+      .maybeSingle()
+
+    let movementId = existingMovement?.id
+      ? String(existingMovement.id)
+      : null
+
+    if (!movementId) {
+      const unitValueCents = Math.max(0, Math.round(item.unit_value_cents || 0))
+      const { data: movement, error: movementError } = await service
+        .from('product_stock_movements')
+        .insert({
+          organization_id: auth.organizationId,
+          product_id: item.product_id,
+          type: 'entry',
+          quantity,
+          unit_value_cents: unitValueCents,
+          total_value_cents: unitValueCents * quantity,
+          source: 'nfe_entrada',
+          external_reference: externalReference,
+          created_by: auth.userId,
+        })
+        .select('id')
+        .single()
+
+      if (movementError || !movement) {
+        console.error('[inbound-nfe] stock insert', movementError)
+        return {
+          ok: false as const,
+          error: 'stock_error' as const,
+          message: `Não foi possível lançar estoque do item "${item.description}".`,
+        }
+      }
+      movementId = String(movement.id)
+
+      if (unitValueCents > 0) {
+        await service
+          .from('products')
+          .update({
+            cost_price_cents: unitValueCents,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', item.product_id)
+          .eq('organization_id', auth.organizationId)
       }
     }
 
     await service
       .from('inbound_nfe_items')
       .update({
-        stock_movement_id: movement.id,
+        stock_movement_id: movementId,
         updated_at: new Date().toISOString(),
       })
       .eq('id', item.id)
       .eq('organization_id', auth.organizationId)
-
-    if (unitValueCents > 0) {
-      await service
-        .from('products')
-        .update({
-          cost_price_cents: unitValueCents,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', item.product_id)
-        .eq('organization_id', auth.organizationId)
-    }
   }
 
-  const { error: statusError } = await service
+  const { data: marked, error: statusError } = await service
     .from('inbound_nfe_documents')
     .update({
       status: 'posted',
@@ -815,9 +838,22 @@ async function postProductsInbound (auth: AuthCtx, documentId: string, doc: Inbo
     })
     .eq('id', documentId)
     .eq('organization_id', auth.organizationId)
+    .eq('status', 'draft')
+    .select('id')
+    .maybeSingle()
 
   if (statusError) {
     console.error('[inbound-nfe] mark posted', statusError)
+    return {
+      ok: false as const,
+      error: 'db_error' as const,
+      message: 'Estoque lançado, mas não foi possível marcar a nota como lançada.',
+    }
+  }
+
+  if (!marked) {
+    const reloaded = await getInboundNfeDocument(auth, documentId)
+    if (reloaded.ok && reloaded.document.status === 'posted') return reloaded
     return {
       ok: false as const,
       error: 'db_error' as const,
@@ -835,6 +871,9 @@ async function postUsedDevicesInbound (auth: AuthCtx, documentId: string, doc: I
   const payments = parsePurchasePayments(doc.purchase_payment_methods, doc.total_cents)
 
   for (const item of items) {
+    // Retry após falha parcial: não recria aparelhos já vinculados.
+    if (item.resale_device_id) continue
+
     const snapshot = item.device_snapshot
     const deviceName = cleanText(snapshot?.device_name || item.description)
     if (!deviceName) {
@@ -923,7 +962,7 @@ async function postUsedDevicesInbound (auth: AuthCtx, documentId: string, doc: I
     }
   }
 
-  const { error: statusError } = await service
+  const { data: marked, error: statusError } = await service
     .from('inbound_nfe_documents')
     .update({
       status: 'posted',
@@ -933,9 +972,22 @@ async function postUsedDevicesInbound (auth: AuthCtx, documentId: string, doc: I
     })
     .eq('id', documentId)
     .eq('organization_id', auth.organizationId)
+    .eq('status', 'draft')
+    .select('id')
+    .maybeSingle()
 
   if (statusError) {
     console.error('[inbound-nfe] mark used posted', statusError)
+    return {
+      ok: false as const,
+      error: 'db_error' as const,
+      message: 'Aparelhos criados, mas não foi possível marcar a nota como lançada.',
+    }
+  }
+
+  if (!marked) {
+    const reloaded = await getInboundNfeDocument(auth, documentId)
+    if (reloaded.ok && reloaded.document.status === 'posted') return reloaded
     return {
       ok: false as const,
       error: 'db_error' as const,
