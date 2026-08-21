@@ -21,16 +21,16 @@ export async function GET (
   const origin = requestOriginFromNext(request)
   const preview = new URL(request.url).searchParams.get('preview') === '1'
   const result = await buildOrderPrintAndLabelHtml(auth.supabase, orderId, origin, {
-    labelAutoPrint: !preview,
+    cupomAutoPrint: !preview,
   })
   if (result.status === 404) {
     return new Response('Ordem não encontrada', { status: 404 })
   }
-  if (result.status !== 200 || !result.labelHtml) {
-    return new Response('Erro ao gerar etiqueta', { status: 500 })
+  if (result.status !== 200 || !result.cupomHtml) {
+    return new Response('Erro ao gerar cupom', { status: 500 })
   }
 
-  return new Response(result.labelHtml, {
+  return new Response(result.cupomHtml, {
     status: 200,
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
