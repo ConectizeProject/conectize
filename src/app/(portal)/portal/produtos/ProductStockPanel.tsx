@@ -20,6 +20,7 @@ import { cn, formatCurrency } from '@/lib/utils'
 import { useToast } from '@/hooks/use-toast'
 import { appConfirm } from '@/lib/ui/app-dialogs'
 import { getOrdemPortalPath } from '@/lib/orders/ordem-portal-path'
+import { parseInboundNfeAccessKeyFromStockRef } from '@/lib/fiscal/inbound-nfe-stock-ref'
 
 const PAGE_SIZE = 20
 
@@ -182,7 +183,7 @@ function originCell (m: Movement) {
   if (m.source === 'bling') return <span className="text-muted-foreground">Bling</span>
   if (m.source === 'system') return <span className="text-muted-foreground">Sistema</span>
   if (m.source === 'nfe_entrada') {
-    const key = ref.startsWith('nfe:') ? ref.slice(4) : ''
+    const key = parseInboundNfeAccessKeyFromStockRef(ref)
     return (
       <span className="text-muted-foreground">
         NF-e entrada{key ? ` (${key.slice(0, 8)}…)` : ''}
