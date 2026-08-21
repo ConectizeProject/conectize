@@ -797,14 +797,35 @@ async function postProductsInbound (auth: AuthCtx, documentId: string, doc: Inbo
         .single()
 
       if (movementError || !movement) {
-        console.error('[inbound-nfe] stock insert', movementError)
-        return {
-          ok: false as const,
-          error: 'stock_error' as const,
-          message: `Não foi possível lançar estoque do item "${item.description}".`,
+        if (String(movementError?.code || '') === '23505') {
+          const { data: raced } = await service
+            .from('product_stock_movements')
+            .select('id')
+            .eq('organization_id', auth.organizationId)
+            .eq('source', 'nfe_entrada')
+            .eq('external_reference', externalReference)
+            .maybeSingle()
+          if (raced?.id) {
+            movementId = String(raced.id)
+          } else {
+            console.error('[inbound-nfe] stock insert', movementError)
+            return {
+              ok: false as const,
+              error: 'stock_error' as const,
+              message: `Não foi possível lançar estoque do item "${item.description}".`,
+            }
+          }
+        } else {
+          console.error('[inbound-nfe] stock insert', movementError)
+          return {
+            ok: false as const,
+            error: 'stock_error' as const,
+            message: `Não foi possível lançar estoque do item "${item.description}".`,
+          }
         }
+      } else {
+        movementId = String(movement.id)
       }
-      movementId = String(movement.id)
 
       if (unitValueCents > 0) {
         await service

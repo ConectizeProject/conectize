@@ -1070,6 +1070,7 @@ export async function syncSalesOrderFinancialTransactions ({
         type: 'entrada' as const,
         occurred_at: occurredAt,
         sales_order_id: order.id,
+        sales_order_payment_id: payment.id,
         description: `Pedido #${order.order_number ?? order.id.slice(0, 8)} - ${label}`,
       }
     })
@@ -1095,6 +1096,8 @@ export async function syncSalesOrderFinancialTransactions ({
     .from('financial_transactions')
     .insert(rows)
   if (insertError) {
+    // Corrida: outro sync já inseriu o mesmo sales_order_payment_id.
+    if (String(insertError.code || '') === '23505') return
     throw new Error(`Erro ao inserir transações financeiras do pedido: ${insertError.message}`)
   }
 

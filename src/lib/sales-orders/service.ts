@@ -102,7 +102,11 @@ async function insertSalesOrderStockMovement (
       created_by: auth.userId,
     })
 
-  if (error) return { ok: false as const, error: 'db_error' as const }
+  if (error) {
+    // Unique index: retry/corrida já tinha a saída deste item.
+    if (String(error.code || '') === '23505') return { ok: true as const }
+    return { ok: false as const, error: 'db_error' as const }
+  }
   return { ok: true as const }
 }
 
