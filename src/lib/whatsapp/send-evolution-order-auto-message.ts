@@ -3,8 +3,8 @@ import { randomUUID } from 'crypto'
 import { buildOrderMessage } from '@/lib/ordem-share-message'
 import { getOrderStatusLabel } from '@/lib/orders/order-status'
 import { formatDateTimeBr } from '@/lib/utils/format-date'
-import { formatPhoneForWhatsApp } from '@/lib/utils/format-phone'
 import { formatCentsBr } from '@/lib/utils/format-money'
+import { formatPhoneForWhatsApp } from '@/lib/utils/format-phone'
 import { getSiteUrl } from '@/lib/utils/site-url'
 import {
 	type EvolutionAutoMessageEvent,
@@ -19,6 +19,7 @@ import {
 	resolveEvolutionApiKey,
 } from '@/lib/whatsapp/evolution-hub-config'
 import { sendEvolutionTextMessage } from '@/lib/whatsapp/evolution-send-client'
+import { isSendFailure } from '@/lib/whatsapp/whatsapp-cloud-client'
 
 type OrderCustomer = {
 	is_company?: boolean | null
@@ -310,7 +311,7 @@ export async function sendViaEvolutionHub(
 		toTarget: opts.toTarget,
 		body: opts.body,
 	})
-	if (sent.ok === false) return { ok: false, error: sent.error }
+	if (isSendFailure(sent)) return { ok: false, error: sent.error }
 	return { ok: true, messageId: sent.messageId }
 }
 
@@ -328,7 +329,7 @@ export async function sendEvolutionOrderAutoMessage(
 		toTarget: ctx.toTarget,
 		body,
 	})
-	if (sent.ok === false) {
+	if (isSendFailure(sent)) {
 		console.error(
 			'[evolution-auto-message] send failed',
 			opts.event,
