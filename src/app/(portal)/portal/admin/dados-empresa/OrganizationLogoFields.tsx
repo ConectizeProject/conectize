@@ -109,7 +109,9 @@ export function OrganizationLogoFields ({ initialLogoUrl }: Props) {
         <Input
           id="logoUrl"
           name="logoUrl"
-          type="url"
+          type="text"
+          inputMode="url"
+          autoComplete="off"
           placeholder="/logo_conectize.svg ou URL completa"
           disabled={Boolean(logoFile)}
           value={logoUrl}
