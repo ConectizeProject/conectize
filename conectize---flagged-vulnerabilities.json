@@ -111,6 +111,34 @@
             "attack_path": "Page validates share_token and slug only, then upserts organization_members with role user and may set customers.auth_user_id when empty.",
             "impact": "Unauthorized portal access to victim organization and hijack of unlinked customer records",
             "remediation": "Require CPF/CNPJ match to OS customer or one-time signed token bound to intended recipient before membership upsert"
+        },
+        {
+            "title": "claim_customer_by_cpf links existing customer records to attacker without proving CPF ownership",
+            "status": "active",
+            "commit_hash": "4626ac7a31966297d5918a966067cd26628ff506",
+            "detected_at_pst": "2026-08-22T08:41:12-07:00",
+            "reported_link": "",
+            "severity": "medium",
+            "location": "supabase/migrations/20260727170000_claim_customer_sync_org_and_email.sql",
+            "attacker": "Any authenticated user via POST /api/portal/complete-profile or direct Supabase RPC",
+            "controlled_input": "cpf_input matching an existing customers row with auth_user_id null",
+            "attack_path": "SECURITY DEFINER claim_customer_by_cpf sets customers.auth_user_id to auth.uid(), inserts organization_members for the customer organization, and updates user_portal_context without OTP, document check, or email verification.",
+            "impact": "Account takeover of unlinked customer records and unauthorized portal access to the victim retailer organization when attacker knows the victim CPF",
+            "remediation": "Require identity proof before linking auth_user_id; rate-limit claims; notify retailer on CPF claim attempts"
+        },
+        {
+            "title": "Public organization registration confirms arbitrary emails without verification",
+            "status": "active",
+            "commit_hash": "4626ac7a31966297d5918a966067cd26628ff506",
+            "detected_at_pst": "2026-08-22T08:41:12-07:00",
+            "reported_link": "",
+            "severity": "medium",
+            "location": "src/app/cadastro-empresa/register-organization.ts",
+            "attacker": "Any unauthenticated internet actor",
+            "controlled_input": "POST /api/public/register-organization with victim email and attacker-chosen password",
+            "attack_path": "registerOrganization calls svc.auth.admin.createUser with email_confirm true, then creates organization, admin membership, and portal context via service role without sending verification email.",
+            "impact": "Email pre-registration and admin org squatting blocks legitimate signup for the victim address",
+            "remediation": "Use Supabase email verification before email_confirm; add CAPTCHA and rate limits on the public endpoint"
         }
     ]
 }
