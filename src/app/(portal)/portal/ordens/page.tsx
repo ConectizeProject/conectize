@@ -263,13 +263,13 @@ export default async function OrdensPage({
 	const deviceModels = (deviceModelsRaw ?? []).map((d) => mapDeviceModelJoinToSummary(d))
 
 	return (
-		<div className="flex min-h-0 flex-1 flex-col gap-4 px-1 sm:gap-6 sm:px-0">
+		<div className="flex min-h-0 flex-1 flex-col gap-4 sm:gap-6">
 			<OrdensToastClient />
 			<div className="flex shrink-0 flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
 				<div className="min-w-0">
 					<h1 className="text-xl font-bold sm:text-2xl">Ordens de serviço</h1>
 				</div>
-				<Button asChild className="w-full sm:w-auto shrink-0">
+				<Button asChild className="w-full shrink-0 sm:w-auto">
 					<Link href="/portal/ordens/nova" transitionTypes={['nav-forward']}>Nova ordem</Link>
 				</Button>
 			</div>
