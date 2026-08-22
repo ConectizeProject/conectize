@@ -1,6 +1,7 @@
 import { after, NextResponse } from 'next/server'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { parseBlingWebhook, getBlingResourceKeyFromWebhook } from '@/lib/integrations/bling/webhooks'
+import { normalizeBlingWebhookCompanyId, resolveBlingWebhookOrganizationId } from '@/lib/integrations/bling/resolve-bling-webhook-org'
 import crypto from 'crypto'
 
 export const dynamic = 'force-dynamic'
@@ -107,45 +108,14 @@ function extractCompanyId (payload: unknown): string | null {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null
   const root = payload as Record<string, unknown>
   const raw = root.companyId ?? root.company_id ?? root.idEmpresa ?? root.empresaId
-  const text = String(raw ?? '').trim()
-  return text || null
-}
-
-function hubConnectionCompanyId (metadata: unknown): string | null {
-  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null
-  const meta = metadata as Record<string, unknown>
-  const text = String(meta.empresaId ?? meta.companyId ?? '').trim()
-  return text || null
-}
-
-async function resolveOrganizationIdStrict (
-  supabase: ServiceClient,
-  companyId: string | null,
-): Promise<string | null> {
-  if (!companyId) return null
-
-  const { data: connections } = await supabase
-    .from('hub_connections')
-    .select('organization_id, metadata')
-    .eq('platform_id', PLATFORM_ID)
-    .order('updated_at', { ascending: false })
-    .limit(50)
-
-  for (const row of connections || []) {
-    const empresaId = hubConnectionCompanyId(row.metadata)
-    if (empresaId && empresaId === companyId && row.organization_id) {
-      return String(row.organization_id)
-    }
-  }
-
-  return null
+  return normalizeBlingWebhookCompanyId(raw)
 }
 
 async function resolveAuditOrganizationId (
   supabase: ServiceClient,
   companyId: string | null,
 ): Promise<string | null> {
-  const strict = await resolveOrganizationIdStrict(supabase, companyId)
+  const strict = await resolveBlingWebhookOrganizationId(supabase, companyId)
   if (strict) return strict
 
   const { data: hostOrg } = await supabase
@@ -316,7 +286,7 @@ export async function POST (request: Request) {
   const supabase = createSupabaseServiceClient()
   const organizationId = routingReason
     ? null
-    : await resolveOrganizationIdStrict(supabase, companyId)
+    : await resolveBlingWebhookOrganizationId(supabase, companyId)
 
   const unresolvedRoutingReason: BlingRoutingRejectReason | null = !routingReason && !organizationId
     ? 'organization_unresolved'

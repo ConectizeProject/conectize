@@ -1,4 +1,8 @@
 import { BLING_API_V3_BASE_URL } from '@/lib/integrations/bling/constants'
+import {
+  hubConnectionCompanyId,
+  withBlingCompanyIdMetadata,
+} from '@/lib/integrations/bling/hub-company-id'
 
 export type BlingCompanyProfile = {
   empresaId: string | null
@@ -167,14 +171,16 @@ export function mergeBlingCompanyProfileMetadata (
   profile: BlingCompanyProfile,
 ): Record<string, unknown> {
   const base = previous && typeof previous === 'object' ? { ...previous } : {}
-  const next: Record<string, unknown> = {
-    ...base,
-    empresaId: profile.empresaId ?? base.empresaId ?? null,
-    nome: profile.nome ?? base.nome ?? null,
-    email: profile.email ?? base.email ?? null,
-    cnpj: profile.cnpj ?? base.cnpj ?? null,
-    logoUrl: profile.logoUrl ?? base.logoUrl ?? null,
-  }
+  const next: Record<string, unknown> = withBlingCompanyIdMetadata(
+    {
+      ...base,
+      nome: profile.nome ?? base.nome ?? null,
+      email: profile.email ?? base.email ?? null,
+      cnpj: profile.cnpj ?? base.cnpj ?? null,
+      logoUrl: profile.logoUrl ?? base.logoUrl ?? null,
+    },
+    profile.empresaId ?? hubConnectionCompanyId(base),
+  )
   if (profile.nome || profile.email || profile.empresaId || profile.logoUrl) {
     next.profileFetchedAt = new Date().toISOString()
   }
