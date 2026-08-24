@@ -11,6 +11,8 @@ import { OrganizationLogoFields } from './OrganizationLogoFields'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { formatCepBr } from '@/lib/utils/format-cep'
 import { onlyDigits } from '@/lib/utils/strings'
+import { formatCentsBr, parseMoneyToCents } from '@/lib/utils/format-money'
+import { maskedFromCents } from '@/lib/utils/money'
 import {
 	ensurePortalOrganizationContext,
 	getPortalOrganizationId,
@@ -71,6 +73,12 @@ async function updateCompanyAction(formData: FormData) {
 	const state = String(formData.get('state') || '').trim().slice(0, 2) || null
 	const phone = String(formData.get('phone') || '').trim() || null
 	const email = String(formData.get('email') || '').trim() || null
+	const dailySalesGoalCents = parseMoneyToCents(
+		String(formData.get('dailySalesRevenueGoal') || ''),
+	)
+	const dailyOsGoalCents = parseMoneyToCents(
+		String(formData.get('dailyOsRevenueGoal') || ''),
+	)
 	const logoUrlField = String(formData.get('logoUrl') || '').trim() || null
 	const logoFileRaw = formData.get('logoFile')
 	const logoFile =
@@ -109,6 +117,8 @@ async function updateCompanyAction(formData: FormData) {
 			phone,
 			email,
 			logo_url: nextLogoUrl,
+			daily_sales_revenue_goal_cents: dailySalesGoalCents,
+			daily_os_revenue_goal_cents: dailyOsGoalCents,
 			updated_at: new Date().toISOString(),
 		})
 		.eq('id', organizationId)
@@ -258,6 +268,41 @@ export default async function DadosEmpresaPage({
 									placeholder="contato@empresa.com.br"
 								/>
 							</div>
+
+							<div className="grid gap-4 sm:grid-cols-2">
+								<div className="space-y-2">
+									<Label htmlFor="dailySalesRevenueGoal">Meta diária — vendas</Label>
+									<Input
+										id="dailySalesRevenueGoal"
+										name="dailySalesRevenueGoal"
+										defaultValue={
+											Number(c.daily_sales_revenue_goal_cents) > 0
+												? maskedFromCents(Number(c.daily_sales_revenue_goal_cents))
+												: ''
+										}
+										placeholder="0,00"
+										inputMode="decimal"
+									/>
+								</div>
+								<div className="space-y-2">
+									<Label htmlFor="dailyOsRevenueGoal">Meta diária — OS</Label>
+									<Input
+										id="dailyOsRevenueGoal"
+										name="dailyOsRevenueGoal"
+										defaultValue={
+											Number(c.daily_os_revenue_goal_cents) > 0
+												? maskedFromCents(Number(c.daily_os_revenue_goal_cents))
+												: ''
+										}
+										placeholder="0,00"
+										inputMode="decimal"
+									/>
+								</div>
+							</div>
+							<p className="text-xs text-muted-foreground">
+								Metas usadas no dashboard, cada uma com sua barra de progresso. Ex.:{' '}
+								{formatCentsBr(100000)}.
+							</p>
 
 							<DadosEmpresaSubmitButton />
 						</form>

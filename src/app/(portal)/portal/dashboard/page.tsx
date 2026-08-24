@@ -1,255 +1,119 @@
 import { redirect } from 'next/navigation'
+import Link from 'next/link'
 import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
-import { DashboardSeminovosCard } from '@/components/dashboard/DashboardSeminovosCard'
-import { DashboardOsAtivasCard } from '@/components/dashboard/DashboardOsAtivasCard'
-import { DashboardAguardandoPecasCard } from '@/components/dashboard/DashboardAguardandoPecasCard'
-import { DashboardAlertaAmareloCard } from '@/components/dashboard/DashboardAlertaAmareloCard'
-import { DashboardAlertaVermelhoCard } from '@/components/dashboard/DashboardAlertaVermelhoCard'
-import { DashboardRecorrentesCard } from '@/components/dashboard/DashboardRecorrentesCard'
-import { OPEN_ORDER_STATUSES } from '@/lib/orders/order-status'
-import {
-  mapRecurringRowsToPending,
-  recurringInvoiceVisibleInShortList,
-  type RecurringRowInput,
-} from '@/lib/finance/recurring-due'
+import { getPortalOrganizationId } from '@/lib/organizations/portal-organization-context'
+import { DashboardResumoDiario } from '@/components/dashboard/DashboardResumoDiario'
+import { DashboardFaturamentoCard } from '@/components/dashboard/DashboardFaturamentoCard'
+import { fetchDashboardDailySummary } from '@/lib/dashboard/daily-summary'
+import { Button } from '@/components/ui/button'
+import { ClipboardPlus, MonitorSmartphone } from 'lucide-react'
+import { DashboardMoneyVisibilityProvider } from '@/components/dashboard/dashboard-money-visibility'
 
 export const dynamic = 'force-dynamic'
 
-const OPEN_STATUSES_FOR_ALERTS = OPEN_ORDER_STATUSES.filter((s) => s !== 'aguardando_retirada')
-
-function oneBusinessDayAgo(now: Date): Date {
-  const t = new Date(now.getTime())
-  t.setUTCDate(t.getUTCDate() - 1)
-  while (t.getUTCDay() === 0 || t.getUTCDay() === 6) {
-    t.setUTCDate(t.getUTCDate() - 1)
-  }
-  return t
+function formatUpdatedAtLabel (now: Date): string {
+	const time = new Intl.DateTimeFormat('pt-BR', {
+		timeZone: 'America/Sao_Paulo',
+		hour: '2-digit',
+		minute: '2-digit',
+	}).format(now)
+	return `Hoje às ${time}`
 }
 
-function seminovosGroupSortKey(label: string): { num: number; variant: number } {
-  const lower = label.toLowerCase()
-  const numbers = label.match(/\d+/g)
-  const num = numbers && numbers.length > 0 ? Number(numbers[0]) : 0
-  if (lower.includes('pro max')) return { num, variant: 2 }
-  if (lower.includes('pro')) return { num, variant: 1 }
-  return { num, variant: 0 }
+function formatOperationalSubtitle (now: Date): string {
+	const weekday = new Intl.DateTimeFormat('pt-BR', {
+		timeZone: 'America/Sao_Paulo',
+		weekday: 'long',
+	}).format(now)
+	const dayMonth = new Intl.DateTimeFormat('pt-BR', {
+		timeZone: 'America/Sao_Paulo',
+		day: 'numeric',
+		month: 'long',
+	}).format(now)
+	return `Resumo operacional de ${weekday}, ${dayMonth}.`
 }
 
-export default async function DashboardPage() {
-  const { user, role } = await getPortalAuth()
-  if (!user) await redirectToPortalLogin()
+export default async function DashboardPage () {
+	const { user, role } = await getPortalAuth()
+	if (!user) await redirectToPortalLogin()
 
-  const normalizedRole = role === 'customer' ? 'user' : role
-  if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
+	const normalizedRole = role === 'customer' ? 'user' : role
+	if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
 
-  const supabase = await createSupabaseServerClient()
-  const isAdminOrPlatform =
-    normalizedRole === 'admin' || normalizedRole === 'platform_admin'
-  const isStaffOrAdmin =
-    normalizedRole === 'staff' ||
-    normalizedRole === 'admin' ||
-    normalizedRole === 'platform_admin'
+	const supabase = await createSupabaseServerClient()
+	const organizationId = await getPortalOrganizationId(supabase, user.id)
+	if (!organizationId) redirect('/portal/ordens')
 
-  const now = new Date()
-  const nowMs = now.getTime()
-  const in30Min = new Date(nowMs + 30 * 60 * 1000)
-  const oneDayAgo = oneBusinessDayAgo(now)
+	const isAdminOrPlatform =
+		normalizedRole === 'admin' || normalizedRole === 'platform_admin'
+	const isStaffOrAdmin =
+		normalizedRole === 'staff' ||
+		normalizedRole === 'admin' ||
+		normalizedRole === 'platform_admin'
 
-  const staffFetches = isStaffOrAdmin
-    ? [
-        supabase
-          .from('resale_devices')
-          .select('id, device_model_id, device_name, model, color, sale_value_cents')
-          .eq('sold', false),
-        supabase
-          .from('device_models')
-          .select('id, model, device_types ( name, device_brands ( name ) )'),
-        supabase
-          .from('service_orders')
-          .select('id, display_number, status, title, created_at, estimated_ready_at')
-          .in('status', [...OPEN_ORDER_STATUSES])
-          .order('created_at', { ascending: false }),
-      ]
-    : []
+	if (!isStaffOrAdmin) {
+		return (
+			<div className="space-y-2">
+				<h1 className="text-2xl font-bold">Visão Geral</h1>
+				<p className="text-sm text-muted-foreground">Sem dados para este perfil.</p>
+			</div>
+		)
+	}
 
-  const staffResults = isStaffOrAdmin ? await Promise.all(staffFetches) : []
+	const now = new Date()
+	const summary = await fetchDashboardDailySummary(supabase, organizationId, {
+		includeFinanceReminders: isAdminOrPlatform,
+	})
 
-  let seminovosGroups: Array<{ label: string; total: number; byColor: Record<string, { count: number; minCents: number; maxCents: number; hasValue: boolean }>; minCents: number; maxCents: number; hasAnyValue: boolean }> = []
-  const openOrdersList: Array<{ id: string; display_number: string | null; status: string; title: string }> = []
-  const statusCounts: Record<string, number> = {}
-  const ordersNearDeadline: Array<{ id: string; display_number: string | null; title: string; status: string }> = []
-  const ordersOverdueOrOld: Array<{ id: string; display_number: string | null; title: string; status: string }> = []
-  let ordersAguardandoPecas: Array<{ id: string; display_number: string | null; status: string; title: string }> = []
-  let recurringFinanceAlerts: ReturnType<typeof mapRecurringRowsToPending> = []
+	return (
+		<DashboardMoneyVisibilityProvider>
+			<div className="w-full space-y-6">
+				<header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+					<div className="min-w-0">
+						<h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+							Visão Geral
+						</h1>
+						<p className="mt-1 text-sm text-muted-foreground">
+							{formatOperationalSubtitle(now)}
+						</p>
+					</div>
+					<div className="flex shrink-0 flex-wrap items-center gap-2">
+						<Button asChild className="shadow-sm">
+							<Link href="/portal/ordens/nova" transitionTypes={['nav-forward']}>
+								<ClipboardPlus className="h-4 w-4" strokeWidth={1.75} />
+								Nova OS
+							</Link>
+						</Button>
+						<Button asChild variant="outline" className="shadow-sm">
+							<Link href="/portal/pdv" transitionTypes={['nav-forward']}>
+								<MonitorSmartphone className="h-4 w-4" strokeWidth={1.75} />
+								Frente de caixa
+							</Link>
+						</Button>
+					</div>
+				</header>
 
-  if (isAdminOrPlatform) {
-    const { data: recurringRows } = await supabase
-      .from('recurring_expenses')
-      .select('id, description, amount_cents, conta_id, billing_day, is_active, last_generated_for, contas(name)')
-      .eq('is_active', true)
-    recurringFinanceAlerts = mapRecurringRowsToPending(
-      (recurringRows ?? []) as RecurringRowInput[],
-      now
-    ).filter((p) => recurringInvoiceVisibleInShortList(p, now))
-  }
+				<DashboardResumoDiario
+					sales={summary.sales}
+					os={summary.os}
+					devices={summary.devices}
+					updatedAtLabel={formatUpdatedAtLabel(now)}
+					receivables={summary.receivables}
+					payables={summary.payables}
+					birthdays={summary.birthdays}
+					canSeePayables={isAdminOrPlatform}
+				/>
 
-  if (isStaffOrAdmin && staffResults.length >= 3) {
-    type DevicesRes = { data: Array<{ id: string; device_model_id: string | null; device_name: string | null; model: string | null; color: string | null; sale_value_cents: number | null }> | null }
-    type ModelsRes = { data: Array<{ id: string; model: string | null; device_types: { name: string; device_brands: { name: string } } | null }> | null }
-    type OpenOrdersRes = { data: Array<{ id: string; display_number: string | null; status: string; title: string; created_at: string; estimated_ready_at: string | null }> | null }
-    const [devicesRes, modelsRes, openOrdersRes] = staffResults as unknown as [DevicesRes, ModelsRes, OpenOrdersRes]
-    const devices = devicesRes?.data ?? []
-    const modelsRaw = modelsRes?.data ?? []
-    const openOrdersRaw = openOrdersRes?.data ?? []
-
-    type DeviceBrandNested = { name?: string | null } | null
-    type DeviceTypeNested = {
-      name?: string | null
-      device_brands?: DeviceBrandNested | DeviceBrandNested[] | null
-    } | null
-    type ModelRow = {
-      id: string
-      model: string | null
-      device_types?: DeviceTypeNested | DeviceTypeNested[] | null
-    }
-    const modelLabels = new Map<string, string>()
-    for (const m of modelsRaw as ModelRow[]) {
-      const rawDt = m.device_types
-      const dt = Array.isArray(rawDt) ? rawDt[0] : rawDt
-      const rawBr = dt?.device_brands
-      const brand = Array.isArray(rawBr) ? rawBr[0] : rawBr
-      const brandName = brand?.name ?? ''
-      const modelName = m.model ?? ''
-      const label = [brandName, modelName].filter(Boolean).join(' ') || 'Sem modelo'
-      modelLabels.set(m.id, label)
-    }
-
-    const byLabel = new Map<string, Array<{ color: string | null; sale_value_cents: number | null }>>()
-    for (const d of devices) {
-      const label = d.device_model_id
-        ? (modelLabels.get(d.device_model_id) || d.device_name || d.model || 'Outro')
-        : (d.device_name || d.model || 'Outro')
-      if (!byLabel.has(label)) byLabel.set(label, [])
-      byLabel.get(label)!.push({ color: d.color, sale_value_cents: d.sale_value_cents })
-    }
-    seminovosGroups = Array.from(byLabel.entries()).map(([label, items]) => {
-      const byColor: Record<string, { count: number; minCents: number; maxCents: number; hasValue: boolean }> = {}
-      let groupMinCents = 0
-      let groupMaxCents = 0
-      let hasAnyValue = false
-      for (const it of items) {
-        const cor = (it.color || '').trim() || 'Sem cor'
-        const cents = it.sale_value_cents != null && Number.isFinite(it.sale_value_cents) ? it.sale_value_cents : null
-        if (!byColor[cor]) {
-          byColor[cor] = { count: 0, minCents: 0, maxCents: 0, hasValue: false }
-        }
-        const cur = byColor[cor]
-        cur.count += 1
-        if (cents !== null) {
-          if (!cur.hasValue) {
-            cur.hasValue = true
-            cur.minCents = cents
-            cur.maxCents = cents
-          } else {
-            cur.minCents = Math.min(cur.minCents, cents)
-            cur.maxCents = Math.max(cur.maxCents, cents)
-          }
-          if (!hasAnyValue) {
-            groupMinCents = cents
-            groupMaxCents = cents
-            hasAnyValue = true
-          } else {
-            groupMinCents = Math.min(groupMinCents, cents)
-            groupMaxCents = Math.max(groupMaxCents, cents)
-          }
-        }
-      }
-      return {
-        label,
-        total: items.length,
-        byColor,
-        minCents: groupMinCents,
-        maxCents: groupMaxCents,
-        hasAnyValue,
-      }
-    })
-    seminovosGroups.sort((a, b) => {
-      const ka = seminovosGroupSortKey(a.label)
-      const kb = seminovosGroupSortKey(b.label)
-      if (ka.num !== kb.num) return kb.num - ka.num
-      if (ka.variant !== kb.variant) return kb.variant - ka.variant
-      return b.total - a.total
-    })
-
-    for (const o of openOrdersRaw) {
-      openOrdersList.push({
-        id: o.id,
-        display_number: o.display_number,
-        status: o.status,
-        title: o.title,
-      })
-      statusCounts[o.status] = (statusCounts[o.status] ?? 0) + 1
-    }
-
-    const nowIso = now.toISOString()
-    const in30MinIso = in30Min.toISOString()
-    const oneDayAgoIso = oneDayAgo.toISOString()
-
-    const alertStatusSet = new Set<string>(OPEN_STATUSES_FOR_ALERTS)
-    for (const o of openOrdersRaw) {
-      if (!alertStatusSet.has(o.status)) continue
-      const est = o.estimated_ready_at ?? null
-      const created = o.created_at ?? null
-      if (est) {
-        if (est >= nowIso && est <= in30MinIso) {
-          ordersNearDeadline.push({ id: o.id, display_number: o.display_number, title: o.title, status: o.status })
-        }
-        if (est < nowIso) {
-          ordersOverdueOrOld.push({ id: o.id, display_number: o.display_number, title: o.title, status: o.status })
-        }
-      }
-      if (created && created < oneDayAgoIso) {
-        const alreadyOverdue = ordersOverdueOrOld.some((x) => x.id === o.id)
-        if (!alreadyOverdue) {
-          ordersOverdueOrOld.push({ id: o.id, display_number: o.display_number, title: o.title, status: o.status })
-        }
-      }
-    }
-    ordersAguardandoPecas = openOrdersRaw
-      .filter((o) => o.status === 'aguardando_pecas')
-      .map((o) => ({ id: o.id, display_number: o.display_number, status: o.status, title: o.title }))
-  }
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Dashboard</h1>
-        <p className="text-sm text-muted-foreground">
-          Resumo rápido do portal.
-        </p>
-      </div>
-
-      {isStaffOrAdmin && (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-          <DashboardSeminovosCard
-            totalAvailable={seminovosGroups.reduce((s, g) => s + g.total, 0)}
-            groups={seminovosGroups}
-          />
-          <DashboardOsAtivasCard
-            total={openOrdersList.length}
-            orders={openOrdersList}
-            statusCounts={statusCounts}
-          />
-          <DashboardAguardandoPecasCard orders={ordersAguardandoPecas} />
-          <DashboardAlertaAmareloCard orders={ordersNearDeadline} />
-          <DashboardAlertaVermelhoCard orders={ordersOverdueOrOld} />
-          {isAdminOrPlatform ? (
-            <DashboardRecorrentesCard items={recurringFinanceAlerts} />
-          ) : null}
-        </div>
-      )}
-    </div>
-  )
+				<DashboardFaturamentoCard
+					salesCents={summary.billingSalesCents}
+					osCents={summary.billingOsCents}
+					salesNetCents={summary.sales.netProfitCents}
+					osNetCents={summary.os.netCents}
+					salesGoalCents={summary.dailySalesGoalCents}
+					osGoalCents={summary.dailyOsGoalCents}
+				/>
+			</div>
+		</DashboardMoneyVisibilityProvider>
+	)
 }
-

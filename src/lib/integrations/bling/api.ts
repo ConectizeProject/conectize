@@ -1,6 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { BLING_API_V3_BASE_URL } from '@/lib/integrations/bling/constants'
+import {
+  fetchBlingCompanyProfile,
+  mergeBlingCompanyProfileMetadata,
+} from '@/lib/integrations/bling/company-profile'
+import { hubConnectionCompanyId } from '@/lib/integrations/bling/hub-company-id'
 
 const BLING_API_BASE_URL = BLING_API_V3_BASE_URL
 const BLING_PLATFORM_ID = 'bling'
@@ -367,20 +372,34 @@ export async function performBlingTokenRefresh (
   const expiresIn = Number(tokenData.expires_in) || 3600
   const tokenExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString()
 
+  const companyProfile = await fetchBlingCompanyProfile(String(tokenData.access_token))
+  const previousMetadata = (sourceConnection.metadata && typeof sourceConnection.metadata === 'object')
+    ? (sourceConnection.metadata as Record<string, unknown>)
+    : {}
+
   const { data: updated, error: updateError } = await supabase
     .from('hub_connections')
     .update({
       access_token: tokenData.access_token,
       refresh_token: tokenData.refresh_token || sourceConnection.refresh_token,
       token_expires_at: tokenExpiresAt,
-      metadata: {
-        ...(sourceConnection.metadata || {}),
-        scope: tokenData.scope || (sourceConnection.metadata as { scope?: string } | null)?.scope || null,
-        blingReconnectRequired: false,
-        blingReconnectReason: null,
-        blingReconnectAt: null,
-        blingLastRefreshError: null,
-      },
+      metadata: mergeBlingCompanyProfileMetadata(
+        {
+          ...previousMetadata,
+          scope: tokenData.scope || (previousMetadata.scope as string | null | undefined) || null,
+          blingReconnectRequired: false,
+          blingReconnectReason: null,
+          blingReconnectAt: null,
+          blingLastRefreshError: null,
+        },
+        companyProfile ?? {
+          empresaId: hubConnectionCompanyId(previousMetadata),
+          nome: null,
+          email: null,
+          cnpj: null,
+          logoUrl: null,
+        },
+      ),
       updated_at: new Date().toISOString(),
     })
     .eq('id', connection.id)

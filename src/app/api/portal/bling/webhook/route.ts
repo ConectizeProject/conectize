@@ -1,18 +1,22 @@
 import { after, NextResponse } from 'next/server'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { parseBlingWebhook, getBlingResourceKeyFromWebhook } from '@/lib/integrations/bling/webhooks'
+import { normalizeBlingWebhookCompanyId, resolveBlingWebhookOrganizationId } from '@/lib/integrations/bling/resolve-bling-webhook-org'
 import crypto from 'crypto'
 
 export const dynamic = 'force-dynamic'
 
 const PLATFORM_ID = 'bling'
 
-function uniqueSecrets (): string[] {
-  return [...new Set(
-    [process.env.BLING_CLIENT_SECRET, process.env.BLING_WEBHOOK_SECRET]
-      .map((value) => String(value || '').trim())
-      .filter(Boolean),
-  )]
+type BlingAuthRejectReason = 'missing_signature' | 'invalid_signature'
+type BlingRoutingRejectReason = 'missing_company_id' | 'organization_unresolved'
+type BlingRejectReason = BlingAuthRejectReason | BlingRoutingRejectReason
+
+type ServiceClient = ReturnType<typeof createSupabaseServiceClient>
+
+function getBlingClientSecret (): string | null {
+  const secret = process.env.BLING_CLIENT_SECRET?.trim()
+  return secret || null
 }
 
 function hmacHex (secret: string, rawBody: string): string {
@@ -32,63 +36,168 @@ function timingEqual (a: string, b: string): boolean {
 
 /**
  * Bling: header `X-Bling-Signature-256` = `sha256=` + HMAC-SHA256(body, client_secret) em hex.
- * Aceita hex/base64, com ou sem prefixo, e tenta client secret + webhook secret.
  */
-function verifyBlingSignature (rawBody: string, signatureHeader: string | null, secrets: string[]): boolean {
-  if (!signatureHeader || secrets.length === 0) return false
+function verifyBlingSignature (
+  rawBody: string,
+  signatureHeader: string | null,
+  clientSecret: string,
+): boolean {
+  if (!signatureHeader || !clientSecret) return false
   const received = signatureHeader.replace(/^sha256=/i, '').trim()
   if (!received) return false
 
-  for (const secret of secrets) {
-    const hex = hmacHex(secret, rawBody)
-    const b64 = hmacBase64(secret, rawBody)
-    if (timingEqual(received.toLowerCase(), hex.toLowerCase())) return true
-    if (timingEqual(received, b64)) return true
-    if (timingEqual(signatureHeader.trim(), `sha256=${hex}`)) return true
-  }
+  const hex = hmacHex(clientSecret, rawBody)
+  const b64 = hmacBase64(clientSecret, rawBody)
+  if (timingEqual(received.toLowerCase(), hex.toLowerCase())) return true
+  if (timingEqual(received, b64)) return true
+  if (timingEqual(signatureHeader.trim(), `sha256=${hex}`)) return true
   return false
+}
+
+function collectBlingIngressHeaders (request: Request): Record<string, string | null> {
+  return {
+    'x-bling-signature-256': request.headers.get('x-bling-signature-256')
+      ?? request.headers.get('X-Bling-Signature-256'),
+    'content-type': request.headers.get('content-type'),
+    'user-agent': request.headers.get('user-agent'),
+  }
+}
+
+function enrichPayloadWithIngressDebug (
+  payload: unknown,
+  debug: {
+    reason: BlingRejectReason
+    headers?: Record<string, string | null>
+    body_bytes?: number
+    company_id?: string | null
+  },
+): object {
+  const base = payload && typeof payload === 'object' && !Array.isArray(payload)
+    ? { ...(payload as Record<string, unknown>) }
+    : { raw: payload }
+
+  return {
+    ...base,
+    _webhook_ingress: debug,
+  }
+}
+
+function rejectErrorMessage (reason: BlingRejectReason): string {
+  switch (reason) {
+    case 'missing_signature':
+      return 'Webhook rejeitado: header X-Bling-Signature-256 ausente.'
+    case 'invalid_signature':
+      return 'Webhook rejeitado: assinatura X-Bling-Signature-256 inválida.'
+    case 'missing_company_id':
+      return 'Webhook rejeitado: companyId ausente no payload.'
+    case 'organization_unresolved':
+      return 'Webhook rejeitado: nenhuma conexão Bling corresponde ao companyId informado.'
+    default:
+      return 'Webhook rejeitado.'
+  }
+}
+
+function rejectEventType (reason: BlingRejectReason): string {
+  if (reason === 'missing_signature' || reason === 'invalid_signature') {
+    return `auth.${reason}`
+  }
+  return `routing.${reason}`
 }
 
 function extractCompanyId (payload: unknown): string | null {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null
   const root = payload as Record<string, unknown>
   const raw = root.companyId ?? root.company_id ?? root.idEmpresa ?? root.empresaId
-  const text = String(raw ?? '').trim()
-  return text || null
+  return normalizeBlingWebhookCompanyId(raw)
 }
 
-async function resolveOrganizationId (
-  supabase: ReturnType<typeof createSupabaseServiceClient>,
+async function resolveAuditOrganizationId (
+  supabase: ServiceClient,
   companyId: string | null,
 ): Promise<string | null> {
-  if (companyId) {
-    const { data: byEmpresa } = await supabase
-      .from('hub_connections')
-      .select('organization_id, metadata')
-      .eq('platform_id', PLATFORM_ID)
-      .order('updated_at', { ascending: false })
-      .limit(50)
+  const strict = await resolveBlingWebhookOrganizationId(supabase, companyId)
+  if (strict) return strict
 
-    for (const row of byEmpresa || []) {
-      const meta = row.metadata && typeof row.metadata === 'object'
-        ? (row.metadata as Record<string, unknown>)
-        : null
-      const empresaId = String(meta?.empresaId ?? meta?.companyId ?? '').trim()
-      if (empresaId && empresaId === companyId && row.organization_id) {
-        return String(row.organization_id)
-      }
-    }
-  }
-
-  const { data: blingConn } = await supabase
-    .from('hub_connections')
-    .select('organization_id')
-    .eq('platform_id', PLATFORM_ID)
-    .order('updated_at', { ascending: false })
+  const { data: hostOrg } = await supabase
+    .from('organizations')
+    .select('id')
+    .eq('is_host', true)
+    .order('created_at', { ascending: true })
     .limit(1)
     .maybeSingle()
 
-  return blingConn?.organization_id ? String(blingConn.organization_id) : null
+  return hostOrg?.id ? String(hostOrg.id) : null
+}
+
+async function persistErrorWebhook (
+  supabase: ServiceClient,
+  input: {
+    organizationId: string
+    eventType: string
+    externalId: string | null
+    payload: object
+    reason: BlingRejectReason
+  },
+): Promise<string | null> {
+  const { data: row, error } = await supabase
+    .from('integration_webhooks')
+    .insert({
+      organization_id: input.organizationId,
+      platform_id: PLATFORM_ID,
+      event_type: input.eventType,
+      external_id: input.externalId,
+      payload: input.payload,
+      status: 'error',
+      error_message: rejectErrorMessage(input.reason),
+    })
+    .select('id')
+    .single()
+
+  if (error || !row) {
+    console.error('[bling webhook] error_webhook_insert_failed', {
+      reason: input.reason,
+      eventType: input.eventType,
+      message: error?.message ?? null,
+    })
+    return null
+  }
+
+  return String(row.id)
+}
+
+async function recordRejectedWebhook (
+  input: {
+    payload: unknown
+    externalId: string | null
+    companyId: string | null
+    reason: BlingRejectReason
+    ingressHeaders?: Record<string, string | null>
+    bodyBytes?: number
+  },
+): Promise<void> {
+  try {
+    const supabase = createSupabaseServiceClient()
+    const organizationId = await resolveAuditOrganizationId(supabase, input.companyId)
+    if (!organizationId) return
+
+    const auditPayload = enrichPayloadWithIngressDebug(input.payload, {
+      reason: input.reason,
+      headers: input.ingressHeaders,
+      body_bytes: input.bodyBytes,
+      company_id: input.companyId,
+    })
+
+    await persistErrorWebhook(supabase, {
+      organizationId,
+      eventType: rejectEventType(input.reason),
+      externalId: input.externalId,
+      payload: auditPayload,
+      reason: input.reason,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'unknown_error'
+    console.error('[bling webhook] record_rejected_failed', { reason: input.reason, message })
+  }
 }
 
 /** Health-check da URL cadastrada no Bling (alguns pings usam GET). */
@@ -111,8 +220,9 @@ export async function POST (request: Request) {
 
   const contentType = request.headers.get('content-type')
   const userAgent = request.headers.get('user-agent')
-  const secrets = uniqueSecrets()
-  const signatureHeader = request.headers.get('x-bling-signature-256') ?? request.headers.get('X-Bling-Signature-256')
+  const clientSecret = getBlingClientSecret()
+  const ingressHeaders = collectBlingIngressHeaders(request)
+  const signatureHeader = ingressHeaders['x-bling-signature-256']
 
   if (isBlingConnectivityPing(rawBody)) {
     console.info('[bling webhook] connectivity_ping', {
@@ -123,23 +233,6 @@ export async function POST (request: Request) {
       hasSignature: Boolean(signatureHeader),
     })
     return NextResponse.json({ ok: true, ping: true }, { status: 200 })
-  }
-
-  if (secrets.length > 0 && signatureHeader) {
-    if (!verifyBlingSignature(rawBody, signatureHeader, secrets)) {
-      console.warn('[bling webhook] invalid_signature', {
-        hasHeader: true,
-        bodyBytes: rawBody.length,
-      })
-      return NextResponse.json({ error: 'invalid_signature' }, { status: 401 })
-    }
-  } else if (secrets.length > 0 && !signatureHeader) {
-    console.warn('[bling webhook] missing_signature_header_accepted', {
-      bodyBytes: rawBody.length,
-      preview: rawBody.slice(0, 120),
-      contentType,
-      userAgent,
-    })
   }
 
   let payload: unknown
@@ -154,10 +247,69 @@ export async function POST (request: Request) {
   const externalId = getBlingResourceKeyFromWebhook(parsed)
   const companyId = extractCompanyId(payload)
 
+  if (clientSecret) {
+    const rejectReason: BlingAuthRejectReason | null = !signatureHeader
+      ? 'missing_signature'
+      : !verifyBlingSignature(rawBody, signatureHeader, clientSecret)
+        ? 'invalid_signature'
+        : null
+
+    if (rejectReason) {
+      console.warn('[bling webhook] rejected_auth', {
+        reason: rejectReason,
+        bodyBytes: rawBody.length,
+        contentType,
+        userAgent,
+        companyId,
+        hasSignature: Boolean(signatureHeader),
+      })
+
+      await recordRejectedWebhook({
+        payload,
+        externalId,
+        companyId,
+        reason: rejectReason,
+        ingressHeaders,
+        bodyBytes: rawBody.length,
+      })
+
+      return NextResponse.json({ error: rejectReason }, { status: 401 })
+    }
+  } else {
+    console.warn('[bling webhook] BLING_CLIENT_SECRET unset; signature not verified')
+  }
+
+  const routingReason: BlingRoutingRejectReason | null = !companyId
+    ? 'missing_company_id'
+    : null
+
   const supabase = createSupabaseServiceClient()
-  const organizationId = await resolveOrganizationId(supabase, companyId)
-  if (!organizationId) {
-    return NextResponse.json({ error: 'organization_context_missing' }, { status: 409 })
+  const organizationId = routingReason
+    ? null
+    : await resolveBlingWebhookOrganizationId(supabase, companyId)
+
+  const unresolvedRoutingReason: BlingRoutingRejectReason | null = !routingReason && !organizationId
+    ? 'organization_unresolved'
+    : routingReason
+
+  if (unresolvedRoutingReason) {
+    console.warn('[bling webhook] rejected_routing', {
+      reason: unresolvedRoutingReason,
+      companyId,
+      eventType,
+      externalId,
+    })
+
+    await recordRejectedWebhook({
+      payload,
+      externalId,
+      companyId,
+      reason: unresolvedRoutingReason,
+      ingressHeaders,
+      bodyBytes: rawBody.length,
+    })
+
+    return NextResponse.json({ error: unresolvedRoutingReason }, { status: 409 })
   }
 
   const { data: row, error } = await supabase

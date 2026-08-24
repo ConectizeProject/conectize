@@ -133,27 +133,17 @@
 }
 
 /* Persistent portal chrome */
-::view-transition-group(portal-sidebar) {
+::view-transition-group(portal-top-nav) {
   animation: none;
   z-index: 100;
 }
 
-::view-transition-old(portal-sidebar),
-::view-transition-new(portal-sidebar) {
-  animation: none;
-}
-
-::view-transition-group(portal-header) {
-  animation: none;
-  z-index: 100;
-}
-
-/* Header uses backdrop-blur — hide old snapshot to avoid flash */
-::view-transition-old(portal-header) {
+/* Top nav uses backdrop-blur — hide old snapshot to avoid flash */
+::view-transition-old(portal-top-nav) {
   display: none;
 }
 
-::view-transition-new(portal-header) {
+::view-transition-new(portal-top-nav) {
   animation: none;
 }
 
