@@ -24,9 +24,9 @@ type Props = {
   onCopyLojista: () => void
   onCopyCliente: () => void
   onCopyImei: () => void
-  /** Editar aparelho, custos e excluir. */
+  /** Adicionar custo e excluir (somente admin). */
   isAdmin?: boolean
-  /** Marcar / editar / cancelar venda e ver histórico (staff + admin). */
+  /** Editar aparelho, marcar/editar/cancelar venda e ver histórico (staff + admin). */
   canManageSale?: boolean
   deviceSold?: boolean
   onEdit?: () => void
@@ -63,14 +63,15 @@ export function ResaleDeviceQuickActionsDropdown ({
   contentClassName,
   align = 'end',
 }: Props) {
+  const canEditDevice = canManageSale && Boolean(onEdit)
   const hasSaleActions = canManageSale && (
     (!deviceSold && onMarkSold)
     || (deviceSold && onEditSale)
     || (deviceSold && onCancelSale)
     || onViewHistory
   )
-  const hasAdminActions = isAdmin && (onEdit || onAddCost || onDelete)
-  const hasManageBlock = hasSaleActions || hasAdminActions
+  const hasAdminActions = isAdmin && (onAddCost || onDelete)
+  const hasManageBlock = canEditDevice || hasSaleActions || hasAdminActions
 
   return (
     <DropdownMenu>
@@ -96,7 +97,7 @@ export function ResaleDeviceQuickActionsDropdown ({
       >
         {hasManageBlock ? (
           <>
-            {isAdmin && onEdit ? (
+            {canEditDevice ? (
               <DropdownMenuItem onClick={onEdit}>
                 <Pencil className="mr-1.5 h-3.5 w-3.5" />
                 Editar
