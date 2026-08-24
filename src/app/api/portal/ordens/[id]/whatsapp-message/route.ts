@@ -133,6 +133,8 @@ export async function POST(
 		)
 	}
 
+	// Envio manual: evolutionReady já prioriza instância com Mensagens automáticas.
+	// Eventos auto: força a hub com auto msgs quando existir.
 	const hub =
 		mode === 'share'
 			? ctx.evolutionReady

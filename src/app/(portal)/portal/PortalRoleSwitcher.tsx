@@ -10,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 
 const MASTER_ROLE_VALUE = 'platform_admin'
 
@@ -24,12 +25,18 @@ const ROLE_OPTIONS = [
 type Props = {
   role: string
   simulatedRole?: string | null
+  variant?: 'default' | 'menu'
 }
 
-export function PortalRoleSwitcher ({ role, simulatedRole }: Props) {
+export function PortalRoleSwitcher ({
+  role,
+  simulatedRole,
+  variant = 'default',
+}: Props) {
   const router = useRouter()
   const [value, setValue] = useState(simulatedRole || role || MASTER_ROLE_VALUE)
   const [busy, setBusy] = useState(false)
+  const isMenu = variant === 'menu'
 
   useEffect(() => {
     setValue(simulatedRole || role || MASTER_ROLE_VALUE)
@@ -58,10 +65,22 @@ export function PortalRoleSwitcher ({ role, simulatedRole }: Props) {
   )
 
   return (
-    <div className="flex items-center gap-2 min-w-0 max-w-[180px] sm:max-w-[220px]">
-      <ShieldCheck className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+    <div
+      className={cn(
+        'flex min-w-0 items-center gap-2',
+        isMenu ? 'w-full flex-col items-stretch gap-1.5' : 'max-w-[180px] sm:max-w-[220px]',
+      )}
+    >
+      {isMenu ? (
+        <p className="flex items-center gap-1.5 px-0.5 text-xs font-medium text-muted-foreground">
+          <ShieldCheck className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          Perfil de acesso
+        </p>
+      ) : (
+        <ShieldCheck className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+      )}
       <Select value={value} onValueChange={onChange} disabled={busy}>
-        <SelectTrigger className="h-9 text-xs sm:text-sm">
+        <SelectTrigger className={cn('h-9 text-xs sm:text-sm', isMenu && 'w-full')}>
           <SelectValue placeholder="Perfil" />
         </SelectTrigger>
         <SelectContent>

@@ -138,6 +138,10 @@ async function ensureShareToken(
 	return token
 }
 
+/**
+ * Instância para envio manual (botão Enviar WhatsApp) e fallback.
+ * Prefere a mesma linha das Mensagens automáticas; senão preferred; senão a 1ª pronta.
+ */
 function pickEvolutionHubForSend(
 	hubs: EvolutionHubRow[],
 ): EvolutionHubRow | null {
@@ -148,8 +152,12 @@ function pickEvolutionHubForSend(
 		return Boolean(instanceName && apiKey && baseUrl)
 	})
 	if (ready.length === 0) return null
+	const withAutoMessages = ready.filter(
+		(h) => h.metadata.auto_messages_enabled === true,
+	)
+	const pool = withAutoMessages.length > 0 ? withAutoMessages : ready
 	return (
-		ready.find((h) => h.metadata.preferred_for_messages === true) ?? ready[0]
+		pool.find((h) => h.metadata.preferred_for_messages === true) ?? pool[0]
 	)
 }
 

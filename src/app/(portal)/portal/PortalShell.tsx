@@ -38,7 +38,6 @@ import {
 	ChevronDown,
 	ClipboardList,
 	DollarSign,
-	Home,
 	LayoutDashboard,
 	LayoutGrid,
 	LogOut,
@@ -331,48 +330,6 @@ export function PortalShell(props: PortalShellProps) {
 						</div>
 
 						<div className="flex items-center gap-3 min-w-0">
-							<RadixAfterHydration
-								fallback={
-									<>
-										{isPlatformMaster ? (
-											<div
-												className="h-9 w-[180px] sm:w-[220px] shrink-0 rounded-md bg-muted/50 animate-pulse"
-												aria-hidden
-											/>
-										) : null}
-										{isPlatformMaster && props.platformOrganizations?.length ? (
-											<div
-												className="h-9 w-[220px] sm:w-48 shrink-0 rounded-md bg-muted/50 animate-pulse"
-												aria-hidden
-											/>
-										) : null}
-										<div
-											className="hidden sm:block h-8 w-28 shrink-0 rounded-md bg-muted/50 animate-pulse"
-											aria-hidden
-										/>
-									</>
-								}
-							>
-								{isPlatformMaster ? (
-									<PortalRoleSwitcher
-										role={props.realRole || props.role}
-										simulatedRole={props.simulatedRole ?? null}
-									/>
-								) : null}
-								{isPlatformMaster && props.platformOrganizations?.length ? (
-									<PlatformOrgSwitcher
-										organizations={props.platformOrganizations}
-										activeOrganizationId={props.activeOrganizationId ?? null}
-									/>
-								) : null}
-							</RadixAfterHydration>
-							<Link
-								href="/"
-								className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-							>
-								<Home className="h-4 w-4" />
-								<span className="hidden sm:inline">Voltar para o site</span>
-							</Link>
 							<button
 								type="button"
 								onClick={toggleTheme}
@@ -447,7 +404,31 @@ export function PortalShell(props: PortalShellProps) {
 										</button>
 									</DropdownMenuTrigger>
 
-									<DropdownMenuContent align="end" className="min-w-56">
+									<DropdownMenuContent align="end" className="min-w-64">
+										{isPlatformMaster ? (
+											<>
+												<div
+													className="space-y-3 px-2 py-2"
+													onPointerDown={(e) => e.preventDefault()}
+												>
+													<PortalRoleSwitcher
+														role={props.realRole || props.role}
+														simulatedRole={props.simulatedRole ?? null}
+														variant="menu"
+													/>
+													{props.platformOrganizations?.length ? (
+														<PlatformOrgSwitcher
+															organizations={props.platformOrganizations}
+															activeOrganizationId={
+																props.activeOrganizationId ?? null
+															}
+															variant="menu"
+														/>
+													) : null}
+												</div>
+												<DropdownMenuSeparator />
+											</>
+										) : null}
 										<DropdownMenuItem asChild>
 											<Link
 												href="/portal/complete-profile"
