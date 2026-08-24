@@ -26,7 +26,6 @@ import {
 	Bell,
 	Building2,
 	ChevronDown,
-	Home,
 	LogOut,
 	Moon,
 	Settings,
@@ -113,47 +112,6 @@ export function PortalShell(props: PortalShellProps) {
 						/>
 
 						<div className="flex shrink-0 items-center gap-1 sm:gap-2">
-							<RadixAfterHydration
-								fallback={
-									<>
-										{isPlatformMaster ? (
-											<div
-												className="hidden h-9 w-[180px] shrink-0 rounded-md bg-muted/50 animate-pulse sm:block sm:w-[220px]"
-												aria-hidden
-											/>
-										) : null}
-										{isPlatformMaster && props.platformOrganizations?.length ? (
-											<div
-												className="hidden h-9 w-48 shrink-0 rounded-md bg-muted/50 animate-pulse sm:block"
-												aria-hidden
-											/>
-										) : null}
-									</>
-								}
-							>
-								{isPlatformMaster ? (
-									<PortalRoleSwitcher
-										role={props.realRole || props.role}
-										simulatedRole={props.simulatedRole ?? null}
-									/>
-								) : null}
-								{isPlatformMaster && props.platformOrganizations?.length ? (
-									<PlatformOrgSwitcher
-										organizations={props.platformOrganizations}
-										activeOrganizationId={props.activeOrganizationId ?? null}
-									/>
-								) : null}
-							</RadixAfterHydration>
-
-							<Link
-								href="/"
-								className="hidden rounded-md p-2 text-muted-foreground hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:inline-flex"
-								aria-label="Voltar para o site"
-								title="Voltar para o site"
-							>
-								<Home className="h-4 w-4" strokeWidth={1.75} />
-							</Link>
-
 							<button
 								type="button"
 								onClick={toggleTheme}
@@ -219,12 +177,36 @@ export function PortalShell(props: PortalShellProps) {
 										</button>
 									</DropdownMenuTrigger>
 
-									<DropdownMenuContent align="end" className="min-w-56">
+									<DropdownMenuContent align="end" className="min-w-64">
 										<div className="px-2 py-1.5 lg:hidden">
 											<p className="text-sm font-medium">{props.userName || "Usuário"}</p>
 											<p className="text-xs text-muted-foreground">{props.userEmail}</p>
 										</div>
 										<DropdownMenuSeparator className="lg:hidden" />
+										{isPlatformMaster ? (
+											<>
+												<div
+													className="space-y-3 px-2 py-2"
+													onPointerDown={(e) => e.preventDefault()}
+												>
+													<PortalRoleSwitcher
+														role={props.realRole || props.role}
+														simulatedRole={props.simulatedRole ?? null}
+														variant="menu"
+													/>
+													{props.platformOrganizations?.length ? (
+														<PlatformOrgSwitcher
+															organizations={props.platformOrganizations}
+															activeOrganizationId={
+																props.activeOrganizationId ?? null
+															}
+															variant="menu"
+														/>
+													) : null}
+												</div>
+												<DropdownMenuSeparator />
+											</>
+										) : null}
 										<DropdownMenuItem asChild>
 											<Link
 												href="/portal/complete-profile"
@@ -245,12 +227,6 @@ export function PortalShell(props: PortalShellProps) {
 												</Link>
 											</DropdownMenuItem>
 										)}
-										<DropdownMenuItem asChild className="md:hidden">
-											<Link href="/" className="flex items-center gap-2">
-												<Home className="h-4 w-4" strokeWidth={1.75} />
-												<span>Voltar para o site</span>
-											</Link>
-										</DropdownMenuItem>
 										<DropdownMenuSeparator />
 										<DropdownMenuItem asChild>
 											<Link

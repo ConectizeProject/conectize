@@ -10,18 +10,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 
 type OrgRow = { id: string; slug: string; name: string | null; is_host: boolean }
 
 type Props = {
   organizations: OrgRow[]
   activeOrganizationId: string | null
+  variant?: 'default' | 'menu'
 }
 
-export function PlatformOrgSwitcher ({ organizations, activeOrganizationId }: Props) {
+export function PlatformOrgSwitcher ({
+  organizations,
+  activeOrganizationId,
+  variant = 'default',
+}: Props) {
   const router = useRouter()
   const [value, setValue] = useState(activeOrganizationId ?? '')
   const [busy, setBusy] = useState(false)
+  const isMenu = variant === 'menu'
 
   useEffect(() => {
     setValue(activeOrganizationId ?? '')
@@ -50,14 +57,26 @@ export function PlatformOrgSwitcher ({ organizations, activeOrganizationId }: Pr
   if (organizations.length === 0) return null
 
   return (
-    <div className="flex items-center gap-2 min-w-0 max-w-[220px] sm:max-w-xs">
-      <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+    <div
+      className={cn(
+        'flex min-w-0 items-center gap-2',
+        isMenu ? 'w-full flex-col items-stretch gap-1.5' : 'max-w-[220px] sm:max-w-xs',
+      )}
+    >
+      {isMenu ? (
+        <p className="flex items-center gap-1.5 px-0.5 text-xs font-medium text-muted-foreground">
+          <Building2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          Empresa
+        </p>
+      ) : (
+        <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+      )}
       <Select
         value={value || activeOrganizationId || undefined}
         onValueChange={onChange}
         disabled={busy}
       >
-        <SelectTrigger className="h-9 text-xs sm:text-sm">
+        <SelectTrigger className={cn('h-9 text-xs sm:text-sm', isMenu && 'w-full')}>
           <SelectValue placeholder="Empresa" />
         </SelectTrigger>
         <SelectContent>

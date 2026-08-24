@@ -12,8 +12,8 @@ type SharePreview = {
 }
 
 /**
- * Enviar WhatsApp da OS: se houver Evolution cadastrada, abre modal e envia pela API;
- * caso contrário usa wa.me como antes.
+ * Enviar WhatsApp da OS: se houver Evolution cadastrada, abre modal e envia pela API
+ * (prioriza a instância com Mensagens automáticas); caso contrário usa wa.me.
  */
 export function useOrderWhatsappShare(orderId: string) {
 	const [dialogOpen, setDialogOpen] = useState(false)
@@ -141,7 +141,7 @@ export function useOrderWhatsappShare(orderId: string) {
 				else setDialogOpen(true)
 			}}
 			title="Enviar WhatsApp"
-			description="A mensagem abaixo será enviada pela Evolution para o celular do cliente."
+			description="A mensagem abaixo será enviada pela Evolution (instância de Mensagens automáticas, quando houver) para o celular do cliente."
 			message={preview?.message || ''}
 			confirmLabel="Enviar"
 			cancelLabel="Cancelar"
