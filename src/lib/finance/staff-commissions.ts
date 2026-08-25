@@ -1,6 +1,13 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { resolveOrderCommissionCents } from '@/lib/orders/order-discount-commission'
+import {
+  resolveOrderCommissionCents,
+  resolveOrderPartialNetCents,
+} from '@/lib/orders/order-discount-commission'
 import { getOrdemPortalPath } from '@/lib/orders/ordem-portal-path'
+import {
+  paymentFeeCentsForSaleEntries,
+  paymentGrossCentsForSaleEntries,
+} from '@/lib/resale/resale-commission'
 import {
   isCommissionCostDescription,
   parseCommissionWorkerLabelFromDescription,
@@ -38,7 +45,9 @@ type OrderRow = {
   closed_at: string | null
   updated_at: string | null
   services_total_cents: number | null
+  services_cost_total_cents: number | null
   discount_cents: number | null
+  payment_methods: unknown
   commission_user_id: string | null
   commission_kind: string | null
   commission_fixed_cents: number | null
@@ -55,6 +64,13 @@ type ResaleRow = {
   device_model_id: string | null
   sale_commission_user_id: string | null
   commission_paid_at: string | null
+}
+
+type PaymentMethodCatalogRow = {
+  id: string
+  fee_percent: number
+  type: string
+  credit_installment_fees?: Array<{ installments: number; fee_percent: number }> | null
 }
 
 const OS_COMMISSION_STATUSES = [
@@ -75,6 +91,45 @@ function userLabel (
   if (userId && usersMap.has(userId)) return usersMap.get(userId) || 'Colaborador'
   const fb = String(fallback || '').trim()
   return fb || 'Colaborador'
+}
+
+function parseUuid (raw: unknown): string | null {
+  const s = String(raw || '').trim()
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)) {
+    return null
+  }
+  return s
+}
+
+function parseOrderPaymentEntries (raw: unknown): Array<{
+  payment_method_id: string
+  value_cents: number | null
+  installments: number
+}> {
+  if (!Array.isArray(raw)) return []
+  const out: Array<{
+    payment_method_id: string
+    value_cents: number | null
+    installments: number
+  }> = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const row = item as {
+      payment_method_id?: unknown
+      value_cents?: unknown
+      installments?: unknown
+    }
+    const paymentMethodId = parseUuid(row.payment_method_id)
+    if (!paymentMethodId) continue
+    const valueCents = Math.max(0, Number(row.value_cents) || 0)
+    if (valueCents <= 0) continue
+    out.push({
+      payment_method_id: paymentMethodId,
+      value_cents: valueCents,
+      installments: Math.max(1, Number(row.installments) || 1),
+    })
+  }
+  return out
 }
 
 async function loadUserNames (
@@ -103,6 +158,42 @@ async function loadUserNames (
   return map
 }
 
+async function loadPaymentMethodsCatalog (
+  supabase: SupabaseClient,
+  organizationId: string,
+): Promise<PaymentMethodCatalogRow[]> {
+  const { data, error } = await supabase
+    .from('payment_methods')
+    .select('id, fee_percent, type, credit_installment_fees')
+    .eq('organization_id', organizationId)
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return (data || []).map((row) => ({
+    id: String(row.id),
+    fee_percent: Number(row.fee_percent) || 0,
+    type: String(row.type || ''),
+    credit_installment_fees: Array.isArray(row.credit_installment_fees)
+      ? row.credit_installment_fees
+      : null,
+  }))
+}
+
+/** Comissão OS: % sobre líquido parcial (bruto − taxas − custos); fixo permanece fixo. */
+function resolveOsCommissionAmountCents (
+  row: OrderRow,
+  paymentMethods: PaymentMethodCatalogRow[],
+): number {
+  const entries = parseOrderPaymentEntries(row.payment_methods)
+  const brutoCents = paymentGrossCentsForSaleEntries(entries)
+  const feeCents = paymentFeeCentsForSaleEntries(entries, paymentMethods)
+  const costCents = Math.max(0, Number(row.services_cost_total_cents) || 0)
+  const partialNetCents = resolveOrderPartialNetCents(brutoCents, feeCents, costCents)
+  return resolveOrderCommissionCents(row, { partialNetCents })
+}
+
 async function listOsCommissions (
   supabase: SupabaseClient,
   organizationId: string,
@@ -112,7 +203,7 @@ async function listOsCommissions (
   const { data, error } = await supabase
     .from('service_orders')
     .select(
-      'id, display_number, title, status, closed_at, updated_at, services_total_cents, discount_cents, commission_user_id, commission_kind, commission_fixed_cents, commission_percent, commission_paid_at',
+      'id, display_number, title, status, closed_at, updated_at, services_total_cents, services_cost_total_cents, discount_cents, payment_methods, commission_user_id, commission_kind, commission_fixed_cents, commission_percent, commission_paid_at',
     )
     .eq('organization_id', organizationId)
     .not('commission_user_id', 'is', null)
@@ -127,13 +218,16 @@ async function listOsCommissions (
   }
 
   const rows = (data || []) as OrderRow[]
+  if (rows.length === 0) return []
+
+  const paymentMethods = await loadPaymentMethodsCatalog(supabase, organizationId)
   const items: StaffCommissionItem[] = []
 
   for (const row of rows) {
     const earnedAt = ymd(row.closed_at) || ymd(row.updated_at)
     if (!earnedAt || earnedAt < from || earnedAt > to) continue
 
-    const amountCents = resolveOrderCommissionCents(row)
+    const amountCents = resolveOsCommissionAmountCents(row, paymentMethods)
     if (amountCents <= 0) continue
 
     const userId = String(row.commission_user_id || '').trim() || null

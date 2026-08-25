@@ -57,6 +57,7 @@ export function buildPortalNavConfig ({
 
 	const operacoesItems: PortalNavItem[] = [
 		{ href: '/portal/ordens', label: 'Ordens de serviço' },
+		{ href: '/portal/orcamentos', label: 'Orçamentos' },
 	]
 
 	if (hasWhatsappIntegration) {
