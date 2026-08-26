@@ -44,6 +44,8 @@ export const QUOTE_MANUAL_STATUS_VALUES = QUOTE_STATUS_VALUES.filter(
   (s) => s !== 'convertido',
 )
 
+export const QUOTE_MANUAL_STATUS_SET = new Set<string>(QUOTE_MANUAL_STATUS_VALUES)
+
 export function getQuoteStatusLabel (status: string): string {
   return QUOTE_STATUS_LABELS[status] ?? status
 }
@@ -53,7 +55,7 @@ export function isValidQuoteStatus (value: string): boolean {
 }
 
 export function isManualQuoteStatus (value: string): boolean {
-  return QUOTE_MANUAL_STATUS_VALUES.includes(value as QuoteStatusValue)
+  return QUOTE_MANUAL_STATUS_SET.has(value)
 }
 
 export function canConvertQuoteStatus (status: string): boolean {

@@ -31,7 +31,7 @@ export default async function FinanceiroLojistaPage () {
   if (normalizedRole === 'user') redirect('/portal/minhas-ordens')
   if (normalizedRole === 'staff') redirect('/portal/ordens')
   if (normalizedRole === 'admin' || normalizedRole === 'platform_admin') {
-    redirect('/portal/admin/financeiro-lojas')
+    redirect('/portal/financeiro')
   }
   if (normalizedRole !== 'retailer') redirect('/portal/minhas-ordens')
 
