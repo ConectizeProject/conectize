@@ -57,6 +57,7 @@ export function buildPortalNavConfig ({
 
 	const operacoesItems: PortalNavItem[] = [
 		{ href: '/portal/ordens', label: 'Ordens de serviço' },
+		{ href: '/portal/orcamentos', label: 'Orçamentos' },
 	]
 
 	if (hasWhatsappIntegration) {
@@ -82,7 +83,6 @@ export function buildPortalNavConfig ({
 				{ href: '/portal/admin/usuarios', label: 'Usuários' },
 				{ href: '/portal/hub', label: 'HUB' },
 				{ href: '/portal/financeiro', label: 'Financeiro' },
-				{ href: '/portal/admin/financeiro-lojas', label: 'Financeiro lojas' },
 				{ href: '/portal/relatorios/servicos', label: 'Relatórios' },
 			]),
 		)

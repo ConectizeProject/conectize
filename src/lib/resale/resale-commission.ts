@@ -1,3 +1,5 @@
+import { feePercentForInstallmentCount } from '@/lib/resale/credit-installment-max-fee'
+
 type FeeEntry = {
   payment_method_id: string
   value_cents: number | null
@@ -11,7 +13,7 @@ type PmLike = {
   credit_installment_fees?: Array<{ installments: number; fee_percent: number }>
 }
 
-/** Soma das taxas de maquininha (mesma regra do PATCH de venda). */
+/** Soma das taxas de maquininha (parcela exata ou faixa <= N, senão fee_percent). */
 export function paymentFeeCentsForSaleEntries (
   validEntries: FeeEntry[],
   paymentMethods: PmLike[]
@@ -24,18 +26,26 @@ export function paymentFeeCentsForSaleEntries (
     if (amountCents <= 0) continue
     let feePercent = Number(pm.fee_percent) || 0
     if (pm.type === 'credito' && Array.isArray(pm.credit_installment_fees) && pm.credit_installment_fees.length > 0) {
-      const byInstallments = pm.credit_installment_fees.find(
-        (f) => Number(f.installments) === Number(entry.installments || 1)
+      feePercent = feePercentForInstallmentCount(
+        pm.credit_installment_fees,
+        Math.max(1, Number(entry.installments) || 1),
       )
-      if (byInstallments && byInstallments.fee_percent != null) {
-        feePercent = Number(byInstallments.fee_percent) || 0
-      }
     }
     if (feePercent > 0) {
       paymentFeeCents += Math.floor((amountCents * feePercent) / 100)
     }
   }
   return paymentFeeCents
+}
+
+/** Soma dos value_cents das formas de pagamento. */
+export function paymentGrossCentsForSaleEntries (validEntries: FeeEntry[]): number {
+  let total = 0
+  for (const entry of validEntries) {
+    const amountCents = entry.value_cents ?? 0
+    if (amountCents > 0) total += amountCents
+  }
+  return total
 }
 
 /**

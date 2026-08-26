@@ -44,15 +44,36 @@ export function resolveOrderPayableCents (
   return Math.max(0, (Math.trunc(servicesTotalCents) || 0) - (Math.trunc(discountCents) || 0))
 }
 
-/** Valor da comissão da OS a partir da regra gravada (fixo ou % sobre o líquido). */
-export function resolveOrderCommissionCents (order: {
-  services_total_cents?: unknown
-  discount_cents?: unknown
-  commission_user_id?: unknown
-  commission_kind?: unknown
-  commission_fixed_cents?: unknown
-  commission_percent?: unknown
-} | null | undefined): number {
+/** Líquido parcial da OS: recebido − taxas − custos (base da comissão %). */
+export function resolveOrderPartialNetCents (
+  brutoCents: number,
+  feeCents: number,
+  costCents: number,
+): number {
+  return (
+    (Math.trunc(brutoCents) || 0)
+    - (Math.trunc(feeCents) || 0)
+    - (Math.trunc(costCents) || 0)
+  )
+}
+
+/**
+ * Valor da comissão da OS a partir da regra gravada.
+ * - fixo: `commission_fixed_cents`
+ * - %: sobre `partialNetCents` (líquido parcial = bruto − taxas − custos),
+ *   quando informado; senão fallback legado `services_total − discount`.
+ */
+export function resolveOrderCommissionCents (
+  order: {
+    services_total_cents?: unknown
+    discount_cents?: unknown
+    commission_user_id?: unknown
+    commission_kind?: unknown
+    commission_fixed_cents?: unknown
+    commission_percent?: unknown
+  } | null | undefined,
+  options?: { partialNetCents?: number | null },
+): number {
   if (!order) return 0
   const userId = String(order.commission_user_id || '').trim()
   if (!userId) return 0
@@ -64,12 +85,16 @@ export function resolveOrderCommissionCents (order: {
 
   const percent = parsePercent(order.commission_percent)
   if (percent <= 0) return 0
-  const payable = resolveOrderPayableCents(
-    Number(order.services_total_cents) || 0,
-    Number(order.discount_cents) || 0,
-  )
-  if (payable <= 0) return 0
-  return Math.floor((payable * percent) / 100)
+
+  const base =
+    options?.partialNetCents != null
+      ? Math.max(0, Math.trunc(Number(options.partialNetCents)) || 0)
+      : resolveOrderPayableCents(
+        Number(order.services_total_cents) || 0,
+        Number(order.discount_cents) || 0,
+      )
+  if (base <= 0) return 0
+  return Math.floor((base * percent) / 100)
 }
 
 export type OrderDiscountCommissionDbPayload = {
