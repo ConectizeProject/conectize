@@ -34,6 +34,7 @@ import type { FiscalDocumentDetail } from '@/lib/fiscal/document-types'
 import { maskFci, originRequiresFci } from '@/lib/fiscal/fci'
 import { maskCest, maskNcm } from '@/lib/fiscal/ncm'
 import { isProductFiscalCorrectionError } from '@/lib/fiscal/product-fiscal-errors'
+import { NFE_XNOME_MAX, clampFiscalCustomerName } from '@/lib/fiscal/xml-strings'
 import {
   NFCE_PAYMENT_TYPE_LABELS,
   NFCE_PAYMENT_TYPES,
@@ -166,7 +167,7 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
       setDocument(next)
       setDanfeUrl(data.danfe_url || null)
       setXmlUrl(data.xml_url || null)
-      setCustomerName(next.order?.customer_name || 'Consumidor Final')
+      setCustomerName(clampFiscalCustomerName(next.order?.customer_name || 'Consumidor Final'))
       setCustomerDocument(formatCpfCnpj(next.order?.customer_document || ''))
       setItems(itemsFromDocument(next))
       setPayments(paymentsFromDocument(next))
@@ -236,7 +237,7 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
     setDocument(next)
     setDanfeUrl(data.danfe_url || null)
     setXmlUrl(data.xml_url || null)
-    setCustomerName(next.order?.customer_name || 'Consumidor Final')
+    setCustomerName(clampFiscalCustomerName(next.order?.customer_name || 'Consumidor Final'))
     setCustomerDocument(formatCpfCnpj(next.order?.customer_document || ''))
     setItems(itemsFromDocument(next))
     setPayments(paymentsFromDocument(next))
@@ -500,10 +501,12 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
               <Input
                 id='nf-customer-name'
                 value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
+                onChange={(e) => setCustomerName(clampFiscalCustomerName(e.target.value))}
                 disabled={!editable}
                 autoComplete='off'
+                maxLength={NFE_XNOME_MAX}
               />
+              <p className='text-xs text-muted-foreground'>Máximo 60 caracteres no XML da SEFAZ.</p>
             </div>
             <div className='space-y-2'>
               <Label htmlFor='nf-customer-document'>CPF/CNPJ</Label>

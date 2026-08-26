@@ -55,5 +55,12 @@ export function fiscalRejectionGuidance (
     }
   }
 
+  if (code === '215') {
+    return {
+      summary: 'A SEFAZ recusou o XML porque algum campo foge do leiaute (tamanho, formato ou caractere).',
+      hint: 'O caso mais comum é o nome do destinatário com mais de 60 caracteres. Encurte o nome (e a descrição do item, máx. 120) e reenvie — o mesmo número será reutilizado.',
+    }
+  }
+
   return null
 }
