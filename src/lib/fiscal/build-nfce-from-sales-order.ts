@@ -18,6 +18,21 @@ import {
   type NfceIbscbsPayload,
 } from '@/lib/fiscal/ibscbs'
 import { onlyDigits } from '@/lib/utils/strings'
+import {
+  NFE_CPROD_MAX,
+  NFE_INFCPL_MAX,
+  NFE_NATOP_MAX,
+  NFE_UNID_MAX,
+  NFE_XBAIRRO_MAX,
+  NFE_XCPL_MAX,
+  NFE_XFANT_MAX,
+  NFE_XLGR_MAX,
+  NFE_XMUN_MAX,
+  NFE_XNOME_MAX,
+  NFE_XNRO_MAX,
+  NFE_XPROD_MAX,
+  nfeXmlText,
+} from '@/lib/fiscal/xml-strings'
 
 type FiscalProfileRow = {
   legal_name?: string | null
@@ -157,7 +172,7 @@ function buildDestinatario (
   const document = onlyDigits(order.customer_document || '')
   const name = isHomologacao
     ? HOMOLOGACAO_DEST_NAME
-    : (requiredText(order.customer_name) || 'Consumidor')
+    : (nfeXmlText(order.customer_name, NFE_XNOME_MAX) || 'Consumidor')
 
   if (document.length === 11) {
     return { cpf: document, nome: name, indicadorIE: 9 as const }
@@ -219,10 +234,10 @@ async function buildNfeDestinatario (input: {
   }
 
   const customer = await loadCustomerAddress(input.supabase, input.organizationId, document)
-  const street = requiredText(customer?.street)
-  const number = requiredText(customer?.street_number)
-  const district = requiredText(customer?.neighborhood)
-  const city = requiredText(customer?.city)
+  const street = nfeXmlText(customer?.street, NFE_XLGR_MAX)
+  const number = nfeXmlText(customer?.street_number, NFE_XNRO_MAX)
+  const district = nfeXmlText(customer?.neighborhood, NFE_XBAIRRO_MAX)
+  const city = nfeXmlText(customer?.city, NFE_XMUN_MAX)
   const destUf = requiredText(customer?.state).toUpperCase()
   const cep = onlyDigits(customer?.zip_code || '')
   if (!street || !number || !district || !city || destUf.length !== 2 || cep.length !== 8) {
@@ -250,7 +265,7 @@ async function buildNfeDestinatario (input: {
 
   const name = input.isHomologacao
     ? HOMOLOGACAO_DEST_NAME
-    : (requiredText(input.order.customer_name) || 'Destinatário')
+    : (nfeXmlText(input.order.customer_name, NFE_XNOME_MAX) || 'Destinatário')
 
   return {
     ok: true,
@@ -262,7 +277,7 @@ async function buildNfeDestinatario (input: {
       endereco: {
         logradouro: street,
         numero: number,
-        complemento: requiredText(customer?.street_complement) || undefined,
+        complemento: nfeXmlText(customer?.street_complement, NFE_XCPL_MAX) || undefined,
         bairro: district,
         codigoMunicipio,
         municipio: city,
@@ -371,7 +386,7 @@ export async function buildNfceFromSalesOrder (input: BuildNfceInput): Promise<B
     if (!product) {
       return { ok: false, error: 'product_not_found', message: 'Um item da venda não possui produto vinculado.' }
     }
-    const productName = requiredText(product.name) || 'Produto'
+    const productName = nfeXmlText(product.name, NFE_XPROD_MAX) || 'Produto'
     if (isNfceServiceItem(product.kind)) {
       return {
         ok: false,
@@ -432,12 +447,15 @@ export async function buildNfceFromSalesOrder (input: BuildNfceInput): Promise<B
 
     produtos.push({
       numero: index + 1,
-      codigo: requiredText(product.sku) || requiredText(product.id) || String(index + 1),
-      descricao: requiredText(product.name) || 'Produto',
+      codigo: nfeXmlText(product.sku, NFE_CPROD_MAX) || nfeXmlText(product.id, NFE_CPROD_MAX) || String(index + 1),
+      descricao: productName,
       ncm,
       ...(cest ? { cest } : {}),
       cfop,
-      unidade: productTaxValue(product.fiscal_unit, operationNature?.default_unit ?? profile.default_unit) || 'UN',
+      unidade: nfeXmlText(
+        productTaxValue(product.fiscal_unit, operationNature?.default_unit ?? profile.default_unit),
+        NFE_UNID_MAX,
+      ) || 'UN',
       quantidade: quantity,
       valorUnitario,
       valorTotal,
@@ -487,7 +505,7 @@ export async function buildNfceFromSalesOrder (input: BuildNfceInput): Promise<B
   const payload: NFeProps & NfceIbscbsPayload = {
     identificacao: {
       modelo: model,
-      naturezaOperacao: requiredText(operationNature?.description) || 'Venda de mercadoria',
+      naturezaOperacao: nfeXmlText(operationNature?.description, NFE_NATOP_MAX) || 'Venda de mercadoria',
       tipoOperacao: 1,
       destinoOperacao: destUf && destUf !== uf ? 2 : 1,
       finalidade: 1,
@@ -504,18 +522,18 @@ export async function buildNfceFromSalesOrder (input: BuildNfceInput): Promise<B
     },
     emitente: {
       cnpj,
-      razaoSocial: requiredText(profile.legal_name),
-      nomeFantasia: requiredText(profile.trade_name) || undefined,
+      razaoSocial: nfeXmlText(profile.legal_name, NFE_XNOME_MAX),
+      nomeFantasia: nfeXmlText(profile.trade_name, NFE_XFANT_MAX) || undefined,
       inscricaoEstadual: ie,
       inscricaoMunicipal: requiredText(profile.municipal_registration) || undefined,
       regimeTributario: taxRegimeCode(profile.tax_regime),
       endereco: {
-        logradouro: requiredText(profile.street),
-        numero: requiredText(profile.number),
-        complemento: requiredText(profile.complement) || undefined,
-        bairro: requiredText(profile.district),
+        logradouro: nfeXmlText(profile.street, NFE_XLGR_MAX),
+        numero: nfeXmlText(profile.number, NFE_XNRO_MAX),
+        complemento: nfeXmlText(profile.complement, NFE_XCPL_MAX) || undefined,
+        bairro: nfeXmlText(profile.district, NFE_XBAIRRO_MAX),
         codigoMunicipio: ibgeCityCode,
-        municipio: requiredText(profile.city),
+        municipio: nfeXmlText(profile.city, NFE_XMUN_MAX),
         uf,
         cep: onlyDigits(profile.zip_code || ''),
       },
@@ -527,7 +545,10 @@ export async function buildNfceFromSalesOrder (input: BuildNfceInput): Promise<B
       pagamentos,
       troco: centsToValue(resolvedPayments.changeCents),
     },
-    informacoesComplementares: `Venda Conectize #${order.order_number}`,
+    informacoesComplementares: nfeXmlText(
+      `Venda Conectize #${order.order_number}`,
+      NFE_INFCPL_MAX,
+    ),
     ...(ibscbsConfig.include
       ? {
         ibscbsItems,

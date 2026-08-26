@@ -26,6 +26,7 @@ import {
 } from '@/lib/utils/money'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { onlyDigits } from '@/lib/utils/strings'
+import { clampFiscalCustomerName } from '@/lib/fiscal/xml-strings'
 import { toast } from '@/hooks/use-toast'
 import { appConfirm, appPrompt } from '@/lib/ui/app-dialogs'
 import { SalesOrderAfterSaleActions } from '@/app/(portal)/portal/vendas/SalesOrderAfterSaleActions'
@@ -126,7 +127,7 @@ function applyCustomerFields (customer: CustomerHit | null) {
       customerDocument: '',
     }
   }
-  const name = getCustomerDisplayName(customer).trim() || 'Consumidor Final'
+  const name = clampFiscalCustomerName(getCustomerDisplayName(customer).trim() || 'Consumidor Final')
   const doc = getCustomerDocumentDigits(customer)
   return {
     customerName: name,

@@ -8,6 +8,11 @@ import {
 
 export { mapSalesOrdersWithFinancePosted }
 import { toDbCustomerType } from '@/lib/sales-orders/customer-type'
+import { nfeXmlText, NFE_XNOME_MAX } from '@/lib/fiscal/xml-strings'
+
+function salesOrderCustomerName (value: unknown) {
+  return nfeXmlText(value, NFE_XNOME_MAX) || 'Consumidor Final'
+}
 
 export type SalesOrderItemInput = {
   product_id: string
@@ -405,7 +410,7 @@ export async function createSalesOrder (
       cash_session_id: cashSessionId,
       status: 'in_progress',
       seller_user_id: auth.userId,
-      customer_name: draft.customer_name ?? 'Consumidor Final',
+      customer_name: salesOrderCustomerName(draft.customer_name ?? 'Consumidor Final'),
       customer_type: toDbCustomerType(draft.customer_type ?? 'pf'),
       customer_document: draft.customer_document ?? null,
       subtotal_cents: totals.subtotalCents,
@@ -510,7 +515,7 @@ export async function updateSalesOrderDraft (
   }
 
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
-  if (draft.customer_name !== undefined) patch.customer_name = draft.customer_name
+  if (draft.customer_name !== undefined) patch.customer_name = salesOrderCustomerName(draft.customer_name)
   if (draft.customer_type !== undefined) patch.customer_type = toDbCustomerType(draft.customer_type)
   if (draft.customer_document !== undefined) patch.customer_document = draft.customer_document
 

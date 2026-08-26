@@ -2,6 +2,7 @@ import 'server-only'
 import type { PortalAuthStaffSuccess } from '@/lib/auth/portal-api'
 import { toDbCustomerType } from '@/lib/sales-orders/customer-type'
 import { onlyDigits } from '@/lib/utils/strings'
+import { nfeXmlText, NFE_XNOME_MAX } from '@/lib/fiscal/xml-strings'
 import {
   canEditFiscalDocument,
   type FiscalDocumentStatus,
@@ -260,7 +261,7 @@ export async function updateFiscalDocumentDraft (
   const orderPatch: Record<string, unknown> = { updated_at: new Date().toISOString() }
   if (input.customerName !== undefined) {
     const name = String(input.customerName || '').trim()
-    orderPatch.customer_name = name || 'Consumidor Final'
+    orderPatch.customer_name = nfeXmlText(name, NFE_XNOME_MAX) || 'Consumidor Final'
   }
   if (input.customerDocument !== undefined) {
     const digits = onlyDigits(input.customerDocument)

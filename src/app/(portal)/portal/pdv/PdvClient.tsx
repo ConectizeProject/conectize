@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { isSafeProductListImageUrl } from '@/app/(portal)/portal/produtos/product-list-shared'
 import { fiscalEmitFailureMessage } from '@/lib/fiscal/emit-failure-message'
+import { NFE_XNOME_MAX, clampFiscalCustomerName } from '@/lib/fiscal/xml-strings'
 import { isBrowserOffline, portalFetch } from '@/lib/portal/portal-fetch'
 import { maskedFromCents, moneyToCentsFromMasked, formatMoneyInput } from '@/lib/utils/money'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
@@ -965,7 +966,7 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
     skipCustomerNameSearchRef.current = true
     skipCustomerDocLookupRef.current = true
     setCustomerId(String(row.id))
-    setCustomerName(name || (isCompany ? 'Empresa' : 'Cliente'))
+    setCustomerName(clampFiscalCustomerName(name || (isCompany ? 'Empresa' : 'Cliente')))
     setCustomerDocument(formatCpfCnpj(digits))
     setCustomerMatches([])
     setShowCustomerDropdown(false)
@@ -1267,7 +1268,7 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
     skipCustomerDocLookupRef.current = true
     setCurrentOrderId(data.order.id)
     setCurrentOrderNumber(data.order.order_number)
-    setCustomerName(data.order.customer_name || 'Consumidor Final')
+    setCustomerName(clampFiscalCustomerName(data.order.customer_name || 'Consumidor Final'))
     setCustomerDocument(formatCpfCnpj(String(data.order.customer_document || '')))
     setCustomerId(null)
     setCustomerMatches([])
@@ -2246,12 +2247,13 @@ export function PdvClient ({ sellerName, organizationId = null }: PdvClientProps
                         value={customerName}
                         onChange={(e) => {
                           setCustomerId(null)
-                          setCustomerName(e.target.value)
+                          setCustomerName(clampFiscalCustomerName(e.target.value))
                         }}
                         onFocus={() => {
                           if (customerMatches.length > 0) setShowCustomerDropdown(true)
                         }}
                         autoComplete='off'
+                        maxLength={NFE_XNOME_MAX}
                         placeholder='Consumidor Final ou busque no cadastro'
                         className={cn(
                           (loadingCustomers || customerId) && 'pr-9',
