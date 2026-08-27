@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import {
   ArrowDownLeft,
@@ -130,6 +130,39 @@ function StockSection ({
   )
 }
 
+function isMovement (raw: unknown): raw is Movement {
+  if (!raw || typeof raw !== 'object') return false
+  const m = raw as Record<string, unknown>
+  if (typeof m.id !== 'string' || !m.id) return false
+  const type = m.type
+  return type === 'entry' || type === 'exit' || type === 'loss' || type === 'balance'
+}
+
+function parseMovement (raw: unknown, fallbackProductId: string): Movement | null {
+  if (!isMovement(raw)) return null
+  return {
+    id: raw.id,
+    productId: typeof raw.productId === 'string' ? raw.productId : fallbackProductId,
+    type: raw.type,
+    quantity: Number(raw.quantity) || 0,
+    unitValueCents: Number(raw.unitValueCents) || 0,
+    totalValueCents: Number(raw.totalValueCents) || 0,
+    source: typeof raw.source === 'string' ? raw.source : 'manual',
+    externalReference: typeof raw.externalReference === 'string' ? raw.externalReference : null,
+    salesOrderId: typeof raw.salesOrderId === 'string' ? raw.salesOrderId : null,
+    salesOrderNumber: typeof raw.salesOrderNumber === 'number' ? raw.salesOrderNumber : null,
+    serviceOrderId: typeof raw.serviceOrderId === 'string' ? raw.serviceOrderId : null,
+    serviceOrderNumber: typeof raw.serviceOrderNumber === 'number' ? raw.serviceOrderNumber : null,
+    createdAt: typeof raw.createdAt === 'string' && raw.createdAt
+      ? raw.createdAt
+      : new Date().toISOString(),
+  }
+}
+
+function movementKey (id: string) {
+  return String(id || '').trim().toLowerCase()
+}
+
 function originCell (m: Movement) {
   const ref = String(m.externalReference || '')
   if (m.source === 'sales_order' || m.salesOrderId) {
@@ -200,7 +233,8 @@ type Props = {
   initialStock?: number
   /** Quando falso, não busca (ex.: aba inativa). */
   active?: boolean
-  onSuccess?: () => void
+  /** Saldo após criar/excluir movimento — sem recarregar a página. */
+  onStockChange?: (currentStock: number) => void
 }
 
 export function ProductStockPanel ({
@@ -209,7 +243,7 @@ export function ProductStockPanel ({
   costPriceCents,
   initialStock = 0,
   active = true,
-  onSuccess,
+  onStockChange,
 }: Props) {
   const { toast } = useToast()
   const [data, setData] = useState<StockData | null>(null)
@@ -220,14 +254,18 @@ export function ProductStockPanel ({
   const [quantity, setQuantity] = useState('1')
   const [unitValue, setUnitValue] = useState('')
   const [page, setPage] = useState(1)
+  const fetchGenRef = useRef(0)
 
-  const fetchStock = useCallback(async (pageToLoad = 1) => {
+  const fetchStock = useCallback(async (pageToLoad = 1, options?: { silent?: boolean }) => {
     if (!productId || !active) return
-    setLoading(true)
+    const gen = ++fetchGenRef.current
+    if (!options?.silent) setLoading(true)
     try {
       const res = await fetch(
         `/api/portal/produtos/${productId}/estoque?page=${pageToLoad}&pageSize=${PAGE_SIZE}`,
+        { cache: 'no-store' },
       )
+      if (gen !== fetchGenRef.current) return
       if (res.ok) {
         const json = await res.json() as {
           currentStock?: number
@@ -244,13 +282,16 @@ export function ProductStockPanel ({
           pageSize: json.pageSize ?? PAGE_SIZE,
         })
         setPage(json.page ?? pageToLoad)
-      } else {
+      } else if (!options?.silent) {
         setData({ currentStock: initialStock, movements: [], total: 0, page: 1, pageSize: PAGE_SIZE })
       }
     } catch {
-      setData({ currentStock: initialStock, movements: [], total: 0, page: 1, pageSize: PAGE_SIZE })
+      if (gen !== fetchGenRef.current) return
+      if (!options?.silent) {
+        setData({ currentStock: initialStock, movements: [], total: 0, page: 1, pageSize: PAGE_SIZE })
+      }
     } finally {
-      setLoading(false)
+      if (!options?.silent && gen === fetchGenRef.current) setLoading(false)
     }
   }, [productId, initialStock, active])
 
@@ -333,8 +374,35 @@ export function ProductStockPanel ({
           toast({ title: successTitle })
         }
         setQuantity('1')
-        await fetchStock(1)
-        onSuccess?.()
+        const created = parseMovement(json.movement, productId)
+        const nextStock = typeof json.currentStock === 'number' ? json.currentStock : null
+        const onFirstPage = (data?.page ?? 1) === 1
+        fetchGenRef.current += 1
+        if (created && onFirstPage) {
+          setData((prev) => {
+            const pageSize = prev?.pageSize ?? PAGE_SIZE
+            const existing = prev?.movements ?? []
+            const createdKey = movementKey(created.id)
+            const withoutDup = existing.filter((item) => movementKey(item.id) !== createdKey)
+            return {
+              currentStock: nextStock ?? prev?.currentStock ?? 0,
+              movements: [created, ...withoutDup].slice(0, pageSize),
+              total: (prev?.total ?? 0) + 1,
+              page: 1,
+              pageSize,
+            }
+          })
+          setPage(1)
+        } else if (created) {
+          await fetchStock(1, { silent: true })
+        } else if (nextStock != null) {
+          setData((prev) => (
+            prev
+              ? { ...prev, currentStock: nextStock }
+              : prev
+          ))
+        }
+        if (nextStock != null) onStockChange?.(nextStock)
       } else {
         let description = 'Não foi possível salvar o movimento.'
         try {
@@ -377,7 +445,7 @@ export function ProductStockPanel ({
       ? 'text-destructive'
       : currentStock === 0
         ? 'text-amber-700 dark:text-amber-400'
-        : 'text-foreground'
+        : 'text-emerald-700 dark:text-emerald-400'
 
   async function handleDeleteMovement (m: Movement) {
     if (!(await appConfirm({
@@ -394,10 +462,28 @@ export function ProductStockPanel ({
         { method: 'DELETE' },
       )
       if (res.ok) {
+        const json = await res.json().catch(() => ({})) as { currentStock?: number }
         toast({ title: 'Lançamento excluído' })
-        const nextPage = movements.length === 1 && page > 1 ? page - 1 : page
-        await fetchStock(nextPage)
-        onSuccess?.()
+        const nextStock = typeof json.currentStock === 'number' ? json.currentStock : null
+        const deletedKey = movementKey(m.id)
+        const leavingEmptyPage = movements.length === 1 && page > 1
+        const nextPage = leavingEmptyPage ? page - 1 : page
+        fetchGenRef.current += 1
+        setData((prev) => {
+          if (!prev) return prev
+          const nextMovements = prev.movements.filter((item) => movementKey(item.id) !== deletedKey)
+          const removed = nextMovements.length !== prev.movements.length
+          return {
+            ...prev,
+            currentStock: nextStock ?? prev.currentStock,
+            movements: nextMovements,
+            total: Math.max(0, prev.total - (removed ? 1 : 0)),
+            page: nextPage,
+          }
+        })
+        setPage(nextPage)
+        await fetchStock(nextPage, { silent: true })
+        if (nextStock != null) onStockChange?.(nextStock)
       } else {
         let description = 'Não foi possível excluir o lançamento.'
         try {
