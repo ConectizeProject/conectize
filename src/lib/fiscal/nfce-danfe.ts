@@ -136,7 +136,7 @@ export async function buildNfceDanfeHtml (
     }),
     payments: cupomPayments,
     fiscal: {
-      title: 'DANFE NFC-e - Documento Auxiliar da Nota Fiscal de Consumidor Eletrônica',
+      title: 'DANFE NFC-e - Nota Fiscal de Consumidor Eletrônica',
       accessKey: fiscalDocument.access_key ?? null,
       protocol: fiscalDocument.protocol ?? null,
       qrCodeUrl,

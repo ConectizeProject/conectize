@@ -15,17 +15,25 @@ export async function GET (request: NextRequest) {
   const status = String(request.nextUrl.searchParams.get('status') || '').trim()
   const from = String(request.nextUrl.searchParams.get('from') || '').trim()
   const to = String(request.nextUrl.searchParams.get('to') || '').trim()
+  const pageParam = request.nextUrl.searchParams.get('page')
 
   const result = await listFiscalDocuments(auth, {
     model,
     status: status || undefined,
     from: from || undefined,
     to: to || undefined,
+    page: pageParam == null ? undefined : Number.parseInt(pageParam, 10),
   })
 
   if (!result.ok) {
     return NextResponse.json({ ok: false, error: result.error }, { status: 500 })
   }
 
-  return NextResponse.json({ ok: true, documents: result.documents })
+  return NextResponse.json({
+    ok: true,
+    documents: result.documents,
+    total: result.total,
+    page: result.page,
+    pageSize: result.pageSize,
+  })
 }

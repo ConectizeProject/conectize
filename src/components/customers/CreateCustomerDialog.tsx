@@ -47,6 +47,8 @@ export type CustomerHit = {
   birth_date?: string | null
   referral_source?: string | null
   referral_source_other?: string | null
+  state_registration?: string | null
+  state_registration_exempt?: boolean | null
 }
 
 type Props = {
@@ -118,6 +120,8 @@ export function CreateCustomerDialog(props: Props) {
   const [street, setStreet] = useState('')
   const [streetNumber, setStreetNumber] = useState('')
   const [streetComplement, setStreetComplement] = useState('')
+  const [stateRegistration, setStateRegistration] = useState('')
+  const [stateRegistrationExempt, setStateRegistrationExempt] = useState(false)
 
   const [isLookingUpZipCode, setIsLookingUpZipCode] = useState(false)
   const [zipCodeLookupError, setZipCodeLookupError] = useState<string | null>(null)
@@ -153,6 +157,8 @@ export function CreateCustomerDialog(props: Props) {
     setStreet(isEdit ? String(props.customer?.street || '') : '')
     setStreetNumber(isEdit ? String(props.customer?.street_number || '') : '')
     setStreetComplement(isEdit ? String(props.customer?.street_complement || '') : '')
+    setStateRegistration(isEdit ? String(props.customer?.state_registration || '') : '')
+    setStateRegistrationExempt(isEdit ? props.customer?.state_registration_exempt === true : false)
 
     setZipCodeLookupError(null)
     setErrorMessage(null)
@@ -240,6 +246,8 @@ export function CreateCustomerDialog(props: Props) {
       birthDate: birthDate.trim(),
       referralSource: referralSource.trim(),
       referralSourceOther: referralSourceOther.trim(),
+      stateRegistration: isCompany ? stateRegistration.trim() : '',
+      stateRegistrationExempt: isCompany ? stateRegistrationExempt : false,
     }
   }
 
@@ -277,6 +285,8 @@ export function CreateCustomerDialog(props: Props) {
       birth_date: birthDate.trim() || null,
       referral_source: referralSource.trim() || null,
       referral_source_other: referralSourceOther.trim() || null,
+      state_registration: isCompany ? (stateRegistration.trim() || null) : null,
+      state_registration_exempt: isCompany ? stateRegistrationExempt : false,
     })
 
     props.onOpenChange(false)
@@ -419,6 +429,8 @@ export function CreateCustomerDialog(props: Props) {
         birth_date: c.birth_date != null ? String(c.birth_date) : null,
         referral_source: c.referral_source != null ? String(c.referral_source) : null,
         referral_source_other: c.referral_source_other != null ? String(c.referral_source_other) : null,
+        state_registration: c.state_registration != null ? String(c.state_registration) : null,
+        state_registration_exempt: c.state_registration_exempt === true,
       })
       props.onOpenChange(false)
     } catch {
@@ -542,6 +554,35 @@ export function CreateCustomerDialog(props: Props) {
               <div className="space-y-2">
                 <Label htmlFor="tradeName">Nome fantasia (opcional)</Label>
                 <Input id="tradeName" value={tradeName} onChange={(e) => setTradeName(e.target.value)} placeholder="Ex: Nome fantasia" />
+              </div>
+            ) : null}
+
+            {isCompany ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <Label htmlFor="stateRegistration">Inscrição estadual</Label>
+                  <label htmlFor="stateRegistrationExempt" className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <input
+                      id="stateRegistrationExempt"
+                      type="checkbox"
+                      checked={stateRegistrationExempt}
+                      onChange={(event) => setStateRegistrationExempt(event.target.checked)}
+                      className="h-3.5 w-3.5"
+                    />
+                    Isento
+                  </label>
+                </div>
+                <Input
+                  id="stateRegistration"
+                  value={stateRegistrationExempt ? '' : stateRegistration}
+                  onChange={(e) => setStateRegistration(e.target.value)}
+                  disabled={stateRegistrationExempt}
+                  autoComplete="off"
+                  placeholder={stateRegistrationExempt ? 'Isento' : 'IE do destinatário'}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Obrigatória na NF-e para CNPJ contribuinte de ICMS.
+                </p>
               </div>
             ) : null}
 

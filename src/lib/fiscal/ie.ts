@@ -35,3 +35,37 @@ export function fiscalIeOrNull (value: unknown, uf?: string | null) {
   if (!length || digits.length >= length) return digits
   return digits.padStart(length, '0')
 }
+
+export type NfeDestinatarioIe = {
+  indicadorIE: 1 | 2 | 9
+  inscricaoEstadual?: string
+}
+
+export function resolveNfeDestinatarioIe (input: {
+  documentDigits: string
+  stateRegistration?: string | null
+  stateRegistrationExempt?: boolean | null
+  destUf?: string | null
+}):
+  | { ok: true, value: NfeDestinatarioIe }
+  | { ok: false, error: 'nfe_customer_ie_required', message: string } {
+  const document = onlyDigits(input.documentDigits)
+  if (document.length !== 14) {
+    return { ok: true, value: { indicadorIE: 9 } }
+  }
+
+  if (input.stateRegistrationExempt === true) {
+    return { ok: true, value: { indicadorIE: 2 } }
+  }
+
+  const ie = fiscalIeOrNull(input.stateRegistration, input.destUf)
+  if (!ie) {
+    return {
+      ok: false,
+      error: 'nfe_customer_ie_required',
+      message: 'Informe a inscrição estadual do destinatário ou marque como isento.',
+    }
+  }
+
+  return { ok: true, value: { indicadorIE: 1, inscricaoEstadual: ie } }
+}

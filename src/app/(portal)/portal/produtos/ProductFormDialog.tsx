@@ -39,6 +39,8 @@ type Props = {
   initialEditTab?: 'dados' | 'variacoes' | 'estoque'
   onOpenChange: (open: boolean) => void
   onSuccess?: () => void
+  /** Atualiza o saldo na lista sem recarregar a página. */
+  onStockChange?: (productId: string, currentStock: number) => void
   onNavigateToProductId?: (id: string) => void
   onCreateVariationFromParent?: (parent: { id: string, name: string, blingId: string | null }) => void
 }
@@ -84,6 +86,7 @@ export function ProductFormDialog ({
   initialEditTab,
   onOpenChange,
   onSuccess,
+  onStockChange,
   onNavigateToProductId,
   onCreateVariationFromParent,
 }: Props) {
@@ -1040,9 +1043,8 @@ export function ProductFormDialog ({
                           costPriceCents={loadedProduct.costPriceCents}
                           initialStock={0}
                           active={editTab === 'estoque'}
-                          onSuccess={() => {
-                            void loadEdit()
-                            onSuccess?.()
+                          onStockChange={(currentStock) => {
+                            onStockChange?.(productId, currentStock)
                           }}
                         />
                       ) : null}

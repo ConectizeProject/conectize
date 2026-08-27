@@ -5,6 +5,10 @@ import { blingProdutoApiPath, createBlingClientFromConnection } from '@/lib/inte
 import { createProductSyncSnapshot } from '@/lib/products/bling-sync'
 import { allocateCatalogSortKeyForInsert } from '@/lib/products/catalog-sort-key'
 import { fetchProductIsStockless } from '@/lib/products/parent-has-variations'
+import {
+  hasPortalStockMarker,
+  PORTAL_STOCK_EXTERNAL_REF_PREFIX,
+} from '@/lib/integrations/bling/push-stock-movement'
 
 const PLATFORM_ID = 'bling'
 
@@ -167,6 +171,37 @@ async function getProductCurrentStockLocal (supabase: ServiceClient, productId: 
     else if (type === 'exit' || type === 'loss') balance -= q
   }
   return balance
+}
+
+/** Lançamento recente originado no portal (não no webhook) — eco do POST /estoques. */
+async function hasRecentPortalStockEcho (
+  supabase: ServiceClient,
+  params: {
+    organizationId: string
+    productId: string
+    movementType: 'entry' | 'exit'
+    quantity: number
+  },
+): Promise<boolean> {
+  const since = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+  const { data } = await supabase
+    .from('product_stock_movements')
+    .select('id, source, external_reference')
+    .eq('organization_id', params.organizationId)
+    .eq('product_id', params.productId)
+    .eq('type', params.movementType)
+    .eq('quantity', params.quantity)
+    .gte('created_at', since)
+    .limit(20)
+
+  return (data ?? []).some((row) => {
+    const ref = String((row as { external_reference?: string | null }).external_reference || '')
+    if (ref.startsWith('bling:stock.created:') || ref.startsWith('webhook_')) return false
+    if (ref.startsWith(PORTAL_STOCK_EXTERNAL_REF_PREFIX)) return true
+    if (ref.startsWith('service_order:')) return true
+    const source = String((row as { source?: string }).source || '')
+    return source === 'manual' || source === 'service_order' || source === 'sales_order' || source === 'nfe_entrada' || source === 'pdv_sale'
+  })
 }
 
 async function fetchBlingProductLatest (
@@ -529,68 +564,81 @@ export async function processBlingWebhook (
         throw new Error('product_not_found')
       }
 
-      if (await fetchProductIsStockless(supabase, productId)) {
-        // Serviço ou pai: estoque só em produto simples / variações.
-      } else {
-      const { data: existingMov } = await supabase
-        .from('product_stock_movements')
-        .select('id')
-        .eq('organization_id', organizationId)
-        .eq('external_reference', effect.externalReference)
-        .limit(1)
-        .maybeSingle()
+      const skipStockless = await fetchProductIsStockless(supabase, productId)
+      const skipPortalEcho = hasPortalStockMarker(effect.observacoes)
+        || hasPortalStockMarker(parsed.raw)
+      const echoType = effect.blingOperacao === 'E' ? 'entry' : 'exit'
+      const skipMatchingPortalPush = !skipStockless && !skipPortalEcho
+        && await hasRecentPortalStockEcho(supabase, {
+          organizationId,
+          productId,
+          movementType: echoType,
+          quantity: effect.blingQuantidade,
+        })
 
-      if (existingMov?.id) {
-        // Idempotente: mesmo eventId do Bling já foi aplicado
-      } else {
-        const currentLocal = await getProductCurrentStockLocal(supabase, productId)
-        let diff: number
-        if (effect.targetVirtualStock != null) {
-          // Alinha com o saldo virtual informado pelo Bling (total ou depósito)
-          diff = effect.targetVirtualStock - currentLocal
-        } else {
-          // Sem saldo virtual no payload: aplica só o delta E/S + quantidade
-          diff = effect.blingOperacao === 'E'
-            ? effect.blingQuantidade
-            : -effect.blingQuantidade
-        }
+      if (!skipStockless && !skipPortalEcho && !skipMatchingPortalPush) {
+        const { data: existingMov } = await supabase
+          .from('product_stock_movements')
+          .select('id')
+          .eq('organization_id', organizationId)
+          .eq('external_reference', effect.externalReference)
+          .limit(1)
+          .maybeSingle()
 
-        if (diff === 0) {
-          // Já bate com o virtual do Bling; nada a lançar
-        } else {
-          const movementType = diff > 0 ? 'entry' : 'exit'
-          const qty = Math.abs(diff)
-          const { data: prod } = await supabase
-            .from('products')
-            .select('cost_price_cents, sale_price_cents')
-            .eq('id', productId)
-            .maybeSingle()
-          const unitCents = (prod as { cost_price_cents?: number })?.cost_price_cents
-            ?? (prod as { sale_price_cents?: number })?.sale_price_cents
-            ?? 0
-          const insertRow: Record<string, unknown> = {
-            organization_id: organizationId,
-            product_id: productId,
-            type: movementType,
-            quantity: qty,
-            unit_value_cents: unitCents,
-            total_value_cents: qty * unitCents,
-            source: 'bling',
-            external_reference: effect.externalReference,
+        if (!existingMov?.id) {
+          const currentLocal = await getProductCurrentStockLocal(supabase, productId)
+          let diff: number
+          if (effect.targetVirtualStock != null) {
+            diff = effect.targetVirtualStock - currentLocal
+          } else {
+            diff = effect.blingOperacao === 'E'
+              ? effect.blingQuantidade
+              : -effect.blingQuantidade
           }
-          if (actorUserId) insertRow.created_by = actorUserId
-          if (effect.occurredAtIso) {
-            const parsedDate = new Date(effect.occurredAtIso)
-            if (!Number.isNaN(parsedDate.getTime())) {
-              insertRow.created_at = parsedDate.toISOString()
+
+          if (diff !== 0) {
+            const movementType = diff > 0 ? 'entry' : 'exit'
+            const qty = Math.abs(diff)
+            const looksLikePortalEcho = await hasRecentPortalStockEcho(supabase, {
+              organizationId,
+              productId,
+              movementType,
+              quantity: qty,
+            })
+
+            if (!looksLikePortalEcho) {
+              const { data: prod } = await supabase
+                .from('products')
+                .select('cost_price_cents, sale_price_cents')
+                .eq('id', productId)
+                .maybeSingle()
+              const unitCents = (prod as { cost_price_cents?: number })?.cost_price_cents
+                ?? (prod as { sale_price_cents?: number })?.sale_price_cents
+                ?? 0
+              const insertRow: Record<string, unknown> = {
+                organization_id: organizationId,
+                product_id: productId,
+                type: movementType,
+                quantity: qty,
+                unit_value_cents: unitCents,
+                total_value_cents: qty * unitCents,
+                source: 'bling',
+                external_reference: effect.externalReference,
+              }
+              if (actorUserId) insertRow.created_by = actorUserId
+              if (effect.occurredAtIso) {
+                const parsedDate = new Date(effect.occurredAtIso)
+                if (!Number.isNaN(parsedDate.getTime())) {
+                  insertRow.created_at = parsedDate.toISOString()
+                }
+              }
+              const { error: movError } = await supabase
+                .from('product_stock_movements')
+                .insert(insertRow)
+              if (movError) throw movError
             }
           }
-          const { error: movError } = await supabase
-            .from('product_stock_movements')
-            .insert(insertRow)
-          if (movError) throw movError
         }
-      }
       }
     }
 
@@ -600,30 +648,39 @@ export async function processBlingWebhook (
         throw new Error('product_not_found')
       }
       if (!(await fetchProductIsStockless(supabase, productId))) {
-      const currentStock = await getProductCurrentStockLocal(supabase, productId)
-      const diff = effect.estoqueAtual - currentStock
-      if (diff !== 0 && actorUserId) {
-        const { data: prod } = await supabase
-          .from('products')
-          .select('cost_price_cents, sale_price_cents')
-          .eq('id', productId)
-          .maybeSingle()
-        const unitCents = (prod as { cost_price_cents?: number })?.cost_price_cents ?? (prod as { sale_price_cents?: number })?.sale_price_cents ?? 0
-        const { error: movError } = await supabase
-          .from('product_stock_movements')
-          .insert({
-            organization_id: organizationId,
-            product_id: productId,
-            type: diff > 0 ? 'entry' : 'exit',
-            quantity: Math.abs(diff),
-            unit_value_cents: unitCents,
-            total_value_cents: Math.abs(diff) * unitCents,
-            source: 'bling',
-            external_reference: `webhook_${id}`,
-            created_by: actorUserId,
-          })
-        if (movError) throw movError
-      }
+        const currentStock = await getProductCurrentStockLocal(supabase, productId)
+        const diff = effect.estoqueAtual - currentStock
+        const movementType = diff > 0 ? 'entry' : 'exit'
+        const qty = Math.abs(diff)
+        const skipPortalEcho = hasPortalStockMarker(parsed.raw)
+          || (diff !== 0 && await hasRecentPortalStockEcho(supabase, {
+            organizationId,
+            productId,
+            movementType,
+            quantity: qty,
+          }))
+        if (diff !== 0 && actorUserId && !skipPortalEcho) {
+          const { data: prod } = await supabase
+            .from('products')
+            .select('cost_price_cents, sale_price_cents')
+            .eq('id', productId)
+            .maybeSingle()
+          const unitCents = (prod as { cost_price_cents?: number })?.cost_price_cents ?? (prod as { sale_price_cents?: number })?.sale_price_cents ?? 0
+          const { error: movError } = await supabase
+            .from('product_stock_movements')
+            .insert({
+              organization_id: organizationId,
+              product_id: productId,
+              type: movementType,
+              quantity: qty,
+              unit_value_cents: unitCents,
+              total_value_cents: qty * unitCents,
+              source: 'bling',
+              external_reference: `webhook_${id}`,
+              created_by: actorUserId,
+            })
+          if (movError) throw movError
+        }
       }
     }
 

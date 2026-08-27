@@ -62,5 +62,12 @@ export function fiscalRejectionGuidance (
     }
   }
 
+  if (code === '501') {
+    return {
+      summary: 'A SEFAZ recusou o cancelamento porque o prazo legal já passou.',
+      hint: 'NFC-e: 30 minutos após a autorização. NF-e: 24 horas. Em MG a NFC-e não tem cancelamento extemporâneo; depois do prazo a via é denúncia espontânea na AF ou nota de devolução.',
+    }
+  }
+
   return null
 }

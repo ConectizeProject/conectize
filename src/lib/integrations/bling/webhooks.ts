@@ -73,6 +73,7 @@ export type BlingWebhookParsedStockMovement = {
   depositoId: string | null
   eventId: string | null
   occurredAt: string | null
+  observacoes: string | null
   raw: Record<string, unknown>
 }
 
@@ -163,6 +164,14 @@ function parseStockCreatedPayload (payload: Record<string, unknown>): BlingWebho
     if (typeof sv === 'number' && Number.isFinite(sv)) saldoVirtualDeposito = sv
   }
   const occurredAt = typeof payload.date === 'string' && payload.date.trim() !== '' ? payload.date.trim() : null
+  const observacoesRaw = d.observacoes
+    ?? d.observacao
+    ?? d.observacoesInternas
+    ?? payload.observacoes
+    ?? payload.observacao
+  const observacoes = typeof observacoesRaw === 'string' && observacoesRaw.trim()
+    ? observacoesRaw.trim()
+    : null
 
   return {
     kind: 'stockMovement',
@@ -177,6 +186,7 @@ function parseStockCreatedPayload (payload: Record<string, unknown>): BlingWebho
     depositoId,
     eventId,
     occurredAt,
+    observacoes,
     raw: payload,
   }
 }
@@ -409,6 +419,7 @@ export type WebhookLocalEffect =
       blingQuantidade: number
       externalReference: string
       occurredAtIso: string | null
+      observacoes: string | null
       saldoVirtualTotal: number | null
       saldoFisicoTotal: number | null
       depositoId: string | null
@@ -472,6 +483,7 @@ export function mapWebhookToLocalEffect (evt: BlingWebhookParsed): WebhookLocalE
       blingQuantidade: evt.quantidade,
       externalReference,
       occurredAtIso: evt.occurredAt,
+      observacoes: evt.observacoes,
       saldoVirtualTotal: evt.saldoVirtualTotal,
       saldoFisicoTotal: evt.saldoFisicoTotal,
       depositoId: evt.depositoId,

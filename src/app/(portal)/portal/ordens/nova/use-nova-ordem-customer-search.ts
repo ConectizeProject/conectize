@@ -10,6 +10,18 @@ function getCustomerDocumentDigits (customer: CustomerHit) {
 	return onlyDigits(String(customer.cnpj || customer.cpf || '')).slice(0, 14)
 }
 
+export function getCustomerDisplayName (c: {
+	is_company?: boolean | null
+	company_name?: string | null
+	trade_name?: string | null
+	full_name?: string | null
+}) {
+	if (c.is_company) {
+		return String(c.company_name || c.trade_name || c.full_name || 'Empresa')
+	}
+	return String(c.full_name || 'Cliente')
+}
+
 type Params = {
 	selectedCustomer: CustomerHit | null
 }

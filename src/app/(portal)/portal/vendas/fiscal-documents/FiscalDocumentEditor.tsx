@@ -18,17 +18,21 @@ import {
 } from '@/components/ui/table'
 import { portalFetch } from '@/lib/portal/portal-fetch'
 import { toast } from '@/hooks/use-toast'
-import { appPrompt } from '@/lib/ui/app-dialogs'
+import { appAlert, appConfirm, appPrompt } from '@/lib/ui/app-dialogs'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { maskedFromCents } from '@/lib/utils/money'
 import {
   canCancelFiscalDocument,
+  canDeleteFiscalDocument,
   canDownloadFiscalXml,
   canEditFiscalDocument,
   canPrintFiscalDocument,
   canSendFiscalDocument,
+  fiscalCancelDeadlineHint,
   fiscalDocumentStatusBadgeVariant,
   fiscalDocumentStatusLabel,
+  isNfceCancelDeadlineExpired,
+  NFCE_CANCEL_EXPIRED_ALERT,
 } from '@/lib/fiscal/document-status'
 import type { FiscalDocumentDetail } from '@/lib/fiscal/document-types'
 import { maskFci, originRequiresFci } from '@/lib/fiscal/fci'
@@ -43,7 +47,17 @@ import {
   type NfcePaymentType,
 } from '@/lib/fiscal/payment-method-type'
 import { fiscalRejectionGuidance } from '@/lib/fiscal/rejection-guidance'
-import { openNfceDanfePrint } from '@/app/(portal)/portal/vendas/SalesOrderCupomPrint'
+import { nfeDanfeDownloadUrl, nfeDanfePreviewUrl, openFiscalDanfePrint } from '@/app/(portal)/portal/vendas/SalesOrderCupomPrint'
+import type { CustomerHit } from '@/components/customers'
+import { onlyDigits } from '@/lib/utils/strings'
+import {
+  getCustomerDisplayName,
+  getCustomerDocumentDigits,
+} from '@/app/(portal)/portal/ordens/nova/use-nova-ordem-customer-search'
+import {
+  NfeDestinatarioCard,
+  nfeCustomerHitFromOrder,
+} from '@/app/(portal)/portal/vendas/fiscal-documents/NfeDestinatarioCard'
 
 const ORIGIN_OPTIONS = [
   { value: '0', label: '0 - Nacional' },
@@ -121,6 +135,24 @@ function itemsFromDocument (next: FiscalDocumentDetail): ItemDraft[] {
   }))
 }
 
+async function matchCustomerFromOrder (next: FiscalDocumentDetail): Promise<CustomerHit | null> {
+  if (!next.order) return null
+  const doc = onlyDigits(String(next.order.customer_document || ''))
+  if (doc.length >= 5) {
+    const searchRes = await portalFetch(
+      `/api/portal/customers/search?documentPrefix=${encodeURIComponent(doc.slice(0, 5))}`,
+    )
+    const searchData = await searchRes?.json().catch(() => null)
+    if (searchData?.ok && Array.isArray(searchData.customers)) {
+      const matched = (searchData.customers as CustomerHit[]).find((customer) => (
+        getCustomerDocumentDigits(customer) === doc
+      ))
+      if (matched) return matched
+    }
+  }
+  return nfeCustomerHitFromOrder(next.order)
+}
+
 export function FiscalDocumentEditor ({ documentId }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -131,12 +163,16 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
   const [xmlUrl, setXmlUrl] = useState<string | null>(null)
   const [customerName, setCustomerName] = useState('')
   const [customerDocument, setCustomerDocument] = useState('')
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerHit | null>(null)
+  const [stateRegistration, setStateRegistration] = useState('')
+  const [stateRegistrationExempt, setStateRegistrationExempt] = useState(false)
   const [items, setItems] = useState<ItemDraft[]>([])
   const [payments, setPayments] = useState<PaymentDraft[]>([])
   const [paymentMethods, setPaymentMethods] = useState<CatalogPaymentMethod[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [isSending, setIsSending] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const model = document?.model ?? '65'
   const kind = model === '55' ? 'NF-e' : 'NFC-e'
@@ -145,6 +181,21 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
     () => items.some((item) => originRequiresFci(item.fiscalOrigin)),
     [items],
   )
+
+  function applySelectedCustomer (customer: CustomerHit | null) {
+    setSelectedCustomer(customer)
+    if (!customer) {
+      setCustomerName('')
+      setCustomerDocument('')
+      setStateRegistration('')
+      setStateRegistrationExempt(false)
+      return
+    }
+    setCustomerName(clampFiscalCustomerName(getCustomerDisplayName(customer)))
+    setCustomerDocument(formatCpfCnpj(getCustomerDocumentDigits(customer)))
+    setStateRegistration(String(customer.state_registration || ''))
+    setStateRegistrationExempt(customer.state_registration_exempt === true)
+  }
 
   async function load () {
     setIsLoading(true)
@@ -169,6 +220,12 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
       setXmlUrl(data.xml_url || null)
       setCustomerName(clampFiscalCustomerName(next.order?.customer_name || 'Consumidor Final'))
       setCustomerDocument(formatCpfCnpj(next.order?.customer_document || ''))
+      const matched = await matchCustomerFromOrder(next)
+      setSelectedCustomer(matched)
+      setStateRegistration(String(matched?.state_registration || next.order?.customer_state_registration || ''))
+      setStateRegistrationExempt(Boolean(
+        matched?.state_registration_exempt ?? next.order?.customer_state_registration_exempt,
+      ))
       setItems(itemsFromDocument(next))
       setPayments(paymentsFromDocument(next))
       if (methodsData?.ok && Array.isArray(methodsData.paymentMethods)) {
@@ -211,6 +268,12 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
       body: JSON.stringify({
         customer_name: customerName,
         customer_document: customerDocument,
+        ...(model === '55'
+          ? {
+            customer_state_registration: stateRegistration,
+            customer_state_registration_exempt: stateRegistrationExempt,
+          }
+          : {}),
         items: items.map((item) => ({
           productId: item.productId,
           ncm: item.ncm,
@@ -239,6 +302,8 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
     setXmlUrl(data.xml_url || null)
     setCustomerName(clampFiscalCustomerName(next.order?.customer_name || 'Consumidor Final'))
     setCustomerDocument(formatCpfCnpj(next.order?.customer_document || ''))
+    setStateRegistration(String(next.order?.customer_state_registration || ''))
+    setStateRegistrationExempt(next.order?.customer_state_registration_exempt === true)
     setItems(itemsFromDocument(next))
     setPayments(paymentsFromDocument(next))
     return { ok: true as const }
@@ -268,6 +333,25 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
   async function handleSend () {
     setIsSending(true)
     try {
+      if (editable && model === '55') {
+        const destDigits = onlyDigits(customerDocument)
+        if (!selectedCustomer || (destDigits.length !== 11 && destDigits.length !== 14)) {
+          toast({
+            title: 'Selecione o destinatário',
+            description: 'A NF-e exige um cliente cadastrado com CPF ou CNPJ.',
+            variant: 'destructive',
+          })
+          return
+        }
+        if (destDigits.length === 14 && !stateRegistrationExempt && !onlyDigits(stateRegistration)) {
+          toast({
+            title: 'Informe a inscrição estadual',
+            description: 'CNPJ contribuinte precisa da IE, ou marque como isento.',
+            variant: 'destructive',
+          })
+          return
+        }
+      }
       if (editable) {
         const saved = await saveDraft()
         if (!saved.ok) {
@@ -303,7 +387,7 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
           description: 'Abrindo a nota para impressão.',
         })
         const authorizedId = String(data.fiscal_document?.id || documentId)
-        openNfceDanfePrint(authorizedId)
+        openFiscalDanfePrint(authorizedId, document.model)
         if (authorizedId && authorizedId !== documentId) {
           router.replace(`${listHref(document.model)}/${encodeURIComponent(authorizedId)}`)
           return
@@ -328,9 +412,13 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
   }
 
   async function handleCancel () {
+    if (document.model !== '55' && isNfceCancelDeadlineExpired(document.authorized_at)) {
+      await appAlert(NFCE_CANCEL_EXPIRED_ALERT)
+      return
+    }
     const justification = await appPrompt({
       title: `Cancelar ${kind}?`,
-      description: 'A justificativa vai para a SEFAZ e precisa ter pelo menos 15 caracteres.',
+      description: `${fiscalCancelDeadlineHint(document.model)} A justificativa vai para a SEFAZ e precisa ter pelo menos 15 caracteres.`,
       label: 'Justificativa',
       required: true,
       destructive: true,
@@ -352,6 +440,10 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
     })
     const data = await res?.json().catch(() => null)
     if (!data?.ok) {
+      if (data?.error === 'cancel_deadline_expired') {
+        await appAlert(NFCE_CANCEL_EXPIRED_ALERT)
+        return
+      }
       toast({
         title: 'Não foi possível cancelar',
         description: data?.message || data?.error || 'A SEFAZ não confirmou o cancelamento.',
@@ -361,6 +453,38 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
     }
     toast({ variant: 'success', title: 'Cancelamento enviado' })
     await load()
+  }
+
+  async function handleDelete () {
+    if (!document) return
+    if (!(await appConfirm({
+      title: `Excluir ${kind}?`,
+      description: document.status === 'rejected'
+        ? `A ${kind} rejeitada será removida da lista. Depois você pode emitir outra a partir do pedido.`
+        : `Esta ${kind} ainda não foi enviada à SEFAZ. Excluir remove o rascunho; você pode emitir outra a partir do pedido.`,
+      confirmLabel: 'Excluir',
+      destructive: true,
+    }))) return
+
+    setIsDeleting(true)
+    try {
+      const res = await portalFetch(`/api/portal/fiscal/documents/${encodeURIComponent(documentId)}`, {
+        method: 'DELETE',
+      })
+      const data = await res?.json().catch(() => null)
+      if (!data?.ok) {
+        toast({
+          title: 'Não foi possível excluir',
+          description: data?.message || data?.error || `A ${kind} não foi excluída.`,
+          variant: 'destructive',
+        })
+        return
+      }
+      toast({ variant: 'success', title: `${kind} excluída` })
+      router.replace(listHref(document.model))
+    } finally {
+      setIsDeleting(false)
+    }
   }
 
   if (isLoading && !document) {
@@ -413,22 +537,34 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
         </div>
         <div className='flex flex-wrap items-center gap-2'>
           {editable ? (
-            <Button type='button' variant='outline' disabled={isSaving || isSending} onClick={() => void handleSave()}>
+            <Button type='button' variant='outline' disabled={isSaving || isSending || isDeleting} onClick={() => void handleSave()}>
               {isSaving ? 'Salvando...' : 'Salvar alterações'}
             </Button>
           ) : null}
           {canSendFiscalDocument(document.status) ? (
-            <Button type='button' disabled={isSaving || isSending} onClick={() => void handleSend()}>
+            <Button type='button' disabled={isSaving || isSending || isDeleting} onClick={() => void handleSend()}>
               {isSending ? 'Enviando...' : sendLabel(document.model)}
             </Button>
           ) : null}
-          {canPrintFiscalDocument(document.status) && danfeUrl ? (
+          {canPrintFiscalDocument(document.status) && danfeUrl && document.model === '55' ? (
+            <Button type='button' variant='outline' asChild>
+              <a href={nfeDanfePreviewUrl(document.id)} target='_blank' rel='noopener noreferrer'>
+                Imprimir DANFE
+              </a>
+            </Button>
+          ) : null}
+          {canPrintFiscalDocument(document.status) && danfeUrl && document.model !== '55' ? (
             <Button
               type='button'
               variant='outline'
-              onClick={() => openNfceDanfePrint(document.id)}
+              onClick={() => openFiscalDanfePrint(document.id, document.model)}
             >
               Imprimir DANFE
+            </Button>
+          ) : null}
+          {canPrintFiscalDocument(document.status) && document.model === '55' && danfeUrl ? (
+            <Button type='button' variant='outline' asChild>
+              <a href={nfeDanfeDownloadUrl(document.id)} download>Baixar PDF</a>
             </Button>
           ) : null}
           {canDownloadFiscalXml(document.status) && xmlUrl ? (
@@ -444,6 +580,17 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
               onClick={() => void handleCancel()}
             >
               Cancelar na SEFAZ
+            </Button>
+          ) : null}
+                          {canDeleteFiscalDocument(document.status, document.access_key) && document.model === '55' ? (
+            <Button
+              type='button'
+              variant='outline'
+              className='text-destructive hover:text-destructive'
+              disabled={isSaving || isSending || isDeleting}
+              onClick={() => void handleDelete()}
+            >
+              {isDeleting ? 'Excluindo...' : `Excluir ${kind}`}
             </Button>
           ) : null}
           <Link href={listHref(document.model)}>
@@ -496,30 +643,59 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
         <Card>
           <CardHeader><CardTitle>Destinatário</CardTitle></CardHeader>
           <CardContent className='space-y-3'>
-            <div className='space-y-2'>
-              <Label htmlFor='nf-customer-name'>Nome</Label>
-              <Input
-                id='nf-customer-name'
-                value={customerName}
-                onChange={(e) => setCustomerName(clampFiscalCustomerName(e.target.value))}
-                disabled={!editable}
-                autoComplete='off'
-                maxLength={NFE_XNOME_MAX}
+            {model === '55' ? (
+              <NfeDestinatarioCard
+                editable={editable}
+                selectedCustomer={selectedCustomer}
+                stateRegistration={stateRegistration}
+                stateRegistrationExempt={stateRegistrationExempt}
+                onSelectCustomer={applySelectedCustomer}
+                onStateRegistrationChange={(value) => {
+                  setStateRegistration(value)
+                  setSelectedCustomer((prev) => prev
+                    ? { ...prev, state_registration: value || null, state_registration_exempt: false }
+                    : prev)
+                }}
+                onStateRegistrationExemptChange={(value) => {
+                  setStateRegistrationExempt(value)
+                  if (value) setStateRegistration('')
+                  setSelectedCustomer((prev) => prev
+                    ? {
+                      ...prev,
+                      state_registration_exempt: value,
+                      state_registration: value ? null : prev.state_registration,
+                    }
+                    : prev)
+                }}
               />
-              <p className='text-xs text-muted-foreground'>Máximo 60 caracteres no XML da SEFAZ.</p>
-            </div>
-            <div className='space-y-2'>
-              <Label htmlFor='nf-customer-document'>CPF/CNPJ</Label>
-              <Input
-                id='nf-customer-document'
-                value={customerDocument}
-                onChange={(e) => setCustomerDocument(formatCpfCnpj(e.target.value))}
-                disabled={!editable}
-                inputMode='numeric'
-                autoComplete='off'
-                placeholder='Opcional para consumidor final'
-              />
-            </div>
+            ) : (
+              <>
+                <div className='space-y-2'>
+                  <Label htmlFor='nf-customer-name'>Nome</Label>
+                  <Input
+                    id='nf-customer-name'
+                    value={customerName}
+                    onChange={(e) => setCustomerName(clampFiscalCustomerName(e.target.value))}
+                    disabled={!editable}
+                    autoComplete='off'
+                    maxLength={NFE_XNOME_MAX}
+                  />
+                  <p className='text-xs text-muted-foreground'>Máximo 60 caracteres no XML da SEFAZ.</p>
+                </div>
+                <div className='space-y-2'>
+                  <Label htmlFor='nf-customer-document'>CPF/CNPJ</Label>
+                  <Input
+                    id='nf-customer-document'
+                    value={customerDocument}
+                    onChange={(e) => setCustomerDocument(formatCpfCnpj(e.target.value))}
+                    disabled={!editable}
+                    inputMode='numeric'
+                    autoComplete='off'
+                    placeholder='Opcional para consumidor final'
+                  />
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
         <Card>

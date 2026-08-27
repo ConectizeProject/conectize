@@ -1,9 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import { CUSTOMER_PORTAL_FIELDS } from '@/lib/customers/fields'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
-
-const CUSTOMER_FIELDS =
-  'id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, phone, mobile_phone, contact_phone, contact_notes, address_full, zip_code, state, city, neighborhood, street, street_number, street_complement, birth_date, referral_source, referral_source_other'
 
 export async function GET (
   _request: Request,
@@ -22,7 +20,7 @@ export async function GET (
 
   const { data: row, error } = await auth.supabase
     .from('customers')
-    .select(CUSTOMER_FIELDS)
+    .select(CUSTOMER_PORTAL_FIELDS)
     .eq('id', id)
     .maybeSingle()
 

@@ -33,10 +33,12 @@ export async function GET (
     if (!result.pdf) {
       return NextResponse.json({ ok: false, error: 'danfe_unavailable' }, { status: result.status })
     }
+    const download = request.nextUrl.searchParams.get('download') === '1'
+    const filename = result.filename || 'DANFE-NFe.pdf'
     return new NextResponse(new Uint8Array(result.pdf), {
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': 'inline; filename="danfe-nfe.pdf"',
+        'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename="${filename}"`,
         'Cache-Control': 'no-store',
       },
     })

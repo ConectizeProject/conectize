@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
-import { loadFiscalDocumentDetail, updateFiscalDocumentDraft } from '@/lib/fiscal/documents'
+import { loadFiscalDocumentDetail, updateFiscalDocumentDraft, deleteFiscalDocument } from '@/lib/fiscal/documents'
 
 export async function GET (
   _request: Request,
@@ -86,6 +86,12 @@ export async function PATCH (
   const result = await updateFiscalDocumentDraft(auth, fiscalDocumentId, {
     customerName: body?.customer_name == null ? undefined : String(body.customer_name),
     customerDocument: body?.customer_document == null ? undefined : String(body.customer_document),
+    customerStateRegistration: body?.customer_state_registration == null
+      ? undefined
+      : String(body.customer_state_registration),
+    customerStateRegistrationExempt: body?.customer_state_registration_exempt == null
+      ? undefined
+      : Boolean(body.customer_state_registration_exempt),
     items,
     payments,
   })
@@ -113,4 +119,36 @@ export async function PATCH (
       ? `/api/portal/fiscal/documents/${encodeURIComponent(result.document.id)}/xml`
       : null,
   })
+}
+
+export async function DELETE (
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const auth = await requireStaffOrAdmin()
+  if (auth.ok === false) {
+    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
+  }
+
+  const { id: rawId } = await params
+  const fiscalDocumentId = parseOptionalUuid(rawId)
+  if (!fiscalDocumentId) {
+    return NextResponse.json({ ok: false, error: 'invalid_id' }, { status: 400 })
+  }
+
+  const result = await deleteFiscalDocument(auth, fiscalDocumentId)
+  if (!result.ok) {
+    const status = result.error === 'not_found'
+      ? 404
+      : result.error === 'db_error'
+        ? 500
+        : 400
+    return NextResponse.json({
+      ok: false,
+      error: result.error,
+      message: 'message' in result ? result.message : undefined,
+    }, { status })
+  }
+
+  return NextResponse.json({ ok: true })
 }
