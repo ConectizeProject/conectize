@@ -21,7 +21,7 @@ import {
   type FiscalNumberingProfileRow,
   type NfeNumberingProfileRow,
 } from '@/lib/fiscal/numbering'
-import { isSefazDenied, fiscalDocumentKind } from '@/lib/fiscal/document-status'
+import { isSefazDenied, fiscalDocumentKind, isNfceCancelDeadlineExpired, NFCE_CANCEL_EXPIRED_ALERT } from '@/lib/fiscal/document-status'
 import {
   asSignedNfceXml,
   buildNfeProcXml,
@@ -152,25 +152,6 @@ async function getExistingFiscalDocument (auth: AuthCtx, orderId: string, model:
     .maybeSingle()
 
   return data as FiscalDocumentRow | null
-}
-
-async function getBlockingOtherModel (
-  auth: AuthCtx,
-  orderId: string,
-  model: '55' | '65',
-) {
-  const other = model === '55' ? '65' : '55'
-  const { data } = await auth.supabase
-    .from('fiscal_documents')
-    .select('id, model, status')
-    .eq('organization_id', auth.organizationId)
-    .eq('sales_order_id', orderId)
-    .eq('model', other)
-    .in('status', ['authorized', 'pending'])
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-  return data as { id: string, model: string, status: string } | null
 }
 
 async function allocateNfeNumberFromProfile (
@@ -492,7 +473,7 @@ export async function emitFiscalDocumentForSalesOrder (
   model: '55' | '65',
 ): Promise<EmitNfceResult> {
   const kind = fiscalDocumentKind(model)
-  const [{ data: profile }, operationNature, existing, other] = await Promise.all([
+  const [{ data: profile }, operationNature, existing] = await Promise.all([
     auth.supabase
       .from('organization_fiscal_profiles')
       .select('*')
@@ -500,7 +481,6 @@ export async function emitFiscalDocumentForSalesOrder (
       .maybeSingle(),
     getDefaultFiscalOperationNature(auth.organizationId, model),
     getExistingFiscalDocument(auth, orderId, model),
-    getBlockingOtherModel(auth, orderId, model),
   ])
 
   if (!profile) {
@@ -509,17 +489,6 @@ export async function emitFiscalDocumentForSalesOrder (
 
   if (existing?.status === 'authorized') {
     return authorizedResult(existing, true)
-  }
-
-  if (other) {
-    const otherKind = fiscalDocumentKind(other.model)
-    return {
-      ok: false,
-      error: 'other_model_open',
-      message: other.status === 'authorized'
-        ? `Este pedido já tem ${otherKind} autorizada.`
-        : `Este pedido já tem uma ${otherKind} em andamento.`,
-    }
   }
 
   const service = createSupabaseServiceClient()
@@ -751,6 +720,13 @@ export async function cancelNfceDocument (
   }
   if (fiscalDocument.status !== 'authorized' || !fiscalDocument.access_key || !fiscalDocument.protocol) {
     return { ok: false, error: 'not_authorized', message: `Somente ${fiscalDocumentKind(fiscalDocument.model)} autorizada pode ser cancelada.` }
+  }
+  if (String(fiscalDocument.model) !== '55' && isNfceCancelDeadlineExpired(fiscalDocument.authorized_at)) {
+    return {
+      ok: false,
+      error: 'cancel_deadline_expired',
+      message: NFCE_CANCEL_EXPIRED_ALERT.description,
+    }
   }
 
   const [{ data: profile }, service] = await Promise.all([

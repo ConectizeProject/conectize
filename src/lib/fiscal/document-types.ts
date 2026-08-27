@@ -65,6 +65,8 @@ export type FiscalDocumentDetail = {
     customer_name: string | null
     customer_type: string | null
     customer_document: string | null
+    customer_state_registration: string | null
+    customer_state_registration_exempt: boolean
     total_cents: number
   } | null
   items: FiscalDocumentItemRow[]

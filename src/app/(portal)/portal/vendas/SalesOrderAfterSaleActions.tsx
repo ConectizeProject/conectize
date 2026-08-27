@@ -27,7 +27,13 @@ import {
   salesOrderCupomPrintLabel,
 } from '@/app/(portal)/portal/vendas/SalesOrderCupomPrint'
 
-export { openNfceDanfePrint, openSalesOrderCupomPrint, salesOrderCupomPrintLabel }
+export {
+  openFiscalDanfePrint,
+  openNfceDanfePrint,
+  openNfeDanfePrint,
+  openSalesOrderCupomPrint,
+  salesOrderCupomPrintLabel,
+} from '@/app/(portal)/portal/vendas/SalesOrderCupomPrint'
 
 export type SalesOrderBlingLinkState = {
   blingPedidoId: string | null

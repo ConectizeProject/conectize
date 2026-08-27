@@ -135,6 +135,7 @@ export function ProductsListClient({
 	const barcodeInFlightRef = useRef(false)
 
 	const [extraRows, setExtraRows] = useState<ProductRow[]>([])
+	const [stockOverrides, setStockOverrides] = useState<Record<string, number>>({})
 	const [loadMoreBusy, setLoadMoreBusy] = useState(false)
 	const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null)
 	const loadMoreInFlightRef = useRef(false)
@@ -346,8 +347,11 @@ export function ProductsListClient({
 			mergedProducts.map((p) => ({
 				...p,
 				is_active: p.is_active !== false,
+				current_stock: typeof stockOverrides[p.id] === 'number'
+					? stockOverrides[p.id]
+					: p.current_stock,
 			})),
-		[mergedProducts]
+		[mergedProducts, stockOverrides]
 	)
 
 	const filteredRows = useMemo(() => {
@@ -1245,6 +1249,9 @@ export function ProductsListClient({
 					}
 				}}
 				onSuccess={() => router.refresh()}
+				onStockChange={(id, currentStock) => {
+					setStockOverrides((prev) => ({ ...prev, [id]: currentStock }))
+				}}
 				onNavigateToProductId={(id) => {
 					setCreateDialogOpen(false)
 					setProductEditInitialTab(undefined)

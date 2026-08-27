@@ -3,7 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { DestinatarioProps, NFeProps, ProdutoProps } from '@brasil-fiscal/nfe'
 import { fiscalFciOrNull, originRequiresFci } from '@/lib/fiscal/fci'
 import { fiscalGtinOrNull } from '@/lib/fiscal/gtin'
-import { fiscalIeOrNull } from '@/lib/fiscal/ie'
+import { fiscalIeOrNull, resolveNfeDestinatarioIe } from '@/lib/fiscal/ie'
 import { validateCestNcmPair } from '@/lib/fiscal/cest-lookup'
 import { isNfceServiceItem } from '@/lib/fiscal/certificate-validity'
 import { fiscalCestOrNull, fiscalNcmOrNull } from '@/lib/fiscal/ncm'
@@ -194,6 +194,8 @@ type CustomerAddressRow = {
   city?: string | null
   state?: string | null
   zip_code?: string | null
+  state_registration?: string | null
+  state_registration_exempt?: boolean | null
 }
 
 async function loadCustomerAddress (
@@ -204,7 +206,7 @@ async function loadCustomerAddress (
   if (!document) return null
   const { data } = await supabase
     .from('customers')
-    .select('street, street_number, street_complement, neighborhood, city, state, zip_code')
+    .select('street, street_number, street_complement, neighborhood, city, state, zip_code, state_registration, state_registration_exempt')
     .eq('organization_id', organizationId)
     .or(`cpf.eq.${document},cnpj.eq.${document}`)
     .limit(1)
@@ -267,13 +269,24 @@ async function buildNfeDestinatario (input: {
     ? HOMOLOGACAO_DEST_NAME
     : (nfeXmlText(input.order.customer_name, NFE_XNOME_MAX) || 'Destinatário')
 
+  const destIe = resolveNfeDestinatarioIe({
+    documentDigits: document,
+    stateRegistration: customer?.state_registration,
+    stateRegistrationExempt: customer?.state_registration_exempt === true,
+    destUf,
+  })
+  if (destIe.ok === false) return destIe
+
   return {
     ok: true,
     destUf,
     dest: {
       ...(document.length === 11 ? { cpf: document } : { cnpj: document }),
       nome: name,
-      indicadorIE: 9 as const,
+      indicadorIE: destIe.value.indicadorIE,
+      ...(destIe.value.inscricaoEstadual
+        ? { inscricaoEstadual: destIe.value.inscricaoEstadual }
+        : {}),
       endereco: {
         logradouro: street,
         numero: number,

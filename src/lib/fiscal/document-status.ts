@@ -58,6 +58,16 @@ export function canDownloadFiscalXml (
   return status === 'authorized' || status === 'canceled'
 }
 
+/** Rascunho local ou rejeição da SEFAZ. Pendente com chave pode estar em consulta. */
+export function canDeleteFiscalDocument (
+  status: FiscalDocumentStatus | string | null | undefined,
+  accessKey?: string | null,
+) {
+  if (status === 'rejected') return true
+  if (status === 'pending' && !String(accessKey || '').trim()) return true
+  return false
+}
+
 /** 135 = evento vinculado; 155 = cancelamento homologado (fora do prazo ou já cancelada). */
 export function isSefazCancelConfirmed (statusCode: string | null | undefined) {
   const code = String(statusCode || '').trim()
@@ -71,5 +81,29 @@ export function isSefazDenied (statusCode: string | null | undefined) {
 
 export function fiscalDocumentKind (model: '55' | '65' | string | null | undefined) {
   return model === '55' ? 'NF-e' : 'NFC-e'
+}
+
+export function fiscalCancelDeadlineHint (model: '55' | '65' | string | null | undefined) {
+  if (model === '55') {
+    return 'A NF-e pode ser cancelada em até 24 horas após a autorização, se a mercadoria ainda não saiu.'
+  }
+  return 'A NFC-e pode ser cancelada em até 30 minutos após a autorização, se a mercadoria ainda não saiu. Em MG não há cancelamento fora desse prazo.'
+}
+
+export const NFCE_CANCEL_DEADLINE_MINUTES = 30
+
+export const NFCE_CANCEL_EXPIRED_ALERT = {
+  title: 'Prazo de cancelamento expirado',
+  description:
+    'A NFC-e só pode ser cancelada em até 30 minutos após a autorização. Esse prazo já passou. Em MG não há cancelamento fora do prazo; a via é denúncia espontânea na AF ou NF-e de devolução.',
+}
+
+export function isNfceCancelDeadlineExpired (
+  authorizedAt: string | null | undefined,
+  now: Date = new Date(),
+): boolean {
+  const start = Date.parse(String(authorizedAt || ''))
+  if (!Number.isFinite(start)) return false
+  return now.getTime() - start >= NFCE_CANCEL_DEADLINE_MINUTES * 60 * 1000
 }
 

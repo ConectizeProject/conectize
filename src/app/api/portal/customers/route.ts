@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { onlyDigits } from '@/lib/utils/strings'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import { customerStateRegistrationPatch } from '@/lib/customers/state-registration'
 
 function buildAddressFull(addr: {
   zipCode?: string
@@ -146,6 +147,12 @@ export async function POST(request: Request) {
   const birthDate = String(body?.birthDate || '').trim()
   const referralSource = String(body?.referralSource || '').trim()
   const referralSourceOther = String(body?.referralSourceOther || '').trim()
+  const iePatch = customerStateRegistrationPatch({
+    isCompany,
+    stateRegistration: body?.stateRegistration,
+    stateRegistrationExempt: body?.stateRegistrationExempt,
+    uf: state,
+  })
 
   if (isCompany) {
     if (documentDigits.length !== 14) {
@@ -219,6 +226,8 @@ export async function POST(request: Request) {
       birth_date: parsedBirthDate,
       referral_source: referralSource || null,
       referral_source_other: referralSource === 'outros' ? (referralSourceOther || null) : null,
+      state_registration: iePatch.state_registration,
+      state_registration_exempt: iePatch.state_registration_exempt,
       auth_user_id: null,
     })
     .select('id')
@@ -320,6 +329,12 @@ export async function PATCH(request: Request) {
   const birthDate = String(body?.birthDate || '').trim()
   const referralSource = String(body?.referralSource || '').trim()
   const referralSourceOther = String(body?.referralSourceOther || '').trim()
+  const iePatch = customerStateRegistrationPatch({
+    isCompany,
+    stateRegistration: body?.stateRegistration,
+    stateRegistrationExempt: body?.stateRegistrationExempt,
+    uf: state,
+  })
 
   if (isCompany) {
     if (documentDigits.length !== 14) {
@@ -378,6 +393,8 @@ export async function PATCH(request: Request) {
       birth_date: parsedBirthDate,
       referral_source: referralSource || null,
       referral_source_other: referralSource === 'outros' ? (referralSourceOther || null) : null,
+      state_registration: iePatch.state_registration,
+      state_registration_exempt: iePatch.state_registration_exempt,
     })
     .eq('id', id)
 

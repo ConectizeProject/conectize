@@ -1,6 +1,28 @@
 import { getBlingClientForCurrentUser, normalizeBlingProductId } from '@/lib/integrations/bling/api'
 import type { StockMovementType } from '@/lib/products/service'
 
+/** Marcador nos lançamentos enviados pelo portal — o webhook do Bling ecoa o POST e não deve duplicar. */
+export const BLING_PORTAL_STOCK_MARKER = 'conectize-portal'
+
+export const PORTAL_STOCK_EXTERNAL_REF_PREFIX = 'portal:stock:'
+
+export function hasPortalStockMarker (text: unknown): boolean {
+  if (text == null) return false
+  if (typeof text === 'string') return text.includes(BLING_PORTAL_STOCK_MARKER)
+  try {
+    return JSON.stringify(text).includes(BLING_PORTAL_STOCK_MARKER)
+  } catch {
+    return false
+  }
+}
+
+function withPortalStockMarker (observacoes?: string | null): string {
+  const base = String(observacoes || '').trim()
+  if (!base) return BLING_PORTAL_STOCK_MARKER
+  if (base.includes(BLING_PORTAL_STOCK_MARKER)) return base
+  return `${base} · ${BLING_PORTAL_STOCK_MARKER}`
+}
+
 type StockMovementTypeWithBalance = StockMovementType | 'balance'
 
 type PushStockMovementInput = {
@@ -64,7 +86,7 @@ export async function pushStockMovementToBling (input: PushStockMovementInput): 
   }
 
   if (typeof custo === 'number') body.custo = custo
-  if (input.observacoes) body.observacoes = input.observacoes
+  body.observacoes = withPortalStockMarker(input.observacoes)
 
   await clientRes.client.request({
     method: 'POST',

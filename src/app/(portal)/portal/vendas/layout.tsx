@@ -1,3 +1,4 @@
+import { VendasListKeepAlive } from '@/app/(portal)/portal/vendas/VendasListKeepAlive'
 import { VendasModuleTabs } from '@/app/(portal)/portal/vendas/VendasModuleTabs'
 
 export default function VendasLayout ({
@@ -8,7 +9,10 @@ export default function VendasLayout ({
   return (
     <div className='space-y-4 py-4'>
       <VendasModuleTabs />
-      {children}
+      <div>
+        <VendasListKeepAlive />
+        {children}
+      </div>
     </div>
   )
 }

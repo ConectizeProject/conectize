@@ -14,6 +14,8 @@ import {
 import {
   HtmlPrintPreview,
 } from '@/components/print/html-print-preview'
+import { appAlert } from '@/lib/ui/app-dialogs'
+import { cn } from '@/lib/utils'
 
 export function salesOrderCupomPreviewUrl (orderId: string) {
   return `/api/portal/sales-orders/${encodeURIComponent(orderId)}/print?preview=1`
@@ -21,6 +23,31 @@ export function salesOrderCupomPreviewUrl (orderId: string) {
 
 export function nfceDanfePreviewUrl (documentId: string) {
   return `/api/portal/fiscal/documents/${encodeURIComponent(documentId)}/danfe?preview=1`
+}
+
+export function nfeDanfePreviewUrl (documentId: string) {
+  return `/api/portal/fiscal/documents/${encodeURIComponent(documentId)}/danfe?preview=1`
+}
+
+export function nfeDanfeDownloadUrl (documentId: string) {
+  return `/api/portal/fiscal/documents/${encodeURIComponent(documentId)}/danfe?download=1`
+}
+
+function printSameOriginPdf (url: string, autoPrint: boolean) {
+  const win = window.open(url, 'nfe-danfe-print')
+  if (!win) return false
+  if (!autoPrint) return true
+  const tryPrint = () => {
+    try {
+      win.focus()
+      win.print()
+    } catch {
+      // O visualizador de PDF do navegador pode ignorar print() até o arquivo carregar.
+    }
+  }
+  win.addEventListener('load', tryPrint)
+  window.setTimeout(tryPrint, 900)
+  return true
 }
 
 type SalesOrderCupomPreviewProps = {
@@ -51,6 +78,7 @@ export function SalesOrderCupomPreview ({
 type PrintRequest =
   | { kind: 'cupom', orderId: string, autoPrint?: boolean }
   | { kind: 'nfce', documentId: string, autoPrint?: boolean }
+  | { kind: 'nfe', documentId: string, autoPrint?: boolean }
 
 type PrintListener = (request: PrintRequest | null) => void
 
@@ -78,6 +106,33 @@ export function openNfceDanfePrint (
   })
 }
 
+export function openNfeDanfePrint (
+  documentId: string,
+  opts?: { autoPrint?: boolean }
+) {
+  const url = nfeDanfePreviewUrl(documentId)
+  const autoPrint = opts?.autoPrint !== false
+  if (printSameOriginPdf(url, autoPrint)) return
+  printListener?.({
+    kind: 'nfe',
+    documentId,
+    autoPrint: false,
+  })
+  void appAlert({
+    title: 'Pop-up bloqueado',
+    description: 'Permita pop-ups para imprimir a NF-e, ou use Baixar PDF.',
+  })
+}
+
+export function openFiscalDanfePrint (
+  documentId: string,
+  model: '55' | '65',
+  opts?: { autoPrint?: boolean }
+) {
+  if (model === '55') openNfeDanfePrint(documentId, opts)
+  else openNfceDanfePrint(documentId, opts)
+}
+
 export function salesOrderCupomPrintLabel (_status?: string | null) {
   return 'Imprimir cupom'
 }
@@ -88,6 +143,7 @@ export function SalesOrderCupomPrintHost () {
   const printRef = useRef<(() => boolean) | null>(null)
   const [busyPrint, setBusyPrint] = useState(false)
   const isNfce = request?.kind === 'nfce'
+  const isNfe = request?.kind === 'nfe'
 
   useEffect(() => {
     printListener = setRequest
@@ -103,6 +159,10 @@ export function SalesOrderCupomPrintHost () {
   function handlePrint () {
     setBusyPrint(true)
     try {
+      if (request?.kind === 'nfe') {
+        printSameOriginPdf(nfeDanfePreviewUrl(request.documentId), true)
+        return
+      }
       printRef.current?.()
     } finally {
       window.setTimeout(() => setBusyPrint(false), 400)
@@ -116,11 +176,18 @@ export function SalesOrderCupomPrintHost () {
         if (!next) handleClose()
       }}
     >
-      <DialogContent aria-describedby={undefined} className='sm:max-w-md'>
+      <DialogContent
+        aria-describedby={undefined}
+        className={cn(isNfe ? 'flex max-h-[92vh] flex-col sm:max-w-4xl' : 'sm:max-w-md')}
+      >
         <DialogHeader>
-          <DialogTitle>{isNfce ? 'NFC-e' : 'Cupom do pedido'}</DialogTitle>
+          <DialogTitle>
+            {isNfe ? 'DANFE NF-e' : isNfce ? 'NFC-e' : 'Cupom do pedido'}
+          </DialogTitle>
           <DialogDescription>
-            Pré-visualização. A impressão usa o diálogo do sistema, sem abrir outra página.
+            {isNfe
+              ? 'Pré-visualização da NF-e. A impressão usa o diálogo do sistema, em A4.'
+              : 'Pré-visualização. A impressão usa o diálogo do sistema, sem abrir outra página.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -144,6 +211,17 @@ export function SalesOrderCupomPrintHost () {
               printRef.current = print
             }}
           />
+        ) : request?.kind === 'nfe' ? (
+          <HtmlPrintPreview
+            src={nfeDanfePreviewUrl(request.documentId)}
+            title='Pré-visualização da NF-e'
+            errorMessage='Não foi possível carregar a NF-e.'
+            autoPrint={Boolean(request.autoPrint)}
+            iframeClassName='h-[min(72vh,780px)] w-full border-0 bg-white'
+            onPrintReady={(print) => {
+              printRef.current = print
+            }}
+          />
         ) : null}
 
         <DialogFooter className='gap-2 sm:gap-0'>
@@ -152,7 +230,9 @@ export function SalesOrderCupomPrintHost () {
           </Button>
           <Button type='button' disabled={busyPrint || !request} onClick={handlePrint}>
             {busyPrint ? <Loader2 className='h-4 w-4 animate-spin' /> : <Printer className='h-4 w-4' />}
-            <span className='ml-2'>{isNfce ? 'Imprimir NFC-e' : 'Imprimir cupom'}</span>
+            <span className='ml-2'>
+              {isNfe ? 'Imprimir NF-e' : isNfce ? 'Imprimir NFC-e' : 'Imprimir cupom'}
+            </span>
           </Button>
         </DialogFooter>
       </DialogContent>

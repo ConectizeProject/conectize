@@ -1,12 +1,17 @@
 import 'server-only'
 import type { PortalAuthStaffSuccess } from '@/lib/auth/portal-api'
+import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { toDbCustomerType } from '@/lib/sales-orders/customer-type'
 import { onlyDigits } from '@/lib/utils/strings'
 import { nfeXmlText, NFE_XNOME_MAX } from '@/lib/fiscal/xml-strings'
+import { customerStateRegistrationPatch } from '@/lib/customers/state-registration'
 import {
+  canDeleteFiscalDocument,
   canEditFiscalDocument,
+  fiscalDocumentKind,
   type FiscalDocumentStatus,
 } from '@/lib/fiscal/document-status'
+import { nfceNumberRestorePatch, nfeNumberRestorePatch } from '@/lib/fiscal/numbering'
 import { validateCestNcmPair } from '@/lib/fiscal/cest-lookup'
 import { normalizeOptionalFci, originRequiresFci } from '@/lib/fiscal/fci'
 import { normalizeOptionalCest, normalizeOptionalNcm } from '@/lib/fiscal/ncm'
@@ -24,6 +29,7 @@ import type {
   FiscalDocumentListRow,
   FiscalDocumentPaymentRow,
 } from '@/lib/fiscal/document-types'
+import { vendasListPage, vendasListRange } from '@/lib/vendas/list-pagination'
 
 export type {
   FiscalDocumentDetail,
@@ -38,6 +44,7 @@ type ListInput = {
   status?: string
   from?: string
   to?: string
+  page?: number
 }
 
 function asStatus (value: unknown): FiscalDocumentStatus {
@@ -59,19 +66,25 @@ function productRecord (raw: unknown) {
 }
 
 export async function listFiscalDocuments (auth: AuthCtx, input: ListInput) {
+  const paginated = Number.isFinite(input.page)
+  const page = paginated ? vendasListPage(String(input.page)) : 1
+  const { from: rangeFrom, to: rangeTo, pageSize } = vendasListRange(page)
+
   let query = auth.supabase
     .from('fiscal_documents')
-    .select('id, model, environment, series, number, status, access_key, protocol, sefaz_status_code, sefaz_status_message, sales_order_id, created_at, authorized_at')
+    .select('id, model, environment, series, number, status, access_key, protocol, sefaz_status_code, sefaz_status_message, sales_order_id, created_at, authorized_at', { count: 'exact' })
     .eq('organization_id', auth.organizationId)
     .eq('model', input.model)
     .order('created_at', { ascending: false })
-    .limit(200)
+
+  if (paginated) query = query.range(rangeFrom, rangeTo)
+  else query = query.limit(200)
 
   if (input.status) query = query.eq('status', input.status)
   if (input.from) query = query.gte('created_at', `${input.from}T00:00:00`)
   if (input.to) query = query.lte('created_at', `${input.to}T23:59:59.999`)
 
-  const { data, error } = await query
+  const { data, error, count } = await query
   if (error) return { ok: false as const, error: 'db_error' as const }
 
   const docs = data ?? []
@@ -116,7 +129,13 @@ export async function listFiscalDocuments (auth: AuthCtx, input: ListInput) {
     }
   })
 
-  return { ok: true as const, documents }
+  return {
+    ok: true as const,
+    documents,
+    total: count ?? 0,
+    page,
+    pageSize: paginated ? pageSize : 200,
+  }
 }
 
 export async function loadFiscalDocumentDetail (auth: AuthCtx, fiscalDocumentId: string) {
@@ -159,6 +178,19 @@ export async function loadFiscalDocumentDetail (auth: AuthCtx, fiscalDocumentId:
     if (orderError || itemsError || paymentsError) return { ok: false as const, error: 'db_error' as const }
 
     if (orderRow) {
+      const documentDigits = onlyDigits(String(orderRow.customer_document || ''))
+      let customerIe: { state_registration?: string | null, state_registration_exempt?: boolean | null } | null = null
+      if (documentDigits.length === 11 || documentDigits.length === 14) {
+        const { data: customerRow } = await auth.supabase
+          .from('customers')
+          .select('state_registration, state_registration_exempt')
+          .eq('organization_id', auth.organizationId)
+          .or(`cpf.eq.${documentDigits},cnpj.eq.${documentDigits}`)
+          .limit(1)
+          .maybeSingle()
+        customerIe = customerRow
+      }
+
       order = {
         id: String(orderRow.id),
         order_number: Number(orderRow.order_number) || 0,
@@ -166,6 +198,8 @@ export async function loadFiscalDocumentDetail (auth: AuthCtx, fiscalDocumentId:
         customer_name: orderRow.customer_name ? String(orderRow.customer_name) : null,
         customer_type: orderRow.customer_type ? String(orderRow.customer_type) : null,
         customer_document: orderRow.customer_document ? String(orderRow.customer_document) : null,
+        customer_state_registration: customerIe?.state_registration ? String(customerIe.state_registration) : null,
+        customer_state_registration_exempt: customerIe?.state_registration_exempt === true,
         total_cents: Number(orderRow.total_cents) || 0,
       }
     }
@@ -224,6 +258,8 @@ export async function loadFiscalDocumentDetail (auth: AuthCtx, fiscalDocumentId:
 export type FiscalDocumentDraftInput = {
   customerName?: string
   customerDocument?: string
+  customerStateRegistration?: string
+  customerStateRegistrationExempt?: boolean
   items?: Array<{
     productId: string
     ncm?: string | null
@@ -277,6 +313,46 @@ export async function updateFiscalDocumentDraft (
       .eq('organization_id', auth.organizationId)
       .eq('id', doc.order.id)
     if (error) return { ok: false as const, error: 'db_error' as const }
+  }
+
+  const ieTouched = input.customerStateRegistration !== undefined
+    || input.customerStateRegistrationExempt !== undefined
+  if (doc.model === '55' && ieTouched) {
+    const digits = onlyDigits(
+      input.customerDocument !== undefined
+        ? input.customerDocument
+        : (doc.order.customer_document || ''),
+    )
+    if (digits.length === 11 || digits.length === 14) {
+      const { data: customerRow, error: customerLookupError } = await auth.supabase
+        .from('customers')
+        .select('id, is_company, state')
+        .eq('organization_id', auth.organizationId)
+        .or(`cpf.eq.${digits},cnpj.eq.${digits}`)
+        .limit(1)
+        .maybeSingle()
+      if (customerLookupError) return { ok: false as const, error: 'db_error' as const }
+      if (!customerRow?.id) {
+        return {
+          ok: false as const,
+          error: 'nfe_customer_not_found' as const,
+          message: 'Selecione um cliente cadastrado para informar a inscrição estadual na NF-e.',
+        }
+      }
+
+      const iePatch = customerStateRegistrationPatch({
+        isCompany: Boolean(customerRow.is_company) || digits.length === 14,
+        stateRegistration: input.customerStateRegistration,
+        stateRegistrationExempt: input.customerStateRegistrationExempt,
+        uf: customerRow.state ? String(customerRow.state) : null,
+      })
+      const { error: customerUpdateError } = await auth.supabase
+        .from('customers')
+        .update(iePatch)
+        .eq('organization_id', auth.organizationId)
+        .eq('id', customerRow.id)
+      if (customerUpdateError) return { ok: false as const, error: 'db_error' as const }
+    }
   }
 
   const itemInputs = Array.isArray(input.items) ? input.items : []
@@ -548,6 +624,117 @@ async function applyFiscalDocumentPayments (
       }
     }
   }
+
+  return { ok: true as const }
+}
+
+function deleteBlockedMessage (
+  status: FiscalDocumentStatus,
+  accessKey: string | null,
+  kind: string,
+) {
+  if (status === 'authorized') {
+    return `${kind} autorizada não pode ser excluída. Cancele na SEFAZ se ainda estiver no prazo.`
+  }
+  if (status === 'denied') {
+    return `${kind} denegada consome o número na SEFAZ e não pode ser excluída.`
+  }
+  if (status === 'canceled') {
+    return `${kind} cancelada permanece no histórico e não pode ser excluída.`
+  }
+  if (status === 'pending' && String(accessKey || '').trim()) {
+    return `Esta ${kind} já foi enviada à SEFAZ e ainda não teve retorno definitivo. Consulte ou envie de novo; não é possível excluir.`
+  }
+  return `Somente rascunho (não enviado) ou ${kind} rejeitada podem ser excluídos.`
+}
+
+async function restoreAllocatedNumber (input: {
+  organizationId: string
+  model: '55' | '65'
+  environment: 'homologacao' | 'producao'
+  series: number
+  number: number
+}) {
+  const service = createSupabaseServiceClient()
+  const { data: profile, error } = await service
+    .from('organization_fiscal_profiles')
+    .select('fiscal_environment, nfe_series, nfe_next_number, nfce_series, nfce_next_number, nfce_series_homologacao, nfce_next_number_homologacao, nfce_series_producao, nfce_next_number_producao')
+    .eq('organization_id', input.organizationId)
+    .maybeSingle()
+  if (error || !profile) {
+    if (error) console.error('[fiscal] restoreAllocatedNumber load', error)
+    return
+  }
+
+  const patch = input.model === '55'
+    ? nfeNumberRestorePatch(profile, input.series, input.number)
+    : nfceNumberRestorePatch(
+      profile,
+      input.environment,
+      input.series,
+      input.number,
+    )
+  if (!patch) return
+
+  const { error: updateError } = await service
+    .from('organization_fiscal_profiles')
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq('organization_id', input.organizationId)
+  if (updateError) {
+    console.error('[fiscal] restoreAllocatedNumber update', updateError)
+  }
+}
+
+export async function deleteFiscalDocument (auth: AuthCtx, fiscalDocumentId: string) {
+  const { data, error } = await auth.supabase
+    .from('fiscal_documents')
+    .select('id, model, environment, series, number, status, access_key')
+    .eq('organization_id', auth.organizationId)
+    .eq('id', fiscalDocumentId)
+    .maybeSingle()
+
+  if (error) return { ok: false as const, error: 'db_error' as const }
+  if (!data) return { ok: false as const, error: 'not_found' as const }
+
+  const model = data.model === '55' ? '55' as const : '65' as const
+  const kind = fiscalDocumentKind(model)
+  if (model !== '55') {
+    return {
+      ok: false as const,
+      error: 'not_deletable' as const,
+      message: 'Somente NF-e pendente ou rejeitada pode ser excluída.',
+    }
+  }
+  const status = asStatus(data.status)
+  const accessKey = data.access_key ? String(data.access_key) : null
+
+  if (!canDeleteFiscalDocument(status, accessKey)) {
+    return {
+      ok: false as const,
+      error: 'not_deletable' as const,
+      message: deleteBlockedMessage(status, accessKey, kind),
+    }
+  }
+
+  const service = createSupabaseServiceClient()
+  const { error: deleteError } = await service
+    .from('fiscal_documents')
+    .delete()
+    .eq('organization_id', auth.organizationId)
+    .eq('id', fiscalDocumentId)
+
+  if (deleteError) {
+    console.error('[fiscal] deleteFiscalDocument', deleteError)
+    return { ok: false as const, error: 'db_error' as const }
+  }
+
+  await restoreAllocatedNumber({
+    organizationId: auth.organizationId,
+    model,
+    environment: data.environment === 'producao' ? 'producao' : 'homologacao',
+    series: Number(data.series) || 1,
+    number: Number(data.number) || 0,
+  })
 
   return { ok: true as const }
 }

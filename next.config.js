@@ -34,13 +34,15 @@ const nextConfig = {
 		viewTransition: true,
 	},
 	// sharp 0.35 + Turbopack no Vercel: libvips não entra no bundle → 500 HTML em upload.
-	serverExternalPackages: ['sharp'],
+	// pdfkit precisa do .afm em node_modules (não no virtual root C:\ROOT do bundler).
+	serverExternalPackages: ['sharp', 'pdfkit', '@brasil-fiscal/nfe', 'qrcode'],
 	outputFileTracingIncludes: {
 		'/api/**/*': [
 			'./node_modules/@img/sharp-libvips-linux-x64/**/*',
 			'./node_modules/@img/sharp-libvips-linuxmusl-x64/**/*',
 			'./node_modules/@img/sharp-linux-x64/**/*',
 			'./node_modules/@img/sharp-linuxmusl-x64/**/*',
+			'./node_modules/pdfkit/js/data/**/*',
 		],
 	},
 	images: {

@@ -109,3 +109,45 @@ export function nfeNumberingPatch (profile: NfeNumberingProfileRow) {
     },
   }
 }
+
+export function nfeNumberRestorePatch (
+  profile: NfeNumberingProfileRow,
+  series: number,
+  number: number,
+) {
+  const currentSeries = positiveInt(profile.nfe_series) || 1
+  const nextNumber = positiveInt(profile.nfe_next_number) || 1
+  if (currentSeries !== series) return null
+  if (nextNumber !== number + 1) return null
+  return { nfe_next_number: number }
+}
+
+export function nfceNumberRestorePatch (
+  profile: FiscalNumberingProfileRow,
+  environment: FiscalNumberingEnvironment,
+  series: number,
+  number: number,
+) {
+  const numbering = nfceNumberingForEnvironment(profile, environment)
+  if (numbering.series !== series) return null
+  if (numbering.nextNumber !== number + 1) return null
+
+  const activePatch = {
+    nfce_series: numbering.series,
+    nfce_next_number: number,
+  }
+
+  if (environment === 'producao') {
+    return {
+      nfce_series_producao: numbering.series,
+      nfce_next_number_producao: number,
+      ...(profile.fiscal_environment === 'producao' ? activePatch : {}),
+    }
+  }
+
+  return {
+    nfce_series_homologacao: numbering.series,
+    nfce_next_number_homologacao: number,
+    ...(profile.fiscal_environment !== 'producao' ? activePatch : {}),
+  }
+}

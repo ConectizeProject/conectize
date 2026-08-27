@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { formatCpf, formatCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { onlyDigits } from '@/lib/utils/strings'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import { CUSTOMER_PORTAL_FIELDS } from '@/lib/customers/fields'
 
 export async function GET(request: Request) {
   const auth = await requireStaffOrAdmin()
@@ -24,7 +25,7 @@ export async function GET(request: Request) {
     const escaped = nameQuery.replace(/%/g, '\\%').replace(/_/g, '\\_')
     const { data: customers, error } = await auth.supabase
       .from('customers')
-      .select('id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, phone, mobile_phone, contact_phone, contact_notes, address_full, zip_code, state, city, neighborhood, street, street_number, street_complement, birth_date, referral_source, referral_source_other')
+      .select(CUSTOMER_PORTAL_FIELDS)
       .or(`full_name.ilike.%${escaped}%,company_name.ilike.%${escaped}%,trade_name.ilike.%${escaped}%`)
       .order('full_name', { ascending: true, nullsFirst: false })
       .order('company_name', { ascending: true, nullsFirst: false })
@@ -45,7 +46,7 @@ export async function GET(request: Request) {
 
   const { data: customers, error } = await auth.supabase
     .from('customers')
-    .select('id, cpf, cnpj, is_company, full_name, company_name, trade_name, email, phone, mobile_phone, contact_phone, contact_notes, address_full, zip_code, state, city, neighborhood, street, street_number, street_complement, birth_date, referral_source, referral_source_other')
+    .select(CUSTOMER_PORTAL_FIELDS)
     .or([
       `cpf.like.${prefix}%`,
       cpfPrefixMasked ? `cpf.like.${cpfPrefixMasked}%` : null,
