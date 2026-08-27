@@ -106,8 +106,6 @@ export async function buildNfceDanfeHtml (
   const qrCodeDataUrl = qrCodeUrl
     ? await QRCode.toDataURL(qrCodeUrl, { margin: 1, width: 160 })
     : null
-  const customerDocument = String(order.customer_document || '').replace(/\D/g, '')
-
   const cupom: SalesCupomData = {
     orderNumber: order.order_number,
     createdAt: String(order.created_at || new Date().toISOString()),
@@ -143,9 +141,6 @@ export async function buildNfceDanfeHtml (
       qrCodeDataUrl,
       authorizationDate: fiscalDocument.authorized_at ?? null,
       environment: fiscalDocument.environment ?? null,
-      consumerLabel: customerDocument
-        ? `Consumidor: ${customerDocument}`
-        : 'CONSUMIDOR NÃO IDENTIFICADO',
     },
   }
 

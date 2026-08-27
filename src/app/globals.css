@@ -121,6 +121,15 @@
     @apply overflow-x-hidden;
   }
 
+  /* Portal: um único scroll (no <main>), header permanece visível */
+  html.portal-scroll-lock,
+  html.portal-scroll-lock body {
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
   body {
     @apply bg-background text-foreground font-sans antialiased;
     font-family: var(--font-outfit), sans-serif;

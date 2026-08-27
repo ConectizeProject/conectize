@@ -47,3 +47,51 @@ export function formatCpfCnpj(value: string): string {
   if (digits.length <= 11) return formatCpf(digits)
   return formatCnpj(digits)
 }
+
+export function cpfCnpjKindLabel (value: string): 'CPF' | 'CNPJ' | null {
+  const digits = onlyDigits(value)
+  if (digits.length === 11) return 'CPF'
+  if (digits.length === 14) return 'CNPJ'
+  return null
+}
+
+/** CPF/CNPJ completo com máscara de formatação. Vazio se o documento estiver incompleto. */
+export function formatCompleteCpfCnpj (value: string): string {
+  const kind = cpfCnpjKindLabel(value)
+  if (!kind) return ''
+  return formatCpfCnpj(value)
+}
+
+const GENERIC_CONSUMER_NAMES = new Set([
+  'consumidor',
+  'consumidor final',
+  'consumidor não identificado',
+  'consumidor nao identificado',
+])
+
+export function isGenericConsumerName (name: string | null | undefined): boolean {
+  const normalized = String(name || '').trim().toLowerCase()
+  if (!normalized) return true
+  return GENERIC_CONSUMER_NAMES.has(normalized)
+}
+
+export function formatIdentifiedConsumer (input: {
+  name?: string | null
+  document?: string | null
+}): {
+  identified: boolean
+  displayName: string | null
+  documentKind: 'CPF' | 'CNPJ' | null
+  formattedDocument: string | null
+} {
+  const rawName = String(input.name || '').trim()
+  const displayName = rawName && !isGenericConsumerName(rawName) ? rawName : null
+  const formattedDocument = formatCompleteCpfCnpj(String(input.document || '')) || null
+  const documentKind = cpfCnpjKindLabel(String(input.document || ''))
+  return {
+    identified: Boolean(displayName || formattedDocument),
+    displayName,
+    documentKind,
+    formattedDocument,
+  }
+}

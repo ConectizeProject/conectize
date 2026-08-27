@@ -86,7 +86,7 @@ export function DashboardLembretesPendencias ({
 				))}
 			</div>
 
-			<div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-0.5 [scrollbar-gutter:stable]">
+			<div className="min-h-0 flex-1 pr-0.5">
 				{tab === 'receber' ? (
 					receivableSections.length === 0 ? (
 						<EmptyState

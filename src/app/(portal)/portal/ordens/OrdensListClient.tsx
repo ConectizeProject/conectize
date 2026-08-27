@@ -113,7 +113,7 @@ export function OrdensListClient ({
   const mountKey = `kanban-${filterQ}-${filterCpf}-${filterOsNumber}-${filterStatus}-${filterCustomerId}-${filterCustomerName}-${filterDeviceModelId}-${filterCreatedFrom}-${filterCreatedTo}-${filterReadyFrom}-${filterReadyTo}`
 
   return (
-    <div className="flex min-h-[600px] min-w-0 flex-1 flex-col">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <OrdensKanbanBoardMountGate
         mountKey={mountKey}
         openOrdersByStatus={openOrdersByStatus}
