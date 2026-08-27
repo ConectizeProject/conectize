@@ -16,6 +16,7 @@ import { SalesOrderCupomPrintHost } from "@/app/(portal)/portal/vendas/SalesOrde
 import {
 	PORTAL_FULL_WIDTH_CONTAINER,
 	PORTAL_LAYOUT_CONTAINER,
+	isPortalFillViewportPath,
 	isPortalFullWidthPath,
 } from "@/lib/portal/portal-layout";
 import { buildPortalNavConfig } from "@/lib/portal/portal-nav-config";
@@ -34,6 +35,7 @@ import {
 import { useTheme } from "next-themes";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useLayoutEffect } from "react";
 import { PlatformOrgSwitcher } from "./PlatformOrgSwitcher";
 import { PortalRoleSwitcher } from "./PortalRoleSwitcher";
 
@@ -85,6 +87,15 @@ export function PortalShell(props: PortalShellProps) {
 	const orgLabel = String(props.organizationName || "").trim();
 	const logoAlt = orgLabel || "Portal";
 	const isFullWidth = isPortalFullWidthPath(pathname);
+	const isFillViewport = isPortalFillViewportPath(pathname);
+
+	useLayoutEffect(() => {
+		const root = document.documentElement;
+		root.classList.add("portal-scroll-lock");
+		return () => {
+			root.classList.remove("portal-scroll-lock");
+		};
+	}, []);
 
 	const navConfig = buildPortalNavConfig({
 		role: props.role,
@@ -94,7 +105,7 @@ export function PortalShell(props: PortalShellProps) {
 
 	return (
 		<PortalBrandingProvider organizationName={orgLabel || null}>
-			<div className="flex h-svh max-h-svh min-h-0 flex-col overflow-hidden">
+			<div className="flex h-dvh max-h-dvh min-h-0 flex-col overflow-hidden">
 				<header
 					className="relative z-40 shrink-0 border-b border-border/60 bg-white dark:bg-background"
 					style={{ viewTransitionName: "portal-top-nav" }}
@@ -244,12 +255,22 @@ export function PortalShell(props: PortalShellProps) {
 					</div>
 				</header>
 
-				<main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
+				<main
+					className={cn(
+						"flex min-h-0 min-w-0 flex-1 flex-col",
+						isFillViewport
+							? "overflow-hidden"
+							: "overflow-y-auto overscroll-y-contain",
+					)}
+				>
 					<div
 						className={cn(
 							isFullWidth
 								? PORTAL_FULL_WIDTH_CONTAINER
-								: cn(PORTAL_LAYOUT_CONTAINER, "flex min-h-0 flex-1 flex-col pb-8 pt-6"),
+								: PORTAL_LAYOUT_CONTAINER,
+							isFillViewport
+								? "flex h-full min-h-0 flex-1 flex-col py-4"
+								: "pb-8 pt-6",
 						)}
 					>
 						{props.children}

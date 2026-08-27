@@ -1,4 +1,5 @@
 import type { CompanyPrintData, OrdemPrintData } from '@/lib/ordem-print'
+import { formatIdentifiedConsumer } from '@/lib/utils/format-cpf-cnpj'
 import { formatDateTimeBr } from '@/lib/utils/format-date'
 import { formatPhoneBr } from '@/lib/utils/format-phone'
 
@@ -64,6 +65,13 @@ export function buildOrdemCupomHtml (
   const customerName = data.customer.isCompany
     ? (data.customer.companyName || data.customer.fullName || '-')
     : (data.customer.fullName || '-')
+  const consumer = formatIdentifiedConsumer({
+    name: customerName === '-' ? null : customerName,
+    document: data.customer.isCompany ? data.customer.cnpj : data.customer.cpf,
+  })
+  const customerDocLine = consumer.formattedDocument && consumer.documentKind
+    ? `<div class="kv"><span class="k">${consumer.documentKind}:</span> ${escapeHtml(consumer.formattedDocument)}</div>`
+    : ''
   const title = escapeHtml((data.title || '-').trim() || '-')
   const device = escapeHtml((data.device || '-').trim() || '-')
   const entrada = escapeHtml(formatDateTimeBr(data.createdAt))
@@ -250,6 +258,7 @@ export function buildOrdemCupomHtml (
   <div class="kv"><span class="k">Entrada:</span> ${entrada}</div>
   ${previsao ? `<div class="kv"><span class="k">Previsão:</span> ${previsao}</div>` : ''}
   <div class="kv"><span class="k">Cliente:</span> ${escapeHtml(customerName)}</div>
+  ${customerDocLine}
   <div class="kv"><span class="k">Aparelho:</span> ${device}</div>
 
   ${paymentsHtml ? `

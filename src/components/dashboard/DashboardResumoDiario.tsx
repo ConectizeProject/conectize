@@ -122,16 +122,14 @@ export function DashboardResumoDiario ({
 					</div>
 				</article>
 
-				<div className="relative min-h-[14rem] lg:min-h-0">
-					<div className={cn(resumoInnerCardClassName, 'min-h-[14rem] lg:absolute lg:inset-0')}>
-						<DashboardLembretesPendencias
-							receivables={receivables}
-							payables={payables}
-							birthdays={birthdays}
-							canSeePayables={canSeePayables}
-							embedded
-						/>
-					</div>
+				<div className={cn(resumoInnerCardClassName, 'min-h-[14rem]')}>
+					<DashboardLembretesPendencias
+						receivables={receivables}
+						payables={payables}
+						birthdays={birthdays}
+						canSeePayables={canSeePayables}
+						embedded
+					/>
 				</div>
 			</div>
 		</section>

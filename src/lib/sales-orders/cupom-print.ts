@@ -1,4 +1,5 @@
 import type { CompanyPrintData } from '@/lib/ordem-print'
+import { formatIdentifiedConsumer } from '@/lib/utils/format-cpf-cnpj'
 import { formatDateBr, formatDateTimeBr } from '@/lib/utils/format-date'
 import { formatPhoneBr } from '@/lib/utils/format-phone'
 
@@ -37,7 +38,7 @@ export type SalesCupomData = {
     qrCodeDataUrl: string | null
     authorizationDate: string | null
     environment: string | null
-    consumerLabel: string
+    consumerLabel?: string
   } | null
 }
 
@@ -82,6 +83,37 @@ function resolveLogoUrl (logoUrl: string | null | undefined, baseUrl = ''): stri
   if (!logoUrl) return ''
   if (logoUrl.startsWith('http') || logoUrl.startsWith('/')) return logoUrl
   return `${baseUrl}${baseUrl.endsWith('/') ? '' : '/'}${logoUrl}`
+}
+
+function buildConsumerBlockHtml (cupom: SalesCupomData): string {
+  const consumer = formatIdentifiedConsumer({
+    name: cupom.customerName,
+    document: cupom.customerDocument,
+  })
+  const isFiscal = Boolean(cupom.fiscal)
+
+  if (!consumer.identified) {
+    if (isFiscal) {
+      return `<section class="consumer">
+      <div>CONSUMIDOR NÃO IDENTIFICADO</div>
+    </section>
+    <hr class="sep" />`
+    }
+    return ''
+  }
+
+  const nameLine = consumer.displayName
+    ? `<div><span class="k">Consumidor:</span> ${escapeHtml(consumer.displayName)}</div>`
+    : '<div><span class="k">Consumidor</span></div>'
+  const docLine = consumer.formattedDocument && consumer.documentKind
+    ? `<div><span class="k">${consumer.documentKind}:</span> ${escapeHtml(consumer.formattedDocument)}</div>`
+    : ''
+
+  return `<section class="consumer">
+      ${nameLine}
+      ${docLine}
+    </section>
+    <hr class="sep" />`
 }
 
 /**
@@ -208,6 +240,8 @@ export function buildSalesCupomHtml (
       margin: 2px 0;
     }
     .totals .row.total { font-size: 12px; font-weight: 700; margin-top: 4px; }
+    .consumer { font-size: 11px; }
+    .consumer .k { font-weight: 700; }
     .footer { margin-top: 10px; font-size: 11px; }
     .footer .datetime { margin-top: 4px; font-size: 10px; }
     .fiscal-box {
@@ -244,6 +278,8 @@ export function buildSalesCupomHtml (
   </header>
 
   <hr class="sep" />
+
+  ${buildConsumerBlockHtml(cupom)}
 
   <table>
     <thead>
@@ -292,7 +328,6 @@ export function buildSalesCupomHtml (
   ${cupom.fiscal
     ? `<section class="fiscal-box">
         <div class="fiscal-title">${escapeHtml(cupom.fiscal.title)}</div>
-        <div class="muted">${escapeHtml(cupom.fiscal.consumerLabel)}</div>
         ${cupom.fiscal.environment === 'homologacao' ? '<div class="muted">EMITIDA EM AMBIENTE DE HOMOLOGAÇÃO - SEM VALOR FISCAL</div>' : ''}
         ${cupom.fiscal.accessKey ? `<div class="access-key">${escapeHtml(cupom.fiscal.accessKey.replace(/(.{4})/g, '$1 ').trim())}</div>` : ''}
         ${cupom.fiscal.protocol ? `<div class="muted">Protocolo: ${escapeHtml(cupom.fiscal.protocol)}</div>` : ''}
