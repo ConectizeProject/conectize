@@ -1,20 +1,20 @@
 'use client'
 
-import type { MouseEvent } from 'react'
-import Link from 'next/link'
 import { Calendar, Smartphone, User } from 'lucide-react'
+import Link from 'next/link'
+import type { MouseEvent } from 'react'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
-import { OrdensRowActions } from './OrdensRowActions'
-import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
-import { formatPhoneBr } from '@/lib/utils/format-phone'
-import { formatDateTimeShortBrNoComma } from '@/lib/utils/format-date'
 import { getOrdemPortalPath } from '@/lib/orders/ordem-portal-path'
-import { onlyDigits } from '@/lib/utils/strings'
 import type {
 	PortalOrdensCustomerSummary,
 	PortalOrdensDeviceModelSummary,
 	PortalOrdensListRow,
 } from '@/lib/orders/portal-ordens-list-types'
+import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
+import { formatDateTimeShortBrNoComma } from '@/lib/utils/format-date'
+import { formatPhoneBr } from '@/lib/utils/format-phone'
+import { onlyDigits } from '@/lib/utils/strings'
+import { OrdensRowActions } from './OrdensRowActions'
 
 /** CNPJ: 14 dígitos (ou armazenado no campo cpf com mais de 11 dígitos). */
 function customerDocIsCnpj (c: PortalOrdensCustomerSummary | null): boolean {
@@ -76,53 +76,70 @@ export function OrdemCard({ order, canDelete, layout = 'carousel', onLinkClick }
 		: [cpfCnpjFmt || null, celularFmt].filter(Boolean).join(' • ') || '—'
 	const datesLine = formatOrdemCardDatesLine(order)
 
-	const linkClass =
+	const shellClass =
 		layout === 'list'
-			? 'block w-full max-w-full min-w-0 transition-colors hover:opacity-95'
-			: 'block w-[320px] max-w-[320px] shrink-0 transition-colors hover:opacity-95'
+			? 'relative block w-full max-w-full min-w-0'
+			: 'relative block w-[320px] max-w-[320px] shrink-0'
+	const ordemHref = getOrdemPortalPath(order)
+	const linkClass = 'min-w-0 flex-1 truncate font-semibold transition-colors hover:opacity-95'
 
 	return (
-		<Link
-			href={getOrdemPortalPath(order)}
-			draggable={false}
-			onDragStart={(e) => e.preventDefault()}
-			onClick={onLinkClick}
-			transitionTypes={['nav-forward']}
-			className={linkClass}
-		>
+		<div className={shellClass}>
 			<Card className="h-full cursor-pointer transition-colors hover:bg-muted/50" draggable={false}>
 				<CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 bg-muted/30 p-0 px-4 pt-2 pb-2">
-					<span className="min-w-0 flex-1 truncate font-semibold">#{order.display_number ?? order.id}</span>
+					<Link
+						href={ordemHref}
+						draggable={false}
+						onDragStart={(e) => e.preventDefault()}
+						onClick={onLinkClick}
+						transitionTypes={['nav-forward']}
+						className={linkClass}
+					>
+						#{order.display_number ?? order.id}
+					</Link>
 					<div
-						className="shrink-0"
+						className="relative z-20 shrink-0"
 						onPointerDown={(e) => {
+							e.stopPropagation()
+						}}
+						onClick={(e) => {
+							e.preventDefault()
 							e.stopPropagation()
 						}}
 					>
 						<OrdensRowActions order={order} canDelete={canDelete} />
 					</div>
 				</CardHeader>
-				<CardContent className="space-y-2 p-4">
-					<p className="font-medium leading-tight">{order.title}</p>
-					<div className="flex items-start gap-2">
-						<User className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-						<div className="min-w-0 flex-1 flex flex-col gap-0 text-sm text-muted-foreground">
-							<p className="truncate leading-snug" title={customerName}>{customerName}</p>
-							{hideCpfCelular ? null : (
-								<p className="text-xs leading-snug text-muted-foreground" title={cpfCelularLine}>{cpfCelularLine}</p>
-							)}
+				<Link
+					href={ordemHref}
+					draggable={false}
+					onDragStart={(e) => e.preventDefault()}
+					onClick={onLinkClick}
+					transitionTypes={['nav-forward']}
+					className="block transition-colors hover:opacity-95"
+				>
+					<CardContent className="space-y-2 p-4">
+						<p className="font-medium leading-tight">{order.title}</p>
+						<div className="flex items-start gap-2">
+							<User className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+							<div className="min-w-0 flex-1 flex flex-col gap-0 text-sm text-muted-foreground">
+								<p className="truncate leading-snug" title={customerName}>{customerName}</p>
+								{hideCpfCelular ? null : (
+									<p className="text-xs leading-snug text-muted-foreground" title={cpfCelularLine}>{cpfCelularLine}</p>
+								)}
+							</div>
 						</div>
-					</div>
-					<div className="flex items-start gap-2">
-						<Smartphone className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-						<p className="min-w-0 flex-1 truncate text-sm leading-snug text-muted-foreground" title={deviceText}>{deviceText}</p>
-					</div>
-					<div className="flex items-start gap-2">
-						<Calendar className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-						<p className="min-w-0 flex-1 truncate text-sm leading-snug text-muted-foreground" title={datesLine}>{datesLine}</p>
-					</div>
-				</CardContent>
+						<div className="flex items-start gap-2">
+							<Smartphone className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+							<p className="min-w-0 flex-1 truncate text-sm leading-snug text-muted-foreground" title={deviceText}>{deviceText}</p>
+						</div>
+						<div className="flex items-start gap-2">
+							<Calendar className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+							<p className="min-w-0 flex-1 truncate text-sm leading-snug text-muted-foreground" title={datesLine}>{datesLine}</p>
+						</div>
+					</CardContent>
+				</Link>
 			</Card>
-		</Link>
+		</div>
 	)
 }

@@ -130,7 +130,7 @@ export function useOrderStatusUpdate () {
   ): Promise<UpdateOrderStatusResult> => {
     const statusResult = await applyStatusChange(orderId, newStatus, options)
     if (statusResult === 'ok' && newStatus === 'aguardando_retirada') {
-      await maybeOfferReadyPickupWhatsapp(orderId)
+      void maybeOfferReadyPickupWhatsapp(orderId)
     }
     return statusResult
   }, [applyStatusChange, maybeOfferReadyPickupWhatsapp])

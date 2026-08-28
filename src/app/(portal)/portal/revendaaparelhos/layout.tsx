@@ -19,11 +19,9 @@ export default async function RevendaAparelhosLayout({
 	const isRetailer = normalizedRole === 'retailer'
 
 	return (
-		<div className="flex min-h-0 w-full flex-col">
-			<div className="shrink-0 bg-background px-1 pt-1 sm:px-3">
-				<SeminovosSubmenu retailerMode={isRetailer} />
-			</div>
-			<div className="min-h-0 w-full px-1 pt-3 sm:px-3">{children}</div>
+		<div className="space-y-4">
+			<SeminovosSubmenu retailerMode={isRetailer} />
+			{children}
 		</div>
 	)
 }

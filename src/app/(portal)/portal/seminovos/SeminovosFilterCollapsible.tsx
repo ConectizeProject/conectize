@@ -84,6 +84,8 @@ type Props = {
     color: string
     purchaseDateFrom: string
     purchaseDateTo: string
+    saleDateFrom?: string
+    saleDateTo?: string
     stockType: 'seminovo' | 'lacrado' | 'all'
     deviceName?: string
     /** Catálogo revenda (GET): texto mascarado. */
@@ -135,6 +137,10 @@ function seminovosFilterHref (
   if (!omit.has('purchaseDateTo') && iv.purchaseDateTo.trim()) {
     p.set('purchaseDateTo', iv.purchaseDateTo.trim())
   }
+  const saleFrom = (iv.saleDateFrom || '').trim()
+  const saleTo = (iv.saleDateTo || '').trim()
+  if (!omit.has('saleDateFrom') && saleFrom) p.set('saleDateFrom', saleFrom)
+  if (!omit.has('saleDateTo') && saleTo) p.set('saleDateTo', saleTo)
   const vmin = (iv.valueMin || '').trim()
   const vmax = (iv.valueMax || '').trim()
   if (!omit.has('valueMin') && vmin) p.set('valueMin', vmin)
@@ -152,6 +158,8 @@ function hasUrlExtraFilters (initialValues: Props['initialValues']) {
     initialValues.color ||
     initialValues.purchaseDateFrom ||
     initialValues.purchaseDateTo ||
+    (initialValues.saleDateFrom || '').trim() ||
+    (initialValues.saleDateTo || '').trim() ||
     (initialValues.valueMin || '').trim() ||
     (initialValues.valueMax || '').trim() ||
     initialValues.includeSold,
@@ -207,6 +215,20 @@ export function SeminovosFilterCollapsible ({
       rows.push({
         id: 'pt',
         text: `Compra até ${formatDateBr(`${initialValues.purchaseDateTo.trim()}T12:00:00`)}`,
+      })
+    }
+    const saleFrom = (initialValues.saleDateFrom || '').trim()
+    const saleTo = (initialValues.saleDateTo || '').trim()
+    if (saleFrom) {
+      rows.push({
+        id: 'sf',
+        text: `Venda a partir de ${formatDateBr(`${saleFrom}T12:00:00`)}`,
+      })
+    }
+    if (saleTo) {
+      rows.push({
+        id: 'st',
+        text: `Venda até ${formatDateBr(`${saleTo}T12:00:00`)}`,
       })
     }
     const vmin = (initialValues.valueMin || '').trim()
@@ -416,6 +438,24 @@ export function SeminovosFilterCollapsible ({
                   name="purchaseDateTo"
                   type="date"
                   defaultValue={initialValues.purchaseDateTo}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="seminovos-saleDateFrom">Venda (de)</Label>
+                <Input
+                  id="seminovos-saleDateFrom"
+                  name="saleDateFrom"
+                  type="date"
+                  defaultValue={initialValues.saleDateFrom || ''}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="seminovos-saleDateTo">Venda (até)</Label>
+                <Input
+                  id="seminovos-saleDateTo"
+                  name="saleDateTo"
+                  type="date"
+                  defaultValue={initialValues.saleDateTo || ''}
                 />
               </div>
 

@@ -1,14 +1,28 @@
 'use client'
 
+import { FieldArray, Form, Formik } from 'formik'
+import { Loader2 } from 'lucide-react'
+import Link from 'next/link'
+import { useRef, useState } from 'react'
+import * as Yup from 'yup'
+import { NovaOrdemCustomerCard } from '@/app/(portal)/portal/ordens/nova/NovaOrdemCustomerCard'
+import {
+  getCustomerDocumentDigits,
+  useNovaOrdemCustomerSearch,
+} from '@/app/(portal)/portal/ordens/nova/use-nova-ordem-customer-search'
+import {
+  OrderFormActionBar,
+  orderFormActionBarFlowSpacerClassName,
+} from '@/app/(portal)/portal/ordens/OrderFormActionBar'
 import {
   CreateCustomerDialog,
-  EditCustomerDialog,
   type CustomerHit,
+  EditCustomerDialog,
 } from '@/components/customers'
 import {
   OrderServicesCard,
-  OrderServicesTotalProvider,
   type OrderServicesCardRef,
+  OrderServicesTotalProvider,
   type ServiceLine,
 } from '@/components/orders'
 import { Button } from '@/components/ui/button'
@@ -29,27 +43,14 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import { NovaOrdemCustomerCard } from '@/app/(portal)/portal/ordens/nova/NovaOrdemCustomerCard'
-import {
-  getCustomerDocumentDigits,
-  useNovaOrdemCustomerSearch,
-} from '@/app/(portal)/portal/ordens/nova/use-nova-ordem-customer-search'
-import {
-  OrderFormActionBar,
-  orderFormActionBarFlowSpacerClassName,
-} from '@/app/(portal)/portal/ordens/OrderFormActionBar'
-import { parseMoneyToCents } from '@/lib/utils/format-money'
-import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
+import { PORTAL_NARROW_FORM_CONTAINER } from '@/lib/portal/portal-layout'
 import { defaultQuoteValidUntilYmd } from '@/lib/quotes/quote-dates'
 import {
   QUOTE_MANUAL_STATUS_VALUES,
   QUOTE_STATUS_LABELS,
 } from '@/lib/quotes/quote-status'
-import { FieldArray, Form, Formik } from 'formik'
-import { Loader2 } from 'lucide-react'
-import Link from 'next/link'
-import { useRef, useState } from 'react'
-import * as Yup from 'yup'
+import { parseMoneyToCents } from '@/lib/utils/format-money'
+import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 
 export type QuoteFormValues = {
   customerId: string
@@ -160,7 +161,7 @@ export function OrcamentoFormClient ({
   }
 
   return (
-    <div className="max-w-4xl space-y-6">
+    <div className={`${PORTAL_NARROW_FORM_CONTAINER} space-y-6`}>
       <div>
         <h1 className="text-2xl font-bold">{heading}</h1>
         {quoteId ? (

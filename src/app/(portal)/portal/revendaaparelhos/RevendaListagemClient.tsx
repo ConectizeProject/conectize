@@ -60,6 +60,8 @@ type FilterInitial = {
   color: string
   purchaseDateFrom: string
   purchaseDateTo: string
+  saleDateFrom?: string
+  saleDateTo?: string
   stockType: 'all'
   deviceName?: string
   valueMin?: string
@@ -321,7 +323,7 @@ export function RevendaListagemClient ({
   )
 
   return (
-    <div className="space-y-4 pb-8">
+    <div className="space-y-4">
       <SeminovosFilterCollapsible
         key={[
           filterInitialValues.q,
@@ -330,6 +332,8 @@ export function RevendaListagemClient ({
           filterInitialValues.color,
           filterInitialValues.purchaseDateFrom,
           filterInitialValues.purchaseDateTo,
+          filterInitialValues.saleDateFrom || '',
+          filterInitialValues.saleDateTo || '',
           filterInitialValues.deviceName || '',
           filterInitialValues.stockType,
           filterInitialValues.valueMin || '',

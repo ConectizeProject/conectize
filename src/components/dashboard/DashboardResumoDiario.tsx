@@ -1,69 +1,49 @@
-import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 import type {
 	DashboardDevicesSummary,
 	DashboardOsSummary,
+	DashboardRemindersSummary,
 	DashboardSalesSummary,
-	DashboardBirthdayItem,
-	DashboardReceivableItem,
 } from '@/lib/dashboard/daily-summary'
+import {
+	dashboardAparelhosBrutoLiquidoHref,
+	dashboardAparelhosDisponiveisHref,
+	dashboardAparelhosVendidosHojeHref,
+	dashboardOrdensHref,
+	dashboardVendasHojeHref,
+} from '@/lib/dashboard/dashboard-links'
 import { DashboardLembretesPendencias } from '@/components/dashboard/DashboardLembretesPendencias'
+import { MetricRow } from '@/components/dashboard/dashboard-metric-row'
 import { DashboardResumoHeader } from '@/components/dashboard/DashboardResumoHeader'
 import { DashboardMoneyText } from '@/components/dashboard/dashboard-money-visibility'
 import {
 	resumoInnerCardClassName,
 	resumoOuterCardClassName,
 } from '@/components/dashboard/resumo-card-styles'
-import type { RecurringPendingDto } from '@/lib/finance/recurring-due'
 
 type Props = {
+	dateStr: string
 	sales: DashboardSalesSummary
 	os: DashboardOsSummary
 	devices: DashboardDevicesSummary
 	updatedAtLabel: string
-	receivables: DashboardReceivableItem[]
-	payables: RecurringPendingDto[]
-	birthdays: DashboardBirthdayItem[]
+	reminders: DashboardRemindersSummary
 	canSeePayables: boolean
-}
-
-function MetricRow ({
-	value,
-	label,
-	dotClass,
-	valueClass,
-}: {
-	value: ReactNode
-	label: string
-	dotClass: string
-	valueClass?: string
-}) {
-	return (
-		<div className="flex items-baseline gap-3 py-1.5">
-			<span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${dotClass}`} aria-hidden />
-			<span
-				className={cn(
-					'min-w-[4.5rem] text-base font-semibold tabular-nums tracking-tight sm:text-lg',
-					valueClass || 'text-foreground',
-				)}
-			>
-				{value}
-			</span>
-			<span className="text-sm text-muted-foreground">{label}</span>
-		</div>
-	)
+	isAdmin: boolean
 }
 
 export function DashboardResumoDiario ({
+	dateStr,
 	sales,
 	os,
 	devices,
 	updatedAtLabel,
-	receivables,
-	payables,
-	birthdays,
+	reminders,
 	canSeePayables,
+	isAdmin,
 }: Props) {
+	const brutoLiquidoHref = dashboardAparelhosBrutoLiquidoHref({ dateStr, isAdmin })
+
 	return (
 		<section className={cn(resumoOuterCardClassName, 'p-4 sm:p-5')}>
 			<DashboardResumoHeader updatedAtLabel={updatedAtLabel} />
@@ -76,21 +56,24 @@ export function DashboardResumoDiario ({
 							value={String(sales.salesCount)}
 							label="Vendas"
 							dotClass="bg-slate-400"
+							href={dashboardVendasHojeHref(dateStr)}
 						/>
 						<MetricRow
 							value={String(sales.unitsSold)}
-							label="Unidades vendidas"
+							label="Unidades Vendidas"
 							dotClass="bg-emerald-500"
 						/>
 						<MetricRow
 							value={String(os.activeCount)}
-							label="OS ativas"
+							label="OS Ativas"
 							dotClass="bg-sky-500"
+							href={dashboardOrdensHref()}
 						/>
 						<MetricRow
 							value={String(os.finalizedTodayCount)}
-							label="OS finalizadas"
+							label="OS Finalizadas"
 							dotClass="bg-violet-500"
+							href={dashboardOrdensHref()}
 						/>
 					</div>
 				</article>
@@ -102,33 +85,36 @@ export function DashboardResumoDiario ({
 							value={String(devices.availableCount)}
 							label="Disponíveis"
 							dotClass="bg-sky-500"
+							href={dashboardAparelhosDisponiveisHref()}
 						/>
 						<MetricRow
 							value={String(devices.soldTodayCount)}
 							label="Vendidos"
 							dotClass="bg-emerald-500"
+							href={dashboardAparelhosVendidosHojeHref(dateStr)}
 						/>
 						<MetricRow
 							value={<DashboardMoneyText cents={devices.grossCents} />}
 							label="Bruto"
 							dotClass="bg-amber-500"
+							href={brutoLiquidoHref}
 						/>
 						<MetricRow
 							value={<DashboardMoneyText cents={devices.netCents} />}
 							label="Líquido"
 							dotClass="bg-emerald-600"
 							valueClass="text-emerald-700 dark:text-emerald-400"
+							href={brutoLiquidoHref}
 						/>
 					</div>
 				</article>
 
 				<div className={cn(resumoInnerCardClassName, 'min-h-[14rem]')}>
 					<DashboardLembretesPendencias
-						receivables={receivables}
-						payables={payables}
-						birthdays={birthdays}
+						dateStr={dateStr}
+						reminders={reminders}
 						canSeePayables={canSeePayables}
-						embedded
+						isAdmin={isAdmin}
 					/>
 				</div>
 			</div>

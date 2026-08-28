@@ -95,23 +95,29 @@ export default async function DashboardPage () {
 				</header>
 
 				<DashboardResumoDiario
+					dateStr={summary.dateStr}
 					sales={summary.sales}
 					os={summary.os}
 					devices={summary.devices}
 					updatedAtLabel={formatUpdatedAtLabel(now)}
-					receivables={summary.receivables}
-					payables={summary.payables}
-					birthdays={summary.birthdays}
+					reminders={summary.reminders}
 					canSeePayables={isAdminOrPlatform}
+					isAdmin={isAdminOrPlatform}
 				/>
 
 				<DashboardFaturamentoCard
+					dateStr={summary.dateStr}
+					isAdmin={isAdminOrPlatform}
 					salesCents={summary.billingSalesCents}
 					osCents={summary.billingOsCents}
 					salesNetCents={summary.sales.netProfitCents}
 					osNetCents={summary.os.netCents}
 					salesGoalCents={summary.dailySalesGoalCents}
 					osGoalCents={summary.dailyOsGoalCents}
+					yesterdaySalesCents={summary.yesterday.salesCents}
+					yesterdayOsCents={summary.yesterday.osCents}
+					yesterdaySalesNetCents={summary.yesterday.salesNetCents}
+					yesterdayOsNetCents={summary.yesterday.osNetCents}
 				/>
 			</div>
 		</DashboardMoneyVisibilityProvider>

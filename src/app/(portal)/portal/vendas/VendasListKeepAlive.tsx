@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { usePathname } from 'next/navigation'
 import { PedidosVendaList } from '@/app/(portal)/portal/vendas/PedidosVendaList'
 import { FiscalDocumentsList } from '@/app/(portal)/portal/vendas/fiscal-documents/FiscalDocumentsList'
@@ -51,7 +51,9 @@ export function VendasListKeepAlive () {
     <>
       {visited.pedidos ? (
         <KeepAlivePane active={listTab === 'pedidos'}>
-          <PedidosVendaList />
+          <Suspense fallback={<p className="p-4 text-sm text-muted-foreground">Carregando…</p>}>
+            <PedidosVendaList />
+          </Suspense>
         </KeepAlivePane>
       ) : null}
       {visited.nfce ? (

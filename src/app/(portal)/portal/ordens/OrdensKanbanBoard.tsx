@@ -1,42 +1,49 @@
 'use client'
 
-import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   DndContext,
+  type DragEndEvent,
+  type DragOverEvent,
   DragOverlay,
+  type DragStartEvent,
   MeasuringFrequency,
   MeasuringStrategy,
   MouseSensor,
   TouchSensor,
   useSensor,
   useSensors,
-  type DragEndEvent,
-  type DragOverEvent,
-  type DragStartEvent,
 } from '@dnd-kit/core'
-import {
-  FINALIZED_ORDER_STATUSES,
-  OPEN_ORDER_STATUSES,
-  FINALIZED_ORDER_STATUS_SET,
-  isOpenOrderStatus,
-} from '@/lib/orders/order-status'
-import { portalFetch } from '@/lib/portal/portal-fetch'
+import Link from 'next/link'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { OrderStatusBlockerAlertDialog } from './OrderStatusBlockerAlertDialog'
-import { KanbanGhostClickOrderIdRefContext } from './kanban-ghost-click-context'
 import {
-  KANBAN_STATUS_ORDER,
+  FINALIZED_ORDER_STATUS_SET,
+  FINALIZED_ORDER_STATUSES,
+  isOpenOrderStatus,
+  OPEN_ORDER_STATUSES,
+} from '@/lib/orders/order-status'
+import type { PortalOrdensListRow } from '@/lib/orders/portal-ordens-list-types'
+import { portalFetch } from '@/lib/portal/portal-fetch'
+import { KanbanNavGuardContext } from './kanban-ghost-click-context'
+import type { KanbanStatusChangeApi } from './kanban-status-change-context'
+import { KanbanStatusChangeContext } from './kanban-status-change-context'
+import { OrdensKanbanColumn } from './OrdensKanbanColumn'
+import { OrdensKanbanDragPreview } from './OrdensKanbanDragPreview'
+import { OrderStatusBlockerAlertDialog } from './OrderStatusBlockerAlertDialog'
+import {
   hasActiveKanbanFilters,
+  KANBAN_STATUS_ORDER,
   kanbanColumnDroppableId,
   kanbanColumnsCollisionDetection,
   parseKanbanColumnStatus,
 } from './ordens-kanban-columns'
-import { OrdensKanbanColumn } from './OrdensKanbanColumn'
-import { OrdensKanbanDragPreview } from './OrdensKanbanDragPreview'
+import type {
+  UpdateOrderStatusExtraOptions,
+  UpdateOrderStatusResult,
+} from './use-order-status-update'
 import { useOrderStatusUpdate } from './use-order-status-update'
-import type { UpdateOrderStatusResult } from './use-order-status-update'
-import type { PortalOrdensListRow } from '@/lib/orders/portal-ordens-list-types'
+
+const KANBAN_NAV_SUPPRESS_MS = 500
 
 /** Colunas finais: primeira página e próximas requisições (scroll ou botão). */
 const FINAL_INITIAL_PAGE_SIZE = 4
@@ -191,8 +198,13 @@ export function OrdensKanbanBoard ({
   const [activeId, setActiveId] = useState<string | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
 
-  /** Um ref global (clique fantasma após drag) — evita N× useDndMonitor nos cards. */
-  const ghostClickOrderIdRef = useRef<string | null>(null)
+  /** Clique fantasma após drag/menu — evita N× useDndMonitor nos cards. */
+  const ghostOrderIdRef = useRef<string | null>(null)
+  const suppressLinkUntilRef = useRef(0)
+  const navGuard = useMemo(
+    () => ({ ghostOrderIdRef, suppressLinkUntilRef }),
+    [],
+  )
 
   /** Sobrescreve listas “abertas” até o RSC refletir o novo status (evita o card voltar à coluna antiga). */
   const [openOverride, setOpenOverride] = useState<
@@ -235,6 +247,14 @@ export function OrdensKanbanBoard ({
 
   const finalByStatusRef = useRef(finalByStatus)
   finalByStatusRef.current = finalByStatus
+  const openOverrideRef = useRef(openOverride)
+  openOverrideRef.current = openOverride
+  const effectiveOpenRef = useRef(effectiveOpen)
+  effectiveOpenRef.current = effectiveOpen
+  const ordersByIdRef = useRef(new Map<string, PortalOrdensListRow>())
+  const savingOrderIdsRef = useRef(savingOrderIds)
+  savingOrderIdsRef.current = savingOrderIds
+  const blockerConfirmingRef = useRef(false)
 
   const overRafRef = useRef<number | undefined>(undefined)
   const pendingOverIdRef = useRef<string | null>(null)
@@ -433,6 +453,137 @@ export function OrdensKanbanBoard ({
     }
     return m
   }, [effectiveOpen, finalByStatus])
+  ordersByIdRef.current = ordersById
+
+  const suppressKanbanNav = useCallback((orderId: string | null) => {
+    if (orderId) ghostOrderIdRef.current = orderId
+    suppressLinkUntilRef.current = Date.now() + KANBAN_NAV_SUPPRESS_MS
+  }, [])
+
+  const clearGhostSoon = useCallback((orderId: string) => {
+    window.setTimeout(() => {
+      if (ghostOrderIdRef.current === orderId) {
+        ghostOrderIdRef.current = null
+      }
+    }, KANBAN_NAV_SUPPRESS_MS)
+  }, [])
+
+  const markOrderSaving = useCallback((orderId: string, saving: boolean) => {
+    setSavingOrderIds((prev) => {
+      const has = prev.has(orderId)
+      if (saving && has) return prev
+      if (!saving && !has) return prev
+      const next = new Set(prev)
+      if (saving) next.add(orderId)
+      else next.delete(orderId)
+      return next
+    })
+  }, [])
+
+  const applyOptimisticMove = useCallback((
+    order: PortalOrdensListRow,
+    nextStatus: string,
+  ) => {
+    const fromStatus = order.status
+    const nextOrder: PortalOrdensListRow = { ...order, status: nextStatus }
+    optimisticRevertRef.current = {
+      openOverride: openOverrideRef.current,
+      finalByStatus: cloneFinalByStatus(finalByStatusRef.current),
+    }
+    const openCopy = cloneOpenMap(effectiveOpenRef.current)
+    const finalCopy = cloneFinalByStatus(finalByStatusRef.current)
+    removeOrderFromKanbanStatus(order.id, fromStatus, openCopy, finalCopy)
+    addOrderToKanbanStatus(nextOrder, nextStatus, openCopy, finalCopy)
+    if (isOpenOrderStatus(fromStatus) || isOpenOrderStatus(nextStatus)) {
+      setOpenOverride(openCopy)
+    }
+    setFinalByStatus(finalCopy)
+  }, [])
+
+  const revertOptimisticMove = useCallback(() => {
+    const snap = optimisticRevertRef.current
+    optimisticRevertRef.current = null
+    if (!snap) return
+    setOpenOverride(snap.openOverride)
+    setFinalByStatus(snap.finalByStatus)
+  }, [])
+
+  const persistMovedStatus = useCallback(async (
+    orderId: string,
+    nextStatus: string,
+    options?: UpdateOrderStatusExtraOptions,
+  ): Promise<UpdateOrderStatusResult> => {
+    let result: UpdateOrderStatusResult = 'error'
+    try {
+      result = await updateStatus(orderId, nextStatus, {
+        ...options,
+        onAfterSuccess: () => {
+          options?.onAfterSuccess?.()
+          void reloadFinalColumnsAfterMutation()
+        },
+      })
+    } catch {
+      result = 'error'
+    }
+
+    if (result === 'ok') {
+      blockerConfirmingRef.current = false
+      optimisticRevertRef.current = null
+      markOrderSaving(orderId, false)
+      clearGhostSoon(orderId)
+      return result
+    }
+
+    if (result === 'blocked') {
+      blockerConfirmingRef.current = false
+      return result
+    }
+
+    blockerConfirmingRef.current = false
+    revertOptimisticMove()
+    markOrderSaving(orderId, false)
+    clearGhostSoon(orderId)
+    return result
+  }, [
+    updateStatus,
+    reloadFinalColumnsAfterMutation,
+    markOrderSaving,
+    clearGhostSoon,
+    revertOptimisticMove,
+  ])
+
+  const requestStatusChange = useCallback(async (
+    orderId: string,
+    nextStatus: string,
+    options?: UpdateOrderStatusExtraOptions,
+  ): Promise<UpdateOrderStatusResult> => {
+    const order = ordersByIdRef.current.get(orderId)
+    if (!order) return 'error'
+    if (order.status === nextStatus) {
+      clearGhostSoon(orderId)
+      return 'ok'
+    }
+    if (savingOrderIdsRef.current.has(orderId)) return 'ok'
+
+    suppressKanbanNav(orderId)
+    applyOptimisticMove(order, nextStatus)
+    markOrderSaving(orderId, true)
+    return persistMovedStatus(orderId, nextStatus, options)
+  }, [
+    suppressKanbanNav,
+    applyOptimisticMove,
+    markOrderSaving,
+    persistMovedStatus,
+    clearGhostSoon,
+  ])
+
+  const statusChangeApi = useMemo<KanbanStatusChangeApi>(
+    () => ({
+      requestStatusChange,
+      isOrderSaving: (orderId: string) => savingOrderIds.has(orderId),
+    }),
+    [requestStatusChange, savingOrderIds],
+  )
 
   const totalOpen = useMemo(
     () =>
@@ -473,14 +624,14 @@ export function OrdensKanbanBoard ({
     (e: DragStartEvent) => {
       cancelOverRaf()
       const id = String(e.active.id)
-      ghostClickOrderIdRef.current = id
+      suppressKanbanNav(id)
       setActiveId(id)
       const order = ordersById.get(id)
       setOverId(
         order?.status != null ? kanbanColumnDroppableId(order.status) : null,
       )
     },
-    [ordersById, cancelOverRaf],
+    [ordersById, cancelOverRaf, suppressKanbanNav],
   )
 
   const handleDragOver = useCallback(
@@ -495,7 +646,7 @@ export function OrdensKanbanBoard ({
 
   const handleDragCancel = useCallback(() => {
     cancelOverRaf()
-    ghostClickOrderIdRef.current = null
+    ghostOrderIdRef.current = null
     setActiveId(null)
     setOverId(null)
   }, [cancelOverRaf])
@@ -504,81 +655,23 @@ export function OrdensKanbanBoard ({
     async (e: DragEndEvent) => {
       const draggedId = String(e.active.id)
       cancelOverRaf()
-      window.setTimeout(() => {
-        if (ghostClickOrderIdRef.current === draggedId) {
-          ghostClickOrderIdRef.current = null
-        }
-      }, 320)
+      suppressKanbanNav(draggedId)
       setActiveId(null)
       setOverId(null)
-      if (updating) return
       const { active, over } = e
-      if (!over) return
-      const nextStatus = parseKanbanColumnStatus(String(over.id))
-      if (!nextStatus) return
-      const orderId = String(active.id)
-      const order = ordersById.get(orderId)
-      if (!order || order.status === nextStatus) return
-
-      const fromStatus = order.status
-      const nextOrder: PortalOrdensListRow = { ...order, status: nextStatus }
-
-      optimisticRevertRef.current = {
-        openOverride,
-        finalByStatus: cloneFinalByStatus(finalByStatus),
-      }
-
-      const openCopy = cloneOpenMap(effectiveOpen)
-      const finalCopy = cloneFinalByStatus(finalByStatus)
-      removeOrderFromKanbanStatus(orderId, fromStatus, openCopy, finalCopy)
-      addOrderToKanbanStatus(nextOrder, nextStatus, openCopy, finalCopy)
-
-      const touchedOpen =
-        isOpenOrderStatus(fromStatus) || isOpenOrderStatus(nextStatus)
-      if (touchedOpen) {
-        setOpenOverride(openCopy)
-      }
-      setFinalByStatus(finalCopy)
-
-      setSavingOrderIds((prev) => new Set(prev).add(orderId))
-
-      let result: UpdateOrderStatusResult = 'error'
-      try {
-        result = await updateStatus(orderId, nextStatus, {
-          onAfterSuccess: () => {
-            void reloadFinalColumnsAfterMutation()
-          },
-        })
-      } finally {
-        setSavingOrderIds((prev) => {
-          const n = new Set(prev)
-          n.delete(orderId)
-          return n
-        })
-      }
-
-      if (result === 'ok') {
-        optimisticRevertRef.current = null
+      if (!over) {
+        clearGhostSoon(draggedId)
         return
       }
-
-      const snap = optimisticRevertRef.current
-      optimisticRevertRef.current = null
-      if (snap) {
-        setOpenOverride(snap.openOverride)
-        setFinalByStatus(snap.finalByStatus)
+      const nextStatus = parseKanbanColumnStatus(String(over.id))
+      if (!nextStatus) {
+        clearGhostSoon(draggedId)
+        return
       }
+      const orderId = String(active.id)
+      await requestStatusChange(orderId, nextStatus)
     },
-    [
-      ordersById,
-      updateStatus,
-      reloadFinalColumnsAfterMutation,
-      updating,
-      cancelOverRaf,
-      openOverride,
-      finalByStatus,
-      effectiveOpen,
-    ],
+    [cancelOverRaf, suppressKanbanNav, clearGhostSoon, requestStatusChange],
   )
 
   const activeOrder = activeId ? ordersById.get(activeId) ?? null : null
@@ -615,7 +708,8 @@ export function OrdensKanbanBoard ({
           onDragCancel={handleDragCancel}
           onDragEnd={(e) => void handleDragEnd(e)}
         >
-          <KanbanGhostClickOrderIdRefContext.Provider value={ghostClickOrderIdRef}>
+          <KanbanNavGuardContext.Provider value={navGuard}>
+          <KanbanStatusChangeContext.Provider value={statusChangeApi}>
           <div className="flex min-h-0 flex-1 items-stretch gap-3 overflow-x-auto pb-2 [-ms-overflow-style:none] [scrollbar-width:thin]">
             {KANBAN_STATUS_ORDER.map((status) => {
               const isOpen = isOpenOrderStatus(status)
@@ -658,7 +752,8 @@ export function OrdensKanbanBoard ({
           <DragOverlay dropAnimation={null}>
             {activeOrder ? <OrdensKanbanDragPreview order={activeOrder} /> : null}
           </DragOverlay>
-          </KanbanGhostClickOrderIdRefContext.Provider>
+          </KanbanStatusChangeContext.Provider>
+          </KanbanNavGuardContext.Provider>
         </DndContext>
         </div>
       )}
@@ -669,16 +764,25 @@ export function OrdensKanbanBoard ({
           blocker={blockerDialog}
           updating={updating}
           onOpenChange={(open) => {
-            if (!open) dismissBlockers()
+            if (open) return
+            if (blockerConfirmingRef.current) {
+              blockerConfirmingRef.current = false
+              dismissBlockers()
+              return
+            }
+            if (blockerDialog) {
+              revertOptimisticMove()
+              markOrderSaving(blockerDialog.orderId, false)
+              clearGhostSoon(blockerDialog.orderId)
+            }
+            dismissBlockers()
           }}
           onConfirm={() => {
             if (!blockerDialog) return
-            void updateStatus(blockerDialog.orderId, blockerDialog.status, {
+            blockerConfirmingRef.current = true
+            void persistMovedStatus(blockerDialog.orderId, blockerDialog.status, {
               confirmIncompleteExit: blockerDialog.exit,
               confirmFinalizeWithoutWarranty: blockerDialog.warranty,
-              onAfterSuccess: () => {
-                void reloadFinalColumnsAfterMutation()
-              },
             })
           }}
         />

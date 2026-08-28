@@ -1,3 +1,5 @@
+import { Plus } from 'lucide-react'
+import Link from 'next/link'
 import {
 	OrderPaymentMethodsCard,
 	OrderServicesCard,
@@ -13,14 +15,15 @@ import {
 	CardHeader,
 	CardTitle,
 } from '@/components/ui/card'
-import { fetchDeviceModelsForSelector } from '@/lib/portal/device-models-server'
-import { isFinalizedOrderStatus } from '@/lib/orders/order-status'
 import { getOrdemPortalPathSegment } from '@/lib/orders/ordem-portal-path'
+import { parseOrderDiscountCommissionFromRow } from '@/lib/orders/order-discount-commission'
+import { isFinalizedOrderStatus } from '@/lib/orders/order-status'
+import { fetchDeviceModelsForSelector } from '@/lib/portal/device-models-server'
+import { PORTAL_NARROW_FORM_CONTAINER } from '@/lib/portal/portal-layout'
+import { formatDateTimeBr } from '@/lib/utils/format-date'
 import {
 	getMinPrevisaoForEdit,
 } from '@/lib/utils/previsao-ordem'
-import { Plus } from 'lucide-react'
-import Link from 'next/link'
 import {
 	OrderFormActionBar,
 	orderFormActionBarFlowSpacerClassName,
@@ -29,21 +32,19 @@ import { OrdemActionsMenu } from './OrdemActionsMenu'
 import { OrdemDetalheToastClient } from './OrdemDetalheToastClient'
 import { OrdemLabelPrintButton } from './OrdemLabelPrintButton'
 import { OrderAssistanceChat } from './OrderAssistanceChat'
-import { OrderCustomerCard, type OrderCustomer } from './OrderCustomerCard'
+import { OrderAssistInfoSection } from './OrderAssistInfoSection'
+import { type OrderCustomer, OrderCustomerCard } from './OrderCustomerCard'
 import { OrderDeviceEntryChecksEditor } from './OrderDeviceEntryChecksEditor'
+import { OrderDeviceInfoSection } from './OrderDeviceInfoSection'
 import { OrderEntryPhotos } from './OrderEntryPhotos'
 import { OrderInternalCommentsChat } from './OrderInternalCommentsChat'
-import { OrderAssistInfoSection } from './OrderAssistInfoSection'
-import { OrderDeviceInfoSection } from './OrderDeviceInfoSection'
-import { UpdateOrderSubmitButton } from './UpdateOrderSubmitButton'
 import {
 	deleteOrderAction,
 	updateOrderAction,
 } from './order-detail-actions'
 import { formatDateTimeLocal, parseOrderPaymentMethods } from './order-detail-helpers'
-import { formatDateTimeBr } from '@/lib/utils/format-date'
-import { parseOrderDiscountCommissionFromRow } from '@/lib/orders/order-discount-commission'
 import type { ServiceOrderDetail } from './service-order-detail-types'
+import { UpdateOrderSubmitButton } from './UpdateOrderSubmitButton'
 
 type WarrantyTemplateRow = {
 	id: string
@@ -114,7 +115,7 @@ export function OrdemDetalhePageContent (props: Props) {
 		isPortalReadOnly || (isFinalized && !canEditDeviceModelWhenFinalized)
 
 	return (
-		<div className="max-w-4xl shrink-0 space-y-6">
+		<div className={`${PORTAL_NARROW_FORM_CONTAINER} shrink-0 space-y-6`}>
 			<OrdemDetalheToastClient
 				orderId={order.id}
 				displayNumber={order.display_number ?? order.id}

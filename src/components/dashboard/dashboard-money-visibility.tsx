@@ -8,8 +8,6 @@ import {
 	useMemo,
 	useState,
 } from 'react'
-import { formatCentsBr } from '@/lib/utils/format-money'
-
 const STORAGE_KEY = 'portal-dashboard-hide-money'
 
 type DashboardMoneyVisibilityContextValue = {
@@ -51,7 +49,8 @@ export function DashboardMoneyVisibilityProvider ({
 	const formatMoney = useCallback(
 		(cents: number) => {
 			if (hideMoney) return 'R$ ••••'
-			return formatCentsBr(cents)
+			const reais = Math.round(Number(cents || 0) / 100)
+			return `R$ ${reais.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`
 		},
 		[hideMoney],
 	)

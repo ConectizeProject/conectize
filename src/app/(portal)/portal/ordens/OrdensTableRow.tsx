@@ -1,16 +1,16 @@
 'use client'
 
-import { useState } from 'react'
-import Link from 'next/link'
 import { History } from 'lucide-react'
+import Link from 'next/link'
+import { useRef, useState } from 'react'
+import { CustomerOrderHistoryModal, OrderStatusBadge } from '@/components/orders'
 import { Button } from '@/components/ui/button'
 import { TableCell, TableRow } from '@/components/ui/table'
-import { OrderStatusBadge, CustomerOrderHistoryModal } from '@/components/orders'
-import { OrdensRowActions } from './OrdensRowActions'
-import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
-import { formatDateTimeBr } from '@/lib/utils/format-date'
 import { getOrdemPortalPath } from '@/lib/orders/ordem-portal-path'
 import type { PortalOrdensListRow } from '@/lib/orders/portal-ordens-list-types'
+import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
+import { formatDateTimeBr } from '@/lib/utils/format-date'
+import { OrdensRowActions } from './OrdensRowActions'
 
 type Props = {
   order: PortalOrdensListRow
@@ -18,7 +18,14 @@ type Props = {
 
 export function OrdensTableRow({ order }: Props) {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false)
+  const [suppressRowLink, setSuppressRowLinkState] = useState(false)
+  const suppressRowLinkRef = useRef(false)
   const customerId = order.customers?.id ?? ''
+
+  function setSuppressRowLink (value: boolean) {
+    suppressRowLinkRef.current = value
+    setSuppressRowLinkState(value)
+  }
 
   return (
     <>
@@ -29,6 +36,10 @@ export function OrdensTableRow({ order }: Props) {
             className="absolute inset-0 z-0"
             aria-label={`Abrir ordem ${order.display_number ?? order.id}`}
             transitionTypes={['nav-forward']}
+            onClick={(e) => {
+              if (suppressRowLinkRef.current) e.preventDefault()
+            }}
+            style={suppressRowLink ? { pointerEvents: 'none' } : undefined}
           />
           <div className="relative z-10 grid grid-cols-9 gap-2 items-center py-2 px-4 cursor-pointer">
             <span className="font-medium">#{order.display_number ?? order.id}</span>
@@ -62,7 +73,10 @@ export function OrdensTableRow({ order }: Props) {
                 <History className="h-4 w-4" />
               </Button>
             ) : null}
-            <OrdensRowActions order={order} />
+            <OrdensRowActions
+              order={order}
+              onSuppressHostLink={setSuppressRowLink}
+            />
           </div>
         </TableCell>
       </TableRow>

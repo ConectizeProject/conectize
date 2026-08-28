@@ -1,13 +1,13 @@
 'use client'
 
-import { memo, useCallback, type MouseEvent } from 'react'
 import { useDraggable } from '@dnd-kit/core'
 import { Loader2 } from 'lucide-react'
+import { type MouseEvent, memo, useCallback } from 'react'
+import type { PortalOrdensListRow } from '@/lib/orders/portal-ordens-list-types'
 import { cn } from '@/lib/utils'
-import { useKanbanGhostClickOrderIdRef } from './kanban-ghost-click-context'
+import { useKanbanNavGuard } from './kanban-ghost-click-context'
 import { OrdemCard } from './OrdemCard'
 import { OrdensKanbanDropSkeleton } from './OrdensKanbanDropSkeleton'
-import type { PortalOrdensListRow } from '@/lib/orders/portal-ordens-list-types'
 
 const OrdemCardMemo = memo(OrdemCard)
 
@@ -30,16 +30,20 @@ export const OrdensKanbanCard = memo(function OrdensKanbanCard ({
   dragOverDroppableId,
   isStatusSaving = false,
 }: Props) {
-  const ghostClickOrderIdRef = useKanbanGhostClickOrderIdRef()
+  const { ghostOrderIdRef, suppressLinkUntilRef } = useKanbanNavGuard()
 
   const handleLinkClick = useCallback(
     (e: MouseEvent<HTMLAnchorElement>) => {
-      if (ghostClickOrderIdRef.current === order.id) {
+      if (isStatusSaving || Date.now() < suppressLinkUntilRef.current) {
         e.preventDefault()
-        ghostClickOrderIdRef.current = null
+        return
+      }
+      if (ghostOrderIdRef.current === order.id) {
+        e.preventDefault()
+        ghostOrderIdRef.current = null
       }
     },
-    [order.id, ghostClickOrderIdRef],
+    [order.id, isStatusSaving, ghostOrderIdRef, suppressLinkUntilRef],
   )
 
   const { attributes, listeners, setNodeRef } = useDraggable({
@@ -75,9 +79,17 @@ export const OrdensKanbanCard = memo(function OrdensKanbanCard ({
       )}
       {isStatusSaving ? (
         <div
-          className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-md bg-background/55 backdrop-blur-[1px]"
+          className="absolute inset-0 z-30 flex cursor-wait items-center justify-center rounded-md bg-background/55 backdrop-blur-[1px]"
           aria-busy
           aria-live="polite"
+          onPointerDown={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+          }}
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+          }}
         >
           <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" aria-hidden />
           <span className="sr-only">Salvando status…</span>

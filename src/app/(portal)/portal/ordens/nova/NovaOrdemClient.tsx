@@ -1,19 +1,23 @@
 "use client";
 
+import { Field, FieldArray, Form, Formik } from "formik";
+import { Loader2 } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	CreateCustomerDialog,
-	EditCustomerDialog,
 	type CustomerHit,
+	EditCustomerDialog,
 } from "@/components/customers";
 import {
+	type DeviceModel,
 	OrderPaymentMethodsCard,
 	OrderServicesCard,
+	type OrderServicesCardRef,
 	OrderServicesTotalProvider,
 	OsAssistAiIconButton,
-	type DeviceModel,
-	type OrderServicesCardRef,
 } from "@/components/orders";
-import { EMPTY_ORDER_DISCOUNT_COMMISSION } from "@/lib/orders/order-discount-commission";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -25,8 +29,10 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
+import { EMPTY_ORDER_DISCOUNT_COMMISSION } from "@/lib/orders/order-discount-commission";
 import type { PortalPaymentMethodCatalogItem } from "@/lib/portal/payment-methods-server";
 import { portalFetch } from "@/lib/portal/portal-fetch";
+import { PORTAL_NARROW_FORM_CONTAINER } from "@/lib/portal/portal-layout";
 import { formatCpfCnpj } from "@/lib/utils/format-cpf-cnpj";
 import { parseMoneyToCents } from "@/lib/utils/format-money";
 import {
@@ -37,11 +43,6 @@ import {
 	getDefaultPrevisao,
 	getMinPrevisaoNow,
 } from "@/lib/utils/previsao-ordem";
-import { Field, FieldArray, Form, Formik } from "formik";
-import { Loader2 } from "lucide-react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	OrderFormActionBar,
 	orderFormActionBarFlowSpacerClassName,
@@ -392,7 +393,7 @@ export function NovaOrdemClient(props: Props) {
 
 	if (props.duplicateOrderId && !duplicateLoaded) {
 		return (
-			<div className="max-w-4xl space-y-6">
+			<div className={`${PORTAL_NARROW_FORM_CONTAINER} space-y-6`}>
 				<div>
 					<h1 className="text-2xl font-bold">Nova ordem de serviço</h1>
 					<p className="text-sm text-muted-foreground">
@@ -404,7 +405,7 @@ export function NovaOrdemClient(props: Props) {
 	}
 
 	return (
-		<div className="max-w-4xl space-y-6">
+		<div className={`${PORTAL_NARROW_FORM_CONTAINER} space-y-6`}>
 			<div>
 				<h1 className="text-2xl font-bold">Nova ordem de serviço</h1>
 				{duplicateFormValues ? (

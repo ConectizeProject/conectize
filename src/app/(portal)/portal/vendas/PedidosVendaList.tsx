@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Ban, ExternalLink, FileCheck2, FileText, MoreHorizontal, Package, Printer, Send, Undo2, Wallet } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -211,11 +211,27 @@ function withFiscalDocument (
   }
 }
 
+const SALES_STATUS_VALUES = new Set(['in_progress', 'paid', 'canceled'])
+
+function parseSalesDateParam (value: string | null): string {
+  const v = String(value || '').trim()
+  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : ''
+}
+
+function parseSalesStatusParam (value: string | null): string {
+  const v = String(value || '').trim()
+  return SALES_STATUS_VALUES.has(v) ? v : ''
+}
+
 export function PedidosVendaList () {
   const router = useRouter()
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
-  const [status, setStatus] = useState('')
+  const searchParams = useSearchParams()
+  const urlFrom = parseSalesDateParam(searchParams.get('from'))
+  const urlTo = parseSalesDateParam(searchParams.get('to'))
+  const urlStatus = parseSalesStatusParam(searchParams.get('status'))
+  const [from, setFrom] = useState(urlFrom)
+  const [to, setTo] = useState(urlTo)
+  const [status, setStatus] = useState(urlStatus)
   const [sellerUserId, setSellerUserId] = useState('')
   const [paymentMethodId, setPaymentMethodId] = useState('')
   const [teamUsers, setTeamUsers] = useState<TeamUser[]>([])
@@ -223,7 +239,6 @@ export function PedidosVendaList () {
   const [orders, setOrders] = useState<SalesOrder[]>([])
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
-  const [hasLoaded, setHasLoaded] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null)
@@ -291,7 +306,6 @@ export function PedidosVendaList () {
         setTotal(0)
       }
     } finally {
-      setHasLoaded(true)
       setIsLoading(false)
     }
   }
@@ -314,11 +328,21 @@ export function PedidosVendaList () {
   const hasActiveFilters = Boolean(from || to || status || sellerUserId || paymentMethodId)
 
   useEffect(() => {
-    if (hasLoaded) return
     void loadCatalogs()
-    void load(1)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    setFrom(urlFrom)
+    setTo(urlTo)
+    setStatus(urlStatus)
+    void load(1, {
+      from: urlFrom,
+      to: urlTo,
+      status: urlStatus,
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlFrom, urlTo, urlStatus])
 
   function openConfirm (kind: ConfirmKind, order: SalesOrder) {
     setCancelReason('')

@@ -1,7 +1,8 @@
 "use client";
 
-import { cn } from "@/lib/utils";
 import type { ReactNode } from "react";
+import { PORTAL_LAYOUT_CONTAINER, PORTAL_NARROW_FORM_CONTAINER } from "@/lib/portal/portal-layout";
+import { cn } from "@/lib/utils";
 
 type Props = {
 	children: ReactNode;
@@ -13,8 +14,8 @@ export const orderFormActionBarFlowSpacerClassName =
 	"pointer-events-none shrink-0 h-[calc(6.5rem+env(safe-area-inset-bottom,0px))]";
 
 /**
- * Barra inferior fixa visível ao rolar, alinhada à coluna de conteúdo do portal.
- * Coluna interna max-w-4xl alinhada como o formulário; botões à direita.
+ * Barra inferior fixa visível ao rolar. O fundo cobre a largura da tela; os
+ * botões seguem a mesma coluna estreita centralizada do formulário.
  */
 export function OrderFormActionBar({ children, className }: Props) {
 	return (
@@ -24,8 +25,13 @@ export function OrderFormActionBar({ children, className }: Props) {
 				className,
 			)}
 		>
-			<div className="flex w-full justify-center px-4 lg:px-6">
-				<div className="flex w-full max-w-4xl items-center justify-end gap-3">
+			<div className={PORTAL_LAYOUT_CONTAINER}>
+				<div
+					className={cn(
+						PORTAL_NARROW_FORM_CONTAINER,
+						"flex items-center justify-end gap-3",
+					)}
+				>
 					{children}
 				</div>
 			</div>

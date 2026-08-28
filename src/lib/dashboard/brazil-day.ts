@@ -33,3 +33,32 @@ export function brazilMonthDay (now = new Date()): { month: number; day: number 
 	const day = Number(parts.find((p) => p.type === 'day')?.value || 0)
 	return { month, day }
 }
+
+const BRAZIL_DAY_MS = 24 * 60 * 60 * 1000
+
+export function addBrazilCalendarDays (dateStr: string, days: number): string {
+	if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr
+	const d = new Date(`${dateStr}T12:00:00-03:00`)
+	d.setTime(d.getTime() + days * BRAZIL_DAY_MS)
+	return brazilTodayDateString(d)
+}
+
+/**
+ * Aniversário (mês/dia) cai em hoje ou nos próximos `days` dias
+ * no calendário de America/Sao_Paulo.
+ * `days = 7` cobre hoje e os 7 dias seguintes (hoje até daqui a 7 dias).
+ */
+export function isBirthdayInNextDays (
+	birthDate: string,
+	now: Date,
+	days: number,
+): boolean {
+	const bd = String(birthDate || '').slice(0, 10)
+	if (!/^\d{4}-\d{2}-\d{2}$/.test(bd) || days < 0) return false
+	const birthdayMd = bd.slice(5)
+	const todayStr = brazilTodayDateString(now)
+	for (let i = 0; i <= days; i++) {
+		if (addBrazilCalendarDays(todayStr, i).slice(5) === birthdayMd) return true
+	}
+	return false
+}
