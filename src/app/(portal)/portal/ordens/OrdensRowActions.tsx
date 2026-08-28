@@ -312,7 +312,6 @@ export function OrdensRowActions({ order, canDelete = false, onSuppressHostLink 
 						</DropdownMenuSubTrigger>
 						<DropdownMenuSubContent
 							className="min-w-36 p-1"
-							onCloseAutoFocus={(e) => e.preventDefault()}
 							onClick={(e) => e.stopPropagation()}
 						>
 							{Object.entries(ORDER_STATUS_LABELS).map(([value, label]) => (
