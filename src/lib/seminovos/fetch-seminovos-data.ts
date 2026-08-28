@@ -56,6 +56,9 @@ export type SeminovosFilters = {
   color: string
   purchaseDateFrom: string
   purchaseDateTo: string
+  /** Filtro por data de venda (YYYY-MM-DD). Implica incluir vendidos. */
+  saleDateFrom?: string
+  saleDateTo?: string
   stockType: 'seminovo' | 'lacrado' | 'all'
   /** Quando true, inclui aparelhos vendidos na consulta (default: false). */
   includeSold?: boolean
@@ -115,6 +118,8 @@ export async function fetchSeminovosDevices(
     color,
     purchaseDateFrom,
     purchaseDateTo,
+    saleDateFrom,
+    saleDateTo,
     stockType,
     includeSold,
     deviceName,
@@ -128,7 +133,12 @@ export async function fetchSeminovosDevices(
     query = query.eq('organization_id', orgId)
   }
 
-  if (!includeSold) {
+  const hasSaleDateFilter = Boolean(
+    (saleDateFrom && /^\d{4}-\d{2}-\d{2}$/.test(saleDateFrom)) ||
+    (saleDateTo && /^\d{4}-\d{2}-\d{2}$/.test(saleDateTo)),
+  )
+
+  if (!includeSold && !hasSaleDateFilter) {
     query = query.eq('sold', false)
   }
 
@@ -163,6 +173,12 @@ export async function fetchSeminovosDevices(
   }
   if (purchaseDateTo && /^\d{4}-\d{2}-\d{2}$/.test(purchaseDateTo)) {
     query = query.lte('purchase_date', purchaseDateTo)
+  }
+  if (saleDateFrom && /^\d{4}-\d{2}-\d{2}$/.test(saleDateFrom)) {
+    query = query.gte('sale_date', saleDateFrom)
+  }
+  if (saleDateTo && /^\d{4}-\d{2}-\d{2}$/.test(saleDateTo)) {
+    query = query.lte('sale_date', saleDateTo)
   }
 
   const { data: devices, error } = await query.order('created_at', { ascending: false })

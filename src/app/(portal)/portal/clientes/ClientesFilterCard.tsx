@@ -12,23 +12,30 @@ import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 type Props = {
   initialQ: string
   initialDocumentDigits: string
+  initialBirthdaysWeek?: boolean
 }
 
 function clientesHref (
   q: string,
   documentDigits: string,
-  omit: ReadonlySet<'q' | 'document'>,
+  birthdaysWeek: boolean,
+  omit: ReadonlySet<'q' | 'document' | 'birthdaysWeek'>,
 ): string {
   const p = new URLSearchParams()
   if (!omit.has('q') && q.trim()) p.set('q', q.trim())
   if (!omit.has('document') && documentDigits.trim()) {
     p.set('document', documentDigits.replace(/\D/g, ''))
   }
+  if (!omit.has('birthdaysWeek') && birthdaysWeek) p.set('birthdaysWeek', '1')
   const qs = p.toString()
   return qs ? `/portal/clientes?${qs}` : '/portal/clientes'
 }
 
-export function ClientesFilterCard ({ initialQ, initialDocumentDigits }: Props) {
+export function ClientesFilterCard ({
+  initialQ,
+  initialDocumentDigits,
+  initialBirthdaysWeek = false,
+}: Props) {
   const router = useRouter()
   const [qInput, setQInput] = useState(initialQ)
   const [documentDigits, setDocumentDigits] = useState(initialDocumentDigits)
@@ -46,15 +53,15 @@ export function ClientesFilterCard ({ initialQ, initialDocumentDigits }: Props) 
   }, [initialDocumentDigits])
 
   const handleClearQ = useCallback(() => {
-    router.push(clientesHref(qInput, documentDigits, new Set(['q'])))
-  }, [router, qInput, documentDigits])
+    router.push(clientesHref(qInput, documentDigits, initialBirthdaysWeek, new Set(['q'])))
+  }, [router, qInput, documentDigits, initialBirthdaysWeek])
 
   const handleClearDocument = useCallback(() => {
-    router.push(clientesHref(qInput, documentDigits, new Set(['document'])))
-  }, [router, qInput, documentDigits])
+    router.push(clientesHref(qInput, documentDigits, initialBirthdaysWeek, new Set(['document'])))
+  }, [router, qInput, documentDigits, initialBirthdaysWeek])
 
   const appliedExtraLabels = useMemo(() => {
-    const rows: { id: string; text: string }[] = []
+    const rows: { id: string; text: string; href?: string }[] = []
     const d = documentDigits.replace(/\D/g, '')
     if (d) {
       rows.push({
@@ -62,13 +69,23 @@ export function ClientesFilterCard ({ initialQ, initialDocumentDigits }: Props) 
         text: `Documento: ${formatCpfCnpj(d)}`,
       })
     }
+    if (initialBirthdaysWeek) {
+      rows.push({
+        id: 'birthdaysWeek',
+        text: 'Aniversários da semana',
+        href: clientesHref(qInput, documentDigits, initialBirthdaysWeek, new Set(['birthdaysWeek'])),
+      })
+    }
     return rows
-  }, [documentDigits])
+  }, [documentDigits, initialBirthdaysWeek, qInput])
 
   const showExtrasRow = appliedExtraLabels.length > 0
 
   return (
     <form action="/portal/clientes" method="get" className="grid gap-4 md:grid-cols-3">
+      {initialBirthdaysWeek ? (
+        <input type="hidden" name="birthdaysWeek" value="1" />
+      ) : null}
       <div className="space-y-2 md:col-span-2">
         <Label htmlFor="q">Nome / e-mail</Label>
         <div className="relative">
@@ -130,13 +147,24 @@ export function ClientesFilterCard ({ initialQ, initialDocumentDigits }: Props) 
             Filtros extras:
           </span>
           {appliedExtraLabels.map((chip) => (
-            <span
-              key={chip.id}
-              className="max-w-full truncate rounded-md bg-muted/70 px-2 py-0.5 text-muted-foreground"
-              title={chip.text}
-            >
-              {chip.text}
-            </span>
+            chip.href ? (
+              <Link
+                key={chip.id}
+                href={chip.href}
+                className="max-w-full truncate rounded-md bg-muted/70 px-2 py-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                title={`${chip.text} — clicar para remover`}
+              >
+                {chip.text}
+              </Link>
+            ) : (
+              <span
+                key={chip.id}
+                className="max-w-full truncate rounded-md bg-muted/70 px-2 py-0.5 text-muted-foreground"
+                title={chip.text}
+              >
+                {chip.text}
+              </span>
+            )
           ))}
           <Link
             href="/portal/clientes"

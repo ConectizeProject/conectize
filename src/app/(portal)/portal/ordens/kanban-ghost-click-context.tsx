@@ -1,17 +1,28 @@
 'use client'
 
-import { createContext, useContext, type MutableRefObject } from 'react'
+import { createContext, type MutableRefObject, useContext } from 'react'
 
-/** Ref atualizado só no board (um lugar) — evita `useDndMonitor` em cada card. */
-export type KanbanGhostClickOrderIdRef = MutableRefObject<string | null>
+/** Evita navegar para a OS após drag, menu de status ou clique fantasma. */
+export type KanbanNavGuard = {
+  ghostOrderIdRef: MutableRefObject<string | null>
+  suppressLinkUntilRef: MutableRefObject<number>
+}
 
-export const KanbanGhostClickOrderIdRefContext =
-  createContext<KanbanGhostClickOrderIdRef | null>(null)
+export const KanbanNavGuardContext = createContext<KanbanNavGuard | null>(null)
 
-export function useKanbanGhostClickOrderIdRef (): KanbanGhostClickOrderIdRef {
-  const ctx = useContext(KanbanGhostClickOrderIdRefContext)
+/** @deprecated use useKanbanNavGuard — mantido para o card ler o id fantasma */
+export function useKanbanGhostClickOrderIdRef (): MutableRefObject<string | null> {
+  const ctx = useContext(KanbanNavGuardContext)
   if (!ctx) {
     throw new Error('useKanbanGhostClickOrderIdRef só dentro do kanban com provider')
+  }
+  return ctx.ghostOrderIdRef
+}
+
+export function useKanbanNavGuard (): KanbanNavGuard {
+  const ctx = useContext(KanbanNavGuardContext)
+  if (!ctx) {
+    throw new Error('useKanbanNavGuard só dentro do kanban com provider')
   }
   return ctx
 }

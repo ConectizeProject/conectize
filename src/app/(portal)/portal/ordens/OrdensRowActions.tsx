@@ -37,10 +37,6 @@ import {
 import { toast } from '@/hooks/use-toast'
 import { getPrintWindowFeatures } from '@/lib/ordem-print'
 import {
-	openOrdemCupomPrint,
-	openOrdemLabelPrint,
-} from './OrdemPrintPreview'
-import {
 	buildOrderEmailSubject,
 	buildOrderMessage,
 } from '@/lib/ordem-share-message'
@@ -48,6 +44,11 @@ import { ORDER_STATUS_LABELS } from '@/lib/orders/order-status'
 import type { PortalOrdensListRow } from '@/lib/orders/portal-ordens-list-types'
 import { usePortalOrganizationName } from '@/lib/portal/portal-branding-context'
 import { formatPhoneForWhatsApp } from '@/lib/utils/format-phone'
+import { useKanbanStatusChangeOptional } from './kanban-status-change-context'
+import {
+	openOrdemCupomPrint,
+	openOrdemLabelPrint,
+} from './OrdemPrintPreview'
 import { OrderStatusBlockerAlertDialog } from './OrderStatusBlockerAlertDialog'
 import { useOrderStatusUpdate } from './use-order-status-update'
 import { useOrderWhatsappShare } from './use-order-whatsapp-share'
@@ -55,18 +56,24 @@ import { useOrderWhatsappShare } from './use-order-whatsapp-share'
 type Props = {
 	order: PortalOrdensListRow
 	canDelete?: boolean
+	/** Tabela: desliga o Link da linha enquanto o menu está aberto / recém-fechado */
+	onSuppressHostLink?: (suppress: boolean) => void
 }
 
-export function OrdensRowActions({ order, canDelete = false }: Props) {
+export function OrdensRowActions({ order, canDelete = false, onSuppressHostLink }: Props) {
 	const organizationName = usePortalOrganizationName()
 	const router = useRouter()
+	const kanbanStatus = useKanbanStatusChangeOptional()
 	const {
-		updating,
+		updating: localUpdating,
 		updateStatus,
 		blockerDialog,
 		dismissBlockers,
 		ReadyPickupConfirmDialog,
 	} = useOrderStatusUpdate()
+	const updating = kanbanStatus
+		? kanbanStatus.isOrderSaving(order.id)
+		: localUpdating
 	const { openShare, shareLoading, ShareDialog } = useOrderWhatsappShare(
 		order.id,
 	)
@@ -140,11 +147,31 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
 			confirmFinalizeWithoutWarranty?: boolean
 		},
 	) {
+		onSuppressHostLink?.(true)
+		if (kanbanStatus) {
+			await kanbanStatus.requestStatusChange(order.id, newStatus, {
+				confirmIncompleteExit: options?.confirmIncompleteExit === true,
+				confirmFinalizeWithoutWarranty:
+					options?.confirmFinalizeWithoutWarranty === true,
+			})
+			return
+		}
 		await updateStatus(order.id, newStatus, {
 			confirmIncompleteExit: options?.confirmIncompleteExit === true,
 			confirmFinalizeWithoutWarranty:
 				options?.confirmFinalizeWithoutWarranty === true,
 		})
+	}
+
+	function handleMenuOpenChange(open: boolean) {
+		if (open) {
+			onSuppressHostLink?.(true)
+			return
+		}
+		onSuppressHostLink?.(true)
+		window.setTimeout(() => {
+			onSuppressHostLink?.(false)
+		}, 400)
 	}
 
 	async function handleConfirmDelete() {
@@ -174,7 +201,7 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
 
 	return (
 		<>
-			<DropdownMenu>
+			<DropdownMenu onOpenChange={handleMenuOpenChange}>
 				<DropdownMenuTrigger asChild>
 					<Button
 						variant="ghost"
@@ -185,7 +212,12 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
 						<MoreVertical className="h-3.5 w-3.5" />
 					</Button>
 				</DropdownMenuTrigger>
-				<DropdownMenuContent align="end" className="min-w-36 p-1">
+				<DropdownMenuContent
+					align="end"
+					className="min-w-36 p-1"
+					onCloseAutoFocus={(e) => e.preventDefault()}
+					onClick={(e) => e.stopPropagation()}
+				>
 					<DropdownMenuItem
 						className={itemClass}
 						onClick={() =>
@@ -278,12 +310,17 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
 						<DropdownMenuSubTrigger disabled={updating} className={itemClass}>
 							Alterar status
 						</DropdownMenuSubTrigger>
-						<DropdownMenuSubContent className="min-w-36 p-1">
+						<DropdownMenuSubContent
+							className="min-w-36 p-1"
+							onCloseAutoFocus={(e) => e.preventDefault()}
+							onClick={(e) => e.stopPropagation()}
+						>
 							{Object.entries(ORDER_STATUS_LABELS).map(([value, label]) => (
 								<DropdownMenuItem
 									key={value}
 									className={itemClass}
-									onClick={() => {
+									onSelect={() => {
+										onSuppressHostLink?.(true)
 										void handleStatusChange(value)
 									}}
 									disabled={updating || order.status === value}
@@ -311,23 +348,25 @@ export function OrdensRowActions({ order, canDelete = false }: Props) {
 				</DropdownMenuContent>
 			</DropdownMenu>
 
-			<OrderStatusBlockerAlertDialog
-				open={!!blockerDialog}
-				blocker={blockerDialog}
-				updating={updating}
-				onOpenChange={(open) => {
-					if (!open) dismissBlockers()
-				}}
-				onConfirm={() => {
-					if (!blockerDialog) return
-					void handleStatusChange(blockerDialog.status, {
-						confirmIncompleteExit: blockerDialog.exit,
-						confirmFinalizeWithoutWarranty: blockerDialog.warranty,
-					})
-				}}
-			/>
+			{kanbanStatus ? null : (
+				<OrderStatusBlockerAlertDialog
+					open={!!blockerDialog}
+					blocker={blockerDialog}
+					updating={updating}
+					onOpenChange={(open) => {
+						if (!open) dismissBlockers()
+					}}
+					onConfirm={() => {
+						if (!blockerDialog) return
+						void handleStatusChange(blockerDialog.status, {
+							confirmIncompleteExit: blockerDialog.exit,
+							confirmFinalizeWithoutWarranty: blockerDialog.warranty,
+						})
+					}}
+				/>
+			)}
 
-			{ReadyPickupConfirmDialog}
+			{kanbanStatus ? null : ReadyPickupConfirmDialog}
 			{ShareDialog}
 
 			{canDelete ? (

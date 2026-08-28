@@ -49,58 +49,56 @@ export default async function RevendaReferenciaPrecosPage () {
   }, [])
 
   return (
-    <div className="pb-8">
-      <div className="rounded-md border overflow-x-auto">
-        <Table>
-          <TableHeader>
+    <div className="rounded-md border overflow-x-auto">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Estado</TableHead>
+            <TableHead>GB</TableHead>
+            <TableHead className="text-right">Compra</TableHead>
+            <TableHead className="text-right">Atacado</TableHead>
+            <TableHead className="text-right">Varejo</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.length === 0 ? (
             <TableRow>
-              <TableHead>Estado</TableHead>
-              <TableHead>GB</TableHead>
-              <TableHead className="text-right">Compra</TableHead>
-              <TableHead className="text-right">Atacado</TableHead>
-              <TableHead className="text-right">Varejo</TableHead>
+              <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                Nenhum dado com valor de compra cadastrado.
+              </TableCell>
             </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                  Nenhum dado com valor de compra cadastrado.
-                </TableCell>
-              </TableRow>
-            ) : (
-              groups.flatMap((group) => ([
-                (
-                  <TableRow key={`group-${group.model}`}>
-                    <TableCell colSpan={5} className="bg-muted/40 font-semibold">
-                      {group.model}
-                    </TableCell>
-                  </TableRow>
-                ),
-                ...group.items.map((r) => (
-                  <TableRow key={r.key}>
-                    <TableCell>{r.condition || '—'}</TableCell>
-                    <TableCell>{r.storageGb || '—'}</TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      R$ {maskedFromCents(r.minPurchaseCents)}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {r.wholesaleValueCents != null && r.wholesaleValueCents > 0
-                        ? `R$ ${maskedFromCents(r.wholesaleValueCents)}`
-                        : '—'}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {r.saleValueCents != null && r.saleValueCents > 0
-                        ? `R$ ${maskedFromCents(r.saleValueCents)}`
-                        : '—'}
-                    </TableCell>
-                  </TableRow>
-                )),
-              ]))
-            )}
-          </TableBody>
-        </Table>
-      </div>
+          ) : (
+            groups.flatMap((group) => ([
+              (
+                <TableRow key={`group-${group.model}`}>
+                  <TableCell colSpan={5} className="bg-muted/40 font-semibold">
+                    {group.model}
+                  </TableCell>
+                </TableRow>
+              ),
+              ...group.items.map((r) => (
+                <TableRow key={r.key}>
+                  <TableCell>{r.condition || '—'}</TableCell>
+                  <TableCell>{r.storageGb || '—'}</TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    R$ {maskedFromCents(r.minPurchaseCents)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {r.wholesaleValueCents != null && r.wholesaleValueCents > 0
+                      ? `R$ ${maskedFromCents(r.wholesaleValueCents)}`
+                      : '—'}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {r.saleValueCents != null && r.saleValueCents > 0
+                      ? `R$ ${maskedFromCents(r.saleValueCents)}`
+                      : '—'}
+                  </TableCell>
+                </TableRow>
+              )),
+            ]))
+          )}
+        </TableBody>
+      </Table>
     </div>
   )
 }

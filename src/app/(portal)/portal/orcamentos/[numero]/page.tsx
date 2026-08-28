@@ -1,19 +1,20 @@
 import { redirect } from 'next/navigation'
+import type { CustomerHit } from '@/components/customers'
+import { QuoteStatusBadge } from '@/components/quotes/QuoteStatusBadge'
 import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
-import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
+import { getOrdemPortalPath } from '@/lib/orders/ordem-portal-path'
 import {
   ensurePortalOrganizationContext,
   getPortalOrganizationId,
 } from '@/lib/organizations/portal-organization-context'
+import { PORTAL_NARROW_FORM_CONTAINER } from '@/lib/portal/portal-layout'
 import { expireOverdueQuoteById } from '@/lib/quotes/expire-quotes'
+import { parseQuoteItemsRaw, quoteItemToFormLine } from '@/lib/quotes/quote-items'
 import { parseOrcamentoRouteParam } from '@/lib/quotes/quote-portal-path'
-import { quoteItemToFormLine, parseQuoteItemsRaw } from '@/lib/quotes/quote-items'
-import { OrcamentoFormClient } from '../OrcamentoFormClient'
+import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import { OrcamentoActionsMenu } from '../OrcamentoActionsMenu'
+import { OrcamentoFormClient } from '../OrcamentoFormClient'
 import { updateQuoteAction } from './update-quote-action'
-import type { CustomerHit } from '@/components/customers'
-import { QuoteStatusBadge } from '@/components/quotes/QuoteStatusBadge'
-import { getOrdemPortalPath } from '@/lib/orders/ordem-portal-path'
 
 const ERROR_MESSAGES: Record<string, string> = {
   cliente_invalido: 'Cliente inválido.',
@@ -75,7 +76,7 @@ export default async function OrcamentoDetalhePage ({
   }
 
   return (
-    <div className="space-y-4">
+    <div className={`${PORTAL_NARROW_FORM_CONTAINER} space-y-4`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-center gap-2">
           <QuoteStatusBadge status={status} />

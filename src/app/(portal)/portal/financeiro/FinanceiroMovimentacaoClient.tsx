@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { Plus, Pencil, Loader2, CalendarIcon, Trash2, RotateCw } from 'lucide-react'
@@ -124,11 +125,26 @@ function buildRange(preset: string): { from: string; to: string } {
   return { from: fmt(new Date(y, m, 1)), to: fmt(new Date(y, m, d)) }
 }
 
+function isValidFinanceDate (value: string | null): string {
+  const v = String(value || '').trim()
+  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : ''
+}
+
+function parseFinanceSource (value: string | null): 'all' | 'os' | 'pdv' | 'seminovo' {
+  if (value === 'os' || value === 'pdv' || value === 'seminovo') return value
+  return 'all'
+}
+
 export function FinanceiroMovimentacaoClient() {
-  const [preset, setPreset] = useState<string>('thisMonth')
+  const searchParams = useSearchParams()
+  const urlFrom = isValidFinanceDate(searchParams.get('from'))
+  const urlTo = isValidFinanceDate(searchParams.get('to'))
+  const urlSource = parseFinanceSource(searchParams.get('source'))
+  const hasUrlRange = Boolean(urlFrom && urlTo)
+  const [preset, setPreset] = useState<string>(hasUrlRange ? 'custom' : 'thisMonth')
   const initialRange = buildRange('thisMonth')
-  const [customFrom, setCustomFrom] = useState<string>(initialRange.from)
-  const [customTo, setCustomTo] = useState<string>(initialRange.to)
+  const [customFrom, setCustomFrom] = useState<string>(urlFrom || initialRange.from)
+  const [customTo, setCustomTo] = useState<string>(urlTo || initialRange.to)
   const [movements, setMovements] = useState<Movement[]>([])
   const [contas, setContas] = useState<Bank[]>([])
   const [balances, setBalances] = useState<ContaBalance[]>([])
@@ -145,7 +161,7 @@ export function FinanceiroMovimentacaoClient() {
   const [editOccurredAt, setEditOccurredAt] = useState('')
   const [editContaId, setEditContaId] = useState('')
   const [isSyncingServiceOrders, setIsSyncingServiceOrders] = useState(false)
-  const [sourceFilter, setSourceFilter] = useState<'all' | 'os' | 'pdv' | 'seminovo'>('all')
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'os' | 'pdv' | 'seminovo'>(urlSource)
   const [recurringDialogOpen, setRecurringDialogOpen] = useState(false)
   const [recurringExpenses, setRecurringExpenses] = useState<RecurringExpense[]>([])
   const [loadingRecurring, setLoadingRecurring] = useState(false)

@@ -26,6 +26,8 @@ type SearchParams = Promise<{
   color?: string
   purchaseDateFrom?: string
   purchaseDateTo?: string
+  saleDateFrom?: string
+  saleDateTo?: string
   deviceName?: string
   valueMin?: string
   valueMax?: string
@@ -86,7 +88,14 @@ async function RevendaListagemInner ({
 
   const q = String(params?.q || '').trim()
   const canManageSale = !isRetailer
-  const includeSoldByFilter = canManageSale && params?.sold === '1'
+  const saleDateFrom = isValidDate(params?.saleDateFrom || '')
+    ? (params?.saleDateFrom || '')
+    : ''
+  const saleDateTo = isValidDate(params?.saleDateTo || '')
+    ? (params?.saleDateTo || '')
+    : ''
+  const hasSaleDateFilter = Boolean(saleDateFrom || saleDateTo)
+  const includeSoldByFilter = canManageSale && (params?.sold === '1' || hasSaleDateFilter)
   const includeSold = includeSoldByFilter || looksLikeImeiSearch(q)
 
   const filters = {
@@ -100,6 +109,8 @@ async function RevendaListagemInner ({
     purchaseDateTo: isValidDate(params?.purchaseDateTo || '')
       ? (params?.purchaseDateTo || '')
       : '',
+    saleDateFrom,
+    saleDateTo,
     stockType: 'all' as const,
     deviceName: String(params?.deviceName || '').trim(),
     valueMinCents,
@@ -114,6 +125,8 @@ async function RevendaListagemInner ({
     color: filters.color,
     purchaseDateFrom: filters.purchaseDateFrom,
     purchaseDateTo: filters.purchaseDateTo,
+    saleDateFrom: filters.saleDateFrom,
+    saleDateTo: filters.saleDateTo,
     stockType: 'all' as const,
     deviceName: filters.deviceName,
     valueMin: rawValueMin,

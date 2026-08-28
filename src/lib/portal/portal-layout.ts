@@ -2,6 +2,9 @@
 export const PORTAL_LAYOUT_CONTAINER =
 	'mx-auto w-full max-w-[1680px] px-4 lg:px-6'
 
+/** Formulários longos (OS, orçamento): coluna estreita centralizada no layout do portal. */
+export const PORTAL_NARROW_FORM_CONTAINER = 'mx-auto w-full max-w-4xl'
+
 /** Conteúdo em tela cheia (sem limite de largura). */
 export const PORTAL_FULL_WIDTH_CONTAINER =
 	'flex min-h-0 w-full flex-1 flex-col'

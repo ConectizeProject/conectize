@@ -23,7 +23,7 @@ export function DashboardResumoHeader ({ updatedAtLabel }: Props) {
 
 	return (
 		<div className="mb-4 flex items-end justify-between gap-3">
-			<h2 className="text-lg font-semibold tracking-tight">Resumo diário</h2>
+			<h2 className="text-lg font-semibold tracking-tight">Resumo Diário</h2>
 			<div className="flex items-center gap-1 text-muted-foreground">
 				<button
 					type="button"
