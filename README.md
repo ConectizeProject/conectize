@@ -98,6 +98,32 @@ Para conectar com o Bling via OAuth 2.0, configure:
 
 Se o Bling responder `invalid_grant` ao renovar, o **refresh token** expirou ou foi revogado — é preciso **desconectar e autorizar de novo** no HUB.
 
+### Mercado Livre (OAuth)
+
+Para conectar com o Mercado Livre via OAuth 2.0 (Authorization Code + Refresh Token), configure:
+
+- `MELI_CLIENT_ID` - App ID no [developers.mercadolivre.com.br](https://developers.mercadolivre.com.br)
+- `MELI_CLIENT_SECRET` - Secret Key do aplicativo
+- `MELI_REDIRECT_URI` (opcional) - se omitido, usa `{origem}/api/portal/hub/oauth/mercado-livre/callback`
+
+**Importante:** no aplicativo ML, cadastre **exatamente** estas URLs (host canônico de produção):
+
+- Redirect URI: `https://www.conectize.com.br/api/portal/hub/oauth/mercado-livre/callback`
+- Notificações: `https://www.conectize.com.br/api/portal/mercado-livre/webhook`
+
+O access token vale ~6 horas. O **refresh token é de uso único** (~6 meses): cada renovação persiste o novo valor em `hub_connections`.
+
+### Renovação automática do token Mercado Livre
+
+- Em **cada chamada** à API, o servidor renova o access token quando está **expirado ou perto de expirar** (margem padrão: 30 minutos; opcional: `MELI_ACCESS_TOKEN_REFRESH_MARGIN_MINUTES`).
+- Cron na Vercel (`vercel.json`): **1× por dia** (`0 6 * * *`) — limite do plano Hobby. O access token do ML vale ~6h, então use também o workflow GitHub Actions [`.github/workflows/meli-token-refresh.yml`](.github/workflows/meli-token-refresh.yml) (a cada hora) com secrets `MELI_CRON_URL` e `CRON_SECRET`.
+
+  - **URL:** `GET /api/cron/meli-refresh-tokens`
+  - **Headers:** `Authorization: Bearer <CRON_SECRET>` **ou** `x-cron-secret: <CRON_SECRET>`
+  - **Variáveis:** `CRON_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`, `MELI_CLIENT_ID` / `MELI_CLIENT_SECRET`.
+
+Se o Mercado Livre responder `invalid_grant` ao renovar, desconecte e autorize de novo no HUB. Pedidos entram pelo webhook `orders_v2` e viram `sales_orders` em `/portal/vendas`.
+
 ## Deploy
 
 Este projeto pode ser deployado em:

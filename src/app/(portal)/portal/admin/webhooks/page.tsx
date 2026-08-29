@@ -95,7 +95,7 @@ export default async function AdminWebhooksPage ({ searchParams }: { searchParam
       <div>
         <h1 className="text-2xl font-bold">Webhooks recebidos</h1>
         <p className="text-sm text-muted-foreground">
-          Eventos enviados pelo Bling (e outras integrações). Status, erro e opção de reprocessar.
+          Eventos enviados pelo Bling, Mercado Livre e outras integrações. Status, erro e opção de reprocessar.
         </p>
       </div>
 
@@ -106,7 +106,18 @@ export default async function AdminWebhooksPage ({ searchParams }: { searchParam
         </CardHeader>
         <CardContent>
           <form action="/portal/admin/webhooks" method="get" className="grid gap-4 md:grid-cols-5">
-            <input type="hidden" name="platform" value={platformFilter} />
+            <div className="space-y-2">
+              <label htmlFor="platform" className="text-sm font-medium">Plataforma</label>
+              <select
+                id="platform"
+                name="platform"
+                defaultValue={platformFilter}
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+              >
+                <option value="bling">Bling</option>
+                <option value="mercado_livre">Mercado Livre</option>
+              </select>
+            </div>
             <div className="space-y-2">
               <label htmlFor="status" className="text-sm font-medium">Status</label>
               <select

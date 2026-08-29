@@ -19,11 +19,11 @@ type BuildPortalNavParams = {
 	hasWhatsappIntegration: boolean
 }
 
-function group (label: string, items: PortalNavItem[]): PortalNavGroup {
+function group(label: string, items: PortalNavItem[]): PortalNavGroup {
 	return { label, items }
 }
 
-export function buildPortalNavConfig ({
+export function buildPortalNavConfig({
 	role,
 	isAdmin,
 	hasWhatsappIntegration,
@@ -68,6 +68,7 @@ export function buildPortalNavConfig ({
 		group('Operações', operacoesItems),
 		group('Cadastros', [
 			{ href: '/portal/produtos', label: 'Produtos e serviços' },
+			{ href: '/portal/mercado-livre', label: 'Anúncios' },
 			{ href: '/portal/clientes', label: 'Clientes' },
 			{ href: '/portal/revendaaparelhos', label: 'Aparelhos à venda' },
 		]),
@@ -91,13 +92,13 @@ export function buildPortalNavConfig ({
 	return { groups, directLinks: [] }
 }
 
-export function isPortalNavItemActive (pathname: string, href: string): boolean {
+export function isPortalNavItemActive(pathname: string, href: string): boolean {
 	if (href === '/portal') return pathname === '/portal'
 	if (href === '/portal/dashboard') return pathname === '/portal/dashboard'
 	return pathname === href || pathname.startsWith(`${href}/`)
 }
 
-export function isPortalNavGroupActive (
+export function isPortalNavGroupActive(
 	pathname: string,
 	items: PortalNavItem[],
 ): boolean {

@@ -1,18 +1,33 @@
 import { NextResponse } from 'next/server'
 import { requireRealAdmin } from '@/lib/auth/portal-api'
 import { processBlingWebhook } from '@/lib/integrations/bling/webhook-service'
+import { processMeliWebhook } from '@/lib/integrations/mercado-livre/webhook-service'
 
-export async function POST () {
+function normalizePlatform(value: unknown): 'bling' | 'mercado_livre' {
+  return String(value || '').trim() === 'mercado_livre'
+    ? 'mercado_livre'
+    : 'bling'
+}
+
+export async function POST(request: Request) {
   const auth = await requireRealAdmin()
   if (auth.ok === false) {
-    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
+    return NextResponse.json(
+      { ok: false, error: auth.error },
+      { status: auth.status },
+    )
   }
+
+  const body = (await request.json().catch(() => null)) as {
+    platform?: unknown
+  } | null
+  const platform = normalizePlatform(body?.platform)
 
   const { data: rows, error } = await auth.supabase
     .from('integration_webhooks')
     .select('id')
     .eq('organization_id', auth.organizationId)
-    .eq('platform_id', 'bling')
+    .eq('platform_id', platform)
     .eq('status', 'error')
     .order('created_at', { ascending: true })
     .order('id', { ascending: true })
@@ -41,7 +56,10 @@ export async function POST () {
   const errors: string[] = []
 
   for (const id of ids) {
-    const res = await processBlingWebhook(id)
+    const res =
+      platform === 'mercado_livre'
+        ? await processMeliWebhook(id)
+        : await processBlingWebhook(id)
     switch (res.ok) {
       case true:
         processed += 1
@@ -65,4 +83,3 @@ export async function POST () {
     error_message: errors[0] || null,
   })
 }
-

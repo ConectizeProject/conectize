@@ -1,0 +1,72 @@
+name: Mercado Livre Token Refresh
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call token refresh endpoint
+        env:
+          CRON_URL: ${{ secrets.MELI_CRON_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_URL" ]; then
+            echo "Missing secret: MELI_CRON_URL"
+            exit 1
+          fi
+          if [ -z "$CRON_SECRET" ]; then
+            echo "Missing secret: CRON_SECRET"
+            exit 1
+          fi
+
+          CRON_URL=$(printf '%s' "$CRON_URL" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          CRON_SECRET=$(printf '%s' "$CRON_SECRET" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          if [ "${#CRON_SECRET}" -ge 2 ]; then
+            if [ "${CRON_SECRET:0:1}" = '"' ] && [ "${CRON_SECRET: -1}" = '"' ]; then
+              CRON_SECRET="${CRON_SECRET#\"}"
+              CRON_SECRET="${CRON_SECRET%\"}"
+            fi
+          fi
+
+          CRON_URL="${CRON_URL%/}"
+          case "$CRON_URL" in
+            *meli-refresh-tokens*) ;;
+            *)
+              if printf '%s' "$CRON_URL" | grep -qE '^https?://[^/]+$'; then
+                CRON_URL="${CRON_URL}/api/cron/meli-refresh-tokens"
+                echo "MELI_CRON_URL era só o domínio — ajustado para: $CRON_URL"
+              else
+                echo "ERRO: MELI_CRON_URL deve terminar em /api/cron/meli-refresh-tokens"
+                echo "       ou ser só a origem (ex.: https://www.conectize.com.br)."
+                echo "       Valor atual: $CRON_URL"
+                exit 1
+              fi
+              ;;
+          esac
+
+          echo "Calling: $CRON_URL"
+
+          HTTP_CODE=$(curl -sS -L --max-redirs 5 -o response.json -w "%{http_code}" \
+            -X GET "$CRON_URL" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "x-cron-secret: $CRON_SECRET")
+
+          echo "HTTP $HTTP_CODE"
+          cat response.json
+          echo
+
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "Token refresh failed (HTTP)"
+            exit 1
+          fi
+          if ! jq -e '.ok == true' response.json >/dev/null 2>&1; then
+            echo "Token refresh failed (JSON ok != true)"
+            if head -c 5 response.json | grep -q '<!DOC\|<html'; then
+              echo "A resposta é HTML (página do site), não JSON da API. Confira MELI_CRON_URL no GitHub (Secrets)."
+            fi
+            exit 1
+          fi
