@@ -40,6 +40,15 @@ export default async function HubPage() {
     created_at?: string
     token_expires_at?: string | null
   }>
+  const meliConnections = (connections || []).filter(
+    (c: { platform_id: string }) => c.platform_id === 'mercado_livre'
+  ) as Array<{
+    id: string
+    platform_id: string
+    metadata?: Record<string, unknown> | null
+    created_at?: string
+    token_expires_at?: string | null
+  }>
 
   return (
     <div className="space-y-6">
@@ -54,6 +63,7 @@ export default async function HubPage() {
       <HubClient
         initialConnections={Array.from(connectedPlatforms)}
         blingConnections={blingConnections}
+        meliConnections={meliConnections}
         isAdmin={me?.role === 'admin' || me?.role === 'platform_admin'}
         chatgptModel={chatgptModel}
       />

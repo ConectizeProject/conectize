@@ -37,6 +37,8 @@ export type SalesOrderDraftInput = {
   customer_document?: string | null
   discount_total_cents?: number
   surcharge_cents?: number
+  ml_order_id?: string | null
+  ml_pack_id?: string | null
 }
 
 type AuthCtx = {
@@ -419,6 +421,8 @@ export async function createSalesOrder (
       total_cents: totals.totalCents,
       paid_amount_cents: 0,
       change_cents: 0,
+      ml_order_id: draft.ml_order_id ?? null,
+      ml_pack_id: draft.ml_pack_id ?? null,
     })
     .select('id')
     .single()
@@ -518,6 +522,8 @@ export async function updateSalesOrderDraft (
   if (draft.customer_name !== undefined) patch.customer_name = salesOrderCustomerName(draft.customer_name)
   if (draft.customer_type !== undefined) patch.customer_type = toDbCustomerType(draft.customer_type)
   if (draft.customer_document !== undefined) patch.customer_document = draft.customer_document
+  if (draft.ml_order_id !== undefined) patch.ml_order_id = draft.ml_order_id
+  if (draft.ml_pack_id !== undefined) patch.ml_pack_id = draft.ml_pack_id
 
   if (draft.discount_total_cents !== undefined) {
     patch.discount_total_cents = discountTotalCents

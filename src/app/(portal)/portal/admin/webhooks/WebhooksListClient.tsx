@@ -60,7 +60,7 @@ export function WebhooksListClient ({ webhooks, platform = 'bling' }: Props) {
   const [isReprocessingAllErrors, setIsReprocessingAllErrors] = useState(false)
   const [isPurgingOld, setIsPurgingOld] = useState(false)
   const [copyingPayload, setCopyingPayload] = useState(false)
-  const errorRows = webhooks.filter((row) => row.status === 'error' && row.platform_id === 'bling')
+  const errorRows = webhooks.filter((row) => row.status === 'error' && row.platform_id === platform)
 
   async function openDetail (row: WebhookRow) {
     setDetail(row)
@@ -151,6 +151,8 @@ export function WebhooksListClient ({ webhooks, platform = 'bling' }: Props) {
       const res = await fetch('/api/portal/admin/webhooks/reprocess-errors', {
         method: 'POST',
         credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platform }),
       })
       const data = await res.json().catch(() => null)
       if (data?.ok) {

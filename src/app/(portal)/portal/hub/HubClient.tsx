@@ -82,12 +82,13 @@ const integrations: Integration[] = [
   {
     id: 'mercado_livre',
     name: 'Mercado Livre',
-    description: 'Sincronize pedidos, produtos e mensagens do Mercado Livre.',
+    description: 'Receba pedidos do Mercado Livre como pedidos de venda no portal.',
     icon: ShoppingCart,
     color: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-    status: 'coming_soon',
+    status: 'available',
     authType: 'oauth',
     docsUrl: 'https://developers.mercadolivre.com.br',
+    oauthUrl: '/api/portal/hub/oauth/mercado-livre',
   },
   {
     id: 'bling',
@@ -150,14 +151,6 @@ const OPENAI_MODELS = [
   { value: 'gpt-4o-mini', label: 'GPT-4o Mini (alternativa econômica)' },
   { value: 'gpt-4o', label: 'GPT-4o (versão anterior)' },
 ] as const
-
-type BlingConnection = {
-  id: string
-  platform_id: string
-  metadata?: Record<string, unknown> | null
-  created_at?: string
-  token_expires_at?: string | null
-}
 
 type WhatsappConfig = {
   connected: boolean
@@ -267,9 +260,21 @@ function formatTokenExpiry (expiresAt: string | null | undefined) {
   }
 }
 
+type HubOAuthConnection = {
+  id: string
+  platform_id: string
+  metadata?: Record<string, unknown> | null
+  created_at?: string
+  token_expires_at?: string | null
+}
+
+type BlingConnection = HubOAuthConnection
+type MeliConnection = HubOAuthConnection
+
 type Props = {
   initialConnections: string[]
   blingConnections?: BlingConnection[]
+  meliConnections?: MeliConnection[]
   isAdmin?: boolean
   chatgptModel?: string
 }
@@ -524,6 +529,109 @@ function BlingConnectionsPanel ({
   )
 }
 
+function formatMeliConnectionLabel (connection: MeliConnection, index: number) {
+  const meta = connection.metadata && typeof connection.metadata === 'object'
+    ? connection.metadata
+    : null
+  const nickname = meta?.nickname != null ? String(meta.nickname).trim() : ''
+  if (nickname) return nickname
+  if (connection.created_at) {
+    try {
+      const d = new Date(connection.created_at)
+      return `Conectada em ${d.toLocaleDateString('pt-BR')}`
+    } catch {
+      // fallback
+    }
+  }
+  return `Conta ${index + 1}`
+}
+
+function getMeliReconnectStatus (connection: MeliConnection) {
+  const metadata = connection.metadata
+  if (!metadata || typeof metadata !== 'object') return null
+  if (metadata.meliReconnectRequired !== true) return null
+  const lastError = typeof metadata.meliLastRefreshError === 'string'
+    ? metadata.meliLastRefreshError
+    : null
+  return {
+    title: 'Reconexão necessária',
+    description: 'O token de atualização do Mercado Livre expirou ou foi revogado. Desconecte e conecte novamente esta conta no HUB.',
+    lastError,
+  }
+}
+
+function MeliConnectionsPanel ({
+  meliConnections,
+  onDisconnectMeliConnection,
+  oauthUrl,
+}: {
+  meliConnections: MeliConnection[]
+  onDisconnectMeliConnection?: (connectionId: string) => void
+  oauthUrl?: string
+}) {
+  return (
+    <div className="space-y-3">
+      {meliConnections.length > 0 ? (
+        <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+          <p className="text-xs font-medium text-muted-foreground">Contas conectadas</p>
+          <ul className="space-y-3">
+            {meliConnections.map((conn, index) => {
+              const reconnectStatus = getMeliReconnectStatus(conn)
+              const label = formatMeliConnectionLabel(conn, index)
+              const meta = conn.metadata && typeof conn.metadata === 'object' ? conn.metadata : null
+              const userId = meta?.user_id != null ? String(meta.user_id) : null
+
+              return (
+                <li key={conn.id} className="rounded-md border bg-background p-3 space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 space-y-0.5">
+                      <p className="text-sm font-medium truncate">{label}</p>
+                      {userId ? (
+                        <p className="text-xs text-muted-foreground">user ID {userId}</p>
+                      ) : null}
+                      <p className="text-xs text-muted-foreground">
+                        {formatTokenExpiry(conn.token_expires_at)}
+                      </p>
+                    </div>
+                    {onDisconnectMeliConnection ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0"
+                        onClick={() => onDisconnectMeliConnection(conn.id)}
+                      >
+                        Desconectar
+                      </Button>
+                    ) : null}
+                  </div>
+                  {reconnectStatus ? (
+                    <div className="rounded-md border border-destructive/40 bg-destructive/5 p-2 space-y-1">
+                      <p className="text-xs font-medium text-destructive">{reconnectStatus.title}</p>
+                      <p className="text-xs text-muted-foreground">{reconnectStatus.description}</p>
+                    </div>
+                  ) : null}
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          Nenhuma conta Mercado Livre conectada ainda.
+        </p>
+      )}
+      {oauthUrl ? (
+        <Button size="sm" asChild>
+          <a href={oauthUrl}>
+            {meliConnections.length > 0 ? 'Reconectar conta' : 'Conectar conta Mercado Livre'}
+          </a>
+        </Button>
+      ) : null}
+    </div>
+  )
+}
+
 function IntegrationCard({
   integration,
   isConnected,
@@ -585,7 +693,7 @@ function IntegrationCard({
   )
 }
 
-export function HubClient({ initialConnections, blingConnections: initialBlingConnections = [], isAdmin = false, chatgptModel = 'gpt-5-mini' }: Props) {
+export function HubClient({ initialConnections, blingConnections: initialBlingConnections = [], meliConnections: initialMeliConnections = [], isAdmin = false, chatgptModel = 'gpt-5-mini' }: Props) {
   const organizationName = usePortalOrganizationName()
   const brandLabel = String(organizationName || '').trim()
   const router = useRouter()
@@ -594,8 +702,14 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
   useEffect(() => {
     setBlingConnections(initialBlingConnections)
   }, [initialBlingConnections])
+  const [meliConnections, setMeliConnections] = useState<MeliConnection[]>(initialMeliConnections)
+  useEffect(() => {
+    setMeliConnections(initialMeliConnections)
+  }, [initialMeliConnections])
   const [connectDialog, setConnectDialog] = useState<Integration | null>(null)
   const [blingDialogOpen, setBlingDialogOpen] = useState(false)
+  const [meliDialogOpen, setMeliDialogOpen] = useState(false)
+  const [meliSyncing, setMeliSyncing] = useState(false)
   const [infoDialog, setInfoDialog] = useState<Integration | null>(null)
   const [apiKey, setApiKey] = useState('')
   const [selectedModel, setSelectedModel] = useState<string>(chatgptModel)
@@ -847,6 +961,7 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
   const [blingLookupGtins, setBlingLookupGtins] = useState<string[]>([])
   const [blingLookupGtinDraft, setBlingLookupGtinDraft] = useState('')
   const [blingLookupLoading, setBlingLookupLoading] = useState(false)
+  const [blingCatalogSyncing, setBlingCatalogSyncing] = useState(false)
 
   async function loadWhatsappConfig () {
     setWhatsappLoading(true)
@@ -1039,6 +1154,131 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
       router.refresh()
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleDisconnectMeliConnection (connectionId: string) {
+    if (!(await appConfirm({
+      title: 'Desconectar esta conta do Mercado Livre?',
+      confirmLabel: 'Desconectar',
+      destructive: true,
+    }))) return
+
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/portal/hub/connections/item/${connectionId}`, { method: 'DELETE' })
+      const data = await res.json().catch(() => null)
+
+      if (!res.ok || !data?.ok) {
+        toast({ title: 'Erro ao desconectar', variant: 'destructive' })
+        return
+      }
+
+      setMeliConnections((prev) => prev.filter((c) => c.id !== connectionId))
+      setConnections((prev) => {
+        const next = new Set(prev)
+        if (meliConnections.length <= 1) next.delete('mercado_livre')
+        return next
+      })
+      toast({ variant: 'success', title: 'Conta desconectada', description: 'Conta do Mercado Livre removida.' })
+      router.refresh()
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleSyncMeliListings () {
+    if (!isAdmin || meliSyncing) return
+    setMeliSyncing(true)
+    try {
+      let blingSummary: string | null = null
+
+      if (blingConnections.length > 0) {
+        const blingRes = await fetch('/api/portal/bling/sync-catalog', {
+          method: 'POST',
+          credentials: 'include',
+        })
+        const blingData = await blingRes.json().catch(() => null)
+        if (!blingRes.ok || !blingData?.ok) {
+          toast({
+            title: 'Falha ao sincronizar catálogo Bling',
+            description: String(blingData?.error || 'Tente novamente.'),
+            variant: 'destructive',
+          })
+          return
+        }
+        const blingCreated = Number(blingData.created || 0)
+        const blingUpdated = Number(blingData.updated || 0)
+        blingSummary = `Bling: ${blingCreated} criado(s) · ${blingUpdated} atualizado(s)`
+      }
+
+      const res = await fetch('/api/portal/mercado-livre/sync-listings', {
+        method: 'POST',
+        credentials: 'include',
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        toast({
+          title: 'Falha ao sincronizar anúncios',
+          description: String(data?.error || 'Tente novamente.'),
+          variant: 'destructive',
+        })
+        return
+      }
+      const created = Number(data.productsCreated || 0)
+      const linked = Number(data.productsLinked || 0)
+      const upserted = Number(data.upserted || 0)
+      const meliPart = `ML: ${upserted} anúncio(s) · ${created} produto(s) criado(s) · ${linked} vinculado(s)`
+      toast({
+        variant: 'success',
+        title: 'Anúncios sincronizados',
+        description: blingSummary ? `${blingSummary} · ${meliPart}` : meliPart,
+      })
+    } finally {
+      setMeliSyncing(false)
+    }
+  }
+
+  async function handleBlingSyncCatalog () {
+    if (!isAdmin || blingCatalogSyncing) return
+    if (!(await appConfirm({
+      title: 'Sincronizar catálogo do Bling?',
+      description: 'Importa todos os produtos do Bling para o catálogo desta empresa. Recomendado antes de sincronizar anúncios do Mercado Livre.',
+      confirmLabel: 'Sincronizar',
+    }))) return
+
+    setBlingCatalogSyncing(true)
+    try {
+      const res = await fetch('/api/portal/bling/sync-catalog', {
+        method: 'POST',
+        credentials: 'include',
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        toast({
+          title: 'Falha ao sincronizar catálogo',
+          description: String(data?.error || data?.error_message || 'Tente novamente.'),
+          variant: 'destructive',
+        })
+        return
+      }
+      const created = Number(data.created || 0)
+      const updated = Number(data.updated || 0)
+      const fetched = Number(data.fetched || 0)
+      const truncated = Boolean(data.truncated)
+      toast({
+        variant: 'success',
+        title: 'Catálogo sincronizado',
+        description: [
+          `${fetched} produto(s) processado(s)`,
+          `${created} criado(s)`,
+          `${updated} atualizado(s)`,
+          truncated ? 'limite de páginas atingido' : null,
+        ].filter(Boolean).join(' · '),
+      })
+      router.refresh()
+    } finally {
+      setBlingCatalogSyncing(false)
     }
   }
 
@@ -1623,8 +1863,8 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
           {brandLabel
             ? `O HUB permite integrar ${brandLabel} a marketplaces, ERPs e ferramentas de IA. `
             : 'O HUB permite integrar sua operação a marketplaces, ERPs e ferramentas de IA. '}
-          Cada integração pode ser configurada individualmente. Em breve você poderá criar
-          automações como: novo pedido no Mercado Livre → criar OS automaticamente.
+          Cada integração pode ser configurada individualmente. Pedidos pagos no Mercado Livre
+          viram pedidos de venda no portal.
         </p>
       </div>
 
@@ -1635,11 +1875,13 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
             const isConnected =
               integration.id === 'bling'
                 ? blingConnections.length > 0
-                : integration.id === 'whatsapp_business'
-                  ? Boolean(whatsappConfig?.connected || connections.has('whatsapp_business'))
-                  : integration.id === 'whatsapp_evolution'
-                    ? Boolean(evolutionConfig?.connected || connections.has('whatsapp_evolution'))
-                    : connections.has(integration.id)
+                : integration.id === 'mercado_livre'
+                  ? meliConnections.length > 0
+                  : integration.id === 'whatsapp_business'
+                    ? Boolean(whatsappConfig?.connected || connections.has('whatsapp_business'))
+                    : integration.id === 'whatsapp_evolution'
+                      ? Boolean(evolutionConfig?.connected || connections.has('whatsapp_evolution'))
+                      : connections.has(integration.id)
 
             return (
               <IntegrationCard
@@ -1653,6 +1895,10 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
                   }
                   if (integration.id === 'bling') {
                     setBlingDialogOpen(true)
+                    return
+                  }
+                  if (integration.id === 'mercado_livre') {
+                    setMeliDialogOpen(true)
                     return
                   }
                   if (integration.id === 'whatsapp_business') {
@@ -1888,6 +2134,32 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
             />
 
             {isAdmin && blingConnections.length > 0 ? (
+              <>
+              <div className="rounded-md border p-3 space-y-2">
+                <p className="text-sm font-medium">Sincronizar catálogo</p>
+                <p className="text-xs text-muted-foreground">
+                  Importa todos os produtos do Bling para o catálogo. Recomendado antes de sincronizar anúncios do Mercado Livre.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={blingCatalogSyncing || blingLookupLoading}
+                    onClick={() => void handleBlingSyncCatalog()}
+                    className="gap-1.5"
+                  >
+                    {blingCatalogSyncing
+                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      : <RefreshCw className="h-3.5 w-3.5" />}
+                    {blingCatalogSyncing ? 'Sincronizando…' : 'Sincronizar catálogo'}
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" asChild>
+                    <Link href="/portal/produtos" prefetch={false}>
+                      Ver produtos
+                    </Link>
+                  </Button>
+                </div>
+              </div>
               <div className="rounded-md border p-3 space-y-3">
                 <div>
                   <p className="text-sm font-medium">Buscar produto e sincronizar</p>
@@ -2040,6 +2312,7 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
                   </div>
                 </div>
               </div>
+              </>
             ) : null}
           </div>
           <DialogFooter className="flex-wrap gap-2 sm:justify-between">
@@ -2060,6 +2333,88 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
               ) : null}
             </div>
             <Button type="button" variant="outline" onClick={() => setBlingDialogOpen(false)}>
+              Fechar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={meliDialogOpen}
+        onOpenChange={setMeliDialogOpen}
+      >
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Configurar Mercado Livre</DialogTitle>
+            <DialogDescription>
+              Conecte a conta vendedora para receber pedidos pagos e pendentes como pedidos de venda.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5 py-2">
+            <MeliConnectionsPanel
+              meliConnections={meliConnections}
+              onDisconnectMeliConnection={isAdmin ? handleDisconnectMeliConnection : undefined}
+              oauthUrl={isAdmin ? '/api/portal/hub/oauth/mercado-livre' : undefined}
+            />
+            <div className="rounded-md border border-dashed bg-muted/20 p-2.5 text-xs text-muted-foreground space-y-1">
+              <p className="font-medium text-foreground">URL de notificações (cadastre no app Mercado Livre)</p>
+              <code className="block break-all text-[11px] text-foreground">
+                https://www.conectize.com.br/api/portal/mercado-livre/webhook
+              </code>
+              <p>
+                Use a mesma URL no painel de desenvolvedores. Pedidos pagos são finalizados no portal;
+                pendentes ficam em rascunho até o pagamento.
+              </p>
+            </div>
+            {isAdmin && meliConnections.length > 0 ? (
+              <div className="rounded-md border p-3 space-y-2">
+                <p className="text-sm font-medium">Anúncios</p>
+                <p className="text-xs text-muted-foreground">
+                  Importa todos os anúncios da conta, vincula ou cria produtos no catálogo e atualiza a vitrine.
+                  {blingConnections.length > 0
+                    ? ' Com o Bling conectado, o catálogo Bling é sincronizado antes dos anúncios.'
+                    : null}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={meliSyncing}
+                    onClick={() => void handleSyncMeliListings()}
+                    className="gap-1.5"
+                  >
+                    {meliSyncing
+                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      : <RefreshCw className="h-3.5 w-3.5" />}
+                    {meliSyncing ? 'Sincronizando…' : 'Sincronizar anúncios'}
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" asChild>
+                    <Link href="/portal/mercado-livre" prefetch={false}>
+                      Ver anúncios
+                    </Link>
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+          <DialogFooter className="flex-wrap gap-2 sm:justify-between">
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" asChild>
+                <a href="https://developers.mercadolivre.com.br" target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="h-4 w-4 mr-1" />
+                  Documentação
+                </a>
+              </Button>
+              {isAdmin ? (
+                <Button type="button" variant="outline" asChild>
+                  <Link href="/portal/admin/webhooks?platform=mercado_livre" prefetch={false}>
+                    <History className="h-4 w-4 mr-1" />
+                    Histórico de webhooks
+                  </Link>
+                </Button>
+              ) : null}
+            </div>
+            <Button type="button" variant="outline" onClick={() => setMeliDialogOpen(false)}>
               Fechar
             </Button>
           </DialogFooter>

@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/bling-refresh-tokens",
       "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/meli-refresh-tokens",
+      "schedule": "0 */2 * * *"
     }
   ]
 }
