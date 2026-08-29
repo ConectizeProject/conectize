@@ -116,7 +116,7 @@ O access token vale ~6 horas. O **refresh token é de uso único** (~6 meses): c
 ### Renovação automática do token Mercado Livre
 
 - Em **cada chamada** à API, o servidor renova o access token quando está **expirado ou perto de expirar** (margem padrão: 30 minutos; opcional: `MELI_ACCESS_TOKEN_REFRESH_MARGIN_MINUTES`).
-- Cron (Vercel via `vercel.json`, a cada 2 horas):
+- Cron na Vercel (`vercel.json`): **1× por dia** (`0 6 * * *`) — limite do plano Hobby. O access token do ML vale ~6h, então use também o workflow GitHub Actions [`.github/workflows/meli-token-refresh.yml`](.github/workflows/meli-token-refresh.yml) (a cada hora) com secrets `MELI_CRON_URL` e `CRON_SECRET`.
 
   - **URL:** `GET /api/cron/meli-refresh-tokens`
   - **Headers:** `Authorization: Bearer <CRON_SECRET>` **ou** `x-cron-secret: <CRON_SECRET>`
