@@ -1,8 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { pushStockMovementToBling } from '@/lib/integrations/bling/push-stock-movement'
-import {
-  FINALIZED_ORDER_STATUS_SET,
-} from '@/lib/orders/order-status'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 
 type OrderServiceItem = {
@@ -43,6 +40,16 @@ function shouldReturnOnStatusTransition (previousStatus: string, nextStatus: str
   return shouldReturnStockOnFinalWithoutRepair(nextStatus) && hasConsumedPhase(previousStatus)
 }
 
+/** Saída base 1-1 por produto na OS. */
+export function serviceOrderStockExitExternalReference (orderId: string, productId: string) {
+  return `service_order:${orderId}:item:${productId}`
+}
+
+/** Devolução após cancelamento / final sem conserto (não colide com a saída base). */
+export function serviceOrderStockReturnExternalReference (orderId: string, productId: string) {
+  return `service_order:${orderId}:item:${productId}:return`
+}
+
 function getProductLines (services: unknown) {
   const items = normalizeServices(services)
   const lines = new Map<string, { quantity: number, unitCostCents: number, description: string }>()
@@ -72,6 +79,90 @@ function getProductLines (services: unknown) {
     unitCostCents: values.unitCostCents,
     description: values.description,
   }))
+}
+
+async function loadServiceOrderProductNetExit (
+  supabase: SupabaseClient,
+  orderId: string,
+  productId: string,
+) {
+  const { data, error } = await supabase
+    .from('product_stock_movements')
+    .select('type, quantity')
+    .eq('product_id', productId)
+    .eq('source', 'service_order')
+    .ilike('external_reference', `service_order:${orderId}:item:${productId}%`)
+
+  if (error) throw error
+
+  let net = 0
+  for (const row of data ?? []) {
+    const quantity = Math.abs(Number(row.quantity) || 0)
+    if (!Number.isFinite(quantity) || quantity <= 0) continue
+    if (row.type === 'exit') net += quantity
+    else if (row.type === 'entry') net -= quantity
+  }
+  return net
+}
+
+async function insertServiceOrderStockMovement (input: {
+  supabase: SupabaseClient
+  orderId: string
+  previousStatus: string
+  nextStatus: string
+  productId: string
+  type: 'exit' | 'entry'
+  quantity: number
+  unitValueCents: number
+  externalReference: string
+  actorUserId?: string | null
+  productBlingId?: string
+}) {
+  const payload: Record<string, unknown> = {
+    product_id: input.productId,
+    type: input.type,
+    quantity: input.quantity,
+    unit_value_cents: input.unitValueCents,
+    total_value_cents: input.quantity * input.unitValueCents,
+    source: 'service_order',
+    external_reference: input.externalReference,
+  }
+  if (input.actorUserId) payload.created_by = input.actorUserId
+
+  const { error } = await input.supabase
+    .from('product_stock_movements')
+    .insert(payload)
+
+  if (error) {
+    // Unique index: corrida/retry já criou o movimento.
+    if (String(error.code || '') === '23505') return
+    throw error
+  }
+
+  if (!input.productBlingId) return
+
+  try {
+    await pushStockMovementToBling({
+      productBlingId: input.productBlingId,
+      type: input.type,
+      quantity: input.quantity,
+      unitValueCents: input.unitValueCents,
+      observacoes: `OS ${input.orderId}: ${input.previousStatus} -> ${input.nextStatus}`,
+    })
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : 'unknown_error'
+    console.error('[order-stock-transition][bling-push-failed]', {
+      orderId: input.orderId,
+      previousStatus: input.previousStatus,
+      nextStatus: input.nextStatus,
+      productId: input.productId,
+      productBlingId: input.productBlingId,
+      movementType: input.type,
+      quantity: input.quantity,
+      unitValueCents: input.unitValueCents,
+      error: errorMessage,
+    })
+  }
 }
 
 type ApplyOrderStatusStockTransitionInput = {
@@ -117,65 +208,67 @@ export async function applyOrderStatusStockTransition (input: ApplyOrderStatusSt
     const quantity = Math.abs(Number(line.quantity) || 0)
     if (!Number.isFinite(quantity) || quantity <= 0) continue
 
-    if (type === 'exit' && ensureConsumeOnFinalize) {
-      // Ao finalizar, confirma se já houve baixa automática para este produto na OS.
-      // Se já houver, não cria nova saída.
-      const { data: existingExit } = await input.supabase
+    const unit = Math.max(0, Number(line.unitCostCents) || 0)
+    const net = await loadServiceOrderProductNetExit(
+      input.supabase,
+      input.orderId,
+      line.productId,
+    )
+
+    let ref: string
+    let moveQty = quantity
+
+    if (type === 'exit') {
+      // Já há saída líquida suficiente (retry / finalize após aprovado).
+      if (net >= quantity) continue
+
+      const baseRef = serviceOrderStockExitExternalReference(input.orderId, line.productId)
+      const { data: baseExit } = await input.supabase
         .from('product_stock_movements')
         .select('id')
         .eq('product_id', line.productId)
         .eq('type', 'exit')
         .eq('source', 'service_order')
-        .ilike('external_reference', `service_order:${input.orderId}:%`)
-        .limit(1)
+        .eq('external_reference', baseRef)
         .maybeSingle()
-      if (existingExit?.id) continue
+
+      // Reconsumo após devolução: a saída base já existe — usa ciclo novo.
+      ref = baseExit?.id
+        ? `${baseRef}:cycle:${Date.now()}`
+        : baseRef
+    } else {
+      if (net <= 0) continue
+      moveQty = Math.min(quantity, net)
+      const baseReturn = serviceOrderStockReturnExternalReference(
+        input.orderId,
+        line.productId,
+      )
+      const { data: existingReturn } = await input.supabase
+        .from('product_stock_movements')
+        .select('id')
+        .eq('product_id', line.productId)
+        .eq('type', 'entry')
+        .eq('source', 'service_order')
+        .eq('external_reference', baseReturn)
+        .maybeSingle()
+
+      ref = existingReturn?.id
+        ? `${baseReturn}:${Date.now()}`
+        : baseReturn
     }
 
-    const unit = Math.max(0, Number(line.unitCostCents) || 0)
-    const ref = `service_order:${input.orderId}:item:${line.productId}`
-    const payload: Record<string, unknown> = {
-      product_id: line.productId,
+    await insertServiceOrderStockMovement({
+      supabase: input.supabase,
+      orderId: input.orderId,
+      previousStatus,
+      nextStatus,
+      productId: line.productId,
       type,
-      quantity,
-      unit_value_cents: unit,
-      total_value_cents: quantity * unit,
-      source: 'service_order',
-      external_reference: ref,
-    }
-    if (input.actorUserId) payload.created_by = input.actorUserId
-
-    const { error } = await input.supabase
-      .from('product_stock_movements')
-      .insert(payload)
-
-    if (error) throw error
-
-    const productBlingId = blingByProductId.get(line.productId)
-    if (!productBlingId) continue
-
-    try {
-      await pushStockMovementToBling({
-        productBlingId,
-        type,
-        quantity,
-        unitValueCents: unit,
-        observacoes: `OS ${input.orderId}: ${previousStatus} -> ${nextStatus}`,
-      })
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'unknown_error'
-      console.error('[order-stock-transition][bling-push-failed]', {
-        orderId: input.orderId,
-        previousStatus,
-        nextStatus,
-        productId: line.productId,
-        productBlingId,
-        movementType: type,
-        quantity,
-        unitValueCents: unit,
-        error: errorMessage,
-      })
-    }
+      quantity: moveQty,
+      unitValueCents: unit,
+      externalReference: ref,
+      actorUserId: input.actorUserId,
+      productBlingId: blingByProductId.get(line.productId),
+    })
   }
 }
-
