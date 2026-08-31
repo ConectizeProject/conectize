@@ -7,7 +7,7 @@ import { fiscalIeOrNull } from '@/lib/fiscal/ie'
 import { validateCestNcmPair } from '@/lib/fiscal/cest-lookup'
 import { isNfceServiceItem } from '@/lib/fiscal/certificate-validity'
 import { fiscalCestOrNull, fiscalNcmOrNull } from '@/lib/fiscal/ncm'
-import { buildNfcePagamentoLine } from '@/lib/fiscal/nfce-payment'
+import { buildNfcePagamentoLine, resolveNfcePaymentAmountsWithChange } from '@/lib/fiscal/nfce-payment'
 import { lookupIbgeCityCodeFromCep } from '@/lib/fiscal/viacep'
 import { fiscalDocumentKind } from '@/lib/fiscal/document-status'
 import {
@@ -458,23 +458,30 @@ export async function buildNfceFromSalesOrder (input: BuildNfceInput): Promise<B
     produtos[0] = { ...produtos[0], descricao: HOMOLOGACAO_DEST_NAME }
   }
 
-  const pagamentos = (payments || []).map((payment) => buildNfcePagamentoLine({
-    paymentMethodType: payment.payment_method_type,
-    amount: centsToValue(payment.amount_cents),
-  }))
-
-  if (pagamentos.length === 0) {
-    return { ok: false, error: 'missing_payments', message: `A venda não possui pagamentos para a ${kind}.` }
-  }
-
-  const paidCents = (payments || []).reduce((sum, payment) => sum + toCents(payment.amount_cents), 0)
   const changeCents = toCents(order.change_cents)
-  if (paidCents - changeCents !== fiscalTotalCents) {
+  const resolvedPayments = resolveNfcePaymentAmountsWithChange({
+    payments: (payments || []).map((payment) => ({
+      payment_method_type: String(payment.payment_method_type || ''),
+      amount_cents: toCents(payment.amount_cents),
+    })),
+    changeCents,
+    fiscalTotalCents,
+  })
+  if (!resolvedPayments.ok) {
     return {
       ok: false,
       error: 'payment_totals_mismatch',
       message: `A soma dos pagamentos menos o troco precisa ser igual ao total da ${kind}.`,
     }
+  }
+
+  const pagamentos = (payments || []).map((payment, index) => buildNfcePagamentoLine({
+    paymentMethodType: payment.payment_method_type,
+    amount: centsToValue(resolvedPayments.amountsCents[index] ?? 0),
+  }))
+
+  if (pagamentos.length === 0) {
+    return { ok: false, error: 'missing_payments', message: `A venda não possui pagamentos para a ${kind}.` }
   }
 
   const payload: NFeProps & NfceIbscbsPayload = {
@@ -518,7 +525,7 @@ export async function buildNfceFromSalesOrder (input: BuildNfceInput): Promise<B
     transporte: { modalidadeFrete: 9 },
     pagamento: {
       pagamentos,
-      troco: centsToValue(order.change_cents),
+      troco: centsToValue(resolvedPayments.changeCents),
     },
     informacoesComplementares: `Venda Conectize #${order.order_number}`,
     ...(ibscbsConfig.include

@@ -210,11 +210,36 @@ function resolveContaForSalesOrderPayment (
   return { contaId: null, label: '' }
 }
 
+/**
+ * Ajusta valores de pagamento para o financeiro.
+ *
+ * Dois modelos coexistem:
+ * - Gross (legado / paid − change === total): linhas incluem o valor recebido; abate o troco do dinheiro.
+ * - Net (PDV atual: paid === total, change separado do "recebido"): não abate — as linhas já são o líquido da venda.
+ */
 function netSalesOrderPaymentAmounts (
   payments: SalesOrderPaymentFinanceRow[],
   changeCents: number,
+  totalCents: number,
 ) {
-  let changeRemaining = Math.max(0, changeCents)
+  const paidSum = payments.reduce(
+    (sum, payment) => sum + Math.max(0, Number(payment.amount_cents) || 0),
+    0,
+  )
+  const change = Math.max(0, changeCents)
+  const total = Math.max(0, totalCents)
+  const paymentsAreGross = change > 0 && total > 0 && paidSum - change === total
+
+  if (!paymentsAreGross) {
+    return payments
+      .map((payment) => ({
+        ...payment,
+        amount_cents: Math.max(0, Number(payment.amount_cents) || 0),
+      }))
+      .filter((payment) => payment.amount_cents > 0)
+  }
+
+  let changeRemaining = change
   return payments.map((payment) => {
     let amount = Math.max(0, Number(payment.amount_cents) || 0)
     if (payment.payment_method_type === 'dinheiro' && changeRemaining > 0 && amount > 0) {
@@ -1046,7 +1071,8 @@ export async function syncSalesOrderFinancialTransactions ({
   }) as SalesOrderPaymentFinanceRow[]
 
   const changeCents = Math.max(0, Number(order.change_cents) || 0)
-  const netPayments = netSalesOrderPaymentAmounts(paidPayments, changeCents)
+  const totalCents = Math.max(0, Number(order.total_cents) || 0)
+  const netPayments = netSalesOrderPaymentAmounts(paidPayments, changeCents, totalCents)
 
   const [methods, defaultContaId, existingFinance] = await Promise.all([
     loadOrganizationPaymentMethods(supabase, organizationId),
