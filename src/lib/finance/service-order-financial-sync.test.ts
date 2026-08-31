@@ -453,3 +453,47 @@ describe('backfillServiceOrderFinancialTransactionsByOrganization', () => {
     ])
   })
 })
+
+describe('netSalesOrderPaymentAmounts', () => {
+  const { netSalesOrderPaymentAmounts } = __private__
+
+  it('não abate troco no modelo PDV (paid === total)', () => {
+    const net = netSalesOrderPaymentAmounts(
+      [
+        {
+          id: '1',
+          payment_method_id: null,
+          payment_method_type: 'dinheiro',
+          amount_cents: 10000,
+          status: 'paid',
+          created_at: null,
+        },
+      ],
+      5000,
+      10000,
+    )
+    expect(net).toEqual([
+      expect.objectContaining({ amount_cents: 10000 }),
+    ])
+  })
+
+  it('abate troco no modelo gross (paid − change === total)', () => {
+    const net = netSalesOrderPaymentAmounts(
+      [
+        {
+          id: '1',
+          payment_method_id: null,
+          payment_method_type: 'dinheiro',
+          amount_cents: 15000,
+          status: 'paid',
+          created_at: null,
+        },
+      ],
+      5000,
+      10000,
+    )
+    expect(net).toEqual([
+      expect.objectContaining({ amount_cents: 10000 }),
+    ])
+  })
+})
