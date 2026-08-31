@@ -106,6 +106,8 @@ function isInvalidGrantRefreshError(error: string) {
 	const normalized = String(error || '').toLowerCase()
 	return (
 		normalized.includes('invalid_grant') ||
+		normalized.includes('invalid_token') ||
+		normalized.includes('invalid token') ||
 		normalized.includes('invalid refresh token')
 	)
 }
@@ -356,8 +358,9 @@ async function meliRequestJson<T>(
 	options: MeliRequestOptions,
 	supabase?: SupabaseClient,
 ): Promise<T> {
-	const refreshed = await refreshMeliTokenIfNeeded(connection, { supabase })
-	const token = refreshed.access_token
+	const supabaseClient = supabase ?? (await createSupabaseServerClient())
+	const current = await refreshMeliTokenIfNeeded(connection, { supabase: supabaseClient })
+	const token = current.access_token
 	if (!token) throw new Error('meli_access_token_missing')
 
 	async function send(accessToken: string) {
@@ -387,10 +390,14 @@ async function meliRequestJson<T>(
 	}
 
 	let res = await send(token)
-	if (res.status === 401 && refreshed.refresh_token && supabase) {
-		const forced = await performMeliTokenRefresh(refreshed, { supabase })
-		if (forced.ok && forced.connection.access_token) {
+	if (res.status === 401 && current.refresh_token) {
+		const forced = await performMeliTokenRefresh(current, {
+			supabase: supabaseClient,
+		})
+		if (forced.ok === true && forced.connection.access_token) {
 			res = await send(forced.connection.access_token)
+		} else if (forced.ok === false) {
+			throw new Error(forced.error)
 		}
 	}
 
