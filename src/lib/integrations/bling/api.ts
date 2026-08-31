@@ -247,7 +247,23 @@ type PerformBlingTokenRefreshOptions = {
 
 function isInvalidGrantRefreshError (error: string) {
   const normalized = String(error || '').toLowerCase()
-  return normalized.includes('invalid_grant')
+  return (
+    normalized.includes('invalid_grant')
+    || normalized.includes('invalid_token')
+    || normalized.includes('invalid token')
+    || normalized.includes('invalid refresh token')
+  )
+}
+
+function isBlingUnauthorizedResponse (status: number, data: unknown) {
+  if (status === 401) return true
+  const msg = (stringifyBlingErrorValue(data) || '').toLowerCase()
+  return (
+    msg.includes('invalid_token')
+    || msg.includes('invalid token')
+    || msg.includes('expired_token')
+    || msg.includes('token expir')
+  )
 }
 
 async function setBlingReconnectRequired (
@@ -447,53 +463,74 @@ export async function forceRefreshBlingToken (
   return performBlingTokenRefresh(connection, options)
 }
 
-export async function createBlingClientFromConnection (rawConnection: HubConnection): Promise<BlingClient> {
-  const connection = await refreshBlingTokenIfNeeded(rawConnection)
-  const token = connection.access_token
-  if (!token) {
+export async function createBlingClientFromConnection (
+  rawConnection: HubConnection,
+  options?: PerformBlingTokenRefreshOptions
+): Promise<BlingClient> {
+  let connection = await refreshBlingTokenIfNeeded(rawConnection, options)
+  const initialToken = connection.access_token
+  if (!initialToken) {
     throw new Error('bling_access_token_missing')
   }
+  let accessToken = initialToken
 
-  async function request<T> (options: BlingRequestOptions): Promise<T> {
-    const method = options.method || 'GET'
-    const url = new URL(`${BLING_API_BASE_URL}${options.path}`)
+  function buildUrl (requestOptions: BlingRequestOptions) {
+    const url = new URL(`${BLING_API_BASE_URL}${requestOptions.path}`)
+    if (!requestOptions.query) return url
 
-    if (options.query) {
-      for (const [key, value] of Object.entries(options.query)) {
-        if (value === undefined || value === null) continue
-        if (Array.isArray(value)) {
-          // Bling: `codigos` costuma ir como CSV; demais arrays repetem a chave.
-          if (key === 'codigos' || key === 'idsProdutos' || key === 'gtins') {
-            const joined = value.map((item) => String(item).trim()).filter(Boolean).join(',')
-            if (joined) url.searchParams.set(key, joined)
-          } else {
-            for (const item of value) {
-              url.searchParams.append(key, String(item))
-            }
+    for (const [key, value] of Object.entries(requestOptions.query)) {
+      if (value === undefined || value === null) continue
+      if (Array.isArray(value)) {
+        // Bling: `codigos` costuma ir como CSV; demais arrays repetem a chave.
+        if (key === 'codigos' || key === 'idsProdutos' || key === 'gtins') {
+          const joined = value.map((item) => String(item).trim()).filter(Boolean).join(',')
+          if (joined) url.searchParams.set(key, joined)
+        } else {
+          for (const item of value) {
+            url.searchParams.append(key, String(item))
           }
-          continue
         }
-        url.searchParams.set(key, String(value))
+        continue
       }
+      url.searchParams.set(key, String(value))
     }
+    return url
+  }
 
-    const res = await fetch(url.toString(), {
+  async function send (token: string, requestOptions: BlingRequestOptions) {
+    const method = requestOptions.method || 'GET'
+    return fetch(buildUrl(requestOptions).toString(), {
       method,
       headers: {
         'Content-Type': 'application/json',
         Accept: '1.0',
         Authorization: `Bearer ${token}`,
       },
-      body: method === 'GET' || method === 'DELETE' ? undefined : JSON.stringify(options.body ?? {}),
+      body: method === 'GET' || method === 'DELETE' ? undefined : JSON.stringify(requestOptions.body ?? {}),
     })
+  }
 
-    const data = await res.json().catch(() => null)
+  async function request<T> (requestOptions: BlingRequestOptions): Promise<T> {
+    let res = await send(accessToken, requestOptions)
+    let data = await res.json().catch(() => null)
+
+    if (isBlingUnauthorizedResponse(res.status, data) && connection.refresh_token) {
+      const forced = await performBlingTokenRefresh(connection, options)
+      if (forced.ok === true && forced.connection.access_token) {
+        connection = forced.connection
+        accessToken = forced.connection.access_token
+        res = await send(accessToken, requestOptions)
+        data = await res.json().catch(() => null)
+      } else if (forced.ok === false) {
+        throw new Error(forced.error)
+      }
+    }
 
     if (!res.ok) {
       const rawMsg = getBlingErrorMessage(data, res.status) || `Erro HTTP ${res.status}`
       const notFoundText = rawMsg.toLowerCase().includes('não encontrad') || rawMsg.toLowerCase().includes('nao encontrad')
       if (res.status === 404 || (res.status === 400 && notFoundText)) {
-        const isProduto = options.path.startsWith('/produtos/')
+        const isProduto = requestOptions.path.startsWith('/produtos/')
         const hint = isProduto
           ? ' Verifique no portal se o campo "ID Bling" é o mesmo do cadastro no Bling (produto ou variação), se o item não foi excluído e se o HUB está conectado à empresa correta.'
           : ''

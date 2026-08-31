@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { toast } from '@/hooks/use-toast'
+import { meliSyncFailureMessage } from '@/lib/integrations/mercado-livre/refresh-token-errors'
 import { cn } from '@/lib/utils'
 import { maskedFromCents } from '@/lib/utils/money'
 
@@ -168,7 +169,7 @@ export function MeliAnunciosClient({
 			if (!res.ok || !data?.ok) {
 				toast({
 					title: 'Falha ao sincronizar',
-					description: String(data?.error || 'Tente novamente.'),
+					description: meliSyncFailureMessage(data),
 					variant: 'destructive',
 				})
 				return

@@ -5,7 +5,9 @@ import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server
 import { getPortalOrganizationId } from '@/lib/organizations/portal-organization-context'
 import { DashboardResumoDiario } from '@/components/dashboard/DashboardResumoDiario'
 import { DashboardFaturamentoCard } from '@/components/dashboard/DashboardFaturamentoCard'
+import { DashboardWeekCharts } from '@/components/dashboard/DashboardWeekCharts'
 import { fetchDashboardDailySummary } from '@/lib/dashboard/daily-summary'
+import { fetchDashboardLast7DaysSeries } from '@/lib/dashboard/last-7-days'
 import { Button } from '@/components/ui/button'
 import { ClipboardPlus, MonitorSmartphone } from 'lucide-react'
 import { DashboardMoneyVisibilityProvider } from '@/components/dashboard/dashboard-money-visibility'
@@ -62,9 +64,12 @@ export default async function DashboardPage () {
 	}
 
 	const now = new Date()
-	const summary = await fetchDashboardDailySummary(supabase, organizationId, {
-		includeFinanceReminders: isAdminOrPlatform,
-	})
+	const [summary, weekSeries] = await Promise.all([
+		fetchDashboardDailySummary(supabase, organizationId, {
+			includeFinanceReminders: isAdminOrPlatform,
+		}),
+		fetchDashboardLast7DaysSeries(supabase, organizationId, now),
+	])
 
 	return (
 		<DashboardMoneyVisibilityProvider>
@@ -118,6 +123,11 @@ export default async function DashboardPage () {
 					yesterdayOsCents={summary.yesterday.osCents}
 					yesterdaySalesNetCents={summary.yesterday.salesNetCents}
 					yesterdayOsNetCents={summary.yesterday.osNetCents}
+				/>
+
+				<DashboardWeekCharts
+					sales={weekSeries.sales}
+					os={weekSeries.os}
 				/>
 			</div>
 		</DashboardMoneyVisibilityProvider>

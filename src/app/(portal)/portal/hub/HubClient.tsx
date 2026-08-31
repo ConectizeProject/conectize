@@ -38,6 +38,7 @@ import {
 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 import { blingRefreshTokenErrorToMessage } from '@/lib/integrations/bling/refresh-token-errors'
+import { meliSyncFailureMessage } from '@/lib/integrations/mercado-livre/refresh-token-errors'
 import { usePortalOrganizationName } from '@/lib/portal/portal-branding-context'
 import { appConfirm } from '@/lib/ui/app-dialogs'
 import { cn } from '@/lib/utils'
@@ -1192,6 +1193,7 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
     setMeliSyncing(true)
     try {
       let blingSummary: string | null = null
+      let blingWarning: string | null = null
 
       if (blingConnections.length > 0) {
         const blingRes = await fetch('/api/portal/bling/sync-catalog', {
@@ -1200,16 +1202,14 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
         })
         const blingData = await blingRes.json().catch(() => null)
         if (!blingRes.ok || !blingData?.ok) {
-          toast({
-            title: 'Falha ao sincronizar catálogo Bling',
-            description: String(blingData?.error || 'Tente novamente.'),
-            variant: 'destructive',
-          })
-          return
+          blingWarning = blingRefreshTokenErrorToMessage(
+            String(blingData?.error || blingData?.message || ''),
+          )
+        } else {
+          const blingCreated = Number(blingData.created || 0)
+          const blingUpdated = Number(blingData.updated || 0)
+          blingSummary = `Bling: ${blingCreated} criado(s) · ${blingUpdated} atualizado(s)`
         }
-        const blingCreated = Number(blingData.created || 0)
-        const blingUpdated = Number(blingData.updated || 0)
-        blingSummary = `Bling: ${blingCreated} criado(s) · ${blingUpdated} atualizado(s)`
       }
 
       const res = await fetch('/api/portal/mercado-livre/sync-listings', {
@@ -1220,7 +1220,7 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
       if (!res.ok || !data?.ok) {
         toast({
           title: 'Falha ao sincronizar anúncios',
-          description: String(data?.error || 'Tente novamente.'),
+          description: meliSyncFailureMessage(data),
           variant: 'destructive',
         })
         return
@@ -1229,6 +1229,14 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
       const linked = Number(data.productsLinked || 0)
       const upserted = Number(data.upserted || 0)
       const meliPart = `ML: ${upserted} anúncio(s) · ${created} produto(s) criado(s) · ${linked} vinculado(s)`
+      if (blingWarning) {
+        toast({
+          variant: 'success',
+          title: 'Anúncios sincronizados',
+          description: `${meliPart}. Catálogo Bling não atualizado: ${blingWarning}`,
+        })
+        return
+      }
       toast({
         variant: 'success',
         title: 'Anúncios sincronizados',
@@ -1257,7 +1265,9 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
       if (!res.ok || !data?.ok) {
         toast({
           title: 'Falha ao sincronizar catálogo',
-          description: String(data?.error || data?.error_message || 'Tente novamente.'),
+          description: blingRefreshTokenErrorToMessage(
+            String(data?.message || data?.error || data?.error_message || 'Tente novamente.'),
+          ),
           variant: 'destructive',
         })
         return
@@ -2372,7 +2382,7 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
                 <p className="text-xs text-muted-foreground">
                   Importa todos os anúncios da conta, vincula ou cria produtos no catálogo e atualiza a vitrine.
                   {blingConnections.length > 0
-                    ? ' Com o Bling conectado, o catálogo Bling é sincronizado antes dos anúncios.'
+                    ? ' Com o Bling conectado, o catálogo Bling é atualizado antes (se falhar, os anúncios do Mercado Livre ainda são sincronizados).'
                     : null}
                 </p>
                 <div className="flex flex-wrap gap-2">
