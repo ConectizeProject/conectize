@@ -19,6 +19,8 @@ const KNOWN_MESSAGES: Record<string, string> = {
   db_update_failed: 'Token renovado no Bling, mas falhou ao salvar no banco. Tente de novo.',
   invalid_grant:
     'O refresh token expirou ou foi revogado (ex.: após ~30 dias ou nova autorização). Desconecte e conecte o Bling de novo no HUB.',
+  invalid_token:
+    'O token de acesso do Bling expirou. Tente de novo; se persistir, desconecte e conecte o Bling de novo no HUB.',
   invalid_client:
     'Client ID ou Client Secret incorretos nas variáveis de ambiente.',
   bling_invalid_grant:
@@ -31,6 +33,7 @@ function looksLikeInvalidGrant (raw: string) {
   const n = raw.toLowerCase()
   return (
     n.includes('invalid_grant')
+    || n.includes('invalid_token')
     || n.includes('token inválido')
     || n.includes('invalid token')
     || (n.includes('refresh token') && n.includes('revogad'))

@@ -221,7 +221,9 @@ async function fetchBlingProductLatest (
   if (!conn) return null
 
   try {
-    const client = await createBlingClientFromConnection(conn as HubConnectionRow)
+    const client = await createBlingClientFromConnection(conn as HubConnectionRow, {
+      supabase,
+    })
     const response = await client.request<{ data?: Record<string, unknown> }>({
       method: 'GET',
       path: blingProdutoApiPath(blingId),
