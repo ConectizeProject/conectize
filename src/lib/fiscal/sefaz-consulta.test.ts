@@ -6,6 +6,7 @@ import {
   classifyConsultaStatus,
   extractAccessKeyFromXml,
   extractNfeXmlFromSoap,
+  fiscalXmlFilename,
   isDuplicateSefazError,
   isUncertainSefazError,
   nfceXmlFilename,
@@ -99,6 +100,7 @@ describe('access key helpers', () => {
     expect(nfceXmlFilename('31260812345678000155650020000000011000000010'))
       .toBe('31260812345678000155650020000000011000000010.xml')
     expect(nfceXmlFilename(null, 1, 12)).toBe('NFCe-1-000000012.xml')
+    expect(fiscalXmlFilename('55', null, 1, 8)).toBe('NFe-1-000000008.xml')
   })
 })
 

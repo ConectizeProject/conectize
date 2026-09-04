@@ -67,6 +67,15 @@ export function parseMeliOrderItemRef(
 export function extractSellerSkuFromMeliItem(
 	item: Record<string, unknown>,
 ): string | null {
+	const attrs = item.attributes
+	if (Array.isArray(attrs)) {
+		for (const attr of attrs) {
+			const row = asRecord(attr)
+			if (trimText(row?.id) !== 'SELLER_SKU') continue
+			const value = trimText(row?.value_name) ?? trimText(row?.value_id)
+			if (value) return value
+		}
+	}
 	return trimText(item.seller_custom_field) ?? trimText(item.seller_sku) ?? null
 }
 
@@ -252,7 +261,8 @@ export async function resolveMeliProductFromItemPayload(params: {
 	organizationId: string
 	createdBy: string | null
 	itemPayload: Record<string, unknown>
-}): Promise<ResolveMeliProductResult> {
+	createIfMissing?: boolean
+}): Promise<ResolveMeliProductResult | null> {
 	const item = params.itemPayload
 	const itemId = trimText(item.id)
 	if (!itemId) throw new Error('meli_item_id_missing')
@@ -287,6 +297,8 @@ export async function resolveMeliProductFromItemPayload(params: {
 		await fillEmptyProductFieldsFromMeli(params.supabase, byItemId.id, item)
 		return { productId: byItemId.id, created: false, linked: true }
 	}
+
+	if (params.createIfMissing === false) return null
 
 	const productId = await createMinimalProductFromMeliItem({
 		supabase: params.supabase,

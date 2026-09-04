@@ -359,7 +359,9 @@ async function meliRequestJson<T>(
 	supabase?: SupabaseClient,
 ): Promise<T> {
 	const supabaseClient = supabase ?? (await createSupabaseServerClient())
-	const current = await refreshMeliTokenIfNeeded(connection, { supabase: supabaseClient })
+	const current = await refreshMeliTokenIfNeeded(connection, {
+		supabase: supabaseClient,
+	})
 	const token = current.access_token
 	if (!token) throw new Error('meli_access_token_missing')
 
@@ -408,6 +410,187 @@ async function meliRequestJson<T>(
 	return data as T
 }
 
+export type MeliUserProductDetails = {
+	family_id: string | null
+	family_name: string | null
+	seller_sku: string | null
+	stock_locations: unknown
+}
+
+export type MeliUserProductFamily = MeliUserProductDetails
+
+function sellerSkuFromMeliPayload(value: unknown): string | null {
+	const row =
+		value && typeof value === 'object' && !Array.isArray(value)
+			? (value as Record<string, unknown>)
+			: null
+	if (!row) return null
+	const attrs = row.attributes
+	if (Array.isArray(attrs)) {
+		for (const attr of attrs) {
+			const entry =
+				attr && typeof attr === 'object' && !Array.isArray(attr)
+					? (attr as Record<string, unknown>)
+					: null
+			if (!entry) continue
+			if (trimMeliText(entry.id) !== 'SELLER_SKU') continue
+			const sku = trimMeliText(entry.value_name) ?? trimMeliText(entry.value_id)
+			if (sku) return sku
+		}
+	}
+	return (
+		trimMeliText(row.seller_custom_field) ??
+		trimMeliText(row.seller_sku) ??
+		null
+	)
+}
+
+function trimMeliText(value: unknown): string | null {
+	if (value == null) return null
+	const s = String(value).trim()
+	return s || null
+}
+
+function normalizeMeliFamilyIdValue(value: unknown): string | null {
+	const raw = trimMeliText(value)
+	if (!raw) return null
+	if (/^\d+\.0+$/.test(raw)) return String(Math.trunc(Number(raw)))
+	return raw
+}
+
+export async function getMeliUserProductDetails(
+	connection: HubConnection,
+	userProductId: string,
+	supabase?: SupabaseClient,
+): Promise<MeliUserProductDetails | null> {
+	const id = String(userProductId || '').trim()
+	if (!id) return null
+	try {
+		const data = await meliRequestJson<Record<string, unknown>>(
+			connection,
+			{ path: `/user-products/${encodeURIComponent(id)}` },
+			supabase,
+		)
+		return {
+			family_id: normalizeMeliFamilyIdValue(data.family_id),
+			family_name: trimMeliText(data.family_name) ?? trimMeliText(data.name),
+			seller_sku: sellerSkuFromMeliPayload(data),
+			stock_locations: null,
+		}
+	} catch {
+		return null
+	}
+}
+
+export async function getMeliUserProductStock(
+	connection: HubConnection,
+	userProductId: string,
+	supabase?: SupabaseClient,
+): Promise<unknown> {
+	const id = String(userProductId || '').trim()
+	if (!id) return null
+	try {
+		const data = await meliRequestJson<Record<string, unknown>>(
+			connection,
+			{ path: `/user-products/${encodeURIComponent(id)}/stock` },
+			supabase,
+		)
+		return data.locations ?? null
+	} catch {
+		return null
+	}
+}
+
+export async function loadMeliUserProductStockById(
+	connection: HubConnection,
+	userProductIds: string[],
+	supabase?: SupabaseClient,
+): Promise<Map<string, unknown>> {
+	const unique = Array.from(
+		new Set(userProductIds.map((id) => String(id).trim()).filter(Boolean)),
+	)
+	const out = new Map<string, unknown>()
+	const concurrency = 8
+	let cursor = 0
+
+	async function worker() {
+		for (;;) {
+			const index = cursor
+			cursor += 1
+			if (index >= unique.length) return
+			const userProductId = unique[index]
+			const locations = await getMeliUserProductStock(
+				connection,
+				userProductId,
+				supabase,
+			)
+			if (locations != null) out.set(userProductId, locations)
+		}
+	}
+
+	await Promise.all(
+		Array.from({ length: Math.min(concurrency, unique.length) }, () =>
+			worker(),
+		),
+	)
+	return out
+}
+
+export async function getMeliUserProductFamily(
+	connection: HubConnection,
+	userProductId: string,
+	supabase?: SupabaseClient,
+): Promise<MeliUserProductFamily | null> {
+	return getMeliUserProductDetails(connection, userProductId, supabase)
+}
+
+export async function loadMeliUserProductDetailsById(
+	connection: HubConnection,
+	userProductIds: string[],
+	supabase?: SupabaseClient,
+): Promise<Map<string, MeliUserProductDetails>> {
+	const unique = Array.from(
+		new Set(userProductIds.map((id) => String(id).trim()).filter(Boolean)),
+	)
+	const out = new Map<string, MeliUserProductDetails>()
+	const concurrency = 8
+	let cursor = 0
+
+	async function worker() {
+		for (;;) {
+			const index = cursor
+			cursor += 1
+			if (index >= unique.length) return
+			const userProductId = unique[index]
+			const [details, stockLocations] = await Promise.all([
+				getMeliUserProductDetails(connection, userProductId, supabase),
+				getMeliUserProductStock(connection, userProductId, supabase),
+			])
+			if (details) {
+				out.set(userProductId, {
+					...details,
+					stock_locations: stockLocations,
+				})
+			}
+		}
+	}
+
+	await Promise.all(
+		Array.from({ length: Math.min(concurrency, unique.length) }, () =>
+			worker(),
+		),
+	)
+	return out
+}
+
+export async function loadMeliFamiliesByUserProductId(
+	connection: HubConnection,
+	userProductIds: string[],
+	supabase?: SupabaseClient,
+): Promise<Map<string, MeliUserProductFamily>> {
+	return loadMeliUserProductDetailsById(connection, userProductIds, supabase)
+}
+
 export async function getMeliUserMe(
 	accessToken: string,
 ): Promise<MeliUserMe | null> {
@@ -441,15 +624,131 @@ export async function getMeliItem(
 	connection: HubConnection,
 	itemId: string,
 	supabase?: SupabaseClient,
+	options?: { includeAttributes?: boolean },
 ): Promise<Record<string, unknown>> {
 	const id = encodeURIComponent(String(itemId).trim())
 	return meliRequestJson<Record<string, unknown>>(
 		connection,
 		{
 			path: `/items/${id}`,
+			...(options?.includeAttributes
+				? { query: { include_attributes: 'all' } }
+				: {}),
 		},
 		supabase,
 	)
+}
+
+export async function getMeliItemPrices(
+	connection: HubConnection,
+	itemId: string,
+	supabase?: SupabaseClient,
+): Promise<Record<string, unknown> | null> {
+	const id = encodeURIComponent(String(itemId).trim())
+	if (!id) return null
+	try {
+		return await meliRequestJson<Record<string, unknown>>(
+			connection,
+			{ path: `/items/${id}/prices` },
+			supabase,
+		)
+	} catch {
+		return null
+	}
+}
+
+export async function getMeliItemDescription(
+	connection: HubConnection,
+	itemId: string,
+	supabase?: SupabaseClient,
+): Promise<Record<string, unknown> | null> {
+	const id = encodeURIComponent(String(itemId).trim())
+	if (!id) return null
+	try {
+		return await meliRequestJson<Record<string, unknown>>(
+			connection,
+			{ path: `/items/${id}/description` },
+			supabase,
+		)
+	} catch {
+		return null
+	}
+}
+
+export type MeliItemMetadataExtras = {
+	pricesPayload: Record<string, unknown> | null
+	descriptionPayload: Record<string, unknown> | null
+}
+
+export async function loadMeliItemMetadataById(
+	connection: HubConnection,
+	itemIds: string[],
+	supabase?: SupabaseClient,
+): Promise<Map<string, MeliItemMetadataExtras>> {
+	const unique = Array.from(
+		new Set(itemIds.map((id) => String(id).trim()).filter(Boolean)),
+	)
+	const out = new Map<string, MeliItemMetadataExtras>()
+	const concurrency = 6
+	let cursor = 0
+
+	async function worker() {
+		for (;;) {
+			const index = cursor
+			cursor += 1
+			if (index >= unique.length) return
+			const itemId = unique[index]
+			const [pricesPayload, descriptionPayload] = await Promise.all([
+				getMeliItemPrices(connection, itemId, supabase),
+				getMeliItemDescription(connection, itemId, supabase),
+			])
+			out.set(itemId, { pricesPayload, descriptionPayload })
+		}
+	}
+
+	await Promise.all(
+		Array.from({ length: Math.min(concurrency, unique.length) }, () =>
+			worker(),
+		),
+	)
+	return out
+}
+
+export async function loadMeliItemsWithAttributes(
+	connection: HubConnection,
+	itemIds: string[],
+	supabase?: SupabaseClient,
+): Promise<Map<string, Record<string, unknown>>> {
+	const unique = Array.from(
+		new Set(itemIds.map((id) => String(id).trim()).filter(Boolean)),
+	)
+	const out = new Map<string, Record<string, unknown>>()
+	const concurrency = 8
+	let cursor = 0
+
+	async function worker() {
+		for (;;) {
+			const index = cursor
+			cursor += 1
+			if (index >= unique.length) return
+			const itemId = unique[index]
+			try {
+				const item = await getMeliItem(connection, itemId, supabase, {
+					includeAttributes: true,
+				})
+				out.set(itemId, item)
+			} catch {
+				// ignora falha pontual de enriquecimento
+			}
+		}
+	}
+
+	await Promise.all(
+		Array.from({ length: Math.min(concurrency, unique.length) }, () =>
+			worker(),
+		),
+	)
+	return out
 }
 
 type MeliItemsSearchResponse = {

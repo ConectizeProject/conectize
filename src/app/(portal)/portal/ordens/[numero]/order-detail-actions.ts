@@ -1,15 +1,20 @@
 'use server'
 
+import { revalidatePath } from 'next/cache'
+import { redirect } from 'next/navigation'
 import { normalizePortalRole } from '@/lib/auth/portal-api'
+import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
+import { syncServiceOrderFinancialTransactions } from '@/lib/finance/service-order-financial-sync'
 import { applyOrderStatusChange } from '@/lib/orders/apply-order-status-change'
-import {
-	buildOrderEditDiff,
-	enrichWarrantyTemplateHistoryValues,
-} from '@/lib/orders/order-edit-history'
+import { getOrdemPortalPath } from '@/lib/orders/ordem-portal-path'
 import {
 	parseOrderDiscountCommissionFromFormData,
 	toOrderDiscountCommissionDbPayload,
 } from '@/lib/orders/order-discount-commission'
+import {
+	buildOrderEditDiff,
+	enrichWarrantyTemplateHistoryValues,
+} from '@/lib/orders/order-edit-history'
 import {
 	parsePaymentMethodsJson,
 	parseServicesJson,
@@ -19,18 +24,19 @@ import {
 	isValidOrderStatus,
 } from '@/lib/orders/order-status'
 import { applyOrderStatusStockTransition } from '@/lib/orders/stock-by-status'
-import { syncServiceOrderFinancialTransactions } from '@/lib/finance/service-order-financial-sync'
 import {
 	createSupabaseServerClient,
 	getPortalAuth,
 } from '@/lib/supabase/server'
-import { getOrdemPortalPath } from '@/lib/orders/ordem-portal-path'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 import { previsaoToISO } from '@/lib/utils/previsao-ordem'
-import { redirect } from 'next/navigation'
-import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 
-export async function updateOrderAction (formData: FormData) {
+export type UpdateOrderSaveResult = { ok: true } | null
+
+export async function updateOrderAction(
+	_prevState: UpdateOrderSaveResult | null,
+	formData: FormData,
+): Promise<UpdateOrderSaveResult> {
 	const formOrderId = String(formData.get('orderId') || '').trim()
 	const title = String(formData.get('title') || '').trim()
 	const status = String(formData.get('status') || '').trim()
@@ -43,14 +49,13 @@ export async function updateOrderAction (formData: FormData) {
 	).trim()
 	const passcodeType = String(formData.get('passcodeType') || '').trim()
 	const passcodeText = String(formData.get('passcodeText') || '').trim()
-	const passcodePattern = String(
-		formData.get('passcodePattern') || '',
-	).trim()
+	const passcodePattern = String(formData.get('passcodePattern') || '').trim()
 	const paymentMethodsJson = formData.get('paymentMethodsJson')
 	const paymentMethods = parsePaymentMethodsJson(paymentMethodsJson)
 	const servicesJson = formData.get('servicesJson')
 	const services = parseServicesJson(servicesJson)
-	const discountCommissionForm = parseOrderDiscountCommissionFromFormData(formData)
+	const discountCommissionForm =
+		parseOrderDiscountCommissionFromFormData(formData)
 	let discountCommission = toOrderDiscountCommissionDbPayload(
 		discountCommissionForm,
 		services.totalValueCents,
@@ -61,22 +66,16 @@ export async function updateOrderAction (formData: FormData) {
 	const receivingNotes = String(formData.get('receivingNotes') || '').trim()
 	const deviceEntryChecksRaw = formData.get('deviceEntryChecksJson')
 	const deviceEntryChecksJson =
-		typeof deviceEntryChecksRaw === 'string'
-			? deviceEntryChecksRaw.trim()
-			: ''
+		typeof deviceEntryChecksRaw === 'string' ? deviceEntryChecksRaw.trim() : ''
 	const deviceExitChecksRaw = formData.get('deviceExitChecksJson')
 	const deviceExitChecksJson =
-		typeof deviceExitChecksRaw === 'string'
-			? deviceExitChecksRaw.trim()
-			: ''
+		typeof deviceExitChecksRaw === 'string' ? deviceExitChecksRaw.trim() : ''
 	const deviceModelId = parseOptionalUuid(formData.get('deviceModelId'))
 	const warrantyTemplateId = parseOptionalUuid(
 		formData.get('warrantyTemplateId'),
 	)
 	const warrantyTextRaw = String(formData.get('warrantyText') || '').trim()
-	const formSellerUserId = String(
-		formData.get('seller_user_id') || '',
-	).trim()
+	const formSellerUserId = String(formData.get('seller_user_id') || '').trim()
 
 	let deviceEntryChecks: unknown = null
 	if (deviceEntryChecksJson) {
@@ -140,7 +139,9 @@ export async function updateOrderAction (formData: FormData) {
 
 	const ordemPath = getOrdemPortalPath({
 		id: formOrderId,
-		display_number: (existing as { display_number?: number | null } | null)?.display_number ?? null,
+		display_number:
+			(existing as { display_number?: number | null } | null)?.display_number ??
+			null,
 	})
 
 	if (!title) {
@@ -329,9 +330,7 @@ export async function updateOrderAction (formData: FormData) {
 		const previousStatus = String(existing?.status || '').trim()
 		const nextStatus = status
 		const servicesForStock =
-			nextStatus === 'cancelada'
-				? (existing?.services ?? [])
-				: services.items
+			nextStatus === 'cancelada' ? (existing?.services ?? []) : services.items
 		await applyOrderStatusStockTransition({
 			supabase,
 			orderId: formOrderId,
@@ -354,7 +353,8 @@ export async function updateOrderAction (formData: FormData) {
 				organization_id: String(existing.organization_id),
 				display_number: existing.display_number ?? null,
 				payment_methods: paymentMethods,
-				closed_at: String(updatePayload.closed_at || existing.closed_at || '') || null,
+				closed_at:
+					String(updatePayload.closed_at || existing.closed_at || '') || null,
 				updated_at: new Date().toISOString(),
 			},
 		})
@@ -363,7 +363,8 @@ export async function updateOrderAction (formData: FormData) {
 		redirect(`${ordemPath}?error=nao_foi_possivel_registrar_financeiro`)
 	}
 
-	redirect(`${ordemPath}?ok=1`)
+	revalidatePath(ordemPath)
+	return { ok: true }
 }
 
 export type UpdateOrderStatusActionResult =
@@ -386,7 +387,7 @@ export type UpdateOrderStatusActionResult =
  * Alteração rápida de status (menu da OS, lista de ordens).
  * Mesma regra de negócio que `PATCH /api/portal/ordens/[id]` — ver `applyOrderStatusChange`.
  */
-export async function updateOrderStatusAction (
+export async function updateOrderStatusAction(
 	formData: FormData,
 ): Promise<UpdateOrderStatusActionResult> {
 	const orderId = parseOptionalUuid(String(formData.get('orderId') || ''))
@@ -450,7 +451,7 @@ export async function updateOrderStatusAction (
 	return { ok: false, error: 'db_error' }
 }
 
-export async function deleteOrderAction (formData: FormData) {
+export async function deleteOrderAction(formData: FormData) {
 	const orderId = String(formData.get('orderId') || '').trim()
 	if (!orderId) redirect('/portal/ordens?error=dados_invalidos')
 
