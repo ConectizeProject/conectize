@@ -97,7 +97,7 @@ export async function buildAccountingXmlZip(
 	let nfeCount = 0
 
 	for (const row of rows) {
-		if (!canDownloadFiscalXml(row.status)) continue
+		if (!canDownloadFiscalXml(row.status == null ? null : String(row.status))) continue
 		const model = asModel(row.model)
 		const series = Number(row.series) || 0
 		const number = Number(row.number) || 0
