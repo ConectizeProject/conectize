@@ -3,10 +3,22 @@ import {
 	getMeliConnectionByOrganizationId,
 	getMeliItemsMultiget,
 	type HubConnection,
+	loadMeliItemMetadataById,
+	loadMeliItemsWithAttributes,
+	loadMeliUserProductDetailsById,
+	type MeliUserProductDetails,
 	searchSellerItemIds,
 } from '@/lib/integrations/mercado-livre/api'
 import { mapMeliItemToListingRow } from '@/lib/integrations/mercado-livre/listing-mapper'
-import { resolveMeliProductFromItemPayload } from '@/lib/integrations/mercado-livre/product-resolve'
+import {
+	familyIdFromMeliItem,
+	familyNameFromMeliItem,
+	userProductIdFromMeliItem,
+} from '@/lib/integrations/mercado-livre/listing-variations'
+import {
+	extractSellerSkuFromMeliItem,
+	resolveMeliProductFromItemPayload,
+} from '@/lib/integrations/mercado-livre/product-resolve'
 import { normalizeMeliUserId } from '@/lib/integrations/mercado-livre/webhooks'
 
 export type MeliListingSyncSummary = {
@@ -17,6 +29,39 @@ export type MeliListingSyncSummary = {
 	skipped: number
 	errors: string[]
 	truncated: boolean
+}
+
+function trimText(value: unknown): string | null {
+	if (value == null) return null
+	const s = String(value).trim()
+	return s || null
+}
+
+function mergeMeliItemSku(
+	item: Record<string, unknown>,
+	sellerSku: string | null,
+): Record<string, unknown> {
+	if (!sellerSku || extractSellerSkuFromMeliItem(item)) return item
+	return { ...item, seller_sku: sellerSku }
+}
+
+function enrichItemWithUserProductDetails(
+	item: Record<string, unknown>,
+	details: MeliUserProductDetails | undefined,
+): Record<string, unknown> {
+	if (!details) return item
+	let next = item
+	if (
+		details.family_id &&
+		(!familyIdFromMeliItem(item) || !familyNameFromMeliItem(item))
+	) {
+		next = {
+			...next,
+			family_id: familyIdFromMeliItem(item) ?? details.family_id,
+			family_name: familyNameFromMeliItem(item) ?? details.family_name,
+		}
+	}
+	return mergeMeliItemSku(next, details.seller_sku)
 }
 
 async function resolveActorUserId(
@@ -55,7 +100,7 @@ function userIdFromConnection(connection: HubConnection): string | null {
 
 /**
  * Busca todos os anúncios do seller na API ML, upsert em `meli_listings`
- * e vincula/cria produtos locais.
+ * (sempre com SKU quando disponível) e vincula/cria produtos locais quando possível.
  */
 export async function syncMeliListingsForOrganization(params: {
 	supabase: SupabaseClient
@@ -97,26 +142,75 @@ export async function syncMeliListingsForOrganization(params: {
 	if (itemIds.length === 0) return summary
 
 	const items = await getMeliItemsMultiget(connection, itemIds, params.supabase)
+	const userProductIds = items
+		.map((item) => userProductIdFromMeliItem(item))
+		.filter((id): id is string => Boolean(id))
+	const userProductsById = await loadMeliUserProductDetailsById(
+		connection,
+		userProductIds,
+		params.supabase,
+	)
+
+	const missingSkuItemIds = items
+		.filter((item) => !extractSellerSkuFromMeliItem(item))
+		.map((item) => trimText(item.id))
+		.filter((id): id is string => Boolean(id))
+	const itemsWithAttributes = await loadMeliItemsWithAttributes(
+		connection,
+		missingSkuItemIds,
+		params.supabase,
+	)
+	const itemMetadataById = await loadMeliItemMetadataById(
+		connection,
+		itemIds,
+		params.supabase,
+	)
 
 	const syncedAt = new Date().toISOString()
 
 	for (const item of items) {
+		const mlItemId = trimText(item.id) ?? '?'
 		try {
-			const resolved = await resolveMeliProductFromItemPayload({
-				supabase: params.supabase,
-				organizationId: params.organizationId,
-				createdBy: actorUserId,
-				itemPayload: item,
-			})
+			const userProductId = userProductIdFromMeliItem(item)
+			const userProduct = userProductId
+				? userProductsById.get(userProductId)
+				: undefined
+			const detailedItem = mlItemId
+				? itemsWithAttributes.get(mlItemId)
+				: undefined
+			const itemEnriched = enrichItemWithUserProductDetails(
+				detailedItem ? { ...item, ...detailedItem } : item,
+				userProduct,
+			)
 
-			if (resolved.created) summary.productsCreated += 1
-			else if (resolved.linked) summary.productsLinked += 1
+			let productId: string | null = null
+			try {
+				const resolved = await resolveMeliProductFromItemPayload({
+					supabase: params.supabase,
+					organizationId: params.organizationId,
+					createdBy: actorUserId,
+					itemPayload: itemEnriched,
+				})
+				if (resolved?.created) summary.productsCreated += 1
+				else if (resolved?.linked) summary.productsLinked += 1
+				productId = resolved?.productId ?? null
+			} catch (linkErr) {
+				const message =
+					linkErr instanceof Error ? linkErr.message : 'product_link_failed'
+				summary.errors.push(`${mlItemId}: link: ${message}`)
+			}
 
+			const metadataExtras = mlItemId
+				? itemMetadataById.get(mlItemId)
+				: undefined
 			const row = mapMeliItemToListingRow({
 				organizationId: params.organizationId,
-				item,
-				productId: resolved.productId,
+				item: itemEnriched,
+				productId,
 				syncedAt,
+				stockLocations: userProduct?.stock_locations,
+				pricesPayload: metadataExtras?.pricesPayload,
+				descriptionPayload: metadataExtras?.descriptionPayload,
 			})
 			if (!row) {
 				summary.skipped += 1
@@ -136,11 +230,7 @@ export async function syncMeliListingsForOrganization(params: {
 			summary.upserted += 1
 		} catch (err) {
 			const message = err instanceof Error ? err.message : 'unknown_error'
-			const id =
-				item && typeof item === 'object' && 'id' in item
-					? String((item as { id: unknown }).id)
-					: '?'
-			summary.errors.push(`${id}: ${message}`)
+			summary.errors.push(`${mlItemId}: ${message}`)
 		}
 	}
 

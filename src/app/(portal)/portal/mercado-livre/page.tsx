@@ -53,6 +53,7 @@ export default async function MercadoLivreAnunciosPage({
 				</h1>
 				<p className="text-sm text-muted-foreground">
 					Vitrine dos anúncios sincronizados da conta conectada no HUB.
+					Variações do mesmo anúncio aparecem agrupadas.
 				</p>
 			</div>
 

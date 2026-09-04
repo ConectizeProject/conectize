@@ -21,9 +21,7 @@ import { isFinalizedOrderStatus } from '@/lib/orders/order-status'
 import { fetchDeviceModelsForSelector } from '@/lib/portal/device-models-server'
 import { PORTAL_NARROW_FORM_CONTAINER } from '@/lib/portal/portal-layout'
 import { formatDateTimeBr } from '@/lib/utils/format-date'
-import {
-	getMinPrevisaoForEdit,
-} from '@/lib/utils/previsao-ordem'
+import { getMinPrevisaoForEdit } from '@/lib/utils/previsao-ordem'
 import {
 	OrderFormActionBar,
 	orderFormActionBarFlowSpacerClassName,
@@ -36,13 +34,14 @@ import { OrderAssistInfoSection } from './OrderAssistInfoSection'
 import { type OrderCustomer, OrderCustomerCard } from './OrderCustomerCard'
 import { OrderDeviceEntryChecksEditor } from './OrderDeviceEntryChecksEditor'
 import { OrderDeviceInfoSection } from './OrderDeviceInfoSection'
+import { OrderEditForm } from './OrderEditForm'
 import { OrderEntryPhotos } from './OrderEntryPhotos'
 import { OrderInternalCommentsChat } from './OrderInternalCommentsChat'
+import { deleteOrderAction } from './order-detail-actions'
 import {
-	deleteOrderAction,
-	updateOrderAction,
-} from './order-detail-actions'
-import { formatDateTimeLocal, parseOrderPaymentMethods } from './order-detail-helpers'
+	formatDateTimeLocal,
+	parseOrderPaymentMethods,
+} from './order-detail-helpers'
 import type { ServiceOrderDetail } from './service-order-detail-types'
 import { UpdateOrderSubmitButton } from './UpdateOrderSubmitButton'
 
@@ -83,7 +82,7 @@ type Props = {
 	readOnly?: boolean
 }
 
-export function OrdemDetalhePageContent (props: Props) {
+export function OrdemDetalhePageContent(props: Props) {
 	const {
 		order,
 		customer,
@@ -128,7 +127,8 @@ export function OrdemDetalhePageContent (props: Props) {
 
 				<div className="flex items-start justify-between gap-4 flex-wrap">
 					<h1 className="text-2xl font-bold">
-						{isPortalReadOnly ? 'Ordem' : 'Editar Ordem'} #{order.display_number ?? order.id}
+						{isPortalReadOnly ? 'Ordem' : 'Editar Ordem'} #
+						{order.display_number ?? order.id}
 					</h1>
 
 					<div className="flex items-center gap-2 flex-wrap justify-end">
@@ -166,7 +166,11 @@ export function OrdemDetalhePageContent (props: Props) {
 							</>
 						) : order.share_token ? (
 							<Button variant="outline" size="sm" asChild>
-								<Link href={`/os/${order.share_token}`} target="_blank" rel="noreferrer">
+								<Link
+									href={`/os/${order.share_token}`}
+									target="_blank"
+									rel="noreferrer"
+								>
 									Ver página pública
 								</Link>
 							</Button>
@@ -206,11 +210,10 @@ export function OrdemDetalhePageContent (props: Props) {
 			<OrderServicesTotalProvider
 				initialTotal={order.services_total_cents ?? 0}
 			>
-				<form
+				<OrderEditForm
 					id="order-edit-form"
-					action={updateOrderAction}
+					formKey={`${order.id}-${order.updated_at ?? order.status}`}
 					className="space-y-6"
-					key={`${order.id}-${order.updated_at ?? order.status}`}
 				>
 					<input type="hidden" name="orderId" value={order.id} />
 					<input type="hidden" name="status" value={order.status} />
@@ -230,7 +233,9 @@ export function OrdemDetalhePageContent (props: Props) {
 						sellerOptions={sellerOptions}
 						isAdmin={isAdmin}
 						previsaoMin={getMinPrevisaoForEdit(order.created_at)}
-						estimatedReadyAtDefault={formatDateTimeLocal(order.estimated_ready_at)}
+						estimatedReadyAtDefault={formatDateTimeLocal(
+							order.estimated_ready_at,
+						)}
 						previsaoDisplay={
 							order.estimated_ready_at
 								? formatDateTimeBr(order.estimated_ready_at)
@@ -268,7 +273,8 @@ export function OrdemDetalhePageContent (props: Props) {
 							<CardHeader className="p-5">
 								<CardTitle>Informações sobre a assistência</CardTitle>
 								<CardDescription>
-									Comentários e fotos visíveis para o cliente no link público da OS.
+									Comentários e fotos visíveis para o cliente no link público da
+									OS.
 								</CardDescription>
 							</CardHeader>
 							<CardContent className="space-y-6 p-5 pt-0">
@@ -276,7 +282,9 @@ export function OrdemDetalhePageContent (props: Props) {
 									orderId={order.id}
 									assistanceAiContext={{
 										device: deviceString || undefined,
-										customerDescription: String(order.customer_description || ''),
+										customerDescription: String(
+											order.customer_description || '',
+										),
 										receivingNotes: String(order.receiving_notes || ''),
 									}}
 								/>
@@ -295,9 +303,8 @@ export function OrdemDetalhePageContent (props: Props) {
 						<CardHeader className="p-5">
 							<CardTitle>Considerações da assistência</CardTitle>
 							<CardDescription>
-								Checklist e fotos na saída do aparelho. Registro
-								independente da entrada, para comparar antes e
-								depois.
+								Checklist e fotos na saída do aparelho. Registro independente da
+								entrada, para comparar antes e depois.
 							</CardDescription>
 						</CardHeader>
 						<CardContent className="space-y-6 p-5 pt-0">
@@ -374,10 +381,16 @@ export function OrdemDetalhePageContent (props: Props) {
 							className="font-medium text-muted-foreground hover:text-foreground"
 						>
 							<Link
-								href={isPortalReadOnly ? '/portal/minhas-ordens' : '/portal/ordens'}
+								href={
+									isPortalReadOnly ? '/portal/minhas-ordens' : '/portal/ordens'
+								}
 								transitionTypes={['nav-back']}
 							>
-								{isPortalReadOnly ? 'Voltar às ordens' : isFinalized ? 'Voltar à lista' : 'Voltar'}
+								{isPortalReadOnly
+									? 'Voltar às ordens'
+									: isFinalized
+										? 'Voltar à lista'
+										: 'Voltar'}
 							</Link>
 						</Button>
 						{!isPortalReadOnly ? (
@@ -386,7 +399,10 @@ export function OrdemDetalhePageContent (props: Props) {
 								asChild
 								className="font-medium border-sky-600/70 text-sky-800 bg-sky-50/60 hover:bg-sky-100/90 hover:text-sky-900 dark:border-sky-500 dark:text-sky-200 dark:bg-sky-950/50 dark:hover:bg-sky-900/60"
 							>
-								<Link href="/portal/ordens/nova" transitionTypes={['nav-forward']}>
+								<Link
+									href="/portal/ordens/nova"
+									transitionTypes={['nav-forward']}
+								>
 									<Plus className="mr-2 h-4 w-4" aria-hidden />
 									Nova OS
 								</Link>
@@ -394,7 +410,7 @@ export function OrdemDetalhePageContent (props: Props) {
 						) : null}
 						{!formDisabled && <UpdateOrderSubmitButton />}
 					</OrderFormActionBar>
-				</form>
+				</OrderEditForm>
 			</OrderServicesTotalProvider>
 		</div>
 	)
