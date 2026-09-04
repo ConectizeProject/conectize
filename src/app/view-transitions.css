@@ -132,19 +132,12 @@
 	object-position: left top;
 }
 
-/* Persistent portal chrome */
-::view-transition-group(portal-top-nav) {
-	animation: none;
-	z-index: 100;
-}
-
-/* Top nav — keep visible during transitions (avoid display:none flash) */
-::view-transition-old(portal-top-nav) {
-	animation: none;
-}
-
-::view-transition-new(portal-top-nav) {
-	animation: none;
+/*
+ * Grupos de transição da página ficam abaixo do chrome do portal.
+ * Evita o snapshot da OS cobrir/esconder o menu no Safari/iOS.
+ */
+::view-transition-group(*) {
+	z-index: 1;
 }
 
 @media (prefers-reduced-motion: reduce) {
