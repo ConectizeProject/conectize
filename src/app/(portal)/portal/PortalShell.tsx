@@ -1,28 +1,5 @@
-"use client";
+'use client'
 
-import { RadixAfterHydration } from "@/components/radix-after-hydration";
-import { PortalNotificationsMenu } from "@/components/portal/PortalNotificationsMenu";
-import { PortalTopNav } from "@/components/portal/PortalTopNav";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuSeparator,
-	DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { OrdemPrintPreviewHost } from "@/app/(portal)/portal/ordens/OrdemPrintPreview";
-import { SalesOrderCupomPrintHost } from "@/app/(portal)/portal/vendas/SalesOrderCupomPrint";
-import {
-	PORTAL_FULL_WIDTH_CONTAINER,
-	PORTAL_LAYOUT_CONTAINER,
-	isPortalFillViewportPath,
-	isPortalFullWidthPath,
-} from "@/lib/portal/portal-layout";
-import { buildPortalNavConfig } from "@/lib/portal/portal-nav-config";
-import { PortalBrandingProvider } from "@/lib/portal/portal-branding-context";
-import type { SupabasePlatformStatusBanner } from "@/lib/supabase/platform-status";
-import { cn } from "@/lib/utils";
 import {
 	Bell,
 	Building2,
@@ -31,89 +8,109 @@ import {
 	Moon,
 	Settings,
 	Sun,
-} from "lucide-react";
-import { useTheme } from "next-themes";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useLayoutEffect } from "react";
-import { PlatformOrgSwitcher } from "./PlatformOrgSwitcher";
-import { PortalRoleSwitcher } from "./PortalRoleSwitcher";
+} from 'lucide-react'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+import { useTheme } from 'next-themes'
+import { useLayoutEffect } from 'react'
+import { OrdemPrintPreviewHost } from '@/app/(portal)/portal/ordens/OrdemPrintPreview'
+import { SalesOrderCupomPrintHost } from '@/app/(portal)/portal/vendas/SalesOrderCupomPrint'
+import { PortalNotificationsMenu } from '@/components/portal/PortalNotificationsMenu'
+import { PortalTopNav } from '@/components/portal/PortalTopNav'
+import { RadixAfterHydration } from '@/components/radix-after-hydration'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { PortalBrandingProvider } from '@/lib/portal/portal-branding-context'
+import {
+	isPortalFillViewportPath,
+	isPortalFullWidthPath,
+	PORTAL_FULL_WIDTH_CONTAINER,
+	PORTAL_LAYOUT_CONTAINER,
+} from '@/lib/portal/portal-layout'
+import { buildPortalNavConfig } from '@/lib/portal/portal-nav-config'
+import type { SupabasePlatformStatusBanner } from '@/lib/supabase/platform-status'
+import { cn } from '@/lib/utils'
+import { PlatformOrgSwitcher } from './PlatformOrgSwitcher'
+import { PortalRoleSwitcher } from './PortalRoleSwitcher'
 
 export type PlatformOrganizationOption = {
-	id: string;
-	slug: string;
-	name: string | null;
-	is_host: boolean;
-};
+	id: string
+	slug: string
+	name: string | null
+	is_host: boolean
+}
 
 type PortalShellProps = {
-	children: React.ReactNode;
-	role: string;
-	realRole?: string;
-	simulatedRole?: string | null;
-	userEmail: string;
-	userName: string;
+	children: React.ReactNode
+	role: string
+	realRole?: string
+	simulatedRole?: string | null
+	userEmail: string
+	userName: string
 	/** Nome da organização ativa (`organizations.name`). */
-	organizationName?: string | null;
+	organizationName?: string | null
 	/** Exibe menu WhatsApp apenas quando a integração existir na empresa ativa. */
-	hasWhatsappIntegration?: boolean;
-	supabasePlatformStatus?: SupabasePlatformStatusBanner | null;
-	platformOrganizations?: PlatformOrganizationOption[] | null;
-	activeOrganizationId?: string | null;
-};
+	hasWhatsappIntegration?: boolean
+	supabasePlatformStatus?: SupabasePlatformStatusBanner | null
+	platformOrganizations?: PlatformOrganizationOption[] | null
+	activeOrganizationId?: string | null
+}
 
 function getInitials(nameOrEmail: string) {
-	const cleaned = String(nameOrEmail || "").trim();
-	if (!cleaned) return "U";
+	const cleaned = String(nameOrEmail || '').trim()
+	if (!cleaned) return 'U'
 
-	const parts = cleaned.split(/\s+/).filter(Boolean);
-	if (parts.length === 0) return "U";
-	if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-	return `${parts[0][0] || ""}${parts[parts.length - 1][0] || ""}`.toUpperCase();
+	const parts = cleaned.split(/\s+/).filter(Boolean)
+	if (parts.length === 0) return 'U'
+	if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+	return `${parts[0][0] || ''}${parts[parts.length - 1][0] || ''}`.toUpperCase()
 }
 
 export function PortalShell(props: PortalShellProps) {
-	const pathname = usePathname();
-	const { setTheme, resolvedTheme } = useTheme();
+	const pathname = usePathname()
+	const { setTheme, resolvedTheme } = useTheme()
 
 	function toggleTheme() {
-		setTheme(resolvedTheme === "dark" ? "light" : "dark");
+		setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')
 	}
 
 	const isPlatformMaster =
-		props.realRole === "platform_admin" || props.role === "platform_admin";
-	const isAdmin = props.role === "admin" || props.role === "platform_admin";
-	const displayName = props.userName || props.userEmail;
-	const orgLabel = String(props.organizationName || "").trim();
-	const logoAlt = orgLabel || "Portal";
-	const isFullWidth = isPortalFullWidthPath(pathname);
-	const isFillViewport = isPortalFillViewportPath(pathname);
+		props.realRole === 'platform_admin' || props.role === 'platform_admin'
+	const isAdmin = props.role === 'admin' || props.role === 'platform_admin'
+	const displayName = props.userName || props.userEmail
+	const orgLabel = String(props.organizationName || '').trim()
+	const logoAlt = orgLabel || 'Portal'
+	const isFullWidth = isPortalFullWidthPath(pathname)
+	const isFillViewport = isPortalFillViewportPath(pathname)
 
 	useLayoutEffect(() => {
-		const root = document.documentElement;
-		root.classList.add("portal-scroll-lock");
+		const root = document.documentElement
+		root.classList.add('portal-scroll-lock')
 		return () => {
-			root.classList.remove("portal-scroll-lock");
-		};
-	}, []);
+			root.classList.remove('portal-scroll-lock')
+		}
+	}, [])
 
 	const navConfig = buildPortalNavConfig({
 		role: props.role,
 		isAdmin,
 		hasWhatsappIntegration: props.hasWhatsappIntegration ?? false,
-	});
+	})
 
 	return (
 		<PortalBrandingProvider organizationName={orgLabel || null}>
 			<div className="flex h-dvh max-h-dvh min-h-0 flex-col overflow-hidden">
-				<header
-					className="relative z-40 shrink-0 border-b border-border/60 bg-white dark:bg-background"
-					style={{ viewTransitionName: "portal-top-nav" }}
-				>
+				<header className="relative z-[100] shrink-0 border-b border-border/60 bg-white dark:bg-background">
 					<div
 						className={cn(
 							PORTAL_LAYOUT_CONTAINER,
-							"flex h-14 min-h-14 items-center gap-4",
+							'flex h-14 min-h-14 items-center gap-4',
 						)}
 					>
 						<PortalTopNav
@@ -129,8 +126,14 @@ export function PortalShell(props: PortalShellProps) {
 								className="relative rounded-md p-2 text-muted-foreground hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 								aria-label="Alternar tema"
 							>
-								<Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" strokeWidth={1.75} />
-								<Moon className="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" strokeWidth={1.75} />
+								<Sun
+									className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0"
+									strokeWidth={1.75}
+								/>
+								<Moon
+									className="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100"
+									strokeWidth={1.75}
+								/>
 								<span className="sr-only">Alternar tema</span>
 							</button>
 
@@ -172,8 +175,8 @@ export function PortalShell(props: PortalShellProps) {
 										<button
 											type="button"
 											className={cn(
-												"flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent/60",
-												"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+												'flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent/60',
+												'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
 											)}
 										>
 											<Avatar className="h-8 w-8">
@@ -182,7 +185,7 @@ export function PortalShell(props: PortalShellProps) {
 												</AvatarFallback>
 											</Avatar>
 											<span className="hidden max-w-[8rem] truncate text-sm font-medium uppercase tracking-wide lg:block">
-												{props.userName || "Usuário"}
+												{props.userName || 'Usuário'}
 											</span>
 											<ChevronDown className="hidden h-3.5 w-3.5 text-muted-foreground lg:block" />
 										</button>
@@ -190,8 +193,12 @@ export function PortalShell(props: PortalShellProps) {
 
 									<DropdownMenuContent align="end" className="min-w-64">
 										<div className="px-2 py-1.5 lg:hidden">
-											<p className="text-sm font-medium">{props.userName || "Usuário"}</p>
-											<p className="text-xs text-muted-foreground">{props.userEmail}</p>
+											<p className="text-sm font-medium">
+												{props.userName || 'Usuário'}
+											</p>
+											<p className="text-xs text-muted-foreground">
+												{props.userEmail}
+											</p>
 										</div>
 										<DropdownMenuSeparator className="lg:hidden" />
 										{isPlatformMaster ? (
@@ -257,10 +264,10 @@ export function PortalShell(props: PortalShellProps) {
 
 				<main
 					className={cn(
-						"flex min-h-0 min-w-0 flex-1 flex-col",
+						'flex min-h-0 min-w-0 flex-1 flex-col',
 						isFillViewport
-							? "overflow-hidden"
-							: "overflow-y-auto overscroll-y-contain",
+							? 'overflow-hidden'
+							: 'overflow-y-auto overscroll-y-contain',
 					)}
 				>
 					<div
@@ -269,8 +276,8 @@ export function PortalShell(props: PortalShellProps) {
 								? PORTAL_FULL_WIDTH_CONTAINER
 								: PORTAL_LAYOUT_CONTAINER,
 							isFillViewport
-								? "flex h-full min-h-0 flex-1 flex-col py-4"
-								: "pb-8 pt-6",
+								? 'flex h-full min-h-0 flex-1 flex-col py-4'
+								: 'pb-8 pt-6',
 						)}
 					>
 						{props.children}
@@ -280,5 +287,5 @@ export function PortalShell(props: PortalShellProps) {
 			<SalesOrderCupomPrintHost />
 			<OrdemPrintPreviewHost />
 		</PortalBrandingProvider>
-	);
+	)
 }
