@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   addBrazilCalendarDays,
-  isBirthdayInNextDays,
+  brazilPreviousMonthRange,
   brazilTodayDateString,
+  isBirthdayInNextDays,
 } from '@/lib/dashboard/brazil-day'
 
 describe('addBrazilCalendarDays', () => {
@@ -12,6 +13,30 @@ describe('addBrazilCalendarDays', () => {
 
   it('wraps the year', () => {
     expect(addBrazilCalendarDays('2026-12-30', 6)).toBe('2027-01-05')
+  })
+})
+
+describe('brazilPreviousMonthRange', () => {
+  it('uses August when today is 1 September in Brazil', () => {
+    const range = brazilPreviousMonthRange(new Date('2026-09-01T02:30:00-03:00'))
+    expect(range.label).toBe('2026-08')
+    expect(range.displayLabel).toBe('08/2026')
+    expect(range.startDate).toBe('2026-08-01')
+    expect(range.endDate).toBe('2026-08-31')
+    expect(range.startIso).toBe('2026-08-01T03:00:00.000Z')
+    expect(range.endIso).toBe('2026-09-01T02:59:59.999Z')
+  })
+
+  it('wraps from January to December of the previous year', () => {
+    const range = brazilPreviousMonthRange(new Date('2026-01-15T12:00:00-03:00'))
+    expect(range.label).toBe('2025-12')
+    expect(range.startDate).toBe('2025-12-01')
+    expect(range.endDate).toBe('2025-12-31')
+  })
+
+  it('uses the last day of February in leap years', () => {
+    const range = brazilPreviousMonthRange(new Date('2024-03-01T12:00:00-03:00'))
+    expect(range.endDate).toBe('2024-02-29')
   })
 })
 

@@ -61,13 +61,23 @@ export function asDownloadableNfceXml (value: unknown) {
   return nfe ? withXmlDeclaration(nfe) : null
 }
 
-export function nfceXmlFilename (accessKey: string | null | undefined, series?: number, number?: number) {
+export function fiscalXmlFilename (
+  model: '55' | '65',
+  accessKey: string | null | undefined,
+  series?: number,
+  number?: number,
+) {
   const key = String(accessKey || '').replace(/\D/g, '')
   if (key.length === 44) return `${key}.xml`
+  const prefix = model === '55' ? 'NFe' : 'NFCe'
   const serie = Number(series) || 0
   const n = Number(number) || 0
-  if (serie > 0 && n > 0) return `NFCe-${serie}-${String(n).padStart(9, '0')}.xml`
-  return 'nfce.xml'
+  if (serie > 0 && n > 0) return `${prefix}-${serie}-${String(n).padStart(9, '0')}.xml`
+  return `${prefix.toLowerCase()}.xml`
+}
+
+export function nfceXmlFilename (accessKey: string | null | undefined, series?: number, number?: number) {
+  return fiscalXmlFilename('65', accessKey, series, number)
 }
 
 export function extractQrCodeUrlFromXml (xml: string) {

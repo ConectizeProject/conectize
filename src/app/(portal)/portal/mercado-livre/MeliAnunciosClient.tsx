@@ -1,39 +1,17 @@
 'use client'
 
-import {
-	ExternalLink,
-	Loader2,
-	Package,
-	RefreshCw,
-	ShoppingBag,
-} from 'lucide-react'
+import { Loader2, RefreshCw } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { toast } from '@/hooks/use-toast'
+import type { MeliListingGroup } from '@/lib/integrations/mercado-livre/listing-variations'
 import { meliSyncFailureMessage } from '@/lib/integrations/mercado-livre/refresh-token-errors'
 import { cn } from '@/lib/utils'
-import { maskedFromCents } from '@/lib/utils/money'
-
-type ListingRow = {
-	id: string
-	ml_item_id: string
-	product_id: string | null
-	title: string
-	permalink: string | null
-	thumbnail_url: string | null
-	status: string
-	price_cents: number | null
-	available_quantity: number | null
-	sold_quantity: number | null
-	seller_sku: string | null
-	synced_at: string
-	product?: { id: string; name: string } | null
-}
+import { MeliListingGroupCard } from './MeliListingGroupCard'
 
 type Props = {
 	isConnected: boolean
@@ -51,36 +29,6 @@ const STATUS_OPTIONS = [
 	{ value: 'under_review', label: 'Em revisão' },
 ] as const
 
-function statusBadge(status: string) {
-	const s = status.toLowerCase()
-	if (s === 'active') {
-		return {
-			label: 'Ativo',
-			className: 'bg-green-600 hover:bg-green-600 text-white',
-		}
-	}
-	if (s === 'paused') {
-		return {
-			label: 'Pausado',
-			className: 'bg-amber-500 hover:bg-amber-500 text-white',
-		}
-	}
-	if (s === 'closed') {
-		return { label: 'Encerrado', variant: 'secondary' as const }
-	}
-	return { label: status || '—', variant: 'outline' as const }
-}
-
-function isSafeImageUrl(url: string | null | undefined): boolean {
-	if (!url) return false
-	try {
-		const u = new URL(url)
-		return u.protocol === 'https:' || u.protocol === 'http:'
-	} catch {
-		return false
-	}
-}
-
 export function MeliAnunciosClient({
 	isConnected,
 	isAdmin,
@@ -93,7 +41,7 @@ export function MeliAnunciosClient({
 	const [q, setQ] = useState(initialQ)
 	const [status, setStatus] = useState(initialStatus || 'all')
 	const [page, setPage] = useState(initialPage)
-	const [listings, setListings] = useState<ListingRow[]>([])
+	const [groups, setGroups] = useState<MeliListingGroup[]>([])
 	const [total, setTotal] = useState(0)
 	const [loading, setLoading] = useState(true)
 	const [syncing, setSyncing] = useState(false)
@@ -135,11 +83,11 @@ export function MeliAnunciosClient({
 					),
 					variant: 'destructive',
 				})
-				setListings([])
+				setGroups([])
 				setTotal(0)
 				return
 			}
-			setListings((data.listings || []) as ListingRow[])
+			setGroups((data.groups || []) as MeliListingGroup[])
 			setTotal(Number(data.total) || 0)
 		} catch (err) {
 			const message = err instanceof Error ? err.message : 'Falha de rede.'
@@ -186,6 +134,7 @@ export function MeliAnunciosClient({
 			setPage(1)
 			pushFilters({ page: 1 })
 			router.refresh()
+			await loadListings()
 		} catch (err) {
 			const message = err instanceof Error ? err.message : 'Falha de rede.'
 			toast({
@@ -295,7 +244,7 @@ export function MeliAnunciosClient({
 					<Loader2 className="h-4 w-4 animate-spin" />
 					Carregando anúncios…
 				</div>
-			) : listings.length === 0 ? (
+			) : groups.length === 0 ? (
 				<Card>
 					<CardContent className="flex flex-col items-start gap-3 p-6">
 						<p className="text-sm text-muted-foreground">
@@ -311,97 +260,13 @@ export function MeliAnunciosClient({
 					<p className="text-xs text-muted-foreground">
 						{total} anúncio(s) · página {page} de {totalPages}
 					</p>
-					<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
-						{listings.map((listing) => {
-							const badge = statusBadge(listing.status)
-							const imgOk = isSafeImageUrl(listing.thumbnail_url)
-							return (
-								<Card key={listing.id} className="overflow-hidden">
-									<div className="relative aspect-square bg-muted">
-										{imgOk ? (
-											// eslint-disable-next-line @next/next/no-img-element
-											<img
-												src={listing.thumbnail_url || ''}
-												alt=""
-												loading="lazy"
-												className="h-full w-full object-contain p-2"
-											/>
-										) : (
-											<div className="flex h-full items-center justify-center text-muted-foreground">
-												<ShoppingBag className="h-10 w-10 opacity-40" />
-											</div>
-										)}
-										<div className="absolute left-2 top-2">
-											{'variant' in badge ? (
-												<Badge variant={badge.variant}>{badge.label}</Badge>
-											) : (
-												<Badge className={badge.className}>{badge.label}</Badge>
-											)}
-										</div>
-										{listing.price_cents != null ? (
-											<div className="absolute bottom-2 right-2 rounded-md bg-background/90 px-2 py-1 text-sm font-semibold shadow-sm">
-												{maskedFromCents(listing.price_cents)}
-											</div>
-										) : null}
-									</div>
-									<CardContent className="space-y-2 p-3">
-										<p className="line-clamp-2 text-sm font-medium leading-snug">
-											{listing.title}
-										</p>
-										<div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
-											{listing.sold_quantity != null ? (
-												<span>{listing.sold_quantity} vendido(s)</span>
-											) : null}
-											{listing.available_quantity != null ? (
-												<span>{listing.available_quantity} disponível</span>
-											) : null}
-											{listing.seller_sku ? (
-												<span className="truncate">
-													SKU {listing.seller_sku}
-												</span>
-											) : null}
-										</div>
-										<div className="flex flex-wrap gap-1.5 pt-1">
-											{listing.permalink ? (
-												<Button
-													type="button"
-													variant="outline"
-													size="sm"
-													className="h-7 gap-1 text-xs"
-													asChild
-												>
-													<a
-														href={listing.permalink}
-														target="_blank"
-														rel="noopener noreferrer"
-													>
-														<ExternalLink className="h-3 w-3" />
-														Ver no ML
-													</a>
-												</Button>
-											) : null}
-											{listing.product_id ? (
-												<Button
-													type="button"
-													variant="secondary"
-													size="sm"
-													className="h-7 gap-1 text-xs"
-													asChild
-												>
-													<Link
-														href={`/portal/produtos?edit=${listing.product_id}`}
-													>
-														<Package className="h-3 w-3" />
-														Produto
-													</Link>
-												</Button>
-											) : null}
-										</div>
-									</CardContent>
-								</Card>
-							)
-						})}
-					</div>
+					<ul className="space-y-3">
+						{groups.map((group) => (
+							<li key={group.key}>
+								<MeliListingGroupCard group={group} query={q} />
+							</li>
+						))}
+					</ul>
 
 					{hasPrev || hasNext ? (
 						<div className="flex items-center justify-between gap-2">
