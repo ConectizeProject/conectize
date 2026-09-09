@@ -1,7 +1,7 @@
 'use client'
 
 import { memo, useCallback } from 'react'
-import { Barcode, Copy, Loader2, MoreHorizontal, PencilLine, Tag, Trash2 } from 'lucide-react'
+import { Barcode, Copy, CopyPlus, Loader2, MoreHorizontal, PencilLine, Tag, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -29,6 +29,7 @@ type Props = {
 	isProductTab: boolean
 	bulkBusy: boolean
 	isSyncing: boolean
+	isDuplicating: boolean
 	isBarcodeGenerating: boolean
 	barcodeGeneratingStage: 'updating' | 'syncing' | null
 	optimisticBarcode: string | null
@@ -37,6 +38,7 @@ type Props = {
 	onOpenStock: (product: ProductRow) => void
 	onGenerateBarcode: (id: string) => void
 	onSyncFromBling: (id: string) => void
+	onDuplicate: (product: ProductRow) => void
 	onDelete: (product: ProductRow) => void
 	onEditProduct: (product: ProductRow) => void
 	onPrintLabel: (product: ProductRow) => void
@@ -48,6 +50,7 @@ export const ProductListTableRow = memo(function ProductListTableRow ({
 	isProductTab,
 	bulkBusy,
 	isSyncing,
+	isDuplicating,
 	isBarcodeGenerating,
 	barcodeGeneratingStage,
 	optimisticBarcode,
@@ -56,6 +59,7 @@ export const ProductListTableRow = memo(function ProductListTableRow ({
 	onOpenStock,
 	onGenerateBarcode,
 	onSyncFromBling,
+	onDuplicate,
 	onDelete,
 	onEditProduct,
 	onPrintLabel,
@@ -272,6 +276,27 @@ export const ProductListTableRow = memo(function ProductListTableRow ({
 							}}
 						>
 							Editar
+						</DropdownMenuItem>
+						<DropdownMenuItem
+							onSelect={(event) => {
+								event.preventDefault()
+								onDuplicate(product)
+							}}
+							disabled={isDuplicating}
+						>
+							{isDuplicating
+								? (
+									<>
+										<Loader2 className="mr-2 h-4 w-4 animate-spin" />
+										Duplicando...
+									</>
+								)
+								: (
+									<>
+										<CopyPlus className="mr-2 h-4 w-4" />
+										Duplicar
+									</>
+								)}
 						</DropdownMenuItem>
 						<DropdownMenuItem
 							onSelect={(event) => {

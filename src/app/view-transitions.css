@@ -49,11 +49,11 @@
 	pointer-events: none;
 }
 
-/* Live root — keeps chrome interactive; named groups still animate */
-::view-transition-old(root) {
-	display: none;
-}
-
+/*
+ * Root: sem display:none — no Safari isso escondia o header após navegar
+ * para OS / aparelhos e não restaurava a visibilidade.
+ */
+::view-transition-old(root),
 ::view-transition-new(root) {
 	animation: none;
 }
@@ -133,8 +133,7 @@
 }
 
 /*
- * Grupos de transição da página ficam abaixo do chrome do portal.
- * Evita o snapshot da OS cobrir/esconder o menu no Safari/iOS.
+ * Grupos de transição (quando houver) abaixo do chrome fixed do portal.
  */
 ::view-transition-group(*) {
 	z-index: 1;

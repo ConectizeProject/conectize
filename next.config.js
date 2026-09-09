@@ -1,5 +1,5 @@
 /** @type {import('next').NextConfig} */
-function buildSecurityHeaders () {
+function buildSecurityHeaders() {
 	const headers = [
 		{ key: 'X-DNS-Prefetch-Control', value: 'on' },
 		{ key: 'X-Content-Type-Options', value: 'nosniff' },
@@ -31,7 +31,9 @@ function buildSecurityHeaders () {
 const nextConfig = {
 	reactStrictMode: true,
 	experimental: {
-		viewTransition: true,
+		// Desligado: no Safari/iOS as View Transitions escondiam o header do portal
+		// em rotas como OS e aparelhos e não restauravam a visibilidade.
+		viewTransition: false,
 	},
 	// sharp 0.35 + Turbopack no Vercel: libvips não entra no bundle → 500 HTML em upload.
 	// pdfkit precisa do .afm em node_modules (não no virtual root C:\ROOT do bundler).
@@ -79,7 +81,8 @@ const nextConfig = {
 	turbopack: {
 		resolveAlias: {
 			'../build/polyfills/polyfill-module': './src/lib/modern-polyfill.js',
-			'next/dist/build/polyfills/polyfill-module': './src/lib/modern-polyfill.js',
+			'next/dist/build/polyfills/polyfill-module':
+				'./src/lib/modern-polyfill.js',
 		},
 	},
 	async redirects() {
@@ -176,7 +179,7 @@ const nextConfig = {
 			...legacyStoreRedirects,
 		]
 	},
-	async headers () {
+	async headers() {
 		return [
 			{
 				source: '/:path*',
@@ -187,6 +190,3 @@ const nextConfig = {
 }
 
 module.exports = nextConfig
-
-
-

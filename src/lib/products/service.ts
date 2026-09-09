@@ -455,7 +455,7 @@ export async function getProductByIdWithVariations(
 	}
 
 	const product = mapRowToProduct(data);
-	if (product.parentBlingId != null) {
+	if (product.parentBlingId != null || product.parentProductId != null) {
 		return { ok: true as const, product, variations: [] };
 	}
 
@@ -488,6 +488,187 @@ export async function getProductByIdWithVariations(
 		product,
 		variations: (byParentUuid ?? []).map(mapRowToProduct),
 	};
+}
+
+export type DuplicateProductResult =
+	| { ok: true; product: Product }
+	| AuthFailure
+	| {
+			ok: false;
+			error:
+				| "not_found"
+				| "name_required"
+				| "invalid_barcode"
+				| "invalid_ncm"
+				| "invalid_cest"
+				| "invalid_fci"
+				| "db_error";
+	  };
+
+function buildDuplicateCreateInput (
+	source: Product,
+	overrides: {
+		name: string
+		parentProductId?: string | null
+		parentBlingId?: string | null
+		variationAttributeKeys?: string[] | null
+		variationAttributeValues?: Record<string, string> | null
+	},
+): CreateProductInput {
+	return {
+		blingId: null,
+		blingSyncPending: false,
+		blingSyncSnapshot: null,
+		parentProductId: overrides.parentProductId ?? null,
+		parentBlingId: overrides.parentBlingId ?? null,
+		variationAttributeKeys:
+			overrides.variationAttributeKeys !== undefined
+				? overrides.variationAttributeKeys
+				: source.variationAttributeKeys,
+		variationAttributeValues:
+			overrides.variationAttributeValues !== undefined
+				? overrides.variationAttributeValues
+				: source.variationAttributeValues,
+		kind: source.kind,
+		name: overrides.name,
+		sku: null,
+		barcode: null,
+		description: source.description,
+		imageUrl: source.imageUrl ?? null,
+		salePriceCents: source.salePriceCents,
+		pricingTagId: source.pricingTagId,
+		costPriceCents: source.costPriceCents,
+		ncm: source.ncm,
+		cest: source.cest,
+		cfop: source.cfop,
+		fiscalOrigin: source.fiscalOrigin,
+		fci: source.fci,
+		fiscalUnit: source.fiscalUnit,
+		icmsCsosn: source.icmsCsosn,
+		icmsCst: source.icmsCst,
+		pisCst: source.pisCst,
+		cofinsCst: source.cofinsCst,
+		isActive: true,
+	};
+}
+
+async function copyCompatibleModelsFromSource (
+	sourceProductId: string,
+	targetProductId: string,
+): Promise<{ ok: true } | { ok: false; error: "db_error" }> {
+	const compat = await getProductCompatibleModelsForForm(sourceProductId);
+	if (compat.ok === false) {
+		if (compat.error === "not_authenticated") {
+			return { ok: false, error: "db_error" };
+		}
+		return { ok: false, error: "db_error" };
+	}
+	if (compat.entries.length === 0) return { ok: true };
+	const rep = await replaceProductCompatibleDeviceModels(
+		targetProductId,
+		compat.entries.map((e) => e.id),
+	);
+	if (rep.ok === false) return { ok: false, error: "db_error" };
+	return { ok: true };
+}
+
+/**
+ * Cria cópia do produto sem SKU, barcode nem vínculo Bling.
+ * Pai com variações: duplica a família. Variação: cria irmã no mesmo pai.
+ */
+export async function duplicateProduct (
+	id: string,
+): Promise<DuplicateProductResult> {
+	const auth = await requireAuth();
+	if (!auth.ok) return { ok: false, error: "not_authenticated" };
+
+	const productId = String(id || "").trim().toLowerCase();
+	if (!UUID_RE.test(productId)) {
+		return { ok: false, error: "not_found" };
+	}
+
+	const loaded = await getProductByIdWithVariations(productId);
+	if (loaded.ok === false) {
+		return {
+			ok: false,
+			error: loaded.error === "not_authenticated" ? "not_authenticated" : "not_found",
+		};
+	}
+
+	const source = loaded.product;
+	const isVariation = Boolean(source.parentBlingId || source.parentProductId);
+
+	if (isVariation) {
+		const created = await createProduct(
+			buildDuplicateCreateInput(source, {
+				name: `${source.name} (cópia)`,
+				parentProductId: source.parentProductId,
+				parentBlingId: source.parentBlingId,
+				variationAttributeKeys: [],
+				variationAttributeValues: source.variationAttributeValues,
+			}),
+		);
+		if (created.ok === false) return created;
+
+		const compat = await copyCompatibleModelsFromSource(source.id, created.product.id);
+		if (compat.ok === false) return { ok: false, error: "db_error" };
+
+		return { ok: true, product: created.product };
+	}
+
+	const parentCreated = await createProduct(
+		buildDuplicateCreateInput(source, {
+			name: `${source.name} (cópia)`,
+			parentProductId: null,
+			parentBlingId: null,
+			variationAttributeKeys: source.variationAttributeKeys,
+			variationAttributeValues: {},
+		}),
+	);
+	if (parentCreated.ok === false) return parentCreated;
+
+	const parentCompat = await copyCompatibleModelsFromSource(
+		source.id,
+		parentCreated.product.id,
+	);
+	if (parentCompat.ok === false) return { ok: false, error: "db_error" };
+
+	const variations = loaded.variations;
+	if (variations.length === 0) {
+		return { ok: true, product: parentCreated.product };
+	}
+
+	const newVariationIds: string[] = [];
+	for (const variation of variations) {
+		const childCreated = await createProduct(
+			buildDuplicateCreateInput(variation, {
+				name: variation.name,
+				parentProductId: parentCreated.product.id,
+				parentBlingId: null,
+				variationAttributeKeys: [],
+				variationAttributeValues: variation.variationAttributeValues,
+			}),
+		);
+		if (childCreated.ok === false) return childCreated;
+
+		const childCompat = await copyCompatibleModelsFromSource(
+			variation.id,
+			childCreated.product.id,
+		);
+		if (childCompat.ok === false) return { ok: false, error: "db_error" };
+
+		newVariationIds.push(childCreated.product.id);
+	}
+
+	const reordered = await reorderProductVariations(
+		parentCreated.product.id,
+		newVariationIds,
+	);
+	if (reordered.ok === false) {
+		return { ok: false, error: "db_error" };
+	}
+
+	return { ok: true, product: parentCreated.product };
 }
 
 export type ApplyImageUrlToVariationsResult =

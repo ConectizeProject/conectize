@@ -71,7 +71,7 @@ function WeekChannelChart ({
 						color: lineColor,
 					},
 				}}
-				className="aspect-auto h-[220px] w-full"
+				className="aspect-auto h-[220px] w-full min-w-0"
 			>
 				<ComposedChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
 					<CartesianGrid vertical={false} strokeDasharray="4 4" />

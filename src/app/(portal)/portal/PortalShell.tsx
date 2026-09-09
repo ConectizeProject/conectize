@@ -106,7 +106,7 @@ export function PortalShell(props: PortalShellProps) {
 	return (
 		<PortalBrandingProvider organizationName={orgLabel || null}>
 			<div className="flex h-dvh max-h-dvh min-h-0 flex-col overflow-hidden">
-				<header className="relative z-[100] shrink-0 border-b border-border/60 bg-white dark:bg-background">
+				<header className="fixed inset-x-0 top-0 z-40 h-14 border-b border-border/60 bg-white dark:bg-background">
 					<div
 						className={cn(
 							PORTAL_LAYOUT_CONTAINER,
@@ -261,6 +261,9 @@ export function PortalShell(props: PortalShellProps) {
 						</div>
 					</div>
 				</header>
+
+				{/* Espaço do header fixed — evita conteúdo sob o menu */}
+				<div className="h-14 shrink-0" aria-hidden />
 
 				<main
 					className={cn(
