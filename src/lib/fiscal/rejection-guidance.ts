@@ -62,6 +62,15 @@ export function fiscalRejectionGuidance (
     }
   }
 
+  if (code === '297') {
+    return {
+      summary: 'A SEFAZ recalculou a assinatura do XML e o resultado não bateu com o enviado.',
+      hint: 'Costuma ocorrer com apóstrofo ou aspas no nome do cliente/produto (ex.: D’Angelo). Corrija e reenvie — rejeição não consome o número. Se persistir, confira o certificado A1.',
+      href: '/portal/admin/dados-empresa/fiscal',
+      hrefLabel: 'Abrir dados fiscais',
+    }
+  }
+
   if (code === '501') {
     return {
       summary: 'A SEFAZ recusou o cancelamento porque o prazo legal já passou.',

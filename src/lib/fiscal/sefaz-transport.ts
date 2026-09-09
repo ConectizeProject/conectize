@@ -20,11 +20,9 @@ export class PemSefazTransport implements SefazTransport {
   send (req: SefazRequest): Promise<SefazResponse> {
     return new Promise((resolve, reject) => {
       const url = new URL(req.url)
-      const cleanXml = req.xml
-        .normalize('NFC')
-        .replace(/\uFEFF/g, '')
-        .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\x80-\x9F\uFFFE\uFFFF]/g, '')
-      const utf8Buffer = Buffer.from(cleanXml, 'utf-8')
+      // Não alterar o XML depois de assinado: NFC/strip muda bytes e a SEFAZ
+      // rejeita com cStat 297 (assinatura difere do calculado).
+      const utf8Buffer = Buffer.from(req.xml, 'utf-8')
 
       const httpReq = https.request({
         hostname: url.hostname,
