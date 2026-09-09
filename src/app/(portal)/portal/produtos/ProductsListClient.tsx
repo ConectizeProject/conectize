@@ -95,6 +95,7 @@ export function ProductsListClient({
 	const [editingProduct, setEditingProduct] = useState<Pick<ProductRow, 'id' | 'name' | 'bling_id'> | null>(null)
 	const [productEditInitialTab, setProductEditInitialTab] = useState<'estoque' | undefined>(undefined)
 	const [syncingId, setSyncingId] = useState<string | null>(null)
+	const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
 	const [barcodeGeneratingId, setBarcodeGeneratingId] = useState<string | null>(null)
 	const [barcodeGeneratingStage, setBarcodeGeneratingStage] = useState<'updating' | 'syncing' | null>(null)
 	/** Código já retornado pela API; mantém UI até a lista refletir (evita flash do "Gerar"). */
@@ -132,6 +133,7 @@ export function ProductsListClient({
 	)
 	const isProductTab = filterKind === 'product' || filterKind === 'all'
 	const syncInFlightRef = useRef(false)
+	const duplicateInFlightRef = useRef(false)
 	const barcodeInFlightRef = useRef(false)
 
 	const [extraRows, setExtraRows] = useState<ProductRow[]>([])
@@ -430,6 +432,50 @@ export function ProductsListClient({
 		} finally {
 			syncInFlightRef.current = false
 			setSyncingId(null)
+		}
+	}, [router])
+
+	const handleDuplicateProduct = useCallback(async (product: ProductRow) => {
+		if (duplicateInFlightRef.current) return
+		duplicateInFlightRef.current = true
+		setDuplicatingId(product.id)
+		try {
+			const res = await fetch(`/api/portal/produtos/${encodeURIComponent(product.id)}/duplicate`, {
+				method: 'POST',
+			})
+			const data = await res.json().catch(() => null) as {
+				ok?: boolean
+				error?: string
+				message?: string
+				product?: { id?: string, name?: string, bling_id?: string | null }
+			} | null
+			if (!res.ok || !data?.ok || !data.product?.id) {
+				toast({
+					variant: 'destructive',
+					title: 'Erro ao duplicar',
+					description: data?.message || data?.error || 'Tente novamente.',
+				})
+				return
+			}
+			setCreateDialogOpen(false)
+			setCreateVariationParent(null)
+			setProductEditInitialTab(undefined)
+			setEditingProduct({
+				id: data.product.id,
+				name: data.product.name || `${product.name} (cópia)`,
+				bling_id: data.product.bling_id ?? null,
+			})
+			router.refresh()
+		} catch (err) {
+			const message = err instanceof Error ? err.message : ''
+			toast({
+				variant: 'destructive',
+				title: 'Erro ao duplicar',
+				description: message || 'Falha de rede ou resposta inválida. Tente novamente.',
+			})
+		} finally {
+			duplicateInFlightRef.current = false
+			setDuplicatingId(null)
 		}
 	}, [router])
 
@@ -1035,6 +1081,7 @@ export function ProductsListClient({
 								isProductTab={isProductTab}
 								bulkBusy={bulkBusy}
 								isSyncing={syncingId === product.id}
+								isDuplicating={duplicatingId === product.id}
 								isBarcodeGenerating={barcodeGeneratingId === product.id}
 								barcodeGeneratingStage={barcodeGeneratingStage}
 								optimisticBarcode={
@@ -1048,6 +1095,7 @@ export function ProductsListClient({
 								onOpenStock={handleOpenProductStock}
 								onGenerateBarcode={handleGenerateBarcodeFromBling}
 								onSyncFromBling={handleSyncFromBling}
+								onDuplicate={handleDuplicateProduct}
 								onDelete={openDeleteDialog}
 								onPrintLabel={handlePrintLabel}
 							/>
@@ -1118,6 +1166,7 @@ export function ProductsListClient({
 												isProductTab={isProductTab}
 												bulkBusy={bulkBusy}
 												isSyncing={syncingId === product.id}
+												isDuplicating={duplicatingId === product.id}
 												isBarcodeGenerating={barcodeGeneratingId === product.id}
 												barcodeGeneratingStage={barcodeGeneratingStage}
 												optimisticBarcode={
@@ -1131,6 +1180,7 @@ export function ProductsListClient({
 												onOpenStock={handleOpenProductStock}
 												onGenerateBarcode={handleGenerateBarcodeFromBling}
 												onSyncFromBling={handleSyncFromBling}
+												onDuplicate={handleDuplicateProduct}
 												onDelete={openDeleteDialog}
 												onPrintLabel={handlePrintLabel}
 											/>
