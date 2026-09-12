@@ -39,6 +39,48 @@ function copyCookiesToResponse(source: NextResponse, target: NextResponse) {
 }
 
 /**
+ * Cliente Supabase no middleware com o adapter oficial: refresh grava nos
+ * cookies da *request* (para o Route Handler/RSC ver o JWT novo) e da response.
+ */
+function createMiddlewareSupabase(request: NextRequest) {
+	const { url, anonKey } = getSupabaseEnv()
+	let response = NextResponse.next({ request })
+
+	const supabase = createServerClient(url, anonKey, {
+		cookies: {
+			getAll() {
+				return request.cookies.getAll()
+			},
+			setAll(cookiesToSet) {
+				for (const cookie of cookiesToSet) {
+					request.cookies.set(cookie.name, cookie.value)
+				}
+				response = NextResponse.next({ request })
+				for (const cookie of cookiesToSet) {
+					response.cookies.set(cookie.name, cookie.value, cookie.options)
+				}
+			},
+		},
+	})
+
+	return {
+		supabase,
+		getResponse: () => response,
+	}
+}
+
+/** Renova a sessão nas APIs do portal (o matcher antigo não cobria `/api`). */
+async function refreshPortalApiSession(request: NextRequest) {
+	try {
+		const { supabase, getResponse } = createMiddlewareSupabase(request)
+		await supabase.auth.getClaims()
+		return getResponse()
+	} catch {
+		return NextResponse.next()
+	}
+}
+
+/**
  * Valida sessão via getClaims (JWT nos cookies, sem chamada ao Auth server).
  * Middleware/proxy roda em Node.js (Next.js 16+); getClaims() valida localmente.
  *
@@ -74,6 +116,10 @@ async function getUserRole(supabase: SupabaseClient, request: NextRequest) {
 
 export async function middleware(request: NextRequest) {
 	const { pathname } = request.nextUrl
+
+	if (pathname.startsWith('/api/portal')) {
+		return refreshPortalApiSession(request)
+	}
 
 	if (
 		pathname.startsWith('/_next') ||
@@ -137,6 +183,7 @@ export async function middleware(request: NextRequest) {
 				},
 				setAll(cookiesToSet) {
 					for (const cookie of cookiesToSet) {
+						request.cookies.set(cookie.name, cookie.value)
 						response.cookies.set(cookie.name, cookie.value, cookie.options)
 					}
 				},
@@ -262,5 +309,11 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-	matcher: ['/servicos', '/servicos/:path*', '/portal', '/portal/:path*'],
+	matcher: [
+		'/servicos',
+		'/servicos/:path*',
+		'/portal',
+		'/portal/:path*',
+		'/api/portal/:path*',
+	],
 }
