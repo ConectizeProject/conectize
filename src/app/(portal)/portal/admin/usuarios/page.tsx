@@ -75,6 +75,44 @@ async function updateRoleAction (formData: FormData) {
 
   if (error) redirect('/portal/admin/usuarios?error=nao_foi_possivel_atualizar')
 
+  // Mantém organization_members.role_in_org alinhado ao users.role.
+  // Sem isso, staff com membership "user" perde org ativa e APIs retornam 403.
+  if (!isEditingSelf && formData.has('role')) {
+    const roleInOrg = roleToOrgRole(role)
+    try {
+      const svc = createSupabaseServiceClient()
+      const { data: memberships } = await svc
+        .from('organization_members')
+        .select('organization_id')
+        .eq('user_id', userId)
+
+      if ((memberships ?? []).length > 0) {
+        const { error: syncErr } = await svc
+          .from('organization_members')
+          .update({ role_in_org: roleInOrg })
+          .eq('user_id', userId)
+        if (syncErr) redirect('/portal/admin/usuarios?error=nao_foi_possivel_atualizar')
+
+        if (role === 'staff' || role === 'admin') {
+          const { data: ctx } = await svc
+            .from('user_portal_context')
+            .select('active_organization_id')
+            .eq('user_id', userId)
+            .maybeSingle()
+          if (!ctx?.active_organization_id) {
+            const fallbackOrgId = String(memberships[0].organization_id)
+            await svc.from('user_portal_context').upsert({
+              user_id: userId,
+              active_organization_id: fallbackOrgId,
+            })
+          }
+        }
+      }
+    } catch {
+      redirect('/portal/admin/usuarios?error=nao_foi_possivel_atualizar')
+    }
+  }
+
   if (isPlatformAdmin && organizationIdInput && formData.has('organizationId')) {
     const { data: orgRow } = await supabase
       .from('organizations')

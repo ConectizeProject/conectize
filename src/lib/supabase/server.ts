@@ -1,5 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
+import type { NextRequest, NextResponse } from 'next/server'
 import { cache } from 'react'
 import {
 	isSupabaseInfraError,
@@ -23,10 +25,11 @@ type AuthClaims = { sub?: string; email?: string }
 /**
  * Obtém o usuário autenticado via getClaims (recomendado no servidor).
  * Em falha de rede/DNS com o host do Supabase, retorna null sem lançar (evita TypeError no console).
+ * Aceita um cliente já ligado aos cookies da request (Route Handlers).
  */
-export async function getAuthUser() {
+export async function getAuthUser(supabaseClient?: SupabaseClient) {
 	try {
-		const supabase = await createSupabaseServerClient()
+		const supabase = supabaseClient ?? (await createSupabaseServerClient())
 		const { data, error } = await supabase.auth.getClaims()
 
 		const userFromClaims = userFromAuthClaims(
@@ -186,4 +189,47 @@ export async function createSupabaseServerClient() {
 			},
 		},
 	})
+}
+
+type PendingCookie = {
+	name: string
+	value: string
+	options?: Parameters<NextResponse['cookies']['set']>[2]
+}
+
+/**
+ * Cliente para Route Handlers: lê cookies da request e acumula Set-Cookie
+ * para aplicar na NextResponse (cookies() do next/headers pode não ver a sessão).
+ */
+export function createSupabaseRouteHandlerClient(request: NextRequest) {
+	const { url, anonKey } = getSupabaseEnv()
+	const pendingCookies: PendingCookie[] = []
+
+	const supabase = createServerClient(url, anonKey, {
+		cookies: {
+			getAll() {
+				return request.cookies.getAll()
+			},
+			setAll(cookiesToSet) {
+				for (const cookie of cookiesToSet) {
+					request.cookies.set(cookie.name, cookie.value)
+					pendingCookies.push({
+						name: cookie.name,
+						value: cookie.value,
+						options: cookie.options,
+					})
+				}
+			},
+		},
+	})
+
+	return {
+		supabase,
+		applyCookies(response: NextResponse) {
+			for (const cookie of pendingCookies) {
+				response.cookies.set(cookie.name, cookie.value, cookie.options)
+			}
+			return response
+		},
+	}
 }
