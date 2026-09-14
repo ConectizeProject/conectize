@@ -72,7 +72,7 @@ function NavGroupDropdown ({
 	const active = isPortalNavGroupActive(pathname, group.items)
 
 	return (
-		<DropdownMenu>
+		<DropdownMenu modal={false}>
 			<DropdownMenuTrigger
 				className={cn(
 					'inline-flex items-center gap-1 rounded-md px-3 py-2 text-sm font-medium transition-colors',

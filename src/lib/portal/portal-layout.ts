@@ -29,7 +29,11 @@ const PORTAL_FILL_VIEWPORT_PREFIXES: readonly string[] = [
 	'/portal/whatsapp',
 ]
 
-/** Páginas que preenchem a área abaixo do header (quadro, PDV, inbox) — o scroll fica no painel interno. */
+/**
+ * Páginas que preenchem a área abaixo do header (quadro, PDV, inbox).
+ * Nessas rotas o body fica travado (`portal-scroll-lock`) e o scroll fica no painel interno.
+ * Demais rotas do portal rolam no body (header fixed + spacer) — mais estável em Safari antigo.
+ */
 export function isPortalFillViewportPath (pathname: string): boolean {
 	if (PORTAL_FILL_VIEWPORT_EXACT.includes(pathname)) return true
 	return PORTAL_FILL_VIEWPORT_PREFIXES.some(

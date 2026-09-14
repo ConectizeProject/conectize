@@ -121,13 +121,35 @@
     @apply overflow-x-hidden;
   }
 
-  /* Portal: um único scroll (no <main>), header permanece visível */
+  /*
+   * Reserva espaço da barra de rolagem: evita o “pulo” lateral ao abrir
+   * dropdown/dialog (RemoveScroll some com a scrollbar e adiciona padding).
+   * Necessário com scroll no body nas páginas documento do portal.
+   */
+  html {
+    scrollbar-gutter: stable;
+  }
+
+  /*
+   * Portal fill-viewport (quadro OS, PDV, WhatsApp): trava o body e o scroll
+   * fica nos painéis internos. Páginas documento não usam esta classe — rolam no body.
+   * 100vh primeiro: fallback para Safari sem suporte a dvh.
+   */
   html.portal-scroll-lock,
   html.portal-scroll-lock body {
+    height: 100vh;
     height: 100dvh;
+    max-height: 100vh;
     max-height: 100dvh;
     overflow: hidden;
     overscroll-behavior: none;
+  }
+
+  .portal-fill-shell {
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100vh;
+    max-height: 100dvh;
   }
 
   body {
