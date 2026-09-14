@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import { brazilDayRangeUtc } from '@/lib/dashboard/brazil-day'
 import {
   createSalesOrder,
   mapSalesOrdersWithFinancePosted,
@@ -9,6 +10,7 @@ import { getOpenCashSession } from '@/lib/pdv/service'
 import { vendasListPage, vendasListRange } from '@/lib/vendas/list-pagination'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
 export async function GET (request: NextRequest) {
   const auth = await requireStaffOrAdmin()
@@ -37,8 +39,12 @@ export async function GET (request: NextRequest) {
   if (paginated) query = query.range(rangeFrom, rangeTo)
   else query = query.limit(200)
 
-  if (from) query = query.gte('created_at', `${from}T00:00:00`)
-  if (to) query = query.lte('created_at', `${to}T23:59:59`)
+  if (from && DATE_RE.test(from)) {
+    query = query.gte('created_at', brazilDayRangeUtc(from).startIso)
+  }
+  if (to && DATE_RE.test(to)) {
+    query = query.lte('created_at', brazilDayRangeUtc(to).endIso)
+  }
   if (sellerUserId) query = query.eq('seller_user_id', sellerUserId)
   if (status) query = query.eq('status', status)
 

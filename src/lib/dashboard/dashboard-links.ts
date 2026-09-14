@@ -10,6 +10,21 @@ export function dashboardOrdensHref (): string {
 	return '/portal/ordens'
 }
 
+/** OS finalizadas no dia (mesmo critério do faturamento OS do dashboard). */
+export function dashboardOsFinalizadasHojeHref (opts: {
+	dateStr: string
+	isAdmin: boolean
+}): string {
+	if (opts.isAdmin) {
+		const p = new URLSearchParams()
+		p.set('from', opts.dateStr)
+		p.set('to', opts.dateStr)
+		p.set('statusGroup', 'closed')
+		return `/portal/relatorios/servicos?${p.toString()}`
+	}
+	return dashboardOrdensHref()
+}
+
 export function dashboardAparelhosDisponiveisHref (): string {
 	return '/portal/revendaaparelhos'
 }
@@ -53,7 +68,7 @@ export function dashboardFaturamentoOsHref (opts: {
 }): string {
 	return opts.isAdmin
 		? dashboardFinanceiroOsHojeHref(opts.dateStr)
-		: dashboardOrdensHref()
+		: dashboardOsFinalizadasHojeHref(opts)
 }
 
 export function dashboardFinanceiroHref (): string {

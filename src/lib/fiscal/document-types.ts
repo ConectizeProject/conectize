@@ -12,6 +12,7 @@ export type FiscalDocumentListRow = {
   sefaz_status_code: string | null
   sefaz_status_message: string | null
   sales_order_id: string | null
+  service_order_id: string | null
   order_number: number | null
   customer_name: string | null
   total_cents: number | null
@@ -55,6 +56,7 @@ export type FiscalDocumentDetail = {
   sefaz_status_code: string | null
   sefaz_status_message: string | null
   sales_order_id: string | null
+  service_order_id: string | null
   authorized_at: string | null
   canceled_at: string | null
   created_at: string

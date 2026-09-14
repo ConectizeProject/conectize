@@ -195,7 +195,7 @@ export function OrdemDetalhePageContent(props: Props) {
 			/>
 
 			<OrderDeviceInfoSection
-				key={`device-${order.id}-${order.updated_at ?? ''}`}
+				key={`device-${order.id}`}
 				formId="order-edit-form"
 				deviceString={deviceString}
 				formDisabled={formDisabled}
@@ -212,14 +212,14 @@ export function OrdemDetalhePageContent(props: Props) {
 			>
 				<OrderEditForm
 					id="order-edit-form"
-					formKey={`${order.id}-${order.updated_at ?? order.status}`}
+					formKey={order.id}
 					className="space-y-6"
 				>
 					<input type="hidden" name="orderId" value={order.id} />
 					<input type="hidden" name="status" value={order.status} />
 
 					<OrderAssistInfoSection
-						key={`assist-${order.id}-${order.updated_at ?? ''}`}
+						key={`assist-${order.id}`}
 						formId="order-edit-form"
 						formDisabled={formDisabled}
 						orderId={order.id}

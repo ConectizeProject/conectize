@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { ArrowLeftRight, Check, ChevronsUpDown, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -29,6 +29,7 @@ import { onlyDigits } from '@/lib/utils/strings'
 import { clampFiscalCustomerName } from '@/lib/fiscal/xml-strings'
 import { toast } from '@/hooks/use-toast'
 import { appConfirm, appPrompt } from '@/lib/ui/app-dialogs'
+import { emitSalesOrderFiscalDocument } from '@/lib/fiscal/emit-sales-order-client'
 import { SalesOrderAfterSaleActions } from '@/app/(portal)/portal/vendas/SalesOrderAfterSaleActions'
 import {
   SalesOrderProductSearch,
@@ -183,7 +184,9 @@ function toEditableItems (items: OrderItem[]): EditableItem[] {
 export default function PedidoVendaDetailPage () {
   const params = useParams()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const orderId = String(params.id || '')
+  const emitNfeMode = searchParams.get('emit') === 'nfe'
   const [order, setOrder] = useState<OrderDetail | null>(null)
   const [items, setItems] = useState<EditableItem[]>([])
   const [payments, setPayments] = useState<OrderPayment[]>([])
@@ -471,18 +474,40 @@ export default function PedidoVendaDetailPage () {
 
   async function finalizeOrder () {
     if (!(await appConfirm({
-      title: 'Finalizar pedido?',
-      description: 'Estoque e financeiro serão lançados e o pedido passará a Pago.',
-      confirmLabel: 'Finalizar',
+      title: emitNfeMode ? 'Finalizar e gerar NF-e?' : 'Finalizar pedido?',
+      description: emitNfeMode
+        ? 'Estoque e financeiro serão lançados. Em seguida a NF-e será enviada à SEFAZ. Confirme CPF/CNPJ e endereço completo do cliente.'
+        : 'Estoque e financeiro serão lançados e o pedido passará a Pago.',
+      confirmLabel: emitNfeMode ? 'Finalizar e gerar NF-e' : 'Finalizar',
     }))) return
 
     setFinalizing(true)
     try {
       const ok = await persistOrder('finalize')
-      if (ok) {
+      if (!ok) return
+
+      if (!emitNfeMode) {
         toast({ title: 'Pedido finalizado' })
         router.refresh()
+        return
       }
+
+      toast({ title: 'Pedido finalizado', description: 'Emitindo a NF-e...' })
+      const result = await emitSalesOrderFiscalDocument({
+        orderId,
+        model: '55',
+        paid: true,
+        navigate: (href) => router.push(href),
+      })
+      if (result.ok && result.fiscalDocument?.id) {
+        router.replace(`/portal/vendas/nfe/${encodeURIComponent(result.fiscalDocument.id)}`)
+        return
+      }
+      if (result.fiscalDocument?.id) {
+        router.replace(`/portal/vendas/nfe/${encodeURIComponent(result.fiscalDocument.id)}`)
+        return
+      }
+      router.refresh()
     } finally {
       setFinalizing(false)
     }
@@ -553,7 +578,9 @@ export default function PedidoVendaDetailPage () {
     <div className='space-y-4'>
       <div className='flex flex-wrap items-start justify-between gap-3'>
         <div>
-          <h1 className='text-2xl font-semibold'>Pedido #{order.order_number}</h1>
+          <h1 className='text-2xl font-semibold'>
+            {emitNfeMode ? `NF-e · Pedido #${order.order_number}` : `Pedido #${order.order_number}`}
+          </h1>
           <Badge className='mt-1' variant={order.status === 'paid' ? 'secondary' : order.status === 'canceled' ? 'destructive' : 'default'}>
             {statusLabel(order.status)}
           </Badge>
@@ -563,11 +590,15 @@ export default function PedidoVendaDetailPage () {
             </p>
           ) : order.status === 'paid' ? (
             <p className='mt-2 text-sm text-muted-foreground'>
-              Pedido finalizado: alterações atualizam estoque e financeiro automaticamente.
+              {emitNfeMode
+                ? 'Pedido finalizado. Use Gerar NF-e abaixo se a nota ainda não foi emitida.'
+                : 'Pedido finalizado: alterações atualizam estoque e financeiro automaticamente.'}
             </p>
           ) : (
             <p className='mt-2 text-sm text-muted-foreground'>
-              Pedido em andamento. Inclua itens e, quando estiver pronto, informe o pagamento e finalize.
+              {emitNfeMode
+                ? 'Selecione ou cadastre o cliente com CPF/CNPJ e endereço completo, inclua produtos, informe o pagamento e finalize para emitir a NF-e.'
+                : 'Pedido em andamento. Inclua itens e, quando estiver pronto, informe o pagamento e finalize.'}
             </p>
           )}
         </div>
@@ -583,7 +614,9 @@ export default function PedidoVendaDetailPage () {
               disabled={saving || finalizing}
               onClick={() => void finalizeOrder()}
             >
-              {finalizing ? 'Finalizando...' : 'Finalizar pedido'}
+              {finalizing
+                ? (emitNfeMode ? 'Finalizando e emitindo...' : 'Finalizando...')
+                : (emitNfeMode ? 'Finalizar e gerar NF-e' : 'Finalizar pedido')}
             </Button>
           ) : null}
           <SalesOrderAfterSaleActions
@@ -613,13 +646,22 @@ export default function PedidoVendaDetailPage () {
               {order.status === 'paid' ? 'Estornar venda' : 'Cancelar pedido'}
             </Button>
           ) : null}
-          <Link href='/portal/vendas' transitionTypes={['nav-back']}><Button variant='outline'>Voltar</Button></Link>
+          <Link href={emitNfeMode ? '/portal/vendas/nfe' : '/portal/vendas'} transitionTypes={['nav-back']}>
+            <Button variant='outline'>Voltar</Button>
+          </Link>
         </div>
       </div>
 
       <div className='grid gap-4 md:grid-cols-2'>
         <Card>
-          <CardHeader><CardTitle>Cliente</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle>Cliente</CardTitle>
+            {emitNfeMode ? (
+              <p className='text-sm font-normal text-muted-foreground'>
+                Para NF-e: CPF ou CNPJ e endereço completo (CEP, rua, número, bairro, cidade e UF).
+              </p>
+            ) : null}
+          </CardHeader>
           <CardContent className='space-y-3 text-sm'>
             {isEditable ? (
               selectedCustomer ? (

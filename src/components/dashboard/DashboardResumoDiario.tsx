@@ -10,6 +10,7 @@ import {
 	dashboardAparelhosDisponiveisHref,
 	dashboardAparelhosVendidosHojeHref,
 	dashboardOrdensHref,
+	dashboardOsFinalizadasHojeHref,
 	dashboardVendasHojeHref,
 } from '@/lib/dashboard/dashboard-links'
 import { DashboardLembretesPendencias } from '@/components/dashboard/DashboardLembretesPendencias'
@@ -73,7 +74,7 @@ export function DashboardResumoDiario ({
 							value={String(os.finalizedTodayCount)}
 							label="OS Finalizadas"
 							dotClass="bg-violet-500"
-							href={dashboardOrdensHref()}
+							href={dashboardOsFinalizadasHojeHref({ dateStr, isAdmin })}
 						/>
 					</div>
 				</article>

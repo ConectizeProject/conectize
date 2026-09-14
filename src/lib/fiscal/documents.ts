@@ -72,7 +72,7 @@ export async function listFiscalDocuments (auth: AuthCtx, input: ListInput) {
 
   let query = auth.supabase
     .from('fiscal_documents')
-    .select('id, model, environment, series, number, status, access_key, protocol, sefaz_status_code, sefaz_status_message, sales_order_id, created_at, authorized_at', { count: 'exact' })
+    .select('id, model, environment, series, number, status, access_key, protocol, sefaz_status_code, sefaz_status_message, sales_order_id, service_order_id, created_at, authorized_at', { count: 'exact' })
     .eq('organization_id', auth.organizationId)
     .eq('model', input.model)
     .order('created_at', { ascending: false })
@@ -89,7 +89,9 @@ export async function listFiscalDocuments (auth: AuthCtx, input: ListInput) {
 
   const docs = data ?? []
   const orderIds = [...new Set(docs.map((row) => String(row.sales_order_id || '')).filter(Boolean))]
+  const serviceOrderIds = [...new Set(docs.map((row) => String(row.service_order_id || '')).filter(Boolean))]
   const ordersById = new Map<string, { order_number: number, customer_name: string | null, total_cents: number | null }>()
+  const serviceOrdersById = new Map<string, { order_number: number, customer_name: string | null, total_cents: number | null }>()
 
   if (orderIds.length > 0) {
     const { data: orders, error: ordersError } = await auth.supabase
@@ -107,8 +109,34 @@ export async function listFiscalDocuments (auth: AuthCtx, input: ListInput) {
     }
   }
 
+  if (serviceOrderIds.length > 0) {
+    const { data: serviceOrders, error: serviceOrdersError } = await auth.supabase
+      .from('service_orders')
+      .select('id, display_number, services_total_cents, customers(full_name, company_name, is_company)')
+      .eq('organization_id', auth.organizationId)
+      .in('id', serviceOrderIds)
+    if (serviceOrdersError) return { ok: false as const, error: 'db_error' as const }
+    for (const order of serviceOrders ?? []) {
+      const customerRaw = (order as { customers?: unknown }).customers
+      const customer = Array.isArray(customerRaw) ? customerRaw[0] : customerRaw
+      const row = customer && typeof customer === 'object' ? customer as Record<string, unknown> : null
+      const customerName = String(
+        row?.is_company
+          ? (row?.company_name || row?.full_name || '')
+          : (row?.full_name || row?.company_name || ''),
+      ).trim() || null
+      serviceOrdersById.set(String(order.id), {
+        order_number: Number(order.display_number) || 0,
+        customer_name: customerName,
+        total_cents: Number(order.services_total_cents) || 0,
+      })
+    }
+  }
+
   const documents: FiscalDocumentListRow[] = docs.map((row) => {
-    const order = row.sales_order_id ? ordersById.get(String(row.sales_order_id)) : null
+    const order = row.sales_order_id
+      ? ordersById.get(String(row.sales_order_id))
+      : (row.service_order_id ? serviceOrdersById.get(String(row.service_order_id)) : null)
     return {
       id: String(row.id),
       model: asModel(row.model),
@@ -121,6 +149,7 @@ export async function listFiscalDocuments (auth: AuthCtx, input: ListInput) {
       sefaz_status_code: row.sefaz_status_code ? String(row.sefaz_status_code) : null,
       sefaz_status_message: row.sefaz_status_message ? String(row.sefaz_status_message) : null,
       sales_order_id: row.sales_order_id ? String(row.sales_order_id) : null,
+      service_order_id: row.service_order_id ? String(row.service_order_id) : null,
       order_number: order?.order_number ?? null,
       customer_name: order?.customer_name ?? null,
       total_cents: order?.total_cents ?? null,
@@ -141,7 +170,7 @@ export async function listFiscalDocuments (auth: AuthCtx, input: ListInput) {
 export async function loadFiscalDocumentDetail (auth: AuthCtx, fiscalDocumentId: string) {
   const { data, error } = await auth.supabase
     .from('fiscal_documents')
-    .select('id, model, environment, series, number, status, access_key, protocol, qr_code_url, sefaz_status_code, sefaz_status_message, sales_order_id, authorized_at, canceled_at, created_at')
+    .select('id, model, environment, series, number, status, access_key, protocol, qr_code_url, sefaz_status_code, sefaz_status_message, sales_order_id, service_order_id, authorized_at, canceled_at, created_at')
     .eq('organization_id', auth.organizationId)
     .eq('id', fiscalDocumentId)
     .maybeSingle()
@@ -229,6 +258,92 @@ export async function loadFiscalDocumentDetail (auth: AuthCtx, fiscalDocumentId:
       payment_method_type: String(payment.payment_method_type || 'outro'),
       amount_cents: Number(payment.amount_cents) || 0,
     }))
+  } else if (data.service_order_id) {
+    const { data: osRow, error: osError } = await auth.supabase
+      .from('service_orders')
+      .select('id, display_number, status, services, services_total_cents, payment_methods, customers(full_name, company_name, is_company, cpf, cnpj, state_registration, state_registration_exempt)')
+      .eq('organization_id', auth.organizationId)
+      .eq('id', data.service_order_id)
+      .maybeSingle()
+    if (osError) return { ok: false as const, error: 'db_error' as const }
+    if (osRow) {
+      const customerRaw = (osRow as { customers?: unknown }).customers
+      const customer = Array.isArray(customerRaw) ? customerRaw[0] : customerRaw
+      const customerRow = customer && typeof customer === 'object' ? customer as Record<string, unknown> : null
+      const isCompany = customerRow?.is_company === true
+      const customerName = String(
+        isCompany
+          ? (customerRow?.company_name || customerRow?.full_name || '')
+          : (customerRow?.full_name || customerRow?.company_name || ''),
+      ).trim() || null
+      const customerDocument = onlyDigits(String(customerRow?.cnpj || customerRow?.cpf || '')) || null
+      const osStatus = String(osRow.status || '')
+      order = {
+        id: String(osRow.id),
+        order_number: Number(osRow.display_number) || 0,
+        status: osStatus === 'cancelada'
+          ? 'canceled'
+          : (osStatus.startsWith('finalizada') ? 'paid' : 'in_progress'),
+        customer_name: customerName,
+        customer_type: isCompany ? 'pj' : 'pf',
+        customer_document: customerDocument,
+        customer_state_registration: customerRow?.state_registration ? String(customerRow.state_registration) : null,
+        customer_state_registration_exempt: customerRow?.state_registration_exempt === true,
+        total_cents: Number(osRow.services_total_cents) || 0,
+      }
+
+      let services: unknown = osRow.services
+      if (typeof services === 'string') {
+        try { services = JSON.parse(services) } catch { services = [] }
+      }
+      const serviceItems = Array.isArray(services) ? services : []
+      const productLines = serviceItems
+        .map((item, index) => {
+          if (!item || typeof item !== 'object') return null
+          const row = item as Record<string, unknown>
+          if (row.kind !== 'product') return null
+          const productId = String(row.sourceProductId || '').trim()
+          if (!productId) return null
+          const quantity = Math.max(1, Number(row.quantity) || 1)
+          const unitValue = Math.max(0, Number(row.unitValueCents ?? row.valueCents) || 0)
+          return {
+            id: `${osRow.id}-${index}`,
+            productId,
+            quantity,
+            subtotalCents: unitValue * quantity,
+            description: String(row.description || 'Peça'),
+          }
+        })
+        .filter((item): item is { id: string, productId: string, quantity: number, subtotalCents: number, description: string } => Boolean(item))
+
+      const productIds = [...new Set(productLines.map((line) => line.productId))]
+      const { data: productRows } = productIds.length > 0
+        ? await auth.supabase
+          .from('products')
+          .select('id, name, sku, ncm, cest, fiscal_origin, fci, fiscal_unit')
+          .eq('organization_id', auth.organizationId)
+          .in('id', productIds)
+        : { data: [] as Array<Record<string, unknown>> }
+      const productsById = new Map((productRows ?? []).map((row) => [String(row.id), row as Record<string, unknown>]))
+      items = productLines.map((line) => {
+        const product = productsById.get(line.productId)
+        return {
+          id: line.id,
+          product_id: line.productId,
+          name: product?.name ? String(product.name) : line.description,
+          sku: product?.sku ? String(product.sku) : null,
+          quantity: line.quantity,
+          unit_price_cents: line.quantity > 0 ? Math.round(line.subtotalCents / line.quantity) : line.subtotalCents,
+          discount_cents: 0,
+          subtotal_cents: line.subtotalCents,
+          ncm: product?.ncm ? String(product.ncm) : null,
+          cest: product?.cest ? String(product.cest) : null,
+          fiscal_origin: product?.fiscal_origin == null ? null : Number(product.fiscal_origin),
+          fci: product?.fci ? String(product.fci) : null,
+          fiscal_unit: product?.fiscal_unit ? String(product.fiscal_unit) : null,
+        }
+      })
+    }
   }
 
   const detail: FiscalDocumentDetail = {
@@ -244,6 +359,7 @@ export async function loadFiscalDocumentDetail (auth: AuthCtx, fiscalDocumentId:
     sefaz_status_code: data.sefaz_status_code ? String(data.sefaz_status_code) : null,
     sefaz_status_message: data.sefaz_status_message ? String(data.sefaz_status_message) : null,
     sales_order_id: data.sales_order_id ? String(data.sales_order_id) : null,
+    service_order_id: data.service_order_id ? String(data.service_order_id) : null,
     authorized_at: data.authorized_at ? String(data.authorized_at) : null,
     canceled_at: data.canceled_at ? String(data.canceled_at) : null,
     created_at: String(data.created_at),
@@ -306,7 +422,7 @@ export async function updateFiscalDocumentDraft (
     else if (digits.length === 11) orderPatch.customer_type = toDbCustomerType('pf')
   }
 
-  if (Object.keys(orderPatch).length > 1) {
+  if (Object.keys(orderPatch).length > 1 && !doc.service_order_id) {
     const { error } = await auth.supabase
       .from('sales_orders')
       .update(orderPatch)
@@ -444,7 +560,7 @@ export async function updateFiscalDocumentDraft (
     }
   }
 
-  if (input.payments) {
+  if (input.payments && !doc.service_order_id) {
     const paymentsResult = await applyFiscalDocumentPayments(auth, doc, input.payments)
     if (paymentsResult.ok === false) return paymentsResult
   }

@@ -231,7 +231,7 @@ async function buildNfeDestinatario (input: {
     return {
       ok: false,
       error: 'nfe_customer_required',
-      message: 'A NF-e exige cliente com CPF ou CNPJ. Cadastre o destinatário no pedido.',
+      message: 'A NF-e exige cliente com CPF ou CNPJ. Cadastre o destinatário no pedido ou na OS.',
     }
   }
 
@@ -301,46 +301,47 @@ async function buildNfeDestinatario (input: {
   }
 }
 
-export async function buildNfceFromSalesOrder (input: BuildNfceInput): Promise<BuildNfceResult> {
-  const { supabase, organizationId, orderId, profile } = input
+export type PreparedFiscalOrder = {
+  order_number: number | string
+  customer_name?: string | null
+  customer_document?: string | null
+  discount_total_cents?: number | null
+  surcharge_cents?: number | null
+  total_cents?: number | null
+  change_cents?: number | null
+}
+
+export type PreparedFiscalItem = {
+  quantity: number
+  subtotal_cents: number
+  products: unknown
+}
+
+export type PreparedFiscalPayment = {
+  payment_method_type: string
+  amount_cents: number
+}
+
+export type BuildNfcePreparedInput = {
+  supabase: SupabaseClient
+  organizationId: string
+  profile: FiscalProfileRow
+  operationNature?: FiscalOperationNatureRow | null
+  series: number
+  number: number
+  model: '55' | '65'
+  order: PreparedFiscalOrder
+  items: PreparedFiscalItem[]
+  payments: PreparedFiscalPayment[]
+  infoComplementar: string
+}
+
+export async function buildNfceFromPreparedOrder (input: BuildNfcePreparedInput): Promise<BuildNfceResult> {
+  const { supabase, organizationId, profile, order, items, payments } = input
   const operationNature = input.operationNature ?? null
   const isHomologacao = profile.fiscal_environment !== 'producao'
-  const model = input.model === '55' ? '55' : '65'
+  const model = input.model
   const kind = fiscalDocumentKind(model)
-
-  const [{ data: order, error: orderError }, { data: items, error: itemsError }, { data: payments, error: paymentsError }] = await Promise.all([
-    supabase
-      .from('sales_orders')
-      .select('id, order_number, status, customer_name, customer_document, discount_total_cents, surcharge_cents, total_cents, paid_amount_cents, change_cents, created_at')
-      .eq('organization_id', organizationId)
-      .eq('id', orderId)
-      .maybeSingle(),
-    supabase
-      .from('sales_order_items')
-      .select('quantity, unit_price_cents, discount_cents, subtotal_cents, products(id, name, sku, barcode, kind, ncm, cest, cfop, fiscal_origin, fci, fiscal_unit, icms_csosn, icms_cst, pis_cst, cofins_cst)')
-      .eq('organization_id', organizationId)
-      .eq('sales_order_id', orderId)
-      .order('created_at', { ascending: true }),
-    supabase
-      .from('sales_order_payments')
-      .select('payment_method_type, amount_cents')
-      .eq('organization_id', organizationId)
-      .eq('sales_order_id', orderId)
-      .order('created_at', { ascending: true }),
-  ])
-
-  if (orderError || itemsError || paymentsError) {
-    return { ok: false, error: 'db_error', message: 'Não foi possível carregar a venda.' }
-  }
-  if (!order) {
-    return { ok: false, error: 'order_not_found', message: 'Venda não encontrada.' }
-  }
-  if (order.status !== 'paid') {
-    return { ok: false, error: 'order_not_paid', message: `A ${kind} só pode ser emitida para venda paga.` }
-  }
-  if (!items?.length) {
-    return { ok: false, error: 'empty_order', message: 'A venda não possui itens.' }
-  }
 
   const cnpj = onlyDigits(profile.cnpj || '')
   const uf = requiredText(profile.state).toUpperCase()
@@ -491,7 +492,7 @@ export async function buildNfceFromSalesOrder (input: BuildNfceInput): Promise<B
 
   const changeCents = toCents(order.change_cents)
   const resolvedPayments = resolveNfcePaymentAmountsWithChange({
-    payments: (payments || []).map((payment) => ({
+    payments: payments.map((payment) => ({
       payment_method_type: String(payment.payment_method_type || ''),
       amount_cents: toCents(payment.amount_cents),
     })),
@@ -506,7 +507,7 @@ export async function buildNfceFromSalesOrder (input: BuildNfceInput): Promise<B
     }
   }
 
-  const pagamentos = (payments || []).map((payment, index) => buildNfcePagamentoLine({
+  const pagamentos = payments.map((payment, index) => buildNfcePagamentoLine({
     paymentMethodType: payment.payment_method_type,
     amount: centsToValue(resolvedPayments.amountsCents[index] ?? 0),
   }))
@@ -558,10 +559,7 @@ export async function buildNfceFromSalesOrder (input: BuildNfceInput): Promise<B
       pagamentos,
       troco: centsToValue(resolvedPayments.changeCents),
     },
-    informacoesComplementares: nfeXmlText(
-      `Venda Conectize #${order.order_number}`,
-      NFE_INFCPL_MAX,
-    ),
+    informacoesComplementares: nfeXmlText(input.infoComplementar, NFE_INFCPL_MAX),
     ...(ibscbsConfig.include
       ? {
         ibscbsItems,
@@ -574,4 +572,74 @@ export async function buildNfceFromSalesOrder (input: BuildNfceInput): Promise<B
     ok: true,
     payload,
   }
+}
+
+export async function buildNfceFromSalesOrder (input: BuildNfceInput): Promise<BuildNfceResult> {
+  const { supabase, organizationId, orderId, profile } = input
+  const operationNature = input.operationNature ?? null
+  const model = input.model === '55' ? '55' : '65'
+  const kind = fiscalDocumentKind(model)
+
+  const [{ data: order, error: orderError }, { data: items, error: itemsError }, { data: payments, error: paymentsError }] = await Promise.all([
+    supabase
+      .from('sales_orders')
+      .select('id, order_number, status, customer_name, customer_document, discount_total_cents, surcharge_cents, total_cents, paid_amount_cents, change_cents, created_at')
+      .eq('organization_id', organizationId)
+      .eq('id', orderId)
+      .maybeSingle(),
+    supabase
+      .from('sales_order_items')
+      .select('quantity, unit_price_cents, discount_cents, subtotal_cents, products(id, name, sku, barcode, kind, ncm, cest, cfop, fiscal_origin, fci, fiscal_unit, icms_csosn, icms_cst, pis_cst, cofins_cst)')
+      .eq('organization_id', organizationId)
+      .eq('sales_order_id', orderId)
+      .order('created_at', { ascending: true }),
+    supabase
+      .from('sales_order_payments')
+      .select('payment_method_type, amount_cents')
+      .eq('organization_id', organizationId)
+      .eq('sales_order_id', orderId)
+      .order('created_at', { ascending: true }),
+  ])
+
+  if (orderError || itemsError || paymentsError) {
+    return { ok: false, error: 'db_error', message: 'Não foi possível carregar a venda.' }
+  }
+  if (!order) {
+    return { ok: false, error: 'order_not_found', message: 'Venda não encontrada.' }
+  }
+  if (order.status !== 'paid') {
+    return { ok: false, error: 'order_not_paid', message: `A ${kind} só pode ser emitida para venda paga.` }
+  }
+  if (!items?.length) {
+    return { ok: false, error: 'empty_order', message: 'A venda não possui itens.' }
+  }
+
+  return buildNfceFromPreparedOrder({
+    supabase,
+    organizationId,
+    profile,
+    operationNature,
+    series: input.series,
+    number: input.number,
+    model,
+    order: {
+      order_number: order.order_number,
+      customer_name: order.customer_name,
+      customer_document: order.customer_document,
+      discount_total_cents: order.discount_total_cents,
+      surcharge_cents: order.surcharge_cents,
+      total_cents: order.total_cents,
+      change_cents: order.change_cents,
+    },
+    items: items.map((item) => ({
+      quantity: Number(item.quantity) || 1,
+      subtotal_cents: Number(item.subtotal_cents) || 0,
+      products: item.products,
+    })),
+    payments: (payments || []).map((payment) => ({
+      payment_method_type: String(payment.payment_method_type || ''),
+      amount_cents: Number(payment.amount_cents) || 0,
+    })),
+    infoComplementar: `Venda Conectize #${order.order_number}`,
+  })
 }
