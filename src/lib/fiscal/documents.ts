@@ -324,7 +324,12 @@ export async function loadFiscalDocumentDetail (auth: AuthCtx, fiscalDocumentId:
           .eq('organization_id', auth.organizationId)
           .in('id', productIds)
         : { data: [] as Array<Record<string, unknown>> }
-      const productsById = new Map((productRows ?? []).map((row) => [String(row.id), row as Record<string, unknown>]))
+      const productsById = new Map<string, Record<string, unknown>>(
+        (productRows ?? []).map((row): [string, Record<string, unknown>] => {
+          const product = row as Record<string, unknown>
+          return [String(product.id), product]
+        }),
+      )
       items = productLines.map((line) => {
         const product = productsById.get(line.productId)
         return {

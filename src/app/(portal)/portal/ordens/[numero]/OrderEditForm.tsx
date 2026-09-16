@@ -33,7 +33,7 @@ export function OrderEditForm({
 		if (now - lastToastRef.current < 500) return
 		lastToastRef.current = now
 
-		if (state.ok) {
+		if (state.ok === true) {
 			toast({
 				variant: 'success',
 				title: 'Dados salvos',
@@ -42,6 +42,8 @@ export function OrderEditForm({
 			})
 			return
 		}
+
+		if (state.ok !== false) return
 
 		toast({
 			variant: 'destructive',
