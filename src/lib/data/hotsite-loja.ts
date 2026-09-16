@@ -28,8 +28,35 @@ export const lojaNav = [
 	{ href: '#produtos', label: 'Produtos' },
 	{ href: '#linhas', label: 'Linhas' },
 	{ href: '#diferenciais', label: 'Diferenciais' },
+	{ href: '#avaliacoes', label: 'Avaliações' },
 	{ href: '#unidade', label: 'Loja' },
 	{ href: '#contato', label: 'Contato' },
+] as const
+
+export const lojaGoogleRating = {
+	ratingValue: 5,
+	reviewCountLabel: 'mais de 400',
+	reviewCount: 400,
+	sourceLabel: 'Google',
+	mapsUrl: business.hasMap,
+} as const
+
+export const lojaTestimonials = [
+	{
+		name: 'Camila R.',
+		quote:
+			'Cheguei com o iPhone sem tela e saí no mesmo dia com a peça certa e o preço combinado. Atendimento direto, sem enrolação.',
+	},
+	{
+		name: 'Rafael M.',
+		quote:
+			'Mandei o modelo no WhatsApp, me passaram as opções de bateria e capinha e eu escolhi. Honestidade no orçamento faz toda a diferença.',
+	},
+	{
+		name: 'Juliana S.',
+		quote:
+			'Já levei película, cabo e display. Sempre explicam o que estou comprando e a garantia. Por isso volto e indico.',
+	},
 ] as const
 
 export const lojaProducts = [
@@ -182,6 +209,13 @@ export function getLojaJsonLd() {
 			name: 'Belo Horizonte',
 			addressRegion: 'MG',
 			addressCountry: 'BR',
+		},
+		aggregateRating: {
+			'@type': 'AggregateRating',
+			ratingValue: lojaGoogleRating.ratingValue,
+			bestRating: 5,
+			worstRating: 1,
+			ratingCount: lojaGoogleRating.reviewCount,
 		},
 		hasOfferCatalog: {
 			'@type': 'OfferCatalog',

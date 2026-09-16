@@ -14,7 +14,7 @@ import {
 import { toast } from '@/hooks/use-toast'
 import { maskedFromCents } from '@/lib/utils/money'
 import { cn } from '@/lib/utils'
-import { countPendingOfflineSales, listActionableOfflineSales } from '@/lib/pdv/offline/sales-queue'
+import { countPendingOfflineSales, listActionableOfflineSales, pruneStaleOfflineSales, removeSyncedOfflineSales } from '@/lib/pdv/offline/sales-queue'
 import { syncOfflineSalesQueue } from '@/lib/pdv/offline/sync'
 import type { PdvOfflineSale } from '@/lib/pdv/offline/types'
 
@@ -46,6 +46,10 @@ export function PdvOfflineBanner ({ organizationId, cashOpen, queueVersion = 0, 
       setRows([])
       return
     }
+    await Promise.all([
+      removeSyncedOfflineSales(organizationId, 0),
+      pruneStaleOfflineSales(organizationId),
+    ])
     const [count, list] = await Promise.all([
       countPendingOfflineSales(organizationId),
       listActionableOfflineSales(organizationId),
@@ -157,8 +161,8 @@ export function PdvOfflineBanner ({ organizationId, cashOpen, queueVersion = 0, 
             )
             : (
               pendingCount > 0
-                ? `Sem conexão. ${pendingCount} venda(s) ficarão na fila até a rede voltar.`
-                : 'Sem conexão. Você pode vender com o catálogo em cache; as vendas entram na fila.'
+                ? `Sem conexão. ${pendingCount} venda(s) ficarão na fila até a rede voltar. Estoque não é garantido offline.`
+                : 'Sem conexão. Você pode vender com o catálogo em cache; as vendas entram na fila. Estoque não é garantido offline.'
             )}
         </p>
         <div className="flex shrink-0 items-center gap-2">

@@ -54,7 +54,7 @@ export function LojaShell({
 					</nav>
 
 					<a
-						className={`${styles.ctaGhost} ${styles.headerCta}`}
+						className={`${styles.ctaWhatsapp} ${styles.headerCta}`}
 						href={lojaWhatsAppHref}
 						target="_blank"
 						rel="noopener noreferrer"

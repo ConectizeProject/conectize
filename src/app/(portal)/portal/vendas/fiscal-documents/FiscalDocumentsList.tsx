@@ -42,6 +42,10 @@ import {
   NFCE_CANCEL_EXPIRED_ALERT,
 } from '@/lib/fiscal/document-status'
 import type { FiscalDocumentListRow } from '@/lib/fiscal/document-types'
+import {
+  createStandaloneSalesOrder,
+  salesOrderNfeEmitHref,
+} from '@/lib/sales-orders/create-standalone-client'
 import { nfeDanfeDownloadUrl, nfeDanfePreviewUrl, openFiscalDanfePrint } from '@/app/(portal)/portal/vendas/SalesOrderCupomPrint'
 import { VendasListPagination } from '@/app/(portal)/portal/vendas/VendasListPagination'
 import { VENDAS_LIST_PAGE_SIZE } from '@/lib/vendas/list-pagination'
@@ -77,6 +81,26 @@ export function FiscalDocumentsList ({ model }: Props) {
   const [hasLoaded, setHasLoaded] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [isCreatingNfe, setIsCreatingNfe] = useState(false)
+
+  async function createNfeFromScratch () {
+    if (isCreatingNfe) return
+    setIsCreatingNfe(true)
+    try {
+      const result = await createStandaloneSalesOrder()
+      if (result.ok === false) {
+        toast({
+          title: 'Não foi possível criar a NF-e',
+          description: result.message,
+          variant: 'destructive',
+        })
+        return
+      }
+      router.push(salesOrderNfeEmitHref(result.orderId))
+    } finally {
+      setIsCreatingNfe(false)
+    }
+  }
 
   async function load (nextPage = page, overrides?: FiscalListFilters) {
     setIsLoading(true)
@@ -245,7 +269,7 @@ export function FiscalDocumentsList ({ model }: Props) {
 
   const kind = model === '55' ? 'NF-e' : 'NFC-e'
   const emptyHint = model === '55'
-    ? 'Ainda não há NF-e (modelo 55). Gere a partir de um pedido pago em Pedidos.'
+    ? 'Ainda não há NF-e de saída. Crie uma do zero ou emita a partir de um pedido pago.'
     : 'Nenhuma NFC-e encontrada. Emita a partir de um pedido pago.'
 
   return (
@@ -255,9 +279,16 @@ export function FiscalDocumentsList ({ model }: Props) {
           <Link href='/portal/vendas/nfe/entradas'>
             <Button type='button' variant='outline'>Entradas</Button>
           </Link>
-          <Link href='/portal/vendas/nfe/entradas/nova'>
-            <Button type='button'>Nova NF-e de entrada</Button>
+          <Link href='/portal/vendas/nfe/saidas/nova'>
+            <Button type='button' variant='outline'>A partir de pedido</Button>
           </Link>
+          <Button
+            type='button'
+            disabled={isCreatingNfe}
+            onClick={() => void createNfeFromScratch()}
+          >
+            {isCreatingNfe ? 'Criando...' : 'Nova NF-e do zero'}
+          </Button>
         </div>
       ) : null}
       <div className='flex flex-col gap-4 lg:flex-row lg:items-start'>
@@ -346,7 +377,22 @@ export function FiscalDocumentsList ({ model }: Props) {
               ) : documents.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className='py-6 text-center text-muted-foreground'>
-                    {emptyHint}
+                    <p>{emptyHint}</p>
+                    {model === '55' ? (
+                      <div className='mt-3 flex flex-wrap justify-center gap-2'>
+                        <Button
+                          type='button'
+                          size='sm'
+                          disabled={isCreatingNfe}
+                          onClick={() => void createNfeFromScratch()}
+                        >
+                          {isCreatingNfe ? 'Criando...' : 'Criar NF-e do zero'}
+                        </Button>
+                        <Link href='/portal/vendas/nfe/saidas/nova'>
+                          <Button type='button' variant='outline' size='sm'>A partir de pedido</Button>
+                        </Link>
+                      </div>
+                    ) : null}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -377,6 +423,13 @@ export function FiscalDocumentsList ({ model }: Props) {
                             className='font-medium text-primary underline-offset-4 hover:underline'
                           >
                             #{doc.order_number}
+                          </Link>
+                        ) : doc.order_number && doc.service_order_id ? (
+                          <Link
+                            href={`/portal/ordens/${encodeURIComponent(String(doc.order_number))}`}
+                            className='font-medium text-primary underline-offset-4 hover:underline'
+                          >
+                            OS #{doc.order_number}
                           </Link>
                         ) : doc.order_number ? (
                           `#${doc.order_number}`

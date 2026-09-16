@@ -1,5 +1,15 @@
-import { idbDelete, idbGet, idbGetAll, idbPut, STORES } from './idb'
+import {
+  idbDelete,
+  idbGet,
+  idbGetAllFromIndex,
+  idbPut,
+  STORES,
+} from './idb'
 import type { PdvOfflineSale, PdvOfflineSalePayload } from './types'
+
+const SYNCING_STALE_MS = 5 * 60 * 1000
+const SYNCED_RETENTION_MS = 1000 * 60 * 60 * 24
+const FAILED_RETENTION_MS = 1000 * 60 * 60 * 24 * 30
 
 function newId () {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -43,8 +53,14 @@ export async function enqueueOfflineSale (input: {
 export async function listOfflineSales (organizationId: string): Promise<PdvOfflineSale[]> {
   if (!organizationId) return []
   try {
-    const all = await idbGetAll<PdvOfflineSale>(STORES.salesQueue)
-    return all
+    const lower = [organizationId, '']
+    const upper = [organizationId, '\uffff']
+    const rows = await idbGetAllFromIndex<PdvOfflineSale>(
+      STORES.salesQueue,
+      'by_org_created',
+      IDBKeyRange.bound(lower, upper),
+    )
+    return rows
       .filter((row) => row.organizationId === organizationId)
       .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
   } catch {
@@ -52,7 +68,30 @@ export async function listOfflineSales (organizationId: string): Promise<PdvOffl
   }
 }
 
+/** Itens `syncing` órfãos (aba fechada no meio do sync) voltam para pending. */
+export async function reclaimOrphanSyncingSales (
+  organizationId: string,
+  olderThanMs = SYNCING_STALE_MS,
+) {
+  const rows = await listOfflineSales(organizationId)
+  const cutoff = Date.now() - olderThanMs
+  await Promise.all(
+    rows
+      .filter((row) => {
+        if (row.status !== 'syncing') return false
+        const at = row.lastAttemptAt ? new Date(row.lastAttemptAt).getTime() : 0
+        return !Number.isFinite(at) || at < cutoff
+      })
+      .map((row) => updateOfflineSale({
+        ...row,
+        status: 'pending',
+        lastError: row.lastError || 'Sincronização interrompida. Tentaremos novamente.',
+      })),
+  )
+}
+
 export async function listActionableOfflineSales (organizationId: string) {
+  await reclaimOrphanSyncingSales(organizationId)
   const rows = await listOfflineSales(organizationId)
   return rows.filter((row) => row.status === 'pending' || row.status === 'failed' || row.status === 'syncing')
 }
@@ -70,12 +109,31 @@ export async function getOfflineSale (id: string) {
   return idbGet<PdvOfflineSale>(STORES.salesQueue, id)
 }
 
-export async function removeSyncedOfflineSales (organizationId: string, olderThanMs = 1000 * 60 * 60 * 24) {
+export async function removeSyncedOfflineSales (
+  organizationId: string,
+  olderThanMs = SYNCED_RETENTION_MS,
+) {
   const rows = await listOfflineSales(organizationId)
   const cutoff = Date.now() - olderThanMs
   await Promise.all(
     rows
       .filter((row) => row.status === 'synced' && new Date(row.createdAt).getTime() < cutoff)
+      .map((row) => idbDelete(STORES.salesQueue, row.id)),
+  )
+}
+
+export async function pruneStaleOfflineSales (organizationId: string) {
+  const rows = await listOfflineSales(organizationId)
+  const syncedCutoff = Date.now() - SYNCED_RETENTION_MS
+  const failedCutoff = Date.now() - FAILED_RETENTION_MS
+  await Promise.all(
+    rows
+      .filter((row) => {
+        const created = new Date(row.createdAt).getTime()
+        if (row.status === 'synced' && created < syncedCutoff) return true
+        if (row.status === 'failed' && created < failedCutoff) return true
+        return false
+      })
       .map((row) => idbDelete(STORES.salesQueue, row.id)),
   )
 }

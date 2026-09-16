@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
-import { emitFiscalDocumentForSalesOrder } from '@/lib/fiscal/emit-nfce'
+import { emitFiscalDocumentForSalesOrder, emitNfeForServiceOrder } from '@/lib/fiscal/emit-nfce'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -35,7 +35,7 @@ export async function POST (
 
     const { data: doc, error } = await auth.supabase
       .from('fiscal_documents')
-      .select('sales_order_id, status, model')
+      .select('sales_order_id, service_order_id, status, model')
       .eq('organization_id', auth.organizationId)
       .eq('id', fiscalDocumentId)
       .maybeSingle()
@@ -43,7 +43,7 @@ export async function POST (
     if (error) {
       return NextResponse.json({ ok: false, error: 'db_error', message: 'Erro ao carregar o documento fiscal.' }, { status: 500 })
     }
-    if (!doc?.sales_order_id) {
+    if (!doc?.sales_order_id && !doc?.service_order_id) {
       return NextResponse.json({ ok: false, error: 'not_found', message: 'Documento fiscal não encontrado.' }, { status: 404 })
     }
     if (doc.status === 'authorized') {
@@ -51,7 +51,9 @@ export async function POST (
     }
 
     const model = String(doc.model) === '55' ? '55' : '65'
-    const result = await emitFiscalDocumentForSalesOrder(auth, String(doc.sales_order_id), model)
+    const result = doc.service_order_id
+      ? await emitNfeForServiceOrder(auth, String(doc.service_order_id))
+      : await emitFiscalDocumentForSalesOrder(auth, String(doc.sales_order_id), model)
     if (result.ok === false) {
       return NextResponse.json(
         {

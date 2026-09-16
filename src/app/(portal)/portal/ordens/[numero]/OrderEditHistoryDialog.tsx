@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import {
 	Dialog,
 	DialogContent,
+	DialogDescription,
 	DialogHeader,
 	DialogTitle,
 	DialogTrigger,
@@ -227,6 +228,10 @@ export function OrderEditHistoryDialog({
 				>
 					<DialogHeader className="shrink-0">
 						<DialogTitle>Histórico de edições</DialogTitle>
+						<DialogDescription>
+							Alterações registradas nesta ordem de serviço, agrupadas por data e
+							autor.
+						</DialogDescription>
 					</DialogHeader>
 					<ScrollArea className="h-[min(60vh,calc(90vh-11rem))] w-full min-h-[12rem] pr-3">
 						{loading ? (

@@ -3,6 +3,7 @@ import type { PortalAuthStaffSuccess } from '@/lib/auth/portal-api'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { decryptFiscalSecretToBuffer, decryptFiscalSecretToString } from '@/lib/fiscal/secrets'
 import { buildNfceFromSalesOrder } from '@/lib/fiscal/build-nfce-from-sales-order'
+import { buildNfeFromServiceOrder } from '@/lib/fiscal/build-nfe-from-service-order'
 import { createSefazClient, type SefazTransmitResult } from '@/lib/fiscal/sefaz-client'
 import { nfceCscForEnvironment } from '@/lib/fiscal/csc'
 import { getDefaultFiscalOperationNature } from '@/lib/fiscal/operation-nature'
@@ -139,12 +140,18 @@ async function insertEvent (auth: AuthCtx, input: {
   }
 }
 
-async function getExistingFiscalDocument (auth: AuthCtx, orderId: string, model: '55' | '65') {
+async function getExistingFiscalDocument (
+  auth: AuthCtx,
+  orderId: string,
+  model: '55' | '65',
+  source: 'sales' | 'service' = 'sales',
+) {
+  const column = source === 'service' ? 'service_order_id' : 'sales_order_id'
   const { data } = await auth.supabase
     .from('fiscal_documents')
     .select(FISCAL_DOCUMENT_SELECT)
     .eq('organization_id', auth.organizationId)
-    .eq('sales_order_id', orderId)
+    .eq(column, orderId)
     .eq('model', model)
     .neq('status', 'canceled')
     .order('created_at', { ascending: false })
@@ -459,6 +466,10 @@ export async function getSalesOrderNfeState (auth: AuthCtx, orderId: string) {
   return getExistingFiscalDocument(auth, orderId, '55')
 }
 
+export async function getServiceOrderNfeState (auth: AuthCtx, orderId: string) {
+  return getExistingFiscalDocument(auth, orderId, '55', 'service')
+}
+
 export async function emitNfceForSalesOrder (auth: AuthCtx, orderId: string) {
   return emitFiscalDocumentForSalesOrder(auth, orderId, '65')
 }
@@ -467,12 +478,32 @@ export async function emitNfeForSalesOrder (auth: AuthCtx, orderId: string) {
   return emitFiscalDocumentForSalesOrder(auth, orderId, '55')
 }
 
+export async function emitNfeForServiceOrder (auth: AuthCtx, orderId: string) {
+  return emitFiscalDocument(auth, { serviceOrderId: orderId }, '55')
+}
+
 export async function emitFiscalDocumentForSalesOrder (
   auth: AuthCtx,
   orderId: string,
   model: '55' | '65',
 ): Promise<EmitNfceResult> {
+  return emitFiscalDocument(auth, { salesOrderId: orderId }, model)
+}
+
+async function emitFiscalDocument (
+  auth: AuthCtx,
+  source: { salesOrderId?: string, serviceOrderId?: string },
+  model: '55' | '65',
+): Promise<EmitNfceResult> {
   const kind = fiscalDocumentKind(model)
+  const salesOrderId = source.salesOrderId || null
+  const serviceOrderId = source.serviceOrderId || null
+  const orderId = salesOrderId || serviceOrderId
+  const sourceKind = serviceOrderId ? 'service' : 'sales'
+  if (!orderId) {
+    return { ok: false, error: 'order_not_found', message: 'Pedido não informado.' }
+  }
+
   const [{ data: profile }, operationNature, existing] = await Promise.all([
     auth.supabase
       .from('organization_fiscal_profiles')
@@ -480,7 +511,7 @@ export async function emitFiscalDocumentForSalesOrder (
       .eq('organization_id', auth.organizationId)
       .maybeSingle(),
     getDefaultFiscalOperationNature(auth.organizationId, model),
-    getExistingFiscalDocument(auth, orderId, model),
+    getExistingFiscalDocument(auth, orderId, model, sourceKind),
   ])
 
   if (!profile) {
@@ -604,7 +635,8 @@ export async function emitFiscalDocumentForSalesOrder (
         environment,
         series: numbering.series,
         number: numbering.number,
-        sales_order_id: orderId,
+        sales_order_id: salesOrderId,
+        service_order_id: serviceOrderId,
         status: 'pending',
       })
       .select(FISCAL_DOCUMENT_SELECT)
@@ -625,16 +657,26 @@ export async function emitFiscalDocumentForSalesOrder (
   }
   signedPersist.documentId = fiscalDocument.id
 
-  const built = await buildNfceFromSalesOrder({
-    supabase: auth.supabase,
-    organizationId: auth.organizationId,
-    orderId,
-    profile,
-    operationNature,
-    series: numbering.series,
-    number: numbering.number,
-    model,
-  })
+  const built = sourceKind === 'service'
+    ? await buildNfeFromServiceOrder({
+      supabase: auth.supabase,
+      organizationId: auth.organizationId,
+      orderId,
+      profile,
+      operationNature,
+      series: numbering.series,
+      number: numbering.number,
+    })
+    : await buildNfceFromSalesOrder({
+      supabase: auth.supabase,
+      organizationId: auth.organizationId,
+      orderId,
+      profile,
+      operationNature,
+      series: numbering.series,
+      number: numbering.number,
+      model,
+    })
   if (built.ok === false) {
     const needsCorrection = isProductFiscalCorrectionError(built.error)
     const updated = await persistFiscalDocument(auth, fiscalDocument.id, {

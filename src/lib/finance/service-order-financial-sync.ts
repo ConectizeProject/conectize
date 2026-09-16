@@ -105,8 +105,24 @@ function parsePaymentMethodsForFinance (raw: unknown): ParsedPaymentMethodItem[]
   return parsed
 }
 
-function buildOccurredAt (row: ServiceOrderFinanceRow) {
-  const base = row.updated_at || row.closed_at || new Date().toISOString()
+/**
+ * Data contábil da OS no financeiro.
+ * Prioriza `closed_at` (fechamento) para não “empurrar” o faturamento para o dia
+ * em que a OS foi só editada (`updated_at`).
+ * Sem fechamento, preserva o `occurred_at` já lançado; senão usa `updated_at`.
+ */
+function buildOccurredAt (
+  row: ServiceOrderFinanceRow,
+  preservedOccurredAt?: string | null,
+) {
+  if (row.closed_at) {
+    return toSaoPauloDate(row.closed_at)
+  }
+  const preserved = String(preservedOccurredAt || '').trim()
+  if (/^\d{4}-\d{2}-\d{2}$/.test(preserved)) {
+    return preserved
+  }
+  const base = row.updated_at || new Date().toISOString()
   return toSaoPauloDate(base)
 }
 
@@ -288,8 +304,23 @@ export async function syncServiceOrderFinancialTransactions ({
     descriptionByPaymentMethodId.set(method.id, String(method.description || '').trim())
   }
 
-  const occurredAt = buildOccurredAt(order)
   const financeSupabase = getFinanceWriteClient(supabase)
+
+  const { data: existingFinanceRow, error: existingFinanceError } = await financeSupabase
+    .from('financial_transactions')
+    .select('occurred_at')
+    .eq('service_order_id', order.id)
+    .order('occurred_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+  if (existingFinanceError) {
+    throw new Error(`Erro ao carregar lançamentos financeiros da OS: ${existingFinanceError.message}`)
+  }
+  const preservedOccurredAt = existingFinanceRow?.occurred_at
+    ? String(existingFinanceRow.occurred_at)
+    : null
+  const occurredAt = buildOccurredAt(order, preservedOccurredAt)
+
   const transactionsToInsert = parsedMethods
     .map((item, index) => {
       const contaId = contaByPaymentMethodId.get(item.payment_method_id)

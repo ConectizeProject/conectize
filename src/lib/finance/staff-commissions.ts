@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { brazilDayRangeUtc } from '@/lib/dashboard/brazil-day'
 import {
   resolveOrderCommissionCents,
   resolveOrderPartialNetCents,
@@ -200,6 +201,8 @@ async function listOsCommissions (
   from: string,
   to: string,
 ): Promise<StaffCommissionItem[]> {
+  const fromRange = brazilDayRangeUtc(from)
+  const toRange = brazilDayRangeUtc(to)
   const { data, error } = await supabase
     .from('service_orders')
     .select(
@@ -208,8 +211,8 @@ async function listOsCommissions (
     .eq('organization_id', organizationId)
     .not('commission_user_id', 'is', null)
     .in('status', [...OS_COMMISSION_STATUSES])
-    .gte('closed_at', from)
-    .lte('closed_at', `${to}T23:59:59.999`)
+    .gte('closed_at', fromRange.startIso)
+    .lte('closed_at', toRange.endIso)
     .order('closed_at', { ascending: false })
     .limit(2000)
 

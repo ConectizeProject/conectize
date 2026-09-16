@@ -89,13 +89,19 @@ export function PortalShell(props: PortalShellProps) {
 	const isFullWidth = isPortalFullWidthPath(pathname)
 	const isFillViewport = isPortalFillViewportPath(pathname)
 
+	// Lock do viewport só em rotas fill (quadro/PDV/WhatsApp). Páginas documento
+	// rolam no body — mais estável no Safari antigo (sem dvh + overflow aninhado).
 	useLayoutEffect(() => {
 		const root = document.documentElement
+		if (!isFillViewport) {
+			root.classList.remove('portal-scroll-lock')
+			return
+		}
 		root.classList.add('portal-scroll-lock')
 		return () => {
 			root.classList.remove('portal-scroll-lock')
 		}
-	}, [])
+	}, [isFillViewport])
 
 	const navConfig = buildPortalNavConfig({
 		role: props.role,
@@ -104,8 +110,18 @@ export function PortalShell(props: PortalShellProps) {
 	})
 
 	return (
-		<PortalBrandingProvider organizationName={orgLabel || null}>
-			<div className="flex h-dvh max-h-dvh min-h-0 flex-col overflow-hidden">
+		<PortalBrandingProvider
+			organizationName={orgLabel || null}
+			organizationId={props.activeOrganizationId ?? null}
+		>
+			<div
+				className={cn(
+					'flex min-h-0 flex-col',
+					isFillViewport
+						? 'portal-fill-shell overflow-hidden'
+						: 'min-h-screen',
+				)}
+			>
 				<header className="fixed inset-x-0 top-0 z-40 h-14 border-b border-border/60 bg-white dark:bg-background">
 					<div
 						className={cn(
@@ -170,7 +186,7 @@ export function PortalShell(props: PortalShellProps) {
 									</div>
 								}
 							>
-								<DropdownMenu>
+								<DropdownMenu modal={false}>
 									<DropdownMenuTrigger asChild>
 										<button
 											type="button"
@@ -246,14 +262,25 @@ export function PortalShell(props: PortalShellProps) {
 											</DropdownMenuItem>
 										)}
 										<DropdownMenuSeparator />
-										<DropdownMenuItem asChild>
-											<Link
-												href="/portal/logout"
-												className="flex items-center gap-2"
-											>
-												<LogOut className="h-4 w-4" strokeWidth={1.75} />
-												<span>Sair</span>
-											</Link>
+										<DropdownMenuItem
+											className="flex items-center gap-2"
+											onSelect={(event) => {
+												event.preventDefault()
+												void (async () => {
+													try {
+														const { clearOfflineClientState } = await import(
+															'@/lib/pdv/offline/idb'
+														)
+														await clearOfflineClientState()
+													} catch {
+														// ignore
+													}
+													window.location.assign('/portal/logout')
+												})()
+											}}
+										>
+											<LogOut className="h-4 w-4" strokeWidth={1.75} />
+											<span>Sair</span>
 										</DropdownMenuItem>
 									</DropdownMenuContent>
 								</DropdownMenu>
@@ -267,10 +294,8 @@ export function PortalShell(props: PortalShellProps) {
 
 				<main
 					className={cn(
-						'flex min-h-0 min-w-0 flex-1 flex-col',
-						isFillViewport
-							? 'overflow-hidden'
-							: 'overflow-y-auto overscroll-y-contain',
+						'flex min-w-0 flex-col',
+						isFillViewport ? 'min-h-0 flex-1 overflow-hidden' : null,
 					)}
 				>
 					<div

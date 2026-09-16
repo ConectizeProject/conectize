@@ -1,5 +1,6 @@
-﻿import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import { brazilDayRangeUtc, brazilTodayDateString } from '@/lib/dashboard/brazil-day'
 
 export async function GET (request: NextRequest) {
   const auth = await requireStaffOrAdmin()
@@ -8,14 +9,16 @@ export async function GET (request: NextRequest) {
   }
 
   const { searchParams } = new URL(request.url)
-  const date = String(searchParams.get('date') || new Date().toISOString().slice(0, 10))
+  const rawDate = String(searchParams.get('date') || '').trim()
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : brazilTodayDateString()
+  const { startIso, endIso } = brazilDayRangeUtc(date)
 
   const { data: orders, error } = await auth.supabase
     .from('sales_orders')
     .select('id, status, total_cents, paid_amount_cents, change_cents')
     .eq('organization_id', auth.organizationId)
-    .gte('created_at', `${date}T00:00:00`)
-    .lte('created_at', `${date}T23:59:59`)
+    .gte('created_at', startIso)
+    .lte('created_at', endIso)
 
   if (error) return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
 

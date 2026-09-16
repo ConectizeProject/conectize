@@ -16,6 +16,10 @@ import { RelatorioServicosSituacao } from '@/components/reports/RelatorioServico
 import { maskedFromCents } from '@/lib/utils/money'
 import { formatDateBr } from '@/lib/utils/format-date'
 import {
+  brazilDayRangeUtc,
+  brazilTodayDateString,
+} from '@/lib/dashboard/brazil-day'
+import {
   FINALIZED_ORDER_STATUSES,
   OPEN_ORDER_STATUSES,
   isFinalizedOrderStatus,
@@ -102,16 +106,16 @@ export default async function RelatorioServicosPage({
     organizationDisplayName = orgRow?.name ? String(orgRow.name).trim() || null : null
   }
 
-  const fromIso = `${fromStr}T00:00:00.000Z`
-  const toIso = `${toStr}T23:59:59.999Z`
+  const fromIso = brazilDayRangeUtc(fromStr).startIso
+  const toIso = brazilDayRangeUtc(toStr).endIso
 
   const periodDays = Math.round((toDate.getTime() - fromDate.getTime()) / 86400000) + 1
   const toDatePrev = new Date(fromDate.getTime() - 86400000)
   const fromDatePrev = new Date(toDatePrev.getTime() - (periodDays - 1) * 86400000)
   const fromStrPrev = formatDateYYYYMMDD(fromDatePrev)
   const toStrPrev = formatDateYYYYMMDD(toDatePrev)
-  const fromIsoPrev = `${fromStrPrev}T00:00:00.000Z`
-  const toIsoPrev = `${toStrPrev}T23:59:59.999Z`
+  const fromIsoPrev = brazilDayRangeUtc(fromStrPrev).startIso
+  const toIsoPrev = brazilDayRangeUtc(toStrPrev).endIso
 
   let customerName: string | undefined
   if (customerId) {
@@ -680,14 +684,16 @@ function computePaymentFeesAndNet(
   return { payment_fees_cents: paymentFeesCents, net_received_cents: netReceivedCents, payment_fees_breakdown: breakdown }
 }
 
-/** Sem query na URL: mês civil atual (UTC) do dia 1 até hoje — alinhado ao relatório de vendas de aparelhos. */
+/** Sem query na URL: mês civil atual (America/Sao_Paulo) do dia 1 até hoje. */
 function getDateRange(from?: string, to?: string) {
-  const now = new Date()
-  const fallbackTo = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
-  const fallbackFrom = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+  const todayStr = brazilTodayDateString()
+  const year = Number(todayStr.slice(0, 4))
+  const month = Number(todayStr.slice(5, 7))
+  const fallbackFromStr = `${year}-${String(month).padStart(2, '0')}-01`
+  const fallbackToStr = todayStr
 
-  const fromDate = parseDateParam(from) || fallbackFrom
-  const toDate = parseDateParam(to) || fallbackTo
+  const fromDate = parseDateParam(from) || parseDateParam(fallbackFromStr)!
+  const toDate = parseDateParam(to) || parseDateParam(fallbackToStr)!
 
   const fromStr = formatDateYYYYMMDD(fromDate)
   const toStr = formatDateYYYYMMDD(toDate)

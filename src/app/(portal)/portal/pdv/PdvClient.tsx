@@ -51,15 +51,14 @@ import {
 	type PaymentMethodType,
 } from '@/lib/pdv/cash-close-summary'
 import {
-	readOfflineCatalog,
 	readOfflinePaymentMethods,
-	writeOfflineCatalog,
 	writeOfflinePaymentMethods,
 } from '@/lib/pdv/offline/catalog-store'
 import {
 	enqueueOfflineSale,
 	isLikelyNetworkFailure,
 } from '@/lib/pdv/offline/sales-queue'
+import { syncCatalogSnapshot } from '@/lib/pdv/sync-catalog-snapshot'
 import { isBrowserOffline, portalFetch } from '@/lib/portal/portal-fetch'
 import { appConfirm, appPrompt } from '@/lib/ui/app-dialogs'
 import { cn } from '@/lib/utils'
@@ -81,9 +80,7 @@ import { PdvOfflineBanner } from './PdvOfflineBanner'
 import { ProductPreview, ProductThumbImage } from './PdvProductPreview'
 import {
 	findLocalCatalogByCode,
-	readSessionCatalogSnapshot,
 	searchLocalCatalog,
-	writeSessionCatalogSnapshot,
 } from './pdv-catalog-cache'
 import {
 	buildDefaultPaymentLine,
@@ -483,47 +480,6 @@ export function PdvClient({
 			const force = Boolean(options?.force)
 			const notify = Boolean(options?.notify)
 
-			if (!force) {
-				const sessionProducts = readSessionCatalogSnapshot(organizationId)
-				if (sessionProducts?.length) {
-					setCatalogCache(sessionProducts)
-				} else {
-					const offlineProducts = await readOfflineCatalog(organizationId)
-					if (offlineProducts?.length) {
-						setCatalogCache(offlineProducts as CatalogProduct[])
-						writeSessionCatalogSnapshot(
-							organizationId,
-							offlineProducts as CatalogProduct[],
-						)
-					}
-				}
-			}
-
-			if (typeof navigator !== 'undefined' && !navigator.onLine) {
-				const offlineProducts = await readOfflineCatalog(organizationId)
-				if (offlineProducts?.length) {
-					setCatalogCache(offlineProducts as CatalogProduct[])
-					writeSessionCatalogSnapshot(
-						organizationId,
-						offlineProducts as CatalogProduct[],
-					)
-					if (notify) {
-						toast({
-							title: 'Catálogo offline',
-							description: `${offlineProducts.length} produto(s) do último sync.`,
-						})
-					}
-					return { ok: true as const, count: offlineProducts.length }
-				}
-				if (notify) {
-					toast({
-						title: 'Sem conexão e sem catálogo em cache',
-						variant: 'destructive',
-					})
-				}
-				return { ok: false as const, count: 0 }
-			}
-
 			catalogPrefetchRef.current?.abort()
 			const controller = new AbortController()
 			catalogPrefetchRef.current = controller
@@ -531,30 +487,26 @@ export function PdvClient({
 			if (notify || force) setSyncingCatalog(true)
 
 			try {
-				const res = await portalFetch('/api/portal/pdv/catalog?snapshot=1', {
+				const result = await syncCatalogSnapshot(organizationId, {
+					force,
 					signal: controller.signal,
+					onProducts: setCatalogCache,
 				})
-				if (controller.signal.aborted) return { ok: false as const, count: 0 }
-				const data = await res?.json().catch(() => null)
-				if (controller.signal.aborted) return { ok: false as const, count: 0 }
-				if (!data?.ok || !Array.isArray(data.products)) {
-					if (notify) {
-						toast({
-							title: 'Não foi possível sincronizar produtos',
-							variant: 'destructive',
-						})
-					}
+
+				if (controller.signal.aborted) {
 					return { ok: false as const, count: 0 }
 				}
 
-				const products = data.products.map((row: Record<string, unknown>) =>
-					mapCatalogProduct(row),
-				)
-				setCatalogCache(products)
-				writeSessionCatalogSnapshot(organizationId, products)
-				try {
-					await writeOfflineCatalog(organizationId, products)
-					if (typeof window !== 'undefined') {
+				if (result.ok === false && result.error === 'aborted') {
+					return { ok: false as const, count: 0 }
+				}
+
+				if (result.ok === true) {
+					if (
+						typeof window !== 'undefined'
+						&& result.source === 'network'
+						&& process.env.NODE_ENV === 'development'
+					) {
 						;(
 							window as Window & { __pdvOfflineDebug?: () => Promise<unknown> }
 						).__pdvOfflineDebug = async () => {
@@ -562,46 +514,38 @@ export function PdvClient({
 							return debugOfflineDb()
 						}
 					}
-				} catch (err) {
-					console.warn(
-						'[pdv-offline] falha ao gravar catálogo no IndexedDB',
-						err,
-					)
-				}
 
-				if (notify) {
-					toast({
-						title: 'Produtos sincronizados',
-						description:
-							products.length === 1
-								? '1 produto disponível no PDV (também salvo offline).'
-								: `${products.length} produtos disponíveis no PDV (também salvos offline).`,
-					})
-				}
-
-				return { ok: true as const, count: products.length }
-			} catch (err) {
-				if (err instanceof DOMException && err.name === 'AbortError') {
-					return { ok: false as const, count: 0 }
-				}
-				const offlineProducts = await readOfflineCatalog(organizationId)
-				if (offlineProducts?.length) {
-					setCatalogCache(offlineProducts as CatalogProduct[])
-					writeSessionCatalogSnapshot(
-						organizationId,
-						offlineProducts as CatalogProduct[],
-					)
 					if (notify) {
-						toast({
-							title: 'Usando catálogo em cache',
-							description: 'Não foi possível atualizar online.',
-						})
+						if (result.source === 'offline') {
+							toast({
+								title: 'Catálogo offline',
+								description: `${result.count} produto(s) do último sync.`,
+							})
+						} else if (result.source === 'cache') {
+							toast({
+								title: 'Usando catálogo em cache',
+								description: 'Não foi possível atualizar online.',
+							})
+						} else {
+							toast({
+								title: 'Produtos sincronizados',
+								description: result.truncated
+									? `${result.count} produtos (catálogo parcial — limite do snapshot).`
+									: result.count === 1
+										? '1 produto disponível no PDV (também salvo offline).'
+										: `${result.count} produtos disponíveis no PDV (também salvos offline).`,
+							})
+						}
 					}
-					return { ok: true as const, count: offlineProducts.length }
+					return { ok: true as const, count: result.count }
 				}
+
 				if (notify) {
 					toast({
-						title: 'Não foi possível sincronizar produtos',
+						title:
+							result.error === 'offline_empty'
+								? 'Sem conexão e sem catálogo em cache'
+								: 'Não foi possível sincronizar produtos',
 						variant: 'destructive',
 					})
 				}
@@ -621,7 +565,7 @@ export function PdvClient({
 	}, [prefetchCatalogSnapshot, syncingCatalog])
 
 	const prefetchPdvSessionData = useCallback(() => {
-		if (typeof window !== 'undefined') {
+		if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
 			;(
 				window as Window & { __pdvOfflineDebug?: () => Promise<unknown> }
 			).__pdvOfflineDebug = async () => {
@@ -629,6 +573,9 @@ export function PdvClient({
 				return debugOfflineDb()
 			}
 		}
+		void import('@/lib/pdv/offline/idb').then(({ requestPersistentStorage }) => {
+			void requestPersistentStorage()
+		})
 		void loadMethods()
 		void prefetchCatalogSnapshot()
 	}, [loadMethods, prefetchCatalogSnapshot])
