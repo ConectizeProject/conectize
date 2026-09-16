@@ -2,6 +2,7 @@
 
 import { type ReactNode, useActionState, useEffect, useRef } from 'react'
 import { toast } from '@/hooks/use-toast'
+import { getOrdemErrorMessage } from '@/lib/utils/error-messages'
 import {
 	type UpdateOrderSaveResult,
 	updateOrderAction,
@@ -27,15 +28,28 @@ export function OrderEditForm({
 	const lastToastRef = useRef(0)
 
 	useEffect(() => {
-		if (!state?.ok) return
+		if (!state) return
 		const now = Date.now()
 		if (now - lastToastRef.current < 500) return
 		lastToastRef.current = now
+
+		if (state.ok) {
+			toast({
+				variant: 'success',
+				title: 'Dados salvos',
+				description:
+					'As alterações da ordem de serviço foram salvas com sucesso.',
+			})
+			return
+		}
+
 		toast({
-			variant: 'success',
-			title: 'Dados salvos',
-			description:
-				'As alterações da ordem de serviço foram salvas com sucesso.',
+			variant: 'destructive',
+			title: 'Não foi possível concluir',
+			description: getOrdemErrorMessage(state.error, undefined, {
+				saveDbCode: state.ec,
+				saveDbMessage: state.em,
+			}),
 		})
 	}, [state])
 

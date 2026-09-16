@@ -1,9 +1,15 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { Download, ExternalLink, FileCheck2, FileText, Loader2, Printer, Send } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Download, ExternalLink, FileCheck2, Loader2, Printer, Send } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import {
+  SalesOrderCupomPreview,
+  openNfceDanfePrint,
+  openNfeDanfePrint,
+  openSalesOrderCupomPrint,
+} from '@/app/(portal)/portal/vendas/SalesOrderCupomPrint'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -13,19 +19,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { portalFetch } from '@/lib/portal/portal-fetch'
 import { toast } from '@/hooks/use-toast'
+import { fiscalEmitFailureMessage } from '@/lib/fiscal/emit-failure-message'
+import { emitSalesOrderFiscalDocument } from '@/lib/fiscal/emit-sales-order-client'
 import {
   isProductFiscalCorrectionError,
   nfceEditorHref,
+  nfeEditorHref,
 } from '@/lib/fiscal/product-fiscal-errors'
-import { fiscalEmitFailureMessage } from '@/lib/fiscal/emit-failure-message'
-import {
-  SalesOrderCupomPreview,
-  openNfceDanfePrint,
-  openSalesOrderCupomPrint,
-  salesOrderCupomPrintLabel,
-} from '@/app/(portal)/portal/vendas/SalesOrderCupomPrint'
+import { portalFetch } from '@/lib/portal/portal-fetch'
 
 export {
   openFiscalDanfePrint,
@@ -107,7 +109,9 @@ export function SalesOrderAfterSaleActions (props: {
   const [busyPrint, setBusyPrint] = useState(false)
   const [busyBling, setBusyBling] = useState(false)
   const [busyNfce, setBusyNfce] = useState(false)
+  const [busyNfe, setBusyNfe] = useState(false)
   const [nfce, setNfce] = useState<SalesOrderNfceState>({ fiscalDocument: null, danfeUrl: null, xmlUrl: null })
+  const [nfe, setNfe] = useState<SalesOrderNfceState>({ fiscalDocument: null, danfeUrl: null, xmlUrl: null })
   const [bling, setBling] = useState<SalesOrderBlingLinkState>(() =>
     buildInitialBlingState(props)
   )
@@ -121,7 +125,9 @@ export function SalesOrderAfterSaleActions (props: {
   const canSendBling = props.status === 'paid' || props.status == null
   const viewUrl = bling.preferredUrl || bling.pedidoUrl
   const nfceStatus = nfce.fiscalDocument?.status ?? null
+  const nfeStatus = nfe.fiscalDocument?.status ?? null
   const canPrintFiscal = nfceStatus === 'authorized' && nfce.danfeUrl
+  const canPrintNfe = nfeStatus === 'authorized' && nfe.danfeUrl
   const needsFiscalCorrection = Boolean(
     nfce.fiscalDocument?.id && (
       nfceStatus === 'rejected' ||
@@ -129,23 +135,46 @@ export function SalesOrderAfterSaleActions (props: {
       (nfceStatus === 'pending' && isProductFiscalCorrectionError(nfce.fiscalDocument.sefaz_status_code))
     ),
   )
+  const needsNfeCorrection = Boolean(
+    nfe.fiscalDocument?.id && (
+      nfeStatus === 'rejected' ||
+      nfeStatus === 'denied' ||
+      (nfeStatus === 'pending' && isProductFiscalCorrectionError(nfe.fiscalDocument.sefaz_status_code))
+    ),
+  )
 
   useEffect(() => {
     let cancelled = false
     if (!isPaid) {
       setNfce({ fiscalDocument: null, danfeUrl: null, xmlUrl: null })
+      setNfe({ fiscalDocument: null, danfeUrl: null, xmlUrl: null })
       return
     }
 
     void (async () => {
-      const res = await portalFetch(`/api/portal/sales-orders/${encodeURIComponent(props.orderId)}/emit-nfce`)
-      const data = await res?.json().catch(() => null)
-      if (cancelled || !data?.ok) return
-      setNfce({
-        fiscalDocument: data.fiscal_document ?? null,
-        danfeUrl: data.danfe_url ?? null,
-        xmlUrl: data.xml_url ?? null,
-      })
+      const [nfceRes, nfeRes] = await Promise.all([
+        portalFetch(`/api/portal/sales-orders/${encodeURIComponent(props.orderId)}/emit-nfce`),
+        portalFetch(`/api/portal/sales-orders/${encodeURIComponent(props.orderId)}/emit-nfe`),
+      ])
+      const [nfceData, nfeData] = await Promise.all([
+        nfceRes?.json().catch(() => null),
+        nfeRes?.json().catch(() => null),
+      ])
+      if (cancelled) return
+      if (nfceData?.ok) {
+        setNfce({
+          fiscalDocument: nfceData.fiscal_document ?? null,
+          danfeUrl: nfceData.danfe_url ?? null,
+          xmlUrl: nfceData.xml_url ?? null,
+        })
+      }
+      if (nfeData?.ok) {
+        setNfe({
+          fiscalDocument: nfeData.fiscal_document ?? null,
+          danfeUrl: nfeData.danfe_url ?? null,
+          xmlUrl: nfeData.xml_url ?? null,
+        })
+      }
     })()
 
     return () => {
@@ -299,6 +328,37 @@ export function SalesOrderAfterSaleActions (props: {
     }
   }
 
+  async function handleNfe () {
+    if (canPrintNfe && nfe.fiscalDocument?.id) {
+      openNfeDanfePrint(nfe.fiscalDocument.id)
+      return
+    }
+
+    if (needsNfeCorrection && nfe.fiscalDocument?.id) {
+      router.push(nfeEditorHref(nfe.fiscalDocument.id, {
+        corrigir: isProductFiscalCorrectionError(nfe.fiscalDocument.sefaz_status_code),
+      }))
+      return
+    }
+
+    setBusyNfe(true)
+    try {
+      const result = await emitSalesOrderFiscalDocument({
+        orderId: props.orderId,
+        model: '55',
+        paid: isPaid,
+        navigate: (href) => router.push(href),
+      })
+      setNfe({
+        fiscalDocument: result.fiscalDocument,
+        danfeUrl: result.danfeUrl,
+        xmlUrl: result.xmlUrl,
+      })
+    } finally {
+      setBusyNfe(false)
+    }
+  }
+
   return (
     <div className={props.className || 'flex flex-wrap gap-2'}>
       <Button type='button' variant='outline' disabled={busyPrint} onClick={() => void handlePrint()}>
@@ -319,11 +379,33 @@ export function SalesOrderAfterSaleActions (props: {
         </Button>
       ) : null}
 
+      {isPaid ? (
+        <Button type='button' variant={canPrintNfe ? 'outline' : 'secondary'} disabled={busyNfe} onClick={() => void handleNfe()}>
+          {busyNfe ? <Loader2 className='h-4 w-4 animate-spin' /> : <FileText className='h-4 w-4' />}
+          <span className='ml-2'>
+            {needsNfeCorrection
+              ? 'Completar dados da NF-e'
+              : canPrintNfe
+                ? 'Imprimir DANFE'
+                : 'Gerar NF-e'}
+          </span>
+        </Button>
+      ) : null}
+
       {nfce.xmlUrl ? (
         <Button type='button' variant='outline' asChild>
           <a href={nfce.xmlUrl} download>
             <Download className='h-4 w-4' />
-            <span className='ml-2'>Baixar XML</span>
+            <span className='ml-2'>{nfe.xmlUrl ? 'Baixar XML NFC-e' : 'Baixar XML'}</span>
+          </a>
+        </Button>
+      ) : null}
+
+      {nfe.xmlUrl ? (
+        <Button type='button' variant='outline' asChild>
+          <a href={nfe.xmlUrl} download>
+            <Download className='h-4 w-4' />
+            <span className='ml-2'>{nfce.xmlUrl ? 'Baixar XML NF-e' : 'Baixar XML'}</span>
           </a>
         </Button>
       ) : null}
@@ -368,6 +450,31 @@ export function SalesOrderAfterSaleActions (props: {
       ) : nfceStatus === 'rejected' ? (
         <p className='basis-full text-sm text-destructive'>
           NFC-e rejeitada: {nfce.fiscalDocument?.sefaz_status_message || 'verifique os dados fiscais.'}
+        </p>
+      ) : null}
+      {nfeStatus === 'denied' && nfe.fiscalDocument?.id ? (
+        <p className='basis-full text-sm text-destructive'>
+          NF-e denegada.{' '}
+          <Link href={`/portal/vendas/nfe/${encodeURIComponent(nfe.fiscalDocument.id)}`} className='underline underline-offset-4'>
+            Corrigir e enviar de novo
+          </Link>
+          {nfe.fiscalDocument.sefaz_status_message ? ` — ${nfe.fiscalDocument.sefaz_status_message}` : ''}
+        </p>
+      ) : nfeStatus === 'rejected' && nfe.fiscalDocument?.id ? (
+        <p className='basis-full text-sm text-destructive'>
+          NF-e rejeitada.{' '}
+          <Link href={`/portal/vendas/nfe/${encodeURIComponent(nfe.fiscalDocument.id)}`} className='underline underline-offset-4'>
+            Ver erro e corrigir
+          </Link>
+          {nfe.fiscalDocument.sefaz_status_message ? ` — ${nfe.fiscalDocument.sefaz_status_message}` : ''}
+        </p>
+      ) : nfeStatus === 'denied' ? (
+        <p className='basis-full text-sm text-destructive'>
+          NF-e denegada: o número foi consumido pela SEFAZ. Corrija os dados e emita de novo.
+        </p>
+      ) : nfeStatus === 'rejected' ? (
+        <p className='basis-full text-sm text-destructive'>
+          NF-e rejeitada: {nfe.fiscalDocument?.sefaz_status_message || 'verifique os dados fiscais.'}
         </p>
       ) : null}
     </div>
@@ -429,7 +536,7 @@ export function SalesOrderAfterSaleDialog ({
               ? error
               : saving
                 ? 'Salvando a venda em segundo plano. A impressão fica disponível em instantes.'
-                : 'Imprima o cupom, emita a NFC-e ou envie ao Bling quando quiser.'}
+                : 'Imprima o cupom, emita a NFC-e ou a NF-e de venda, ou envie ao Bling quando quiser.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -474,6 +581,10 @@ export function SalesOrderAfterSaleDialog ({
               <Button type='button' disabled className='justify-start'>
                 <FileCheck2 className='h-4 w-4' />
                 <span className='ml-2'>NFC-e + imprimir cupom fiscal</span>
+              </Button>
+              <Button type='button' disabled className='justify-start'>
+                <FileText className='h-4 w-4' />
+                <span className='ml-2'>Gerar NF-e</span>
               </Button>
               <Button type='button' disabled className='justify-start'>
                 <Send className='h-4 w-4' />

@@ -403,6 +403,8 @@ async function updateOrderTotals (
 export type CreateSalesOrderOptions = {
   /** PDV precisa de caixa aberto. Pedidos avulsos de Vendas podem omitir a sessão. */
   attachCashSession?: boolean
+  /** Idempotência offline: UUID gerado no cliente (fila PDV). */
+  clientMutationId?: string | null
 }
 
 export async function createSalesOrder (
@@ -427,6 +429,7 @@ export async function createSalesOrder (
   const discountTotalCents = toInt(draft.discount_total_cents ?? 0, 0)
   const surchargeCents = toInt(draft.surcharge_cents ?? 0, 0)
   const totals = calcSalesOrderTotals(items, discountTotalCents, surchargeCents)
+  const clientMutationId = String(options?.clientMutationId || '').trim() || null
 
   const { data: order, error: orderError } = await auth.supabase
     .from('sales_orders')
@@ -446,11 +449,24 @@ export async function createSalesOrder (
       change_cents: 0,
       ml_order_id: draft.ml_order_id ?? null,
       ml_pack_id: draft.ml_pack_id ?? null,
+      client_mutation_id: clientMutationId,
     })
     .select('id')
     .single()
 
   if (orderError || !order) {
+    // Retry offline: unique (org, client_mutation_id) — devolve o pedido já criado.
+    if (clientMutationId && orderError?.code === '23505') {
+      const { data: existing } = await auth.supabase
+        .from('sales_orders')
+        .select('id')
+        .eq('organization_id', auth.organizationId)
+        .eq('client_mutation_id', clientMutationId)
+        .maybeSingle()
+      if (existing?.id) {
+        return { ok: true as const, orderId: String(existing.id) }
+      }
+    }
     console.error('[createSalesOrder] insert sales_orders failed', orderError)
     return { ok: false as const, error: 'db_error' as const }
   }
@@ -468,6 +484,30 @@ export async function createSalesOrder (
   }
 
   return { ok: true as const, orderId: order.id }
+}
+
+export async function findSalesOrderByClientMutationId (
+  auth: AuthCtx,
+  clientMutationId: string,
+): Promise<{
+  id: string
+  status: string
+  order_number: number | null
+} | null> {
+  const mutationId = String(clientMutationId || '').trim()
+  if (!mutationId) return null
+  const { data, error } = await auth.supabase
+    .from('sales_orders')
+    .select('id, status, order_number')
+    .eq('organization_id', auth.organizationId)
+    .eq('client_mutation_id', mutationId)
+    .maybeSingle()
+  if (error || !data?.id) return null
+  return {
+    id: String(data.id),
+    status: String(data.status || ''),
+    order_number: data.order_number == null ? null : Number(data.order_number),
+  }
 }
 
 export async function updateSalesOrderDraft (
@@ -925,6 +965,7 @@ export async function checkoutSalesOrder (
     draft?: SalesOrderDraftInput
     payments: SalesOrderPaymentInput[]
     change_cents?: number | null
+    clientMutationId?: string | null
   },
 ) {
   const items = input.items
@@ -933,10 +974,39 @@ export async function checkoutSalesOrder (
   }
 
   const draft = input.draft ?? {}
+  const clientMutationId = String(input.clientMutationId || '').trim() || null
   let orderId = input.orderId ? String(input.orderId) : null
 
+  if (!orderId && clientMutationId) {
+    const existing = await findSalesOrderByClientMutationId(auth, clientMutationId)
+    if (existing) {
+      if (existing.status === 'paid') {
+        const { data: order } = await auth.supabase
+          .from('sales_orders')
+          .select('*')
+          .eq('organization_id', auth.organizationId)
+          .eq('id', existing.id)
+          .maybeSingle()
+        return {
+          ok: true as const,
+          orderId: existing.id,
+          order: order ?? {
+            id: existing.id,
+            order_number: existing.order_number,
+            status: 'paid',
+          },
+        }
+      }
+      if (existing.status === 'in_progress') {
+        orderId = existing.id
+      }
+    }
+  }
+
   if (!orderId) {
-    const created = await createSalesOrder(auth, items, draft)
+    const created = await createSalesOrder(auth, items, draft, {
+      clientMutationId,
+    })
     if (created.ok === false) {
       return { ok: false as const, error: created.error, orderId: null as string | null }
     }

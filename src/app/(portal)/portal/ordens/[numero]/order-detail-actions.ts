@@ -1,6 +1,5 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { normalizePortalRole } from '@/lib/auth/portal-api'
 import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
@@ -31,7 +30,15 @@ import {
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 import { previsaoToISO } from '@/lib/utils/previsao-ordem'
 
-export type UpdateOrderSaveResult = { ok: true } | null
+export type UpdateOrderSaveResult =
+	| { ok: true }
+	| {
+			ok: false
+			error: string
+			ec?: string
+			em?: string
+	  }
+	| null
 
 export async function updateOrderAction(
 	_prevState: UpdateOrderSaveResult | null,
@@ -137,18 +144,11 @@ export async function updateOrderAction(
 		.eq('id', formOrderId)
 		.maybeSingle()
 
-	const ordemPath = getOrdemPortalPath({
-		id: formOrderId,
-		display_number:
-			(existing as { display_number?: number | null } | null)?.display_number ??
-			null,
-	})
-
 	if (!title) {
-		redirect(`${ordemPath}?error=titulo_obrigatorio`)
+		return { ok: false, error: 'titulo_obrigatorio' }
 	}
 	if (!isValidOrderStatus(status)) {
-		redirect(`${ordemPath}?error=status_invalido`)
+		return { ok: false, error: 'status_invalido' }
 	}
 
 	if (fetchExistingError) {
@@ -159,8 +159,6 @@ export async function updateOrderAction(
 			details: fetchExistingError.details,
 			hint: fetchExistingError.hint,
 		})
-		const saveQs = new URLSearchParams()
-		saveQs.set('error', 'nao_foi_possivel_salvar')
 		const ec = String(fetchExistingError.code || '')
 			.trim()
 			.slice(0, 48)
@@ -175,13 +173,16 @@ export async function updateOrderAction(
 			.replace(/\s+/g, ' ')
 			.trim()
 			.slice(0, 320)
-		if (ec) saveQs.set('ec', ec)
-		if (em) saveQs.set('em', em)
-		redirect(`${ordemPath}?${saveQs.toString()}`)
+		return {
+			ok: false,
+			error: 'nao_foi_possivel_salvar',
+			...(ec ? { ec } : {}),
+			...(em ? { em } : {}),
+		}
 	}
 
 	if (!existing) {
-		redirect(`${ordemPath}?error=ordem_nao_encontrada`)
+		return { ok: false, error: 'ordem_nao_encontrada' }
 	}
 
 	const minPrevisaoMs = existing.created_at
@@ -191,12 +192,12 @@ export async function updateOrderAction(
 		estimatedReadyAt &&
 		new Date(estimatedReadyAt).getTime() < minPrevisaoMs - 60_000
 	) {
-		redirect(`${ordemPath}?error=previsao_invalida`)
+		return { ok: false, error: 'previsao_invalida' }
 	}
 	const isOrderFinalized =
 		existing && isFinalizedOrderStatus(String(existing.status || ''))
 	if (isOrderFinalized && role !== 'admin' && role !== 'platform_admin') {
-		redirect(`${ordemPath}?error=ordem_finalizada`)
+		return { ok: false, error: 'ordem_finalizada' }
 	}
 	if (discountCommission.commission_user_id) {
 		const { data: commissionUser } = await supabase
@@ -260,6 +261,8 @@ export async function updateOrderAction(
 	const willBeFinalized = isFinalizedOrderStatus(status)
 	if (willBeFinalized && !isOrderFinalized) {
 		updatePayload.closed_at = new Date().toISOString()
+	} else if (!willBeFinalized && isOrderFinalized) {
+		updatePayload.closed_at = null
 	}
 	const { error } = await supabase
 		.from('service_orders')
@@ -267,8 +270,6 @@ export async function updateOrderAction(
 		.eq('id', formOrderId)
 
 	if (error) {
-		const saveQs = new URLSearchParams()
-		saveQs.set('error', 'nao_foi_possivel_salvar')
 		const ec = String(error.code || '')
 			.trim()
 			.slice(0, 48)
@@ -279,8 +280,6 @@ export async function updateOrderAction(
 			.replace(/\s+/g, ' ')
 			.trim()
 			.slice(0, 320)
-		if (ec) saveQs.set('ec', ec)
-		if (em) saveQs.set('em', em)
 		console.error('[order-save]', {
 			orderId: formOrderId,
 			code: error.code,
@@ -288,7 +287,12 @@ export async function updateOrderAction(
 			details: error.details,
 			hint: error.hint,
 		})
-		redirect(`${ordemPath}?${saveQs.toString()}`)
+		return {
+			ok: false,
+			error: 'nao_foi_possivel_salvar',
+			...(ec ? { ec } : {}),
+			...(em ? { em } : {}),
+		}
 	}
 
 	const diffRows = buildOrderEditDiff(
@@ -307,7 +311,16 @@ export async function updateOrderAction(
 				orderId: formOrderId,
 			})
 		} else {
-			const { error: histErr } = await supabase
+			let historyClient = supabase
+			try {
+				const { createSupabaseServiceClient } = await import(
+					'@/lib/supabase/service'
+				)
+				historyClient = createSupabaseServiceClient()
+			} catch (serviceErr) {
+				console.warn('[order-edit-history] service client unavailable', serviceErr)
+			}
+			const { error: histErr } = await historyClient
 				.from('service_order_edit_history')
 				.insert(
 					diffRowsForHistory.map((r) => ({
@@ -353,17 +366,17 @@ export async function updateOrderAction(
 				organization_id: String(existing.organization_id),
 				display_number: existing.display_number ?? null,
 				payment_methods: paymentMethods,
-				closed_at:
-					String(updatePayload.closed_at || existing.closed_at || '') || null,
+				closed_at: Object.prototype.hasOwnProperty.call(updatePayload, 'closed_at')
+					? ((updatePayload.closed_at as string | null) ?? null)
+					: (String(existing.closed_at || '') || null),
 				updated_at: new Date().toISOString(),
 			},
 		})
 	} catch (err) {
+		// OS já foi salva — não bloqueia o sucesso nem redireciona a página.
 		console.error('[order-save finance-sync]', { orderId: formOrderId, err })
-		redirect(`${ordemPath}?error=nao_foi_possivel_registrar_financeiro`)
 	}
 
-	revalidatePath(ordemPath)
 	return { ok: true }
 }
 

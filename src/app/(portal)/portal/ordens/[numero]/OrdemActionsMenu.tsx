@@ -2,6 +2,7 @@
 
 import {
 	Copy,
+	FileText,
 	History,
 	Mail,
 	MessageCircle,
@@ -12,6 +13,7 @@ import {
 	Trash2,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -34,6 +36,7 @@ import {
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { toast } from '@/hooks/use-toast'
+import { emitServiceOrderNfe } from '@/lib/fiscal/emit-sales-order-client'
 import { getPrintWindowFeatures } from '@/lib/ordem-print'
 import {
 	openOrdemCupomPrint,
@@ -98,6 +101,7 @@ export function OrdemActionsMenu({
 	warrantyTemplateId,
 	warrantyText,
 }: Props) {
+	const router = useRouter()
 	const organizationName = usePortalOrganizationName()
 	const {
 		updating,
@@ -116,6 +120,7 @@ export function OrdemActionsMenu({
 	)
 	const [deleteOpen, setDeleteOpen] = useState(false)
 	const [deleteSubmitting, setDeleteSubmitting] = useState(false)
+	const [busyNfe, setBusyNfe] = useState(false)
 	const [exitConsiderationsOpen, setExitConsiderationsOpen] = useState(false)
 	const [pendingFinalizeStatus, setPendingFinalizeStatus] = useState<
 		string | null
@@ -221,6 +226,20 @@ export function OrdemActionsMenu({
 		}
 	}
 
+	async function handleEmitNfe() {
+		if (busyNfe) return
+		setBusyNfe(true)
+		try {
+			await emitServiceOrderNfe({
+				orderId,
+				displayNumber,
+				navigate: (href) => router.push(href),
+			})
+		} finally {
+			setBusyNfe(false)
+		}
+	}
+
 	return (
 		<>
 			<DropdownMenu modal={false}>
@@ -255,6 +274,18 @@ export function OrdemActionsMenu({
 						<Tag className="h-4 w-4 mr-2" />
 						Imprimir etiqueta
 					</DropdownMenuItem>
+					{status !== 'cancelada' ? (
+						<DropdownMenuItem
+							disabled={busyNfe}
+							onSelect={(e) => {
+								e.preventDefault()
+								void handleEmitNfe()
+							}}
+						>
+							<FileText className="h-4 w-4 mr-2" />
+							{busyNfe ? 'Emitindo NF-e…' : 'Gerar NF-e'}
+						</DropdownMenuItem>
+					) : null}
 					<DropdownMenuSeparator />
 					{whatsappHref || message ? (
 						<DropdownMenuItem

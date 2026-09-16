@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { useOrderServicesTotal } from './OrderServicesTotalContext'
-import { Check, ChevronsUpDown, Loader2, Plus, Settings, Trash2 } from 'lucide-react'
+import { Check, ChevronsUpDown, Loader2, Plus, RefreshCw, Settings, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -12,7 +12,7 @@ import {
 	formatMoneyInputBr,
 } from '@/lib/utils/format-money'
 import { cn } from '@/lib/utils'
-import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -25,6 +25,20 @@ import {
 	DialogTitle,
 } from '@/components/ui/dialog'
 import { appConfirm } from '@/lib/ui/app-dialogs'
+import { searchLocalCatalog } from '@/app/(portal)/portal/pdv/pdv-catalog-cache'
+import { mapCatalogProduct } from '@/app/(portal)/portal/pdv/pdv-helpers'
+import type { CatalogProduct } from '@/app/(portal)/portal/pdv/pdv-types'
+import { toast } from '@/hooks/use-toast'
+import {
+	readServiceSuggestionsCache,
+	writeServiceSuggestionsCache,
+} from '@/lib/orders/service-suggestions-cache'
+import { usePortalOrganizationId } from '@/lib/portal/portal-branding-context'
+import { portalFetch } from '@/lib/portal/portal-fetch'
+import {
+	hydrateCatalogSnapshot,
+	syncCatalogSnapshot,
+} from '@/lib/pdv/sync-catalog-snapshot'
 
 export type ServiceItemDb = {
 	description?: string | null
@@ -62,6 +76,25 @@ type CatalogItem = {
 	currentStock?: number | null
 	isVariation?: boolean
 	hasVariations?: boolean
+	/** Item veio do snapshot PDV (estoque não confiável até confirmar na API). */
+	fromCache?: boolean
+}
+
+function catalogProductToItem (product: CatalogProduct): CatalogItem {
+	const kind = product.kind === 'service' ? 'service' : 'product'
+	return {
+		id: product.id,
+		kind,
+		name: product.name,
+		sku: product.sku,
+		barcode: product.barcode,
+		imageUrl: product.image_url,
+		salePriceCents: Number(product.sale_price_cents) || 0,
+		costPriceCents: Number(product.cost_price_cents) || 0,
+		// Snapshot do PDV não inclui estoque atualizado
+		currentStock: null,
+		fromCache: true,
+	}
 }
 
 export function makeServiceId(): string {
@@ -144,6 +177,8 @@ type OrderServicesCardProps = {
 	currentStatus?: string
 	/** Campo hidden do form que guarda o status, para ajustes automáticos. */
 	statusInputName?: string
+	/** Modelo do aparelho selecionado — alimenta sugestões vinculadas. */
+	deviceModelId?: string | null
 }
 
 export type OrderServicesCardRef = {
@@ -159,7 +194,10 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 	advancedInitiallyOpen = false,
 	currentStatus,
 	statusInputName,
+	deviceModelId = null,
 }, ref) {
+	const organizationId = usePortalOrganizationId()
+	const normalizedDeviceModelId = String(deviceModelId || '').trim() || null
 	const [internalServices, setInternalServices] = useState<ServiceLine[]>(() => {
 		if (formik && Array.isArray(formik.services)) {
 			return formik.services.map((s) => ({ ...s }))
@@ -172,9 +210,17 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 	const [isPickerOpen, setIsPickerOpen] = useState(false)
 	const [catalogQuery, setCatalogQuery] = useState('')
 	const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([])
+	const [catalogCache, setCatalogCache] = useState<CatalogProduct[]>([])
+	const [suggestionIds, setSuggestionIds] = useState<string[]>([])
+	const [suggestedItems, setSuggestedItems] = useState<CatalogItem[]>([])
 	const [isCatalogLoading, setIsCatalogLoading] = useState(false)
+	const [isSyncingCatalog, setIsSyncingCatalog] = useState(false)
 	const [catalogError, setCatalogError] = useState<string | null>(null)
 	const [resolvedStatus, setResolvedStatus] = useState(String(currentStatus || '').trim())
+	const catalogSyncAbortRef = useRef<AbortController | null>(null)
+	const suggestionsAbortRef = useRef<AbortController | null>(null)
+	const catalogCacheRef = useRef<CatalogProduct[]>([])
+	catalogCacheRef.current = catalogCache
 
 	const services = internalServices
 
@@ -183,8 +229,72 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 		setInternalServices((prev) => prev.concat(line))
 	}, [formik])
 
+	const resolveItemStock = useCallback(async (item: CatalogItem): Promise<CatalogItem> => {
+		if (item.kind !== 'product') return item
+		if (item.currentStock != null) return item
+
+		try {
+			const res = await portalFetch(
+				`/api/portal/pdv/catalog?id=${encodeURIComponent(item.id)}`,
+			)
+			const data = await res?.json().catch(() => null)
+			if (!data?.ok || !Array.isArray(data.products) || !data.products[0]) return item
+			const mapped = mapCatalogProduct(data.products[0] as Record<string, unknown>)
+			return {
+				...item,
+				currentStock: mapped.kind === 'service' ? null : mapped.stock,
+				salePriceCents: mapped.sale_price_cents ?? item.salePriceCents,
+				costPriceCents: mapped.cost_price_cents ?? item.costPriceCents,
+				fromCache: false,
+			}
+		} catch {
+			return item
+		}
+	}, [])
+
+	const enrichItemsWithStock = useCallback(async (
+		items: CatalogItem[],
+		signal?: AbortSignal,
+	): Promise<CatalogItem[]> => {
+		const productIds = items
+			.filter((item) => item.kind === 'product' && item.currentStock == null)
+			.map((item) => item.id)
+		if (productIds.length === 0) return items
+
+		try {
+			const qs = new URLSearchParams()
+			qs.set('ids', productIds.join(','))
+			qs.set('include_stock', '1')
+			const res = await portalFetch(`/api/portal/pdv/catalog?${qs.toString()}`, { signal })
+			if (signal?.aborted) return items
+			const data = await res?.json().catch(() => null)
+			if (signal?.aborted || !data?.ok || !Array.isArray(data.products)) return items
+
+			const stockById = new Map<string, number>()
+			for (const row of data.products as Array<{ id?: unknown, kind?: unknown, stock?: unknown }>) {
+				const id = String(row.id || '').trim()
+				if (!id || row.kind === 'service') continue
+				const stockNum = Number(row.stock)
+				stockById.set(id, Number.isFinite(stockNum) ? stockNum : 0)
+			}
+
+			return items.map((item) => {
+				if (item.kind !== 'product' || !stockById.has(item.id)) return item
+				return {
+					...item,
+					currentStock: stockById.get(item.id) ?? 0,
+				}
+			})
+		} catch (err) {
+			if (err instanceof DOMException && err.name === 'AbortError') return items
+			return items
+		}
+	}, [])
+
 	const addCatalogItem = useCallback(async (item: CatalogItem) => {
-		const isOutOfStockProduct = item.kind === 'product' && Number(item.currentStock ?? 0) <= 0
+		const resolved = await resolveItemStock(item)
+		const isOutOfStockProduct =
+			resolved.kind === 'product' && Number(resolved.currentStock ?? 0) <= 0
 		if (resolvedStatus === 'aprovado' && isOutOfStockProduct) {
 			const shouldSwitch = await appConfirm({
 				title: 'Produto sem estoque',
@@ -201,19 +311,169 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 		}
 		appendLine({
 			id: makeServiceId(),
-			kind: item.kind,
-			description: item.name,
+			kind: resolved.kind,
+			description: resolved.name,
 			quantity: '1',
-			value: item.salePriceCents > 0 ? formatMoneyInputBr(String(item.salePriceCents)) : '',
-			cost: item.costPriceCents > 0 ? formatMoneyInputBr(String(item.costPriceCents)) : '',
-			sourceProductId: item.id,
+			value: resolved.salePriceCents > 0 ? formatMoneyInputBr(String(resolved.salePriceCents)) : '',
+			cost: resolved.costPriceCents > 0 ? formatMoneyInputBr(String(resolved.costPriceCents)) : '',
+			sourceProductId: resolved.id,
 		})
 		setIsPickerVisible(false)
 		setIsPickerOpen(false)
 		setCatalogQuery('')
 		setCatalogItems([])
 		setCatalogError(null)
-	}, [appendLine, formId, resolvedStatus, statusInputName])
+	}, [appendLine, formId, resolveItemStock, resolvedStatus, statusInputName])
+
+	const resolveSuggestionItems = useCallback((
+		productIds: string[],
+		products: CatalogProduct[],
+	): CatalogItem[] => {
+		if (productIds.length === 0 || products.length === 0) return []
+		const byId = new Map(products.map((product) => [product.id, product]))
+		return productIds
+			.map((id) => byId.get(id))
+			.filter((product): product is CatalogProduct => Boolean(product))
+			.map(catalogProductToItem)
+	}, [])
+
+	const loadSuggestionIds = useCallback(async (options?: { force?: boolean }) => {
+		if (!organizationId) {
+			setSuggestionIds([])
+			setSuggestedItems([])
+			return [] as string[]
+		}
+
+		const force = Boolean(options?.force)
+		if (!force) {
+			const cached = readServiceSuggestionsCache(organizationId, normalizedDeviceModelId)
+			if (cached?.length) {
+				setSuggestionIds(cached)
+				const resolved = resolveSuggestionItems(cached, catalogCacheRef.current)
+				setSuggestedItems(resolved)
+				const enriched = await enrichItemsWithStock(resolved)
+				setSuggestedItems(enriched)
+				return cached
+			}
+		}
+
+		suggestionsAbortRef.current?.abort()
+		const controller = new AbortController()
+		suggestionsAbortRef.current = controller
+
+		try {
+			const qs = new URLSearchParams()
+			qs.set('limit', '5')
+			if (normalizedDeviceModelId) qs.set('deviceModelId', normalizedDeviceModelId)
+			const res = await portalFetch(`/api/portal/ordens/service-suggestions?${qs.toString()}`, {
+				signal: controller.signal,
+			})
+			if (controller.signal.aborted) return [] as string[]
+			const data = await res?.json().catch(() => null)
+			if (controller.signal.aborted) return [] as string[]
+			if (!data?.ok || !Array.isArray(data.productIds)) {
+				setSuggestionIds([])
+				setSuggestedItems([])
+				return [] as string[]
+			}
+			const productIds = (data.productIds as unknown[])
+				.map((id) => String(id || '').trim())
+				.filter(Boolean)
+				.slice(0, 5)
+			writeServiceSuggestionsCache(organizationId, normalizedDeviceModelId, productIds)
+			setSuggestionIds(productIds)
+			const resolved = resolveSuggestionItems(productIds, catalogCacheRef.current)
+			setSuggestedItems(resolved)
+			const enriched = await enrichItemsWithStock(resolved, controller.signal)
+			if (!controller.signal.aborted) setSuggestedItems(enriched)
+			return productIds
+		} catch (err) {
+			if (err instanceof DOMException && err.name === 'AbortError') return [] as string[]
+			setSuggestionIds([])
+			setSuggestedItems([])
+			return [] as string[]
+		}
+	}, [enrichItemsWithStock, normalizedDeviceModelId, organizationId, resolveSuggestionItems])
+
+	const refreshCatalogCache = useCallback(async () => {
+		if (!organizationId || isSyncingCatalog) return
+
+		catalogSyncAbortRef.current?.abort()
+		const controller = new AbortController()
+		catalogSyncAbortRef.current = controller
+		setIsSyncingCatalog(true)
+
+		try {
+			const [result] = await Promise.all([
+				syncCatalogSnapshot(organizationId, {
+					force: true,
+					signal: controller.signal,
+					onProducts: setCatalogCache,
+				}),
+				loadSuggestionIds({ force: true }),
+			])
+
+			if (controller.signal.aborted || (result.ok === false && result.error === 'aborted')) {
+				return
+			}
+
+			if (result.ok === true) {
+				if (result.source === 'network') {
+					toast({
+						title: 'Produtos atualizados',
+						description:
+							result.count === 1
+								? '1 produto disponível no cache.'
+								: `${result.count} produtos disponíveis no cache.`,
+					})
+				} else if (result.source === 'offline') {
+					toast({
+						title: 'Catálogo offline',
+						description: `${result.count} produto(s) do último sync.`,
+					})
+				} else {
+					toast({
+						title: 'Usando catálogo em cache',
+						description: 'Não foi possível atualizar online.',
+					})
+				}
+				const trimmed = catalogQuery.trim()
+				if (trimmed.length >= 3) {
+					const local = searchLocalCatalog(result.products, trimmed, 30).map(catalogProductToItem)
+					setCatalogItems(local)
+					setCatalogError(null)
+					const enrichedLocal = await enrichItemsWithStock(local, controller.signal)
+					if (!controller.signal.aborted) setCatalogItems(enrichedLocal)
+				}
+				const ids = readServiceSuggestionsCache(organizationId, normalizedDeviceModelId)
+					?? suggestionIds
+				const resolvedSuggestions = resolveSuggestionItems(ids, result.products)
+				setSuggestedItems(resolvedSuggestions)
+				const enrichedSuggestions = await enrichItemsWithStock(resolvedSuggestions, controller.signal)
+				if (!controller.signal.aborted) setSuggestedItems(enrichedSuggestions)
+				return
+			}
+
+			toast({
+				title:
+					result.error === 'offline_empty'
+						? 'Sem conexão e sem catálogo em cache'
+						: 'Não foi possível atualizar os produtos',
+				variant: 'destructive',
+			})
+		} finally {
+			if (!controller.signal.aborted) setIsSyncingCatalog(false)
+		}
+	}, [
+		catalogQuery,
+		enrichItemsWithStock,
+		isSyncingCatalog,
+		loadSuggestionIds,
+		normalizedDeviceModelId,
+		organizationId,
+		resolveSuggestionItems,
+		suggestionIds,
+	])
 
 	const removeInternal = useCallback((idx: number) => {
 		setInternalServices((prev) => prev.filter((_, i) => i !== idx))
@@ -326,6 +586,57 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 	}, [services.length, servicesTotalCtx])
 
 	useEffect(() => {
+		if (!isPickerVisible || !organizationId) return
+		let cancelled = false
+		void hydrateCatalogSnapshot(organizationId).then(async (products) => {
+			if (cancelled) return
+			if (products.length > 0) setCatalogCache(products)
+
+			const ids = await loadSuggestionIds()
+			if (cancelled) return
+
+			let resolved = resolveSuggestionItems(ids, products.length > 0 ? products : catalogCacheRef.current)
+			setSuggestedItems(resolved)
+
+			if (ids.length > 0 && resolved.length === 0 && typeof navigator !== 'undefined' && navigator.onLine) {
+				const syncResult = await syncCatalogSnapshot(organizationId, {
+					onProducts: setCatalogCache,
+				})
+				if (cancelled || syncResult.ok === false) return
+				resolved = resolveSuggestionItems(ids, syncResult.products)
+				setSuggestedItems(resolved)
+			}
+
+			const enriched = await enrichItemsWithStock(resolved)
+			if (!cancelled) setSuggestedItems(enriched)
+		})
+		return () => {
+			cancelled = true
+			suggestionsAbortRef.current?.abort()
+		}
+	}, [
+		enrichItemsWithStock,
+		isPickerVisible,
+		loadSuggestionIds,
+		organizationId,
+		resolveSuggestionItems,
+		normalizedDeviceModelId,
+	])
+
+	useEffect(() => {
+		if (!isPickerVisible) return
+		let cancelled = false
+		const resolved = resolveSuggestionItems(suggestionIds, catalogCache)
+		setSuggestedItems(resolved)
+		void enrichItemsWithStock(resolved).then((enriched) => {
+			if (!cancelled) setSuggestedItems(enriched)
+		})
+		return () => {
+			cancelled = true
+		}
+	}, [catalogCache, enrichItemsWithStock, isPickerVisible, resolveSuggestionItems, suggestionIds])
+
+	useEffect(() => {
 		const trimmed = catalogQuery.trim()
 		if (!isPickerVisible) {
 			setCatalogItems([])
@@ -338,6 +649,22 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 			setCatalogError(null)
 			setIsCatalogLoading(false)
 			return
+		}
+
+		if (catalogCache.length > 0) {
+			const local = searchLocalCatalog(catalogCache, trimmed, 30).map(catalogProductToItem)
+			if (local.length > 0) {
+				setCatalogItems(local)
+				setCatalogError(null)
+				setIsCatalogLoading(false)
+				let cancelled = false
+				void enrichItemsWithStock(local).then((enriched) => {
+					if (!cancelled) setCatalogItems(enriched)
+				})
+				return () => {
+					cancelled = true
+				}
+			}
 		}
 
 		let cancelled = false
@@ -373,7 +700,7 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 			controller.abort()
 			clearTimeout(timeoutId)
 		}
-	}, [catalogQuery, isPickerVisible])
+	}, [catalogCache, catalogQuery, enrichItemsWithStock, isPickerVisible])
 
 	useEffect(() => {
 		setResolvedStatus(String(currentStatus || '').trim())
@@ -505,10 +832,96 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 											placeholder="Digite nome, SKU ou código..."
 											value={catalogQuery}
 											onValueChange={setCatalogQuery}
+											endAction={
+												<button
+													type="button"
+													onClick={(event) => {
+														event.preventDefault()
+														event.stopPropagation()
+														void refreshCatalogCache()
+													}}
+													disabled={disabled || isSyncingCatalog || !organizationId}
+													className={cn(
+														'rounded-md p-1.5 text-muted-foreground transition-colors',
+														'hover:bg-accent hover:text-foreground',
+														'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+														'disabled:pointer-events-none disabled:opacity-50',
+													)}
+													title="Atualizar cache de produtos"
+													aria-label="Atualizar cache de produtos"
+												>
+													{isSyncingCatalog ? (
+														<Loader2 className="h-4 w-4 animate-spin" />
+													) : (
+														<RefreshCw className="h-4 w-4" />
+													)}
+												</button>
+											}
 										/>
 										<CommandList>
 											{catalogQuery.trim().length < 3 ? (
-												<CommandEmpty>Digite ao menos 3 caracteres para buscar.</CommandEmpty>
+												suggestedItems.length > 0 ? (
+													<CommandGroup heading="Sugestões">
+														{suggestedItems.map((item) => {
+															const stockKnown = item.currentStock != null
+															const currentStock = Number(item.currentStock ?? 0)
+															const hasImage = Boolean(item.imageUrl)
+															return (
+																<CommandItem
+																	key={`suggest-${item.id}`}
+																	value={`suggest ${item.name} ${item.sku || ''} ${item.barcode || ''}`}
+																	onSelect={() => void addCatalogItem(item)}
+																	className="gap-3 rounded-md px-3 py-2.5 data-[selected=true]:bg-muted/50 data-[selected=true]:text-foreground"
+																>
+																	<Check className="hidden" />
+																	<div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/40">
+																		{hasImage ? (
+																			<img
+																				src={String(item.imageUrl)}
+																				alt=""
+																				className="h-full w-full object-cover"
+																			/>
+																		) : (
+																			<span className="text-[10px] uppercase text-muted-foreground">
+																				{item.kind === 'product' ? 'Produto' : 'Serviço'}
+																			</span>
+																		)}
+																	</div>
+																	<div className="min-w-0 flex-1">
+																		<div className="flex items-center gap-2">
+																			<span className="truncate font-medium">{item.name}</span>
+																			<span
+																				className={cn(
+																					'inline-flex rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide',
+																					item.kind === 'product'
+																						? 'bg-blue-500/10 text-blue-700 dark:text-blue-300'
+																						: 'bg-violet-500/10 text-violet-700 dark:text-violet-300',
+																				)}
+																			>
+																				{item.kind === 'product' ? 'Produto' : 'Serviço'}
+																			</span>
+																		</div>
+																		<div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+																			<span>SKU: {item.sku || '-'}</span>
+																			<span>Venda: {formatCentsBr(item.salePriceCents)}</span>
+																			{item.kind === 'product' ? (
+																				<span
+																					className={cn(
+																						stockKnown && currentStock <= 0 && 'text-amber-700 dark:text-amber-300',
+																					)}
+																				>
+																					Estoque: {stockKnown ? currentStock : '—'}
+																				</span>
+																			) : null}
+																		</div>
+																	</div>
+																</CommandItem>
+															)
+														})}
+													</CommandGroup>
+												) : (
+													<CommandEmpty>Digite ao menos 3 caracteres para buscar.</CommandEmpty>
+												)
 											) : isCatalogLoading ? (
 												<div className="p-3 text-sm text-muted-foreground flex items-center gap-2">
 													<Loader2 className="h-4 w-4 animate-spin" />
@@ -520,6 +933,7 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 												<CommandEmpty>Nenhum item encontrado.</CommandEmpty>
 											) : (
 											catalogItems.map((item) => {
+													const stockKnown = item.currentStock != null
 													const currentStock = Number(item.currentStock ?? 0)
 													const hasImage = Boolean(item.imageUrl)
 												const isParentWithVariations =
@@ -586,10 +1000,10 @@ export const OrderServicesCard = forwardRef<OrderServicesCardRef | null, OrderSe
 																	{item.kind === 'product' ? (
 																		<span
 																			className={cn(
-																				currentStock <= 0 && 'text-amber-700 dark:text-amber-300',
+																				stockKnown && currentStock <= 0 && 'text-amber-700 dark:text-amber-300',
 																			)}
 																		>
-																			Estoque: {currentStock}
+																			Estoque: {stockKnown ? currentStock : '—'}
 																		</span>
 																	) : null}
 																</div>

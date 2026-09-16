@@ -111,7 +111,30 @@ function createSupabaseMock ({
                       description: (row.description as string | null) ?? null,
                       created_at: `2026-05-06T12:00:0${index}.000Z`,
                     }))
-                    return Promise.resolve({ data: rows, error: null })
+                    const result = {
+                      data: rows,
+                      error: null,
+                      limit () {
+                        return {
+                          maybeSingle () {
+                            return Promise.resolve({
+                              data: rows[0] ?? null,
+                              error: null,
+                            })
+                          },
+                        }
+                      },
+                      then (
+                        onFulfilled: (value: { data: typeof rows; error: null }) => unknown,
+                        onRejected?: (reason: unknown) => unknown,
+                      ) {
+                        return Promise.resolve({ data: rows, error: null }).then(
+                          onFulfilled,
+                          onRejected,
+                        )
+                      },
+                    }
+                    return result
                   },
                 }
               },
@@ -174,6 +197,30 @@ describe('service-order-financial-sync private helpers', () => {
       updated_at: '2026-05-07T02:30:00.000Z',
     })
     expect(occurredAt).toBe('2026-05-06')
+  })
+
+  it('buildOccurredAt prioriza closed_at sobre updated_at', () => {
+    const occurredAt = __private__.buildOccurredAt({
+      id: '550e8400-e29b-41d4-a716-446655440900',
+      organization_id: '550e8400-e29b-41d4-a716-446655440901',
+      display_number: 1,
+      payment_methods: [],
+      closed_at: '2026-05-01T15:00:00.000Z',
+      updated_at: '2026-05-07T02:30:00.000Z',
+    })
+    expect(occurredAt).toBe('2026-05-01')
+  })
+
+  it('buildOccurredAt preserva occurred_at quando OS ainda aberta', () => {
+    const occurredAt = __private__.buildOccurredAt({
+      id: '550e8400-e29b-41d4-a716-446655440900',
+      organization_id: '550e8400-e29b-41d4-a716-446655440901',
+      display_number: 1,
+      payment_methods: [],
+      closed_at: null,
+      updated_at: '2026-05-07T02:30:00.000Z',
+    }, '2026-05-03')
+    expect(occurredAt).toBe('2026-05-03')
   })
 })
 
@@ -403,6 +450,25 @@ describe('backfillServiceOrderFinancialTransactionsByOrganization', () => {
 
         if (table === 'financial_transactions') {
           return {
+            select () {
+              return {
+                eq () {
+                  return {
+                    order () {
+                      return {
+                        limit () {
+                          return {
+                            maybeSingle () {
+                              return Promise.resolve({ data: null, error: null })
+                            },
+                          }
+                        },
+                      }
+                    },
+                  }
+                },
+              }
+            },
             delete () {
               return {
                 eq () {

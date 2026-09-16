@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 import { checkoutSalesOrder } from '@/lib/sales-orders/service'
+import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 
 export async function POST (request: NextRequest) {
   const auth = await requireStaffOrAdmin()
@@ -13,6 +14,9 @@ export async function POST (request: NextRequest) {
   const payments = Array.isArray(body?.payments) ? body.payments : []
   const orderId = body?.order_id != null ? String(body.order_id) : null
   const changeCents = body?.change_cents != null ? Number(body.change_cents) : undefined
+  const clientMutationId = parseOptionalUuid(
+    body?.client_mutation_id ?? request.headers.get('X-Pdv-Offline-Mutation-Id'),
+  )
 
   const draft = {
     customer_name: body?.customer_name ?? undefined,
@@ -28,6 +32,7 @@ export async function POST (request: NextRequest) {
     draft,
     payments,
     change_cents: Number.isFinite(changeCents) ? changeCents : undefined,
+    clientMutationId,
   })
 
   if (!result.ok) {

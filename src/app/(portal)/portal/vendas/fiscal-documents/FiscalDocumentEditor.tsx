@@ -529,8 +529,15 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
               <Badge variant='outline'>Homologação</Badge>
             ) : null}
             {document.order ? (
-              <Link href={`/portal/vendas/${encodeURIComponent(document.order.id)}`} className='text-sm text-primary underline-offset-4 hover:underline'>
-                Pedido #{document.order.order_number}
+              <Link
+                href={document.service_order_id
+                  ? `/portal/ordens/${encodeURIComponent(String(document.order.order_number || document.order.id))}`
+                  : `/portal/vendas/${encodeURIComponent(document.order.id)}`}
+                className='text-sm text-primary underline-offset-4 hover:underline'
+              >
+                {document.service_order_id
+                  ? `OS #${document.order.order_number}`
+                  : `Pedido #${document.order.order_number}`}
               </Link>
             ) : null}
           </div>

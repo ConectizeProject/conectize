@@ -1,13 +1,23 @@
 'use client'
 
-import { Download, Plus } from 'lucide-react'
+import { ChevronDown, Download, Plus } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { toast } from '@/hooks/use-toast'
 import { brazilPreviousMonthRange } from '@/lib/dashboard/brazil-day'
 import { portalFetch } from '@/lib/portal/portal-fetch'
+import {
+  createStandaloneSalesOrder,
+  salesOrderNfeEmitHref,
+} from '@/lib/sales-orders/create-standalone-client'
 import { cn } from '@/lib/utils'
 
 const TABS = [
@@ -35,28 +45,24 @@ export function VendasModuleTabs () {
   const [isDownloadingXml, setIsDownloadingXml] = useState(false)
   const previousMonth = useMemo(() => brazilPreviousMonthRange(), [])
 
-  async function createStandaloneOrder () {
+  async function createStandaloneOrder (options?: { emitNfe?: boolean }) {
     if (isCreating) return
     setIsCreating(true)
     try {
-      const res = await portalFetch('/api/portal/sales-orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ standalone: true, items: [] }),
-      })
-      const data = await res?.json().catch(() => null)
-      const orderId = String(data?.order_id || data?.order?.id || '')
-      if (!data?.ok || !orderId) {
+      const result = await createStandaloneSalesOrder()
+      if (result.ok === false) {
         toast({
-          title: 'Não foi possível criar o pedido',
-          description: data?.error === 'cash_not_open'
-            ? 'Este pedido não depende do caixa. Tente novamente.'
-            : (data?.message || data?.error || 'Erro ao criar pedido.'),
+          title: options?.emitNfe ? 'Não foi possível criar a NF-e' : 'Não foi possível criar o pedido',
+          description: result.message,
           variant: 'destructive',
         })
         return
       }
-      router.push(`/portal/vendas/${encodeURIComponent(orderId)}`)
+      router.push(
+        options?.emitNfe
+          ? salesOrderNfeEmitHref(result.orderId)
+          : `/portal/vendas/${encodeURIComponent(result.orderId)}`,
+      )
     } finally {
       setIsCreating(false)
     }
@@ -160,12 +166,36 @@ export function VendasModuleTabs () {
           </Button>
         ) : null}
         {current === 'nfe' ? (
-          <Link href='/portal/vendas/nfe/entradas/nova'>
-            <Button type='button'>
-              <Plus className='mr-1 h-4 w-4' />
-              NF-e de entrada
-            </Button>
-          </Link>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type='button'>
+                <Plus className='mr-1 h-4 w-4' />
+                Nova NF-e
+                <ChevronDown className='ml-1 h-4 w-4' />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align='end'>
+              <DropdownMenuItem
+                disabled={isCreating}
+                onSelect={(event) => {
+                  event.preventDefault()
+                  void createStandaloneOrder({ emitNfe: true })
+                }}
+              >
+                {isCreating ? 'Criando...' : 'NF-e do zero'}
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href='/portal/vendas/nfe/saidas/nova'>
+                  A partir de pedido pago
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href='/portal/vendas/nfe/entradas/nova'>
+                  NF-e de entrada
+                </Link>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         ) : null}
         <Link href='/portal/pdv'>
           <Button variant='outline'>Frente de Caixa</Button>

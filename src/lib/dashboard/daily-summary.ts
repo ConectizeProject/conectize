@@ -1,10 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { brazilDayRangeUtc, brazilTodayDateString, addBrazilCalendarDays, isBirthdayInNextDays } from '@/lib/dashboard/brazil-day'
+import { fetchDashboardFinanceBillingByDateRange } from '@/lib/dashboard/finance-billing'
 import {
 	FINALIZED_ORDER_STATUSES,
 	OPEN_ORDER_STATUSES,
 } from '@/lib/orders/order-status'
-import { resolveOrderPayableCents } from '@/lib/orders/order-discount-commission'
 import {
 	enrichOrderFinance,
 	type OrderFinanceInput,
@@ -65,26 +65,6 @@ export type DashboardDailySummary = {
 
 const FINALIZED_SUCCESS = FINALIZED_ORDER_STATUSES.filter((s) => s !== 'cancelada')
 
-type OsFinanceRow = {
-	services_total_cents?: number | null
-	services_cost_total_cents?: number | null
-	discount_cents?: number | null
-}
-
-function sumFinalizedOs (rows: OsFinanceRow[]): { grossCents: number; netCents: number } {
-	let grossCents = 0
-	let netCents = 0
-	for (const row of rows) {
-		const gross = Math.max(0, Number(row.services_total_cents) || 0)
-		const discount = Math.max(0, Number(row.discount_cents) || 0)
-		const cost = Math.max(0, Number(row.services_cost_total_cents) || 0)
-		const payable = resolveOrderPayableCents(gross, discount)
-		grossCents += payable
-		netCents += Math.max(0, payable - cost)
-	}
-	return { grossCents, netCents }
-}
-
 export async function fetchDashboardDailySummary (
 	supabase: SupabaseClient,
 	organizationId: string,
@@ -95,7 +75,6 @@ export async function fetchDashboardDailySummary (
 	const dateStr = brazilTodayDateString(now)
 	const yesterdayStr = addBrazilCalendarDays(dateStr, -1)
 	const { startIso, endIso } = brazilDayRangeUtc(dateStr)
-	const yesterdayRange = brazilDayRangeUtc(yesterdayStr)
 
 	const orgPromise = supabase
 		.from('organizations')
@@ -119,27 +98,11 @@ export async function fetchDashboardDailySummary (
 
 	const finalizedOsPromise = supabase
 		.from('service_orders')
-		.select('id, services_total_cents, services_cost_total_cents, discount_cents')
+		.select('id')
 		.eq('organization_id', organizationId)
 		.in('status', [...FINALIZED_SUCCESS])
 		.gte('closed_at', startIso)
 		.lte('closed_at', endIso)
-
-	const yesterdaySalesPromise = supabase
-		.from('sales_orders')
-		.select('id, total_cents')
-		.eq('organization_id', organizationId)
-		.eq('status', 'paid')
-		.gte('created_at', yesterdayRange.startIso)
-		.lte('created_at', yesterdayRange.endIso)
-
-	const yesterdayFinalizedOsPromise = supabase
-		.from('service_orders')
-		.select('id, services_total_cents, services_cost_total_cents, discount_cents')
-		.eq('organization_id', organizationId)
-		.in('status', [...FINALIZED_SUCCESS])
-		.gte('closed_at', yesterdayRange.startIso)
-		.lte('closed_at', yesterdayRange.endIso)
 
 	const openReceivablesPromise = supabase
 		.from('service_orders')
@@ -177,94 +140,57 @@ export async function fetchDashboardDailySummary (
 	const [
 		orgRes,
 		salesRes,
-		yesterdaySalesRes,
 		openOsRes,
 		finalizedOsRes,
-		yesterdayFinalizedOsRes,
 		openReceivablesRes,
 		birthdaysRes,
 		availableDevicesRes,
 		soldDevicesTodayRes,
 		recurringRes,
+		financeByDay,
 	] = await Promise.all([
 		orgPromise,
 		salesPromise,
-		yesterdaySalesPromise,
 		openOsPromise,
 		finalizedOsPromise,
-		yesterdayFinalizedOsPromise,
 		openReceivablesPromise,
 		birthdaysPromise,
 		availableDevicesPromise,
 		soldDevicesTodayPromise,
 		recurringPromise,
+		fetchDashboardFinanceBillingByDateRange(
+			supabase,
+			organizationId,
+			yesterdayStr,
+			dateStr,
+		),
 	])
 
 	const paidSales = salesRes.data ?? []
-	const yesterdayPaidSales = yesterdaySalesRes.data ?? []
 	const salesIds = paidSales.map((s) => String(s.id))
-	const yesterdaySalesIds = yesterdayPaidSales.map((s) => String(s.id))
 
-	const emptyItems = { data: [] as Array<{
-		quantity?: number | null
-		unit_cost_cents?: number | null
-		subtotal_cents?: number | null
-	}> }
-	const [todayItemsRes, yesterdayItemsRes] = await Promise.all([
-		salesIds.length > 0
-			? supabase
-				.from('sales_order_items')
-				.select('quantity, unit_cost_cents, subtotal_cents')
-				.in('sales_order_id', salesIds)
-			: Promise.resolve(emptyItems),
-		yesterdaySalesIds.length > 0
-			? supabase
-				.from('sales_order_items')
-				.select('quantity, unit_cost_cents, subtotal_cents')
-				.in('sales_order_id', yesterdaySalesIds)
-			: Promise.resolve(emptyItems),
-	])
+	const todayItemsRes = salesIds.length > 0
+		? await supabase
+			.from('sales_order_items')
+			.select('quantity')
+			.in('sales_order_id', salesIds)
+		: { data: [] as Array<{ quantity?: number | null }> }
 
 	let unitsSold = 0
-	let itemsCostCents = 0
-	let itemsSubtotalCents = 0
 	for (const item of todayItemsRes.data ?? []) {
-		const qty = Math.max(0, Number(item.quantity) || 0)
-		const unitCost = Math.max(0, Number(item.unit_cost_cents) || 0)
-		const subtotal = Math.max(0, Number(item.subtotal_cents) || 0)
-		unitsSold += qty
-		itemsCostCents += qty * unitCost
-		itemsSubtotalCents += subtotal
+		unitsSold += Math.max(0, Number(item.quantity) || 0)
 	}
 
-	let yesterdayItemsCostCents = 0
-	let yesterdayItemsSubtotalCents = 0
-	for (const item of yesterdayItemsRes.data ?? []) {
-		const qty = Math.max(0, Number(item.quantity) || 0)
-		const unitCost = Math.max(0, Number(item.unit_cost_cents) || 0)
-		const subtotal = Math.max(0, Number(item.subtotal_cents) || 0)
-		yesterdayItemsCostCents += qty * unitCost
-		yesterdayItemsSubtotalCents += subtotal
-	}
-
-	const salesValueCents = paidSales.reduce(
-		(acc, s) => acc + Math.max(0, Number(s.total_cents) || 0),
-		0,
-	)
-	const yesterdaySalesValueCents = yesterdayPaidSales.reduce(
-		(acc, s) => acc + Math.max(0, Number(s.total_cents) || 0),
-		0,
-	)
-	const salesNetProfitCents = Math.max(0, itemsSubtotalCents - itemsCostCents)
-	const yesterdaySalesNetCents = Math.max(
-		0,
-		yesterdayItemsSubtotalCents - yesterdayItemsCostCents,
-	)
-
-	const osToday = sumFinalizedOs(finalizedOsRes.data ?? [])
-	const osYesterday = sumFinalizedOs(yesterdayFinalizedOsRes.data ?? [])
-	const osGrossCents = osToday.grossCents
-	const osNetCents = osToday.netCents
+	const financeToday = financeByDay.get(dateStr)
+	const financeYesterday = financeByDay.get(yesterdayStr)
+	const billingSalesCents = financeToday?.salesGrossCents ?? 0
+	const billingOsCents = financeToday?.osGrossCents ?? 0
+	const billingSalesNetCents = financeToday?.salesNetCents ?? 0
+	const billingOsNetCents = financeToday?.osNetCents ?? 0
+	const yesterdaySalesValueCents = financeYesterday?.salesGrossCents ?? 0
+	const yesterdaySalesNetCents = financeYesterday?.salesNetCents ?? 0
+	const yesterdayOsGrossCents = financeYesterday?.osGrossCents ?? 0
+	const yesterdayOsNetCents = financeYesterday?.osNetCents ?? 0
 
 	let openOsReceivableCents = 0
 	for (const row of openReceivablesRes.data ?? []) {
@@ -303,19 +229,24 @@ export async function fetchDashboardDailySummary (
 		Number(orgRes.data?.daily_os_revenue_goal_cents) || 0,
 	)
 
+	const operationalSalesValueCents = paidSales.reduce(
+		(acc, s) => acc + Math.max(0, Number(s.total_cents) || 0),
+		0,
+	)
+
 	return {
 		dateStr,
 		sales: {
 			salesCount: paidSales.length,
 			unitsSold,
-			salesValueCents,
-			netProfitCents: salesNetProfitCents,
+			salesValueCents: operationalSalesValueCents,
+			netProfitCents: billingSalesNetCents,
 		},
 		os: {
 			activeCount: openOsRes.count ?? 0,
 			finalizedTodayCount: (finalizedOsRes.data ?? []).length,
-			grossCents: osGrossCents,
-			netCents: osNetCents,
+			grossCents: billingOsCents,
+			netCents: billingOsNetCents,
 		},
 		devices: {
 			availableCount: availableDevicesRes.count ?? 0,
@@ -325,20 +256,20 @@ export async function fetchDashboardDailySummary (
 		},
 		dailySalesGoalCents,
 		dailyOsGoalCents,
-		billingSalesCents: salesValueCents,
-		billingOsCents: osGrossCents,
+		billingSalesCents,
+		billingOsCents,
 		yesterday: {
 			salesCents: yesterdaySalesValueCents,
 			salesNetCents: yesterdaySalesNetCents,
-			osCents: osYesterday.grossCents,
-			osNetCents: osYesterday.netCents,
+			osCents: yesterdayOsGrossCents,
+			osNetCents: yesterdayOsNetCents,
 		},
 		reminders: {
 			openOsReceivableCents,
 			payablesTotalCents: payables.reduce((acc, p) => acc + Math.max(0, Number(p.amount_cents) || 0), 0),
 			birthdaysNext7DaysCount,
 			averageTicketCents: paidSales.length > 0
-				? Math.round(salesValueCents / paidSales.length)
+				? Math.round(operationalSalesValueCents / paidSales.length)
 				: 0,
 		},
 	}

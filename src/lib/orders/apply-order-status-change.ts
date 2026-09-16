@@ -121,6 +121,8 @@ export async function applyOrderStatusChange (
   const willBeFinalized = FINALIZED_ORDER_STATUS_SET.has(nextStatus)
   if (willBeFinalized && !wasFinalized) {
     updatePayload.closed_at = new Date().toISOString()
+  } else if (!willBeFinalized && wasFinalized) {
+    updatePayload.closed_at = null
   }
 
   const { error: upErr } = await supabase

@@ -2,6 +2,7 @@
 
 import {
 	Copy,
+	FileText,
 	Mail,
 	MessageCircle,
 	MoreVertical,
@@ -35,6 +36,7 @@ import {
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { toast } from '@/hooks/use-toast'
+import { emitServiceOrderNfe } from '@/lib/fiscal/emit-sales-order-client'
 import { getPrintWindowFeatures } from '@/lib/ordem-print'
 import {
 	buildOrderEmailSubject,
@@ -80,6 +82,7 @@ export function OrdensRowActions({ order, canDelete = false, onSuppressHostLink 
 	const [fetchedPublicUrl, setFetchedPublicUrl] = useState<string | null>(null)
 	const [deleteOpen, setDeleteOpen] = useState(false)
 	const [deleteSubmitting, setDeleteSubmitting] = useState(false)
+	const [busyNfe, setBusyNfe] = useState(false)
 
 	const customer = order.customers
 	const deviceModel = order.device_models
@@ -196,6 +199,20 @@ export function OrdensRowActions({ order, canDelete = false, onSuppressHostLink 
 		}
 	}
 
+	async function handleEmitNfe() {
+		if (busyNfe) return
+		setBusyNfe(true)
+		try {
+			await emitServiceOrderNfe({
+				orderId: order.id,
+				displayNumber,
+				navigate: (href) => router.push(href),
+			})
+		} finally {
+			setBusyNfe(false)
+		}
+	}
+
 	const itemClass = 'py-1 px-2 text-xs'
 	const iconClass = 'h-3.5 w-3.5 mr-1.5 shrink-0'
 
@@ -245,6 +262,20 @@ export function OrdensRowActions({ order, canDelete = false, onSuppressHostLink 
 						<Tag className={iconClass} />
 						Imprimir etiqueta
 					</DropdownMenuItem>
+					{order.status !== 'cancelada' ? (
+						<DropdownMenuItem
+							className={itemClass}
+							disabled={busyNfe}
+							onSelect={(e) => {
+								e.preventDefault()
+								onSuppressHostLink?.(true)
+								void handleEmitNfe()
+							}}
+						>
+							<FileText className={iconClass} />
+							{busyNfe ? 'Emitindo NF-e…' : 'Gerar NF-e'}
+						</DropdownMenuItem>
+					) : null}
 					{whatsappHref || message ? (
 						<DropdownMenuItem
 							className={itemClass}

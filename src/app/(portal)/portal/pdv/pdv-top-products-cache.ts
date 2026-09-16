@@ -1,16 +1,8 @@
 import type { CatalogProduct } from './pdv-types'
+import { readBrowserCache, writeBrowserCache } from '@/lib/portal/browser-cache'
 
 const TTL_MS = 24 * 60 * 60 * 1000
-const STORAGE_PREFIX = 'conectize:pdv:top-products:v1:'
-
-type TopProductsCachePayload = {
-  savedAt: number
-  products: CatalogProduct[]
-}
-
-function storageKey (organizationId: string) {
-  return `${STORAGE_PREFIX}${organizationId}`
-}
+const NAMESPACE = 'pdv:top-products'
 
 function isCatalogProduct (value: unknown): value is CatalogProduct {
   if (!value || typeof value !== 'object') return false
@@ -18,33 +10,33 @@ function isCatalogProduct (value: unknown): value is CatalogProduct {
   return typeof row.id === 'string' && row.id.length > 0 && typeof row.name === 'string'
 }
 
+function stripSensitive (product: CatalogProduct): CatalogProduct {
+  const { cost_price_cents: _cost, ...rest } = product
+  return rest
+}
+
 export function readTopProductsCache (organizationId: string | null | undefined): CatalogProduct[] | null {
-  if (!organizationId || typeof window === 'undefined') return null
-  try {
-    const raw = window.localStorage.getItem(storageKey(organizationId))
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as TopProductsCachePayload
-    if (!parsed || !Array.isArray(parsed.products) || typeof parsed.savedAt !== 'number') return null
-    if (Date.now() - parsed.savedAt > TTL_MS) return null
-    const products = parsed.products.filter(isCatalogProduct).slice(0, 5)
-    return products.length > 0 ? products : null
-  } catch {
-    return null
-  }
+  const products = readBrowserCache<CatalogProduct[]>({
+    kind: 'local',
+    namespace: NAMESPACE,
+    organizationId,
+    ttlMs: TTL_MS,
+    validate: (data): data is CatalogProduct[] => (
+      Array.isArray(data) && data.every(isCatalogProduct)
+    ),
+  })
+  if (!products?.length) return null
+  return products.slice(0, 5).map(stripSensitive)
 }
 
 export function writeTopProductsCache (
   organizationId: string | null | undefined,
   products: CatalogProduct[],
 ) {
-  if (!organizationId || typeof window === 'undefined') return
-  try {
-    const payload: TopProductsCachePayload = {
-      savedAt: Date.now(),
-      products: products.slice(0, 5),
-    }
-    window.localStorage.setItem(storageKey(organizationId), JSON.stringify(payload))
-  } catch {
-    // Quota / private mode — ignora.
-  }
+  writeBrowserCache({
+    kind: 'local',
+    namespace: NAMESPACE,
+    organizationId,
+    data: products.filter(isCatalogProduct).slice(0, 5).map(stripSensitive),
+  })
 }

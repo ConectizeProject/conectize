@@ -52,13 +52,8 @@ import {
 import { portalFetch } from '@/lib/portal/portal-fetch'
 import { maskedFromCents } from '@/lib/utils/money'
 import { toast } from '@/hooks/use-toast'
+import { emitSalesOrderFiscalDocument } from '@/lib/fiscal/emit-sales-order-client'
 import {
-  isProductFiscalCorrectionError,
-  fiscalEditorHref,
-} from '@/lib/fiscal/product-fiscal-errors'
-import { fiscalEmitFailureMessage } from '@/lib/fiscal/emit-failure-message'
-import {
-  openFiscalDanfePrint,
   openSalesOrderCupomPrint,
   salesOrderCupomPrintLabel,
 } from '@/app/(portal)/portal/vendas/SalesOrderAfterSaleActions'
@@ -108,13 +103,6 @@ type ConfirmKind =
 type ConfirmState = {
   kind: ConfirmKind
   order: SalesOrder
-}
-
-type FiscalDocumentState = {
-  id?: string
-  status?: 'pending' | 'authorized' | 'rejected' | 'canceled' | 'denied'
-  sefaz_status_code?: string | null
-  sefaz_status_message?: string | null
 }
 
 const CONFIRM_COPY: Record<Exclude<ConfirmKind, 'cancel_paid'>, {
@@ -397,116 +385,21 @@ export function PedidosVendaList () {
   }
 
   async function emitFiscal (order: SalesOrder, model: '55' | '65') {
-    const kind = model === '55' ? 'NF-e' : 'NFC-e'
-    const emitPath = model === '55' ? 'emit-nfe' : 'emit-nfce'
-
-    if (order.status !== 'paid') {
-      toast({
-        title: 'Venda ainda não está paga',
-        description: `A ${kind} só pode ser emitida para vendas pagas.`,
-        variant: 'destructive',
-      })
-      return
-    }
-
     setBusyId(order.id)
     try {
-      const stateRes = await portalFetch(`/api/portal/sales-orders/${encodeURIComponent(order.id)}/${emitPath}`)
-      const stateData = await stateRes?.json().catch(() => null)
-      const fiscalDocument = (stateData?.fiscal_document ?? null) as FiscalDocumentState | null
-
-      if (fiscalDocument?.id && (
-        fiscalDocument.status === 'rejected' ||
-        fiscalDocument.status === 'denied' ||
-        (fiscalDocument.status === 'pending' && isProductFiscalCorrectionError(fiscalDocument.sefaz_status_code))
-      )) {
-        router.push(fiscalEditorHref(model, fiscalDocument.id, {
-          corrigir: isProductFiscalCorrectionError(fiscalDocument.sefaz_status_code),
-        }))
-        return
-      }
-
-      if (stateData?.danfe_url && fiscalDocument?.id) {
-        setOrders((prev) => prev.map((row) => (
-          row.id === order.id
-            ? withFiscalDocument(row, model, fiscalDocument.status || 'authorized', fiscalDocument.id)
-            : row
-        )))
-        toast({
-          variant: 'success',
-          title: `${kind} já autorizada`,
-          description: `Abrindo a ${kind} para impressão.`,
-        })
-        openFiscalDanfePrint(fiscalDocument.id, model)
-        return
-      }
-
-      const endpoint = fiscalDocument?.id && fiscalDocument.status !== 'authorized'
-        ? `/api/portal/fiscal/documents/${encodeURIComponent(fiscalDocument.id)}/retry`
-        : `/api/portal/sales-orders/${encodeURIComponent(order.id)}/${emitPath}`
-
-      const res = await portalFetch(endpoint, { method: 'POST' })
-      const data = await res?.json().catch(() => null)
-      const nextFiscalDocument = (data?.fiscal_document ?? null) as FiscalDocumentState | null
-      if (!data?.ok) {
-        if (data?.error === 'nfe_customer_required'
-          || data?.error === 'nfe_customer_address_required'
-          || data?.error === 'nfe_customer_ibge_required') {
-          toast({
-            title: 'Complete o destinatário',
-            description: data.message || 'A NF-e exige cliente com CPF/CNPJ e endereço.',
-          })
-          router.push(`/portal/vendas/${encodeURIComponent(order.id)}`)
-          return
-        }
-        if (data?.needs_correction && nextFiscalDocument?.id) {
-          toast({
-            title: 'Complete NCM e CEST',
-            description: data.message || `Preencha os dados fiscais dos produtos para emitir a ${kind}.`,
-          })
-          router.push(fiscalEditorHref(model, nextFiscalDocument.id, { corrigir: true }))
-          return
-        }
-        toast({
-          title: `${kind} não autorizada`,
-          description: fiscalEmitFailureMessage(res, data, kind),
-          variant: 'destructive',
-        })
-        if (nextFiscalDocument?.id) {
-          router.push(fiscalEditorHref(model, nextFiscalDocument.id))
-        }
-        return
-      }
-
-      if (data.danfe_url && nextFiscalDocument?.id) {
-        setOrders((prev) => prev.map((row) => (
-          row.id === order.id
-            ? withFiscalDocument(row, model, nextFiscalDocument.status || 'authorized', nextFiscalDocument.id)
-            : row
-        )))
-        toast({
-          variant: 'success',
-          title: data.already_authorized ? `${kind} já autorizada` : `${kind} autorizada`,
-          description: `Abrindo a ${kind} para impressão.`,
-        })
-        openFiscalDanfePrint(nextFiscalDocument.id, model)
-        return
-      }
-
-      if (nextFiscalDocument?.status) {
-        setOrders((prev) => prev.map((row) => (
-          row.id === order.id
-            ? withFiscalDocument(row, model, nextFiscalDocument.status, nextFiscalDocument.id)
-            : row
-        )))
-      }
-      toast({
-        title: `${kind} não autorizada`,
-        description: nextFiscalDocument?.sefaz_status_message || nextFiscalDocument?.sefaz_status_code || 'A SEFAZ retornou a nota sem autorização.',
-        variant: 'destructive',
+      const result = await emitSalesOrderFiscalDocument({
+        orderId: order.id,
+        model,
+        paid: order.status === 'paid',
+        navigate: (href) => router.push(href),
       })
-      if (nextFiscalDocument?.id) {
-        router.push(fiscalEditorHref(model, nextFiscalDocument.id))
+      const nextDocument = result.fiscalDocument
+      if (nextDocument?.status) {
+        setOrders((prev) => prev.map((row) => (
+          row.id === order.id
+            ? withFiscalDocument(row, model, nextDocument.status, nextDocument.id)
+            : row
+        )))
       }
     } finally {
       setBusyId(null)

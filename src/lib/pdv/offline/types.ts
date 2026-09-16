@@ -45,10 +45,38 @@ export type PdvOfflineCatalogSnapshot = {
   organizationId: string
   updatedAt: string
   products: unknown[]
+  truncated?: boolean
+  schemaVersion?: number
+}
+
+export type PdvOfflineCatalogProduct = {
+  id: string
+  organizationId?: string
+  name: string
+  sku: string | null
+  barcode: string | null
+  sale_price_cents: number | null
+  cost_price_cents?: number | null
+  image_url: string | null
+  stock: number
+  kind?: 'product' | 'service'
+}
+
+/** Alias canônico do produto de catálogo (UX + offline). */
+export type CatalogProduct = Omit<PdvOfflineCatalogProduct, 'organizationId'>
+
+
+export type PdvOfflineCatalogMeta = {
+  organizationId: string
+  updatedAt: string
+  truncated?: boolean
+  schemaVersion?: number
+  productCount?: number
 }
 
 export type PdvOfflinePaymentMethodsSnapshot = {
   organizationId: string
   updatedAt: string
   paymentMethods: unknown[]
+  schemaVersion?: number
 }
