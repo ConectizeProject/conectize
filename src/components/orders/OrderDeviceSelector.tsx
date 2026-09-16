@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { readBrowserCache, writeBrowserCache } from '@/lib/portal/browser-cache'
+import { usePortalOrganizationId } from '@/lib/portal/portal-branding-context'
 import { portalFetch } from '@/lib/portal/portal-fetch'
 
 export type DeviceModel = {
@@ -15,29 +17,34 @@ export type DeviceModel = {
   model: string
 }
 
-const DEVICE_MODELS_CACHE_KEY = 'portal_device_models_v2'
+const DEVICE_MODELS_NAMESPACE = 'portal:device-models'
 const DEVICE_MODELS_CACHE_TTL_MS = 5 * 60 * 1000 // 5 min
 
-function getCachedDeviceModels(): DeviceModel[] | null {
-  if (typeof window === 'undefined') return null
-  try {
-    const raw = sessionStorage.getItem(DEVICE_MODELS_CACHE_KEY)
-    if (!raw) return null
-    const { data, at } = JSON.parse(raw)
-    if (!Array.isArray(data) || Date.now() - at > DEVICE_MODELS_CACHE_TTL_MS) return null
-    return data
-  } catch {
-    return null
-  }
+function getCachedDeviceModels (organizationId: string | null): DeviceModel[] | null {
+  return readBrowserCache<DeviceModel[]>({
+    kind: 'session',
+    namespace: DEVICE_MODELS_NAMESPACE,
+    organizationId,
+    ttlMs: DEVICE_MODELS_CACHE_TTL_MS,
+    validate: (data): data is DeviceModel[] => (
+      Array.isArray(data)
+      && data.every((row) => (
+        row
+        && typeof row === 'object'
+        && typeof (row as DeviceModel).id === 'string'
+        && typeof (row as DeviceModel).model === 'string'
+      ))
+    ),
+  })
 }
 
-function setCachedDeviceModels(list: DeviceModel[]) {
-  if (typeof window === 'undefined') return
-  try {
-    sessionStorage.setItem(DEVICE_MODELS_CACHE_KEY, JSON.stringify({ data: list, at: Date.now() }))
-  } catch {
-    // ignore
-  }
+function setCachedDeviceModels (organizationId: string | null, list: DeviceModel[]) {
+  writeBrowserCache({
+    kind: 'session',
+    namespace: DEVICE_MODELS_NAMESPACE,
+    organizationId,
+    data: list,
+  })
 }
 
 function uniqueSorted(values: string[]) {
@@ -100,16 +107,17 @@ export function OrderDeviceSelector({
   hasExistingDevices = false,
   onOpenExistingDevices,
 }: OrderDeviceSelectorProps) {
+  const organizationId = usePortalOrganizationId()
   const hasInitialSelection = Boolean(
     initialValue?.deviceModelId || (initialValue?.brand && initialValue?.model)
   )
   const [deviceModels, setDeviceModels] = useState<DeviceModel[]>(() => {
     if (serverDeviceModels?.length) return serverDeviceModels
-    return getCachedDeviceModels() ?? []
+    return []
   })
   const [isLoading, setIsLoading] = useState(() => {
     if (serverDeviceModels?.length) return false
-    return !hasInitialSelection && !getCachedDeviceModels()?.length
+    return !hasInitialSelection
   })
   const [error, setError] = useState<string | null>(null)
   const [brandSearch, setBrandSearch] = useState('')
@@ -161,7 +169,7 @@ export function OrderDeviceSelector({
       return
     }
 
-    const cached = getCachedDeviceModels()
+    const cached = getCachedDeviceModels(organizationId)
     if (cached?.length) {
       setDeviceModels(cached)
       setIsLoading(false)
@@ -169,7 +177,7 @@ export function OrderDeviceSelector({
 
     let cancelled = false
     async function fetchModels() {
-      const fromCache = getCachedDeviceModels()
+      const fromCache = getCachedDeviceModels(organizationId)
       if (!fromCache?.length && !hasInitialSelection) {
         setIsLoading(true)
         setError(null)
@@ -179,7 +187,7 @@ export function OrderDeviceSelector({
         const data = await res.json().catch(() => null)
         if (!cancelled && data?.deviceModels) {
           setDeviceModels(data.deviceModels)
-          setCachedDeviceModels(data.deviceModels)
+          setCachedDeviceModels(organizationId, data.deviceModels)
         }
       } catch {
         if (!cancelled) setError('Não foi possível carregar os dispositivos.')
@@ -191,7 +199,7 @@ export function OrderDeviceSelector({
     return () => {
       cancelled = true
     }
-  }, [hasInitialSelection, serverDeviceModels])
+  }, [hasInitialSelection, organizationId, serverDeviceModels])
 
   function handleBrandChange(value: string) {
     if (isFormikMode) {

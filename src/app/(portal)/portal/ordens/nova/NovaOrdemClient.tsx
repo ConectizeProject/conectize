@@ -493,6 +493,7 @@ export function NovaOrdemClient(props: Props) {
 									{({ push, remove }) => (
 										<OrderServicesCard
 											ref={servicesCardRef}
+											deviceModelId={formik.values.deviceModelId}
 											formik={{
 												services: formik.values.services ?? [],
 												onAdd: (item) => push(item),

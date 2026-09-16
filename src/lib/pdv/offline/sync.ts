@@ -3,6 +3,9 @@ import {
   getOfflineSale,
   isLikelyNetworkFailure,
   listActionableOfflineSales,
+  pruneStaleOfflineSales,
+  reclaimOrphanSyncingSales,
+  removeSyncedOfflineSales,
   updateOfflineSale,
 } from './sales-queue'
 import type { PdvOfflineSale } from './types'
@@ -121,6 +124,7 @@ export async function syncOfflineSalesQueue (organizationId: string): Promise<Sy
   if (syncInFlight) return syncInFlight
 
   syncInFlight = (async () => {
+    await reclaimOrphanSyncingSales(organizationId)
     const actionable = await listActionableOfflineSales(organizationId)
     const pending = actionable.filter((row) => row.status === 'pending' || row.status === 'failed')
     const result: SyncOfflineSalesResult = {
@@ -144,6 +148,9 @@ export async function syncOfflineSalesQueue (organizationId: string): Promise<Sy
       else result.failed += 1
       if (one.error && /sem conexão|sessão expirada/i.test(one.error)) break
     }
+
+    await removeSyncedOfflineSales(organizationId, 0)
+    await pruneStaleOfflineSales(organizationId)
 
     return result
   })()

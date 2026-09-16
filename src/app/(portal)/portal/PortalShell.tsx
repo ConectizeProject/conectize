@@ -110,7 +110,10 @@ export function PortalShell(props: PortalShellProps) {
 	})
 
 	return (
-		<PortalBrandingProvider organizationName={orgLabel || null}>
+		<PortalBrandingProvider
+			organizationName={orgLabel || null}
+			organizationId={props.activeOrganizationId ?? null}
+		>
 			<div
 				className={cn(
 					'flex min-h-0 flex-col',
@@ -259,14 +262,25 @@ export function PortalShell(props: PortalShellProps) {
 											</DropdownMenuItem>
 										)}
 										<DropdownMenuSeparator />
-										<DropdownMenuItem asChild>
-											<Link
-												href="/portal/logout"
-												className="flex items-center gap-2"
-											>
-												<LogOut className="h-4 w-4" strokeWidth={1.75} />
-												<span>Sair</span>
-											</Link>
+										<DropdownMenuItem
+											className="flex items-center gap-2"
+											onSelect={(event) => {
+												event.preventDefault()
+												void (async () => {
+													try {
+														const { clearOfflineClientState } = await import(
+															'@/lib/pdv/offline/idb'
+														)
+														await clearOfflineClientState()
+													} catch {
+														// ignore
+													}
+													window.location.assign('/portal/logout')
+												})()
+											}}
+										>
+											<LogOut className="h-4 w-4" strokeWidth={1.75} />
+											<span>Sair</span>
 										</DropdownMenuItem>
 									</DropdownMenuContent>
 								</DropdownMenu>

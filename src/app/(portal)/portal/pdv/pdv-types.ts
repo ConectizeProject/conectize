@@ -1,14 +1,4 @@
-export type CatalogProduct = {
-  id: string
-  name: string
-  sku: string | null
-  barcode: string | null
-  sale_price_cents: number | null
-  cost_price_cents?: number | null
-  image_url: string | null
-  stock: number
-  kind?: 'product' | 'service'
-}
+export type { CatalogProduct } from '@/lib/pdv/offline/types'
 
 export type PdvCustomerMatch = {
   id: string

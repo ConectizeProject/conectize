@@ -1,20 +1,15 @@
-import { idbGet, idbPut, STORES } from './idb'
+import {
+  idbGet,
+  idbGetAllFromIndex,
+  idbPut,
+  idbReplaceOrgCatalogProducts,
+  STORES,
+} from './idb'
 import type {
-  PdvOfflineCatalogSnapshot,
+  PdvOfflineCatalogMeta,
+  PdvOfflineCatalogProduct,
   PdvOfflinePaymentMethodsSnapshot,
 } from './types'
-
-type CachedCatalogProduct = {
-  id: string
-  name: string
-  sku: string | null
-  barcode: string | null
-  sale_price_cents: number | null
-  cost_price_cents?: number | null
-  image_url: string | null
-  stock: number
-  kind?: 'product' | 'service'
-}
 
 type CachedPaymentMethod = {
   id: string
@@ -23,9 +18,9 @@ type CachedPaymentMethod = {
   credit_installment_fees?: unknown
 }
 
-function isCatalogProduct (row: unknown): row is CachedCatalogProduct {
+function isCatalogProduct (row: unknown): row is PdvOfflineCatalogProduct {
   if (!row || typeof row !== 'object') return false
-  const r = row as CachedCatalogProduct
+  const r = row as PdvOfflineCatalogProduct
   return typeof r.id === 'string' && typeof r.name === 'string'
 }
 
@@ -37,16 +32,30 @@ function isPaymentMethod (row: unknown): row is CachedPaymentMethod {
 
 export async function writeOfflineCatalog (
   organizationId: string,
-  products: CachedCatalogProduct[],
+  products: PdvOfflineCatalogProduct[],
+  options?: { truncated?: boolean, updatedAt?: string | null },
 ) {
   if (!organizationId) return
-  const snapshot: PdvOfflineCatalogSnapshot = {
+  const normalized = products.filter(isCatalogProduct).map((product) => ({
+    ...product,
+    id: product.id,
     organizationId,
-    updatedAt: new Date().toISOString(),
-    products,
-  }
+  }))
+  const updatedAt = String(options?.updatedAt || '').trim() || new Date().toISOString()
   try {
-    await idbPut(STORES.catalog, snapshot)
+    await idbReplaceOrgCatalogProducts(organizationId, normalized, {
+      updatedAt,
+      truncated: Boolean(options?.truncated),
+      schemaVersion: 2,
+    })
+    // Mantém blob legado em sync para leitores antigos na mesma aba até reload completo.
+    await idbPut(STORES.catalog, {
+      organizationId,
+      updatedAt,
+      products: normalized,
+      truncated: Boolean(options?.truncated),
+      schemaVersion: 2,
+    })
   } catch {
     // Quota / private mode — ignora.
   }
@@ -54,13 +63,33 @@ export async function writeOfflineCatalog (
 
 export async function readOfflineCatalog (
   organizationId: string,
-): Promise<CachedCatalogProduct[] | null> {
+): Promise<PdvOfflineCatalogProduct[] | null> {
   if (!organizationId) return null
   try {
-    const snapshot = await idbGet<PdvOfflineCatalogSnapshot>(STORES.catalog, organizationId)
+    const products = await idbGetAllFromIndex<PdvOfflineCatalogProduct>(
+      STORES.catalogProducts,
+      'by_org',
+      organizationId,
+    )
+    const filtered = products.filter(isCatalogProduct)
+    if (filtered.length > 0) return filtered
+
+    // Fallback blob v1
+    const snapshot = await idbGet<{ products?: unknown[] }>(STORES.catalog, organizationId)
     if (!snapshot || !Array.isArray(snapshot.products)) return null
-    const products = snapshot.products.filter(isCatalogProduct)
-    return products.length > 0 ? products : null
+    const legacy = snapshot.products.filter(isCatalogProduct)
+    return legacy.length > 0 ? legacy : null
+  } catch {
+    return null
+  }
+}
+
+export async function readOfflineCatalogMeta (
+  organizationId: string,
+): Promise<PdvOfflineCatalogMeta | null> {
+  if (!organizationId) return null
+  try {
+    return await idbGet<PdvOfflineCatalogMeta>(STORES.catalogMeta, organizationId)
   } catch {
     return null
   }
@@ -75,6 +104,7 @@ export async function writeOfflinePaymentMethods (
     organizationId,
     updatedAt: new Date().toISOString(),
     paymentMethods,
+    schemaVersion: 2,
   }
   try {
     await idbPut(STORES.paymentMethods, snapshot)

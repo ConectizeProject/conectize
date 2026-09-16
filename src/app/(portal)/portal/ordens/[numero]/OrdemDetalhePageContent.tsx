@@ -266,6 +266,7 @@ export function OrdemDetalhePageContent(props: Props) {
 						advancedInitiallyOpen={openServicesModalInitially}
 						currentStatus={order.status}
 						statusInputName="status"
+						deviceModelId={order.device_model_id}
 					/>
 
 					{!isPortalReadOnly ? (
