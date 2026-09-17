@@ -12,6 +12,7 @@ export const PORTAL_SIMULATABLE_ROLES = [
 	'staff',
 	'retailer',
 	'user',
+	'accountant',
 ] as const
 
 export type PortalSimulatableRole = (typeof PORTAL_SIMULATABLE_ROLES)[number]

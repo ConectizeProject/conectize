@@ -8,6 +8,7 @@ const VALID_ROLE_HINTS = new Set([
 	'retailer',
 	'user',
 	'customer',
+	'accountant',
 ])
 
 export function isValidPortalRoleHint(

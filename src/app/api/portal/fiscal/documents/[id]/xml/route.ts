@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import { requireFiscalDocumentsReader } from '@/lib/auth/portal-api'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 import { loadNfceXmlDownload } from '@/lib/fiscal/nfce-xml'
 
@@ -9,7 +9,7 @@ export async function GET (
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const auth = await requireStaffOrAdmin()
+  const auth = await requireFiscalDocumentsReader()
   if (auth.ok === false) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }

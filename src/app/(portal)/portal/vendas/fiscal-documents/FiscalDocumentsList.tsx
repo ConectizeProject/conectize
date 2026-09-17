@@ -29,6 +29,10 @@ import { toast } from '@/hooks/use-toast'
 import { appAlert, appConfirm, appPrompt } from '@/lib/ui/app-dialogs'
 import { maskedFromCents } from '@/lib/utils/money'
 import {
+  brazilCurrentMonthRange,
+  brazilPreviousMonthRange,
+} from '@/lib/dashboard/brazil-day'
+import {
   canCancelFiscalDocument,
   canDeleteFiscalDocument,
   canDownloadFiscalXml,
@@ -52,6 +56,10 @@ import { VENDAS_LIST_PAGE_SIZE } from '@/lib/vendas/list-pagination'
 
 type Props = {
   model: '55' | '65'
+  /** Área do contador: só lista, XML e DANFE. */
+  readOnly?: boolean
+  /** Prefixo das rotas de detalhe (default: /portal/vendas/nfce|nfe). */
+  detailBasePath?: string
 }
 
 type FiscalListFilters = {
@@ -60,7 +68,10 @@ type FiscalListFilters = {
   status?: string
 }
 
-function editorHref (model: '55' | '65', id: string) {
+function editorHref (model: '55' | '65', id: string, detailBasePath?: string) {
+  if (detailBasePath) {
+    return `${detailBasePath}/${encodeURIComponent(id)}`
+  }
   return model === '55'
     ? `/portal/vendas/nfe/${encodeURIComponent(id)}`
     : `/portal/vendas/nfce/${encodeURIComponent(id)}`
@@ -70,8 +81,9 @@ function sendLabel (model: '55' | '65') {
   return model === '55' ? 'Enviar NF-e' : 'Enviar NFC-e'
 }
 
-export function FiscalDocumentsList ({ model }: Props) {
+export function FiscalDocumentsList ({ model, readOnly = false, detailBasePath }: Props) {
   const router = useRouter()
+  const detailHref = (id: string) => editorHref(model, id, detailBasePath)
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [status, setStatus] = useState('')
@@ -268,13 +280,15 @@ export function FiscalDocumentsList ({ model }: Props) {
   }
 
   const kind = model === '55' ? 'NF-e' : 'NFC-e'
-  const emptyHint = model === '55'
-    ? 'Ainda não há NF-e de saída. Crie uma do zero ou emita a partir de um pedido pago.'
-    : 'Nenhuma NFC-e encontrada. Emita a partir de um pedido pago.'
+  const emptyHint = readOnly
+    ? (model === '55' ? 'Nenhuma NF-e encontrada neste período.' : 'Nenhuma NFC-e encontrada neste período.')
+    : model === '55'
+      ? 'Ainda não há NF-e de saída. Crie uma do zero ou emita a partir de um pedido pago.'
+      : 'Nenhuma NFC-e encontrada. Emita a partir de um pedido pago.'
 
   return (
     <div className='space-y-4'>
-      {model === '55' ? (
+      {model === '55' && !readOnly ? (
         <div className='flex flex-wrap items-center justify-end gap-2'>
           <Link href='/portal/vendas/nfe/entradas'>
             <Button type='button' variant='outline'>Entradas</Button>
@@ -297,6 +311,39 @@ export function FiscalDocumentsList ({ model }: Props) {
             <CardTitle>Filtros</CardTitle>
           </CardHeader>
           <CardContent className='grid gap-3'>
+            <div className='space-y-1.5'>
+              <Label>Período rápido</Label>
+              <div className='grid grid-cols-2 gap-2'>
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  disabled={isLoading}
+                  onClick={() => {
+                    const range = brazilCurrentMonthRange()
+                    setFrom(range.startDate)
+                    setTo(range.endDate)
+                    void load(1, { from: range.startDate, to: range.endDate })
+                  }}
+                >
+                  Este mês
+                </Button>
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  disabled={isLoading}
+                  onClick={() => {
+                    const range = brazilPreviousMonthRange()
+                    setFrom(range.startDate)
+                    setTo(range.endDate)
+                    void load(1, { from: range.startDate, to: range.endDate })
+                  }}
+                >
+                  Mês passado
+                </Button>
+              </div>
+            </div>
             <div className='space-y-1.5'>
               <Label htmlFor={`fiscal-${model}-filter-from`}>Data inicial</Label>
               <Input
@@ -378,7 +425,7 @@ export function FiscalDocumentsList ({ model }: Props) {
                 <TableRow>
                   <TableCell colSpan={6} className='py-6 text-center text-muted-foreground'>
                     <p>{emptyHint}</p>
-                    {model === '55' ? (
+                    {model === '55' && !readOnly ? (
                       <div className='mt-3 flex flex-wrap justify-center gap-2'>
                         <Button
                           type='button'
@@ -406,7 +453,7 @@ export function FiscalDocumentsList ({ model }: Props) {
                     <TableRow
                       key={doc.id}
                       className='cursor-pointer'
-                      onClick={() => router.push(editorHref(model, doc.id))}
+                      onClick={() => router.push(detailHref(doc.id))}
                     >
                       <TableCell className='whitespace-nowrap font-medium'>
                         Série {doc.series} · Nº {doc.number}
@@ -417,14 +464,14 @@ export function FiscalDocumentsList ({ model }: Props) {
                       <TableCell
                         onClick={(event) => event.stopPropagation()}
                       >
-                        {doc.order_number && doc.sales_order_id ? (
+                        {doc.order_number && doc.sales_order_id && !readOnly ? (
                           <Link
                             href={`/portal/vendas/${encodeURIComponent(doc.sales_order_id)}`}
                             className='font-medium text-primary underline-offset-4 hover:underline'
                           >
                             #{doc.order_number}
                           </Link>
-                        ) : doc.order_number && doc.service_order_id ? (
+                        ) : doc.order_number && doc.service_order_id && !readOnly ? (
                           <Link
                             href={`/portal/ordens/${encodeURIComponent(String(doc.order_number))}`}
                             className='font-medium text-primary underline-offset-4 hover:underline'
@@ -468,12 +515,14 @@ export function FiscalDocumentsList ({ model }: Props) {
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align='end' className='min-w-44'>
                             <DropdownMenuItem asChild>
-                              <Link href={editorHref(model, doc.id)}>
+                              <Link href={detailHref(doc.id)}>
                                 <Pencil className='mr-2 h-4 w-4' />
-                                {canEditFiscalDocument(doc.status) ? 'Editar dados' : 'Ver nota'}
+                                {readOnly
+                                  ? 'Ver nota'
+                                  : (canEditFiscalDocument(doc.status) ? 'Editar dados' : 'Ver nota')}
                               </Link>
                             </DropdownMenuItem>
-                            {canSendFiscalDocument(doc.status) ? (
+                            {!readOnly && canSendFiscalDocument(doc.status) ? (
                               <DropdownMenuItem
                                 disabled={isBusy}
                                 onSelect={(event) => {
@@ -522,7 +571,7 @@ export function FiscalDocumentsList ({ model }: Props) {
                                 </a>
                               </DropdownMenuItem>
                             ) : null}
-                            {canCancelFiscalDocument(doc.status) ? (
+                            {!readOnly && canCancelFiscalDocument(doc.status) ? (
                               <>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem
@@ -538,7 +587,7 @@ export function FiscalDocumentsList ({ model }: Props) {
                                 </DropdownMenuItem>
                               </>
                             ) : null}
-                            {canDeleteFiscalDocument(doc.status, doc.access_key) && model === '55' ? (
+                            {!readOnly && canDeleteFiscalDocument(doc.status, doc.access_key) && model === '55' ? (
                               <>
                                 {canCancelFiscalDocument(doc.status) ? null : <DropdownMenuSeparator />}
                                 <DropdownMenuItem

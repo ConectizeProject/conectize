@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { syncServiceOrderFinancialTransactions } from '@/lib/finance/service-order-financial-sync'
 import { buildOrderEditDiff } from '@/lib/orders/order-edit-history'
 import {
   isExitConsiderationsEmpty,
@@ -55,7 +56,7 @@ export async function applyOrderStatusChange (
   const { data: existing, error: fetchErr } = await supabase
     .from('service_orders')
     .select(
-      'status, services, closed_at, device_exit_checks, warranty_template_id, warranty_text, organization_id',
+      'status, services, closed_at, device_exit_checks, warranty_template_id, warranty_text, organization_id, display_number, payment_methods, updated_at',
     )
     .eq('id', orderId)
     .maybeSingle()
@@ -179,6 +180,37 @@ export async function applyOrderStatusChange (
     })
   } catch (err) {
     console.error('[applyOrderStatusChange stock]', err)
+  }
+
+  const organizationId = String(
+    (existing as { organization_id?: string | null }).organization_id || '',
+  ).trim()
+  if (organizationId) {
+    try {
+      const closedAt = Object.prototype.hasOwnProperty.call(updatePayload, 'closed_at')
+        ? ((updatePayload.closed_at as string | null) ?? null)
+        : (String(existing.closed_at || '') || null)
+      await syncServiceOrderFinancialTransactions({
+        supabase,
+        orderId,
+        organizationId,
+        orderRow: {
+          id: orderId,
+          organization_id: organizationId,
+          display_number:
+            (existing as { display_number?: number | null }).display_number ?? null,
+          payment_methods:
+            (existing as { payment_methods?: unknown }).payment_methods ?? null,
+          closed_at: closedAt,
+          updated_at:
+            String((existing as { updated_at?: string | null }).updated_at || '') ||
+            new Date().toISOString(),
+        },
+      })
+    } catch (err) {
+      // Status já foi salvo — não bloqueia o fluxo operacional.
+      console.error('[applyOrderStatusChange finance-sync]', { orderId, err })
+    }
   }
 
   return { ok: true }

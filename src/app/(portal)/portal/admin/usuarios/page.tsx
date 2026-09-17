@@ -14,13 +14,15 @@ function isValidRole (value: string) {
     value === 'customer' ||
     value === 'staff' ||
     value === 'admin' ||
-    value === 'retailer'
+    value === 'retailer' ||
+    value === 'accountant'
   )
 }
 
-function roleToOrgRole (role: string): 'admin' | 'staff' | 'user' {
+function roleToOrgRole (role: string): 'admin' | 'staff' | 'user' | 'accountant' {
   if (role === 'admin' || role === 'platform_admin') return 'admin'
   if (role === 'staff') return 'staff'
+  if (role === 'accountant') return 'accountant'
   return 'user'
 }
 
@@ -93,7 +95,7 @@ async function updateRoleAction (formData: FormData) {
           .eq('user_id', userId)
         if (syncErr) redirect('/portal/admin/usuarios?error=nao_foi_possivel_atualizar')
 
-        if (role === 'staff' || role === 'admin') {
+        if (role === 'staff' || role === 'admin' || role === 'accountant') {
           const { data: ctx } = await svc
             .from('user_portal_context')
             .select('active_organization_id')
@@ -242,7 +244,7 @@ export default async function AdminUsuariosPage ({
   const { data: adminsAndStaff } = await supabase
     .from('users')
     .select('id, email, full_name, cpf, role, created_at')
-    .in('role', ['admin', 'staff', 'platform_admin'])
+    .in('role', ['admin', 'staff', 'platform_admin', 'accountant'])
     .order('created_at', { ascending: false })
 
   const enrich = (u: {
@@ -270,6 +272,9 @@ export default async function AdminUsuariosPage ({
     .map(enrich)
   const staff = inScope
     .filter((u) => u.role === 'staff')
+    .map(enrich)
+  const accountants = inScope
+    .filter((u) => u.role === 'accountant')
     .map(enrich)
 
   return (
@@ -300,6 +305,7 @@ export default async function AdminUsuariosPage ({
       <UsuariosClient
         initialAdmins={admins}
         initialStaff={staff}
+        initialAccountants={accountants}
         currentUserId={user.id}
         updateRoleAction={updateRoleAction}
         initialEmailFilter={initialEmail}

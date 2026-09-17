@@ -34,6 +34,55 @@ export type BrazilMonthRange = {
 	endIso: string
 }
 
+export type BrazilDateRange = {
+	label: string
+	displayLabel: string
+	startDate: string
+	endDate: string
+	startIso: string
+	endIso: string
+}
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+function formatBrDay (dateStr: string) {
+	const [y, m, d] = dateStr.split('-')
+	return `${d}/${m}/${y}`
+}
+
+/** Mês civil (1–12) no fuso America/Sao_Paulo. */
+export function brazilMonthRange (year: number, month: number): BrazilMonthRange {
+	const y = Math.trunc(year)
+	const m = Math.trunc(month)
+	if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) {
+		throw new Error('invalid_month_range')
+	}
+	const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate()
+	const mm = String(m).padStart(2, '0')
+	const startDate = `${y}-${mm}-01`
+	const endDate = `${y}-${mm}-${String(lastDay).padStart(2, '0')}`
+	const start = brazilDayRangeUtc(startDate)
+	const end = brazilDayRangeUtc(endDate)
+	return {
+		year: y,
+		month: m,
+		label: `${y}-${mm}`,
+		displayLabel: `${mm}/${y}`,
+		startDate,
+		endDate,
+		startIso: start.startIso,
+		endIso: end.endIso,
+	}
+}
+
+/** Mês civil atual no fuso America/Sao_Paulo. */
+export function brazilCurrentMonthRange (now = new Date()): BrazilMonthRange {
+	const today = brazilTodayDateString(now)
+	const year = Number(today.slice(0, 4))
+	const month = Number(today.slice(5, 7))
+	return brazilMonthRange(year, month)
+}
+
 /** Mês civil anterior no fuso America/Sao_Paulo. */
 export function brazilPreviousMonthRange (now = new Date()): BrazilMonthRange {
 	const today = brazilTodayDateString(now)
@@ -41,17 +90,39 @@ export function brazilPreviousMonthRange (now = new Date()): BrazilMonthRange {
 	const month = Number(today.slice(5, 7))
 	const prevMonth = month === 1 ? 12 : month - 1
 	const prevYear = month === 1 ? year - 1 : year
-	const lastDay = new Date(Date.UTC(prevYear, prevMonth, 0)).getUTCDate()
-	const mm = String(prevMonth).padStart(2, '0')
-	const startDate = `${prevYear}-${mm}-01`
-	const endDate = `${prevYear}-${mm}-${String(lastDay).padStart(2, '0')}`
+	return brazilMonthRange(prevYear, prevMonth)
+}
+
+/** Intervalo inclusivo de datas civis (YYYY-MM-DD) em America/Sao_Paulo. */
+export function brazilInclusiveDateRange (
+	fromDate: string,
+	toDate: string,
+): BrazilDateRange | null {
+	const from = String(fromDate || '').trim()
+	const to = String(toDate || '').trim()
+	if (!DATE_RE.test(from) || !DATE_RE.test(to)) return null
+	const startDate = from <= to ? from : to
+	const endDate = from <= to ? to : from
 	const start = brazilDayRangeUtc(startDate)
 	const end = brazilDayRangeUtc(endDate)
+	const sameDay = startDate === endDate
+	const sameMonth = startDate.slice(0, 7) === endDate.slice(0, 7)
+		&& startDate.endsWith('-01')
+		&& endDate === brazilMonthRange(
+			Number(startDate.slice(0, 4)),
+			Number(startDate.slice(5, 7)),
+		).endDate
 	return {
-		year: prevYear,
-		month: prevMonth,
-		label: `${prevYear}-${mm}`,
-		displayLabel: `${mm}/${prevYear}`,
+		label: sameDay
+			? startDate
+			: sameMonth
+				? startDate.slice(0, 7)
+				: `${startDate}_${endDate}`,
+		displayLabel: sameDay
+			? formatBrDay(startDate)
+			: sameMonth
+				? `${startDate.slice(5, 7)}/${startDate.slice(0, 4)}`
+				: `${formatBrDay(startDate)} – ${formatBrDay(endDate)}`,
 		startDate,
 		endDate,
 		startIso: start.startIso,

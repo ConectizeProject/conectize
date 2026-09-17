@@ -47,13 +47,14 @@ function roleLabel (role: string) {
   if (role === 'admin') return 'Admin'
   if (role === 'platform_admin') return 'Plataforma'
   if (role === 'staff') return 'Staff'
+  if (role === 'accountant') return 'Contador'
   if (role === 'retailer') return 'Lojista'
   return 'Usuário'
 }
 
 function roleVariant (role: string): 'default' | 'secondary' | 'outline' {
   if (role === 'admin' || role === 'platform_admin') return 'default'
-  if (role === 'staff') return 'secondary'
+  if (role === 'staff' || role === 'accountant') return 'secondary'
   if (role === 'retailer') return 'secondary'
   return 'outline'
 }
@@ -131,6 +132,7 @@ const DEBOUNCE_MS = 400
 type Props = {
   initialAdmins: UserRow[]
   initialStaff: UserRow[]
+  initialAccountants?: UserRow[]
   currentUserId: string
   updateRoleAction: (formData: FormData) => void
   initialEmailFilter?: string
@@ -141,6 +143,7 @@ type Props = {
 export function UsuariosClient ({
   initialAdmins,
   initialStaff,
+  initialAccountants = [],
   currentUserId,
   updateRoleAction,
   initialEmailFilter = '',
@@ -186,6 +189,7 @@ export function UsuariosClient ({
   const [usersLoaded, setUsersLoaded] = useState(false)
   const [adminsOpen, setAdminsOpen] = useState(true)
   const [staffOpen, setStaffOpen] = useState(true)
+  const [accountantsOpen, setAccountantsOpen] = useState(true)
   const [usersOpen, setUsersOpen] = useState(false)
 
   const loadUsers = useCallback(async () => {
@@ -215,6 +219,7 @@ export function UsuariosClient ({
 
   const filteredAdmins = filterByEmail(initialAdmins, emailFilter)
   const filteredStaff = filterByEmail(initialStaff, emailFilter)
+  const filteredAccountants = filterByEmail(initialAccountants, emailFilter)
   const filteredUsers = filterByEmail(users, emailFilter)
 
   const normalizedEditRole = editUser
@@ -227,7 +232,7 @@ export function UsuariosClient ({
       <CardHeader>
         <CardTitle>Usuários</CardTitle>
         <CardDescription>
-          Papéis: usuário, lojista, staff, admin. Admins e staff carregados. Demais usuários ao expandir.
+          Papéis: usuário, lojista, staff, contador, admin. Admins, staff e contadores carregados. Demais usuários ao expandir.
           {isPlatformAdmin ? ' Como master, você vê a organização atual de cada usuário e pode alterá-la ao editar.' : ''}
         </CardDescription>
         <div className="pt-2">
@@ -289,6 +294,30 @@ export function UsuariosClient ({
               </div>
             ) : (
               <p className="text-sm text-muted-foreground py-4">Nenhum staff encontrado.</p>
+            )}
+          </CollapsibleContent>
+        </Collapsible>
+
+        <Collapsible open={accountantsOpen} onOpenChange={setAccountantsOpen}>
+          <CollapsibleTrigger className="flex items-center gap-2 w-full text-left font-medium hover:underline">
+            {accountantsOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            Contadores ({filteredAccountants.length})
+          </CollapsibleTrigger>
+          <CollapsibleContent className="pt-3">
+            {filteredAccountants.length > 0 ? (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {filteredAccountants.map((u) => (
+                  <UserCard
+                    key={u.id}
+                    u={u}
+                    currentUserId={currentUserId}
+                    onEdit={setEditUser}
+                    showOrganization={isPlatformAdmin}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground py-4">Nenhum contador encontrado.</p>
             )}
           </CollapsibleContent>
         </Collapsible>
@@ -403,6 +432,7 @@ export function UsuariosClient ({
                       <option value="user">Usuário</option>
                       <option value="retailer">Lojista (B2B)</option>
                       <option value="staff">Staff</option>
+                      <option value="accountant">Contador</option>
                       <option value="admin">Admin</option>
                     </select>
                   )}

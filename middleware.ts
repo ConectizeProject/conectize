@@ -205,18 +205,42 @@ export async function middleware(request: NextRequest) {
 
 		const isBasicUser = role === 'user' || role === 'customer'
 		const isRetailer = role === 'retailer'
+		const isAccountant = role === 'accountant'
 
 		// Logged in
 		if (pathname === '/portal') {
 			const goMinhasOrdens = isBasicUser || isRetailer
-			url.pathname = goMinhasOrdens
-				? '/portal/minhas-ordens'
-				: '/portal/dashboard'
+			url.pathname = isAccountant
+				? '/portal/contador'
+				: goMinhasOrdens
+					? '/portal/minhas-ordens'
+					: '/portal/dashboard'
 			url.search = ''
 			const redirect = NextResponse.redirect(url)
 			redirect.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')
 			copyCookiesToResponse(response, redirect)
 			return redirect
+		}
+
+		// Contador: só área de notas + perfil/logout
+		if (isAccountant) {
+			const allowedAccountant =
+				pathname === '/portal/contador' ||
+				pathname.startsWith('/portal/contador/') ||
+				pathname === '/portal/complete-profile' ||
+				pathname.startsWith('/portal/complete-profile/') ||
+				pathname === '/portal/logout'
+
+			if (!allowedAccountant && !isPublicPortalPath) {
+				url.pathname = '/portal/contador'
+				url.search = ''
+				const redirect = NextResponse.redirect(url)
+				redirect.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')
+				copyCookiesToResponse(response, redirect)
+				return redirect
+			}
+
+			return response
 		}
 
 		// Lojista B2B: OS próprias, varejo, vitrine, financeiro lojista, dados

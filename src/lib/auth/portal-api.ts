@@ -63,7 +63,94 @@ export function normalizePortalRole (role: string | null | undefined): string {
 }
 
 /**
- * API routes: exige sessÃ£o e papel staff ou admin.
+ * API routes: leitura de notas fiscais (staff/admin/platform_admin/accountant).
+ * Mutações continuam em `requireStaffOrAdmin`.
+ */
+export async function requireFiscalDocumentsReader (): Promise<
+  PortalAuthFailure | PortalAuthStaffSuccess
+> {
+  const supabase = await createSupabaseServerClient()
+  const { user } = await getAuthUser()
+  if (!user) {
+    return { ok: false as const, status: 401, error: 'not_authenticated' }
+  }
+
+  const { data: appUser } = await supabase
+    .from('users')
+    .select('role, full_name, email')
+    .eq('id', user.id)
+    .maybeSingle()
+
+  const rawRole = String(appUser?.role || '')
+  const cookieStore = await cookies()
+  const simulatedRole =
+    cookieStore.get(PORTAL_SIMULATED_ROLE_COOKIE)?.value || null
+  const effectiveRole = resolveEffectivePortalRole(rawRole, simulatedRole)
+  const normalized = normalizePortalRole(effectiveRole)
+  const isPlatformAdmin = normalized === 'platform_admin'
+  if (
+    normalized !== 'staff'
+    && normalized !== 'admin'
+    && normalized !== 'platform_admin'
+    && normalized !== 'accountant'
+  ) {
+    return { ok: false as const, status: 403, error: 'forbidden' }
+  }
+
+  await ensurePortalOrganizationContext(supabase, user.id)
+  const organizationId = await getPortalOrganizationId(supabase, user.id)
+  if (!organizationId) {
+    return { ok: false as const, status: 403, error: 'no_organization_context' }
+  }
+
+  const authorDisplayName =
+    String(appUser?.full_name || appUser?.email || '').trim() || '(Sem nome)'
+
+  const roleForApi: PortalStaffRole =
+    normalized === 'admin' || normalized === 'platform_admin' ? 'admin' : 'staff'
+
+  return {
+    ok: true as const,
+    supabase,
+    role: roleForApi,
+    userId: user.id,
+    authorDisplayName,
+    isAdmin: normalized === 'admin' || normalized === 'platform_admin',
+    organizationId,
+    isPlatformAdmin,
+  }
+}
+
+/**
+ * Server Components: exige contador (ou Master simulando contador).
+ */
+export async function requireAccountantPage () {
+  const supabase = await createSupabaseServerClient()
+  const { user } = await getAuthUser()
+  if (!user) await redirectToPortalLogin()
+
+  const { data: appUser } = await supabase
+    .from('users')
+    .select('role')
+    .eq('id', user.id)
+    .maybeSingle()
+
+  const rawRole = String(appUser?.role || '')
+  const cookieStore = await cookies()
+  const simulatedRole =
+    cookieStore.get(PORTAL_SIMULATED_ROLE_COOKIE)?.value || null
+  const effectiveRole = resolveEffectivePortalRole(rawRole, simulatedRole)
+  const normalized = normalizePortalRole(effectiveRole)
+  if (normalized !== 'accountant') {
+    redirect('/portal')
+  }
+
+  await ensurePortalOrganizationContext(supabase, user.id)
+  return { supabase, userId: user.id }
+}
+
+/**
+ * API routes: exige sessão e papel staff ou admin.
  */
 export async function requireStaffOrAdmin (): Promise<PortalAuthFailure | PortalAuthStaffSuccess> {
   const supabase = await createSupabaseServerClient()
