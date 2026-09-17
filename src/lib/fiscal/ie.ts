@@ -28,6 +28,25 @@ const IE_DIGIT_LENGTH: Record<string, number> = {
   TO: 11,
 }
 
+/**
+ * UFs que rejeitam indIEDest=2 (contribuinte isento) — rejeição 805.
+ * Nesses casos, “Isento” no cadastro vira Não Contribuinte (9).
+ */
+export const UF_DISALLOW_DEST_IE_ISENTO = new Set([
+  'AM',
+  'BA',
+  'CE',
+  'GO',
+  'MG',
+  'MS',
+  'MT',
+  'PA',
+  'PE',
+  'RN',
+  'SE',
+  'SP',
+])
+
 export function fiscalIeOrNull (value: unknown, uf?: string | null) {
   const digits = onlyDigits(String(value || ''))
   if (!digits) return null
@@ -55,6 +74,11 @@ export function resolveNfeDestinatarioIe (input: {
   }
 
   if (input.stateRegistrationExempt === true) {
+    const destUf = String(input.destUf || '').trim().toUpperCase()
+    // Sem UF ou UF que não aceita isento → Não Contribuinte (evita rejeição 805).
+    if (!destUf || UF_DISALLOW_DEST_IE_ISENTO.has(destUf)) {
+      return { ok: true, value: { indicadorIE: 9 } }
+    }
     return { ok: true, value: { indicadorIE: 2 } }
   }
 

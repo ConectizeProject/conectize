@@ -138,7 +138,7 @@ export function NfeDestinatarioCard ({
                   placeholder={stateRegistrationExempt ? 'Isento' : 'IE do destinatário'}
                 />
                 <p className='text-xs text-muted-foreground'>
-                  Entra no XML da NF-e. CNPJ contribuinte precisa da IE cadastrada na SEFAZ.
+                  CNPJ contribuinte de ICMS precisa da IE. Em UFs como MG/SP, “Isento” vai como Não Contribuinte (a SEFAZ não aceita isento).
                 </p>
               </div>
             ) : null}
