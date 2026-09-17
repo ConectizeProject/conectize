@@ -20,6 +20,7 @@ const ROLE_OPTIONS = [
 	{ value: MASTER_ROLE_VALUE, label: 'Master' },
 	{ value: 'admin', label: 'Admin' },
 	{ value: 'staff', label: 'Staff' },
+	{ value: 'accountant', label: 'Contador' },
 	{ value: 'retailer', label: 'Lojista' },
 	{ value: 'user', label: 'Cliente' },
 ]
@@ -66,6 +67,11 @@ export function PortalRoleSwitcher({
 				}
 				setValue(nextRole)
 				router.refresh()
+				if (nextRole === 'accountant') {
+					router.replace('/portal/contador')
+				} else if (value === 'accountant') {
+					router.replace('/portal')
+				}
 			} finally {
 				setBusy(false)
 			}

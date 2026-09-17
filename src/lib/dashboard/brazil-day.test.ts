@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   addBrazilCalendarDays,
+  brazilCurrentMonthRange,
+  brazilInclusiveDateRange,
   brazilPreviousMonthRange,
   brazilTodayDateString,
   isBirthdayInNextDays,
@@ -37,6 +39,34 @@ describe('brazilPreviousMonthRange', () => {
   it('uses the last day of February in leap years', () => {
     const range = brazilPreviousMonthRange(new Date('2024-03-01T12:00:00-03:00'))
     expect(range.endDate).toBe('2024-02-29')
+  })
+})
+
+describe('brazilCurrentMonthRange', () => {
+  it('uses the current civil month in Brazil', () => {
+    const range = brazilCurrentMonthRange(new Date('2026-09-16T12:00:00-03:00'))
+    expect(range.label).toBe('2026-09')
+    expect(range.startDate).toBe('2026-09-01')
+    expect(range.endDate).toBe('2026-09-30')
+  })
+})
+
+describe('brazilInclusiveDateRange', () => {
+  it('builds a custom inclusive range and swaps inverted dates', () => {
+    const range = brazilInclusiveDateRange('2026-09-10', '2026-09-01')
+    expect(range?.startDate).toBe('2026-09-01')
+    expect(range?.endDate).toBe('2026-09-10')
+    expect(range?.displayLabel).toBe('01/09/2026 – 10/09/2026')
+  })
+
+  it('collapses a full month into MM/YYYY', () => {
+    const range = brazilInclusiveDateRange('2026-08-01', '2026-08-31')
+    expect(range?.label).toBe('2026-08')
+    expect(range?.displayLabel).toBe('08/2026')
+  })
+
+  it('rejects invalid dates', () => {
+    expect(brazilInclusiveDateRange('nope', '2026-09-01')).toBeNull()
   })
 })
 

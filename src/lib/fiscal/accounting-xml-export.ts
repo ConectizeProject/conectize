@@ -1,6 +1,10 @@
 import 'server-only'
 import type { PortalAuthStaffSuccess } from '@/lib/auth/portal-api'
-import { brazilPreviousMonthRange } from '@/lib/dashboard/brazil-day'
+import {
+	brazilInclusiveDateRange,
+	brazilPreviousMonthRange,
+	type BrazilDateRange,
+} from '@/lib/dashboard/brazil-day'
 import {
 	accountingXmlFolder,
 	accountingXmlZipFilename,
@@ -29,7 +33,7 @@ type FiscalXmlRow = {
 
 const PAGE_SIZE = 500
 
-function asModel(value: unknown): '55' | '65' {
+function asModel (value: unknown): '55' | '65' {
 	return value === '55' ? '55' : '65'
 }
 
@@ -46,15 +50,41 @@ export type AccountingXmlZipOk = {
 
 export type AccountingXmlZipErr = {
 	ok: false
-	error: 'no_documents' | 'db_error'
+	error: 'no_documents' | 'db_error' | 'invalid_range'
 	displayLabel: string
 }
 
-export async function buildAccountingXmlZip(
+export type BuildAccountingXmlZipOptions = {
+	fromDate?: string | null
+	toDate?: string | null
+	now?: Date
+}
+
+function resolveAccountingRange (
+	options?: BuildAccountingXmlZipOptions,
+): BrazilDateRange | { error: 'invalid_range' } {
+	const fromDate = String(options?.fromDate || '').trim()
+	const toDate = String(options?.toDate || '').trim()
+	if (fromDate || toDate) {
+		const range = brazilInclusiveDateRange(
+			fromDate || toDate,
+			toDate || fromDate,
+		)
+		if (!range) return { error: 'invalid_range' }
+		return range
+	}
+	return brazilPreviousMonthRange(options?.now)
+}
+
+export async function buildAccountingXmlZip (
 	auth: AuthCtx,
-	now = new Date(),
+	options?: BuildAccountingXmlZipOptions,
 ): Promise<AccountingXmlZipOk | AccountingXmlZipErr> {
-	const range = brazilPreviousMonthRange(now)
+	const resolved = resolveAccountingRange(options)
+	if ('error' in resolved) {
+		return { ok: false, error: 'invalid_range', displayLabel: '' }
+	}
+	const range = resolved
 	const rows: FiscalXmlRow[] = []
 	let from = 0
 

@@ -55,6 +55,18 @@ export function buildPortalNavConfig({
 		}
 	}
 
+	if (normalizedRole === 'accountant') {
+		return {
+			groups: [
+				group('Notas fiscais', [
+					{ href: '/portal/contador/nfce', label: 'NFC-e' },
+					{ href: '/portal/contador/nfe', label: 'NF-e' },
+				]),
+			],
+			directLinks: [],
+		}
+	}
+
 	const operacoesItems: PortalNavItem[] = [
 		{ href: '/portal/ordens', label: 'Ordens de serviço' },
 		{ href: '/portal/orcamentos', label: 'Orçamentos' },

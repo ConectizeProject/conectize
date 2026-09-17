@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import { requireFiscalDocumentsReader } from '@/lib/auth/portal-api'
 import { listFiscalDocuments } from '@/lib/fiscal/documents'
 
 export const runtime = 'nodejs'
 
 export async function GET (request: NextRequest) {
-  const auth = await requireStaffOrAdmin()
+  const auth = await requireFiscalDocumentsReader()
   if (auth.ok === false) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }

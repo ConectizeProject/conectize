@@ -3,7 +3,8 @@
 import { ChevronDown, Download, Plus } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
+import { AccountingXmlExportDialog } from '@/app/(portal)/portal/vendas/AccountingXmlExportDialog'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -12,8 +13,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { toast } from '@/hooks/use-toast'
-import { brazilPreviousMonthRange } from '@/lib/dashboard/brazil-day'
-import { portalFetch } from '@/lib/portal/portal-fetch'
 import {
   createStandaloneSalesOrder,
   salesOrderNfeEmitHref,
@@ -32,18 +31,12 @@ function activeTab (pathname: string) {
   return 'pedidos'
 }
 
-function attachmentFilename (header: string | null, fallback: string) {
-  const match = String(header || '').match(/filename="([^"]+)"/i)
-  return match?.[1] || fallback
-}
-
 export function VendasModuleTabs () {
   const pathname = usePathname() || '/portal/vendas'
   const router = useRouter()
   const current = activeTab(pathname)
   const [isCreating, setIsCreating] = useState(false)
-  const [isDownloadingXml, setIsDownloadingXml] = useState(false)
-  const previousMonth = useMemo(() => brazilPreviousMonthRange(), [])
+  const [xmlDialogOpen, setXmlDialogOpen] = useState(false)
 
   async function createStandaloneOrder (options?: { emitNfe?: boolean }) {
     if (isCreating) return
@@ -65,60 +58,6 @@ export function VendasModuleTabs () {
       )
     } finally {
       setIsCreating(false)
-    }
-  }
-
-  async function downloadAccountingXml () {
-    if (isDownloadingXml) return
-    setIsDownloadingXml(true)
-    try {
-      const res = await portalFetch('/api/portal/fiscal/documents/accounting-xml', {
-        cache: 'no-store',
-      })
-      const contentType = res.headers.get('content-type') || ''
-      if (contentType.includes('application/json') || !res.ok) {
-        const data = await res.json().catch(() => null)
-        toast({
-          title: 'Não foi possível baixar os XMLs',
-          description: data?.message || data?.error || 'Tente novamente em instantes.',
-          variant: 'destructive',
-        })
-        return
-      }
-
-      const blob = await res.blob()
-      const filename = attachmentFilename(
-        res.headers.get('content-disposition'),
-        `xml-nfe-nfce-${previousMonth.label}.zip`,
-      )
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = filename
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      URL.revokeObjectURL(url)
-
-      const nfeCount = Number(res.headers.get('x-xml-nfe-count') || 0)
-      const nfceCount = Number(res.headers.get('x-xml-nfce-count') || 0)
-      const missingCount = Number(res.headers.get('x-xml-missing-count') || 0)
-      const month = res.headers.get('x-xml-month') || previousMonth.displayLabel
-      toast({
-        variant: missingCount > 0 ? 'default' : 'success',
-        title: `XMLs de ${month} prontos`,
-        description: missingCount > 0
-          ? `${nfceCount} NFC-e e ${nfeCount} NF-e no ZIP. ${missingCount} nota(s) sem XML (veja notas-sem-xml.txt).`
-          : `${nfceCount} NFC-e e ${nfeCount} NF-e. Envie o arquivo à contabilidade.`,
-      })
-    } catch {
-      toast({
-        title: 'Não foi possível baixar os XMLs',
-        description: 'Verifique sua conexão e tente novamente.',
-        variant: 'destructive',
-      })
-    } finally {
-      setIsDownloadingXml(false)
     }
   }
 
@@ -146,18 +85,21 @@ export function VendasModuleTabs () {
       </div>
       <div className='flex flex-wrap items-center gap-2'>
         {current === 'nfce' || current === 'nfe' ? (
-          <Button
-            type='button'
-            variant='outline'
-            disabled={isDownloadingXml}
-            onClick={() => void downloadAccountingXml()}
-            aria-label={`Baixar XMLs de NFC-e e NF-e de ${previousMonth.displayLabel} para a contabilidade`}
-          >
-            <Download className='mr-1 h-4 w-4' />
-            {isDownloadingXml
-              ? 'Baixando XMLs...'
-              : `XMLs de ${previousMonth.displayLabel}`}
-          </Button>
+          <>
+            <Button
+              type='button'
+              variant='outline'
+              onClick={() => setXmlDialogOpen(true)}
+              aria-label='Baixar XMLs de NFC-e e NF-e para a contabilidade'
+            >
+              <Download className='mr-1 h-4 w-4' />
+              Baixar XMLs
+            </Button>
+            <AccountingXmlExportDialog
+              open={xmlDialogOpen}
+              onOpenChange={setXmlDialogOpen}
+            />
+          </>
         ) : null}
         {current === 'pedidos' ? (
           <Button type='button' disabled={isCreating} onClick={() => void createStandaloneOrder()}>

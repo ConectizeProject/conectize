@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import { requireFiscalDocumentsReader } from '@/lib/auth/portal-api'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 import { buildNfceDanfeHtml } from '@/lib/fiscal/nfce-danfe'
 import { buildNfeDanfePdf } from '@/lib/fiscal/nfe-danfe'
@@ -10,7 +10,7 @@ export async function GET (
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const auth = await requireStaffOrAdmin()
+  const auth = await requireFiscalDocumentsReader()
   if (auth.ok === false) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }

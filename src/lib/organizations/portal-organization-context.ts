@@ -31,6 +31,7 @@ async function pickHostOrFirstOrganizationId (supabase: SupabaseClient): Promise
  * - platform_admin ou admin **sem** nenhuma linha em `organization_members`: escopo global
  *   no portal (mantém org ativa ou usa org host / primeira org).
  * - staff/admin com membership: só orgs em que `role_in_org` é `admin` ou `staff` na org ativa.
+ * - accountant: membership com `role_in_org = accountant`.
  * - retailer: alinha ao `customers.organization_id` do vínculo em `customer_portal_members`.
  */
 export async function ensurePortalOrganizationContext (
@@ -92,6 +93,30 @@ export async function ensurePortalOrganizationContext (
     if (activeId) return activeId
     const fallback = await pickHostOrFirstOrganizationId(supabase)
     if (fallback) return await persistOrg(fallback)
+    return null
+  }
+
+  if (normalized === 'accountant') {
+    const { data: accountantMemberships } = await supabase
+      .from('organization_members')
+      .select('organization_id')
+      .eq('user_id', userId)
+      .eq('role_in_org', 'accountant')
+      .order('organization_id', { ascending: true })
+
+    const accountantOrgIds = new Set(
+      (accountantMemberships || []).map((r) => String(r.organization_id)),
+    )
+    const firstAccountantOrg = [...accountantOrgIds].sort()[0] ?? null
+
+    if (activeId && accountantOrgIds.has(activeId)) return activeId
+    if (firstAccountantOrg) return await persistOrg(firstAccountantOrg)
+    if (activeId) {
+      await supabase.from('user_portal_context').upsert({
+        user_id: userId,
+        active_organization_id: null,
+      })
+    }
     return null
   }
 
