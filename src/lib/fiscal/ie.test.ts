@@ -35,11 +35,32 @@ describe('resolveNfeDestinatarioIe', () => {
     })
   })
 
-  it('uses isento for CNPJ without IE', () => {
+  it('maps isento to non-contributor when dest UF disallows isento (805)', () => {
     expect(resolveNfeDestinatarioIe({
       documentDigits: '11222333000181',
       stateRegistrationExempt: true,
+      destUf: 'MG',
+    })).toEqual({ ok: true, value: { indicadorIE: 9 } })
+    expect(resolveNfeDestinatarioIe({
+      documentDigits: '11222333000181',
+      stateRegistrationExempt: true,
+      destUf: 'SP',
+    })).toEqual({ ok: true, value: { indicadorIE: 9 } })
+  })
+
+  it('keeps isento indicator when dest UF still allows it', () => {
+    expect(resolveNfeDestinatarioIe({
+      documentDigits: '11222333000181',
+      stateRegistrationExempt: true,
+      destUf: 'PR',
     })).toEqual({ ok: true, value: { indicadorIE: 2 } })
+  })
+
+  it('defaults exempt CNPJ without UF to non-contributor', () => {
+    expect(resolveNfeDestinatarioIe({
+      documentDigits: '11222333000181',
+      stateRegistrationExempt: true,
+    })).toEqual({ ok: true, value: { indicadorIE: 9 } })
   })
 
   it('requires IE for CNPJ that is not exempt', () => {

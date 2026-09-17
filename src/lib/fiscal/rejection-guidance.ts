@@ -55,6 +55,13 @@ export function fiscalRejectionGuidance (
     }
   }
 
+  if (code === '805') {
+    return {
+      summary: 'A SEFAZ da UF do destinatário não aceita “contribuinte isento” (indIEDest=2).',
+      hint: 'Para CNPJ sem IE nesses estados (ex.: MG, SP), o Conectize envia como Não Contribuinte. Confirme o endereço/UF do cliente, marque Isento e reenvie. Se for contribuinte de ICMS, informe a IE válida.',
+    }
+  }
+
   if (code === '215') {
     return {
       summary: 'A SEFAZ recusou o XML porque algum campo foge do leiaute (tamanho, formato ou caractere).',
