@@ -1,4 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import {
+	brazilDayRangeUtc,
+	brazilTodayDateString,
+} from '@/lib/dashboard/brazil-day'
+import { FINALIZED_ORDER_STATUSES } from '@/lib/orders/order-status'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 
 export type DashboardFinanceTxRow = {
@@ -20,6 +25,8 @@ export type DashboardFinanceBillingDay = {
 	serviceOrderIds: string[]
 }
 
+const FINALIZED_SUCCESS = FINALIZED_ORDER_STATUSES.filter((s) => s !== 'cancelada')
+
 function financeClient (fallback: SupabaseClient): SupabaseClient {
 	try {
 		return createSupabaseServiceClient()
@@ -34,7 +41,9 @@ export function classifyDashboardFinanceSource (
 	if (row.service_order_id) return 'os'
 	if (row.sales_order_id) return 'pdv'
 	if (row.resale_device_id) return 'seminovo'
-	if (/^PDV:[0-9a-fA-F-]{36}:/i.test(String(row.description || ''))) return 'pdv'
+	const description = String(row.description || '')
+	if (/^PDV:[0-9a-fA-F-]{36}:/i.test(description)) return 'pdv'
+	if (/^OS\s*#/i.test(description)) return 'os'
 	return 'other'
 }
 
@@ -42,9 +51,29 @@ function ymd (value: unknown): string {
 	return String(value || '').slice(0, 10)
 }
 
+function brazilDateFromIso (isoLike: unknown): string {
+	const raw = String(isoLike || '').trim()
+	if (!raw) return ''
+	const date = new Date(raw)
+	if (Number.isNaN(date.getTime())) return ymd(raw)
+	return brazilTodayDateString(date)
+}
+
+export function sumOrderPaymentMethodsCents (raw: unknown): number {
+	if (!Array.isArray(raw)) return 0
+	let total = 0
+	for (const item of raw) {
+		if (!item || typeof item !== 'object') continue
+		const value = Math.max(0, Number((item as { value_cents?: unknown }).value_cents) || 0)
+		total += value
+	}
+	return total
+}
+
 /**
  * Faturamento do dashboard alinhado ao Financeiro:
  * entradas em `financial_transactions` por `occurred_at` (data civil).
+ * OS finalizadas sem lançamento financeiro entram como fallback (closed_at).
  */
 export async function fetchDashboardFinanceBillingByDateRange (
 	supabase: SupabaseClient,
@@ -135,6 +164,55 @@ export async function fetchDashboardFinanceBillingByDateRange (
 		}
 	}
 
+	const rangeStart = brazilDayRangeUtc(fromDateStr)
+	const rangeEnd = brazilDayRangeUtc(toDateStr)
+	const { data: closedOrders, error: closedErr } = await supabase
+		.from('service_orders')
+		.select(
+			'id, closed_at, payment_methods, services_total_cents, services_cost_total_cents',
+		)
+		.eq('organization_id', organizationId)
+		.in('status', [...FINALIZED_SUCCESS])
+		.gte('closed_at', rangeStart.startIso)
+		.lte('closed_at', rangeEnd.endIso)
+
+	if (closedErr) {
+		console.error('[dashboard finance-billing closed-os]', closedErr)
+	} else {
+		for (const order of closedOrders ?? []) {
+			const oid = String(order.id || '')
+			if (!oid) continue
+			const day = brazilDateFromIso(order.closed_at)
+			if (day < fromDateStr || day > toDateStr) continue
+
+			const alreadySynced = osIdsByDay.get(day)?.has(oid) === true
+			if (alreadySynced) continue
+
+			const paidFromMethods = sumOrderPaymentMethodsCents(order.payment_methods)
+			const paid = paidFromMethods > 0
+				? paidFromMethods
+				: Math.max(0, Number(order.services_total_cents) || 0)
+			if (paid <= 0) continue
+
+			const bucket = dayBucket(day)
+			bucket.osGrossCents += paid
+
+			let set = osIdsByDay.get(day)
+			if (!set) {
+				set = new Set()
+				osIdsByDay.set(day, set)
+			}
+			set.add(oid)
+
+			let payMap = osPayByDay.get(day)
+			if (!payMap) {
+				payMap = new Map()
+				osPayByDay.set(day, payMap)
+			}
+			payMap.set(oid, paid)
+		}
+	}
+
 	const allSalesIds = [...new Set([...salesIdsByDay.values()].flatMap((s) => [...s]))]
 	const allOsIds = [...new Set([...osIdsByDay.values()].flatMap((s) => [...s]))]
 
@@ -166,6 +244,11 @@ export async function fetchDashboardFinanceBillingByDateRange (
 		for (const order of orders ?? []) {
 			const id = String(order.id || '')
 			if (!id) continue
+			osCostById.set(id, Math.max(0, Number(order.services_cost_total_cents) || 0))
+		}
+		for (const order of closedOrders ?? []) {
+			const id = String(order.id || '')
+			if (!id || osCostById.has(id)) continue
 			osCostById.set(id, Math.max(0, Number(order.services_cost_total_cents) || 0))
 		}
 	}
