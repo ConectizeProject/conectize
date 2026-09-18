@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertCircle, Barcode, CloudUpload, Loader2, PencilLine, RefreshCw } from 'lucide-react'
+import { AlertCircle, Barcode, ChevronDown, CloudUpload, Loader2, PencilLine, RefreshCw } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -15,6 +15,12 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from '@/components/ui/dialog'
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Label } from '@/components/ui/label'
 import {
 	AlertDialog,
@@ -33,7 +39,9 @@ import {
 	GESTAO_LIST_CHUNK,
 } from '@/lib/products/portal-gestao-produtos-list'
 import { AssistenciaServicoLinkModal } from './AssistenciaServicoLinkModal'
+import { BulkEditFieldsPickerDialog } from './BulkEditFieldsPickerDialog'
 import { BulkEditProductsModal } from './BulkEditProductsModal'
+import type { BulkEditFieldKey, BulkEditGroup } from '@/lib/products/bulk-edit-fields'
 import { useOptionalProdutosGestaoActionsRegistration } from './ProdutosGestaoActionsContext'
 import { ProductEditDialog } from './ProductEditDialog'
 import { ProductListCard } from './ProductListCard'
@@ -117,6 +125,9 @@ export function ProductsListClient({
 	} | null>(null)
 	const [bulkEditOpen, setBulkEditOpen] = useState(false)
 	const [bulkEditProductIds, setBulkEditProductIds] = useState<string[]>([])
+	const [bulkEditGroup, setBulkEditGroup] = useState<BulkEditGroup | null>(null)
+	const [bulkEditFields, setBulkEditFields] = useState<BulkEditFieldKey[]>([])
+	const [bulkFieldPickerOpen, setBulkFieldPickerOpen] = useState(false)
 	const [pushPortalDialogOpen, setPushPortalDialogOpen] = useState(false)
 	const [assistenciaLinkModalOpen, setAssistenciaLinkModalOpen] = useState(false)
 	const [assistenciaLinkCatalogKind, setAssistenciaLinkCatalogKind] = useState<'product' | 'service'>(
@@ -950,20 +961,50 @@ export function ProductsListClient({
 						</Button>
 					</div>
 					<div className="flex flex-wrap items-center gap-2">
-						<Button
-							type="button"
-							variant="secondary"
-							size="sm"
-							className="h-8"
-							disabled={bulkBusy}
-							onClick={() => {
-								setBulkEditProductIds([...selectedIds])
-								setBulkEditOpen(true)
-							}}
-						>
-							<PencilLine className="mr-1 h-3.5 w-3.5" />
-							Editar em massa
-						</Button>
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<Button
+									type="button"
+									variant="secondary"
+									size="sm"
+									className="h-8"
+									disabled={bulkBusy}
+								>
+									<PencilLine className="mr-1 h-3.5 w-3.5" />
+									Editar em massa
+									<ChevronDown className="ml-1 h-3.5 w-3.5 opacity-70" aria-hidden />
+								</Button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end" className="w-56">
+								<DropdownMenuItem
+									onSelect={() => {
+										setBulkEditProductIds([...selectedIds])
+										setBulkEditGroup('sales')
+										setBulkFieldPickerOpen(true)
+									}}
+								>
+									Dados de venda
+								</DropdownMenuItem>
+								<DropdownMenuItem
+									onSelect={() => {
+										setBulkEditProductIds([...selectedIds])
+										setBulkEditGroup('fiscal')
+										setBulkFieldPickerOpen(true)
+									}}
+								>
+									Dados fiscais
+								</DropdownMenuItem>
+								<DropdownMenuItem
+									onSelect={() => {
+										setBulkEditProductIds([...selectedIds])
+										setBulkEditGroup('custom')
+										setBulkFieldPickerOpen(true)
+									}}
+								>
+									Dados customizados
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
 						<Button
 							type="button"
 							variant="secondary"
@@ -1390,16 +1431,42 @@ export function ProductsListClient({
 				</AlertDialogContent>
 			</AlertDialog>
 
-			<BulkEditProductsModal
-				open={bulkEditOpen}
-				onOpenChange={setBulkEditOpen}
-				productIds={bulkEditProductIds}
+			<BulkEditFieldsPickerDialog
+				open={bulkFieldPickerOpen}
+				onOpenChange={(open) => {
+					setBulkFieldPickerOpen(open)
+					if (!open && !bulkEditOpen) setBulkEditGroup(null)
+				}}
+				group={bulkEditGroup}
 				allowDeviceModel={filterKind !== 'service'}
-				onSuccess={() => {
-					setSelectedIds(new Set())
-					router.refresh()
+				selectedCount={bulkEditProductIds.length}
+				onConfirm={(fields) => {
+					setBulkEditFields(fields)
+					setBulkFieldPickerOpen(false)
+					setBulkEditOpen(true)
 				}}
 			/>
+
+			{bulkEditGroup ? (
+				<BulkEditProductsModal
+					open={bulkEditOpen}
+					onOpenChange={(open) => {
+						setBulkEditOpen(open)
+						if (!open) {
+							setBulkEditGroup(null)
+							setBulkEditFields([])
+						}
+					}}
+					productIds={bulkEditProductIds}
+					group={bulkEditGroup}
+					fields={bulkEditFields}
+					allowDeviceModel={filterKind !== 'service'}
+					onSuccess={() => {
+						setSelectedIds(new Set())
+						router.refresh()
+					}}
+				/>
+			) : null}
 
 			<AssistenciaServicoLinkModal
 				catalogKind={assistenciaLinkCatalogKind}
