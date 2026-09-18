@@ -14,10 +14,10 @@ export const lojaCopy = {
 	whatsappMessage:
 		'Olá! Quero um orçamento de peças e acessórios para o meu aparelho.',
 	heroIntro: 'Loja em Santa Efigênia, Belo Horizonte.',
-	heroLine: 'Peças e',
-	heroShine: 'acessórios.',
+	heroLine: 'Quebrou?',
+	heroShine: 'Você está no lugar certo.',
 	heroLead:
-		'Telas, baterias, capinhas e películas para iPhone, Android e tablets. Orçamento no WhatsApp.',
+		'Telas, baterias e acessórios. Orçamento no WhatsApp.',
 	disclaimer:
 		'A Conectize é uma loja independente. Não somos Apple, Samsung nem autorizados oficiais. As marcas citadas pertencem aos respectivos fabricantes.',
 } as const
