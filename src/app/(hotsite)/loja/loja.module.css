@@ -116,23 +116,9 @@
 	pointer-events: none;
 	overflow: hidden;
 	background:
-		radial-gradient(ellipse 70% 50% at 80% 30%, rgb(100 206 251 / 0.18), transparent 60%),
-		radial-gradient(ellipse 50% 40% at 10% 80%, rgb(100 206 251 / 0.08), transparent 55%),
-		linear-gradient(180deg, #f7fafc 0%, #ffffff 55%, #ffffff 100%);
-}
-
-.heroVideo {
-	position: absolute;
-	inset: 0;
-	z-index: 0;
-	width: 100%;
-	height: 100%;
-	min-width: 100%;
-	min-height: 100%;
-	object-fit: cover;
-	opacity: 0.18;
-	filter: saturate(0.85) contrast(1.05);
-	background: transparent;
+		radial-gradient(ellipse 52% 48% at 78% 44%, rgb(100 206 251 / 0.26), transparent 64%),
+		radial-gradient(ellipse 36% 32% at 16% 18%, rgb(100 206 251 / 0.08), transparent 70%),
+		linear-gradient(180deg, #f5f8fb 0%, #ffffff 58%, #ffffff 100%);
 }
 
 .heroScrim {
@@ -141,9 +127,9 @@
 	z-index: 1;
 	background: linear-gradient(
 		180deg,
-		rgb(255 255 255 / 0.72) 0%,
-		rgb(255 255 255 / 0.55) 42%,
-		rgb(255 255 255 / 0.92) 78%,
+		transparent 0%,
+		transparent 68%,
+		rgb(255 255 255 / 0.55) 86%,
 		#fff 100%
 	);
 }
@@ -160,7 +146,7 @@
 	align-items: center;
 	gap: 1.6rem;
 	min-height: 100dvh;
-	max-width: 76rem;
+	max-width: 72rem;
 	margin: 0 auto;
 	padding: 7.5rem 1.25rem 3.5rem;
 	text-align: left;
@@ -186,7 +172,7 @@
 	font-size: clamp(2.7rem, 8vw, 5.6rem);
 	font-weight: 560;
 	letter-spacing: -0.07em;
-	line-height: 0.85;
+	line-height: 0.88;
 }
 
 .heroLine {
@@ -197,7 +183,11 @@
 
 .shine {
 	display: block;
-	margin-top: 0.12em;
+	margin-top: 0.2em;
+	font-size: clamp(1.55rem, 4.2vw, 2.45rem);
+	font-weight: 560;
+	letter-spacing: -0.045em;
+	line-height: 1.08;
 	background-image: linear-gradient(
 		100deg,
 		#2bb8ef 0%,
@@ -338,81 +328,56 @@
 }
 
 .phoneStage {
-	--mx: 0;
-	--my: 0;
+	--tx: 0;
+	--ty: 0;
 	position: relative;
 	z-index: 2;
 	display: grid;
 	place-items: center;
 	grid-area: phone;
-	min-height: min(58dvh, 30rem);
-	margin: 0 -8% 0 0;
+	min-height: min(40dvh, 20rem);
+	margin: 0;
 	overflow: visible;
 	touch-action: pan-y;
 }
 
 .phoneGlow {
 	position: absolute;
-	width: 86%;
-	height: 70%;
+	width: 72%;
+	height: 58%;
 	border-radius: 50%;
-	background: radial-gradient(circle, rgb(100 206 251 / 0.35), transparent 68%);
-	filter: blur(28px);
+	background: radial-gradient(circle, rgb(100 206 251 / 0.42), transparent 70%);
+	filter: blur(36px);
+	pointer-events: none;
+}
+
+.phoneShadow {
+	position: absolute;
+	bottom: 10%;
+	width: 54%;
+	height: 14%;
+	border-radius: 50%;
+	background: rgb(10 10 10 / 0.16);
+	filter: blur(22px);
 	pointer-events: none;
 }
 
 .phoneFrame {
 	position: relative;
 	z-index: 1;
-	width: min(108%, 28rem);
-	transform: perspective(1100px) rotateY(-11deg) rotateX(4deg) rotateZ(-5deg)
-		translate3d(6%, 0, 0);
+	width: min(92%, 21rem);
+	transform: perspective(1200px)
+		rotateY(calc(var(--tx) * 8deg))
+		rotateX(calc(var(--ty) * -6deg))
+		translate3d(calc(var(--tx) * 12px), calc(var(--ty) * 8px), 0);
+	transform-origin: 50% 62%;
+	will-change: transform;
 }
 
 .phoneImage {
 	display: block;
 	width: 100%;
 	height: auto;
-	filter: drop-shadow(0 28px 44px rgb(10 10 10 / 0.18));
-}
-
-.phoneCrack {
-	position: absolute;
-	inset: 12% 18% 10% 18%;
-	border-radius: 1.4rem;
-	pointer-events: none;
-	background:
-		linear-gradient(
-			115deg,
-			transparent 40%,
-			rgb(255 255 255 / 0.35) 50%,
-			transparent 60%
-		);
-	mix-blend-mode: soft-light;
-	opacity: 0.35;
-}
-
-.shard {
-	position: absolute;
-	z-index: 3;
-	background:
-		linear-gradient(
-			135deg,
-			rgb(255 255 255 / 0.92),
-			rgb(100 206 251 / 0.35) 42%,
-			rgb(255 255 255 / 0.55)
-		);
-	box-shadow:
-		0 0 0 1px rgb(100 206 251 / 0.35),
-		0 10px 22px rgb(10 10 10 / 0.12);
-	transform: translate3d(
-			calc(var(--mx) * var(--dx) + var(--my) * var(--sx)),
-			calc(var(--my) * var(--dy)),
-			0
-		)
-		rotate(calc(var(--rot) + var(--my) * 18deg));
-	will-change: transform;
-	pointer-events: none;
 }
 
 .accentIcon {
@@ -927,7 +892,7 @@
 	}
 
 	.heroInner {
-		grid-template-columns: minmax(0, 0.92fr) minmax(20rem, 1.12fr);
+		grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.86fr);
 		grid-template-areas:
 			'copy phone'
 			'trust trust';
@@ -935,7 +900,6 @@
 		gap: 1.75rem 1.25rem;
 		padding-top: 6.5rem;
 		padding-bottom: 3rem;
-		max-width: 80rem;
 	}
 
 	.trust {
@@ -944,12 +908,12 @@
 
 	.phoneStage {
 		align-self: center;
-		min-height: min(82dvh, 44rem);
-		margin: -2.5rem -4% -1rem -8%;
+		min-height: min(52dvh, 28rem);
+		margin: 0;
 	}
 
 	.phoneFrame {
-		width: min(128%, 42rem);
+		width: min(100%, 28rem);
 	}
 
 	.display {
@@ -1007,6 +971,11 @@
 	.actions,
 	.trust {
 		animation: none;
+	}
+
+	.phoneFrame {
+		transform: none;
+		will-change: auto;
 	}
 
 	.shine {

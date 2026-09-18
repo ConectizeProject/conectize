@@ -39,7 +39,7 @@ export async function POST (request: NextRequest) {
   const { data: prodRows, error: pErr } = await auth.supabase
     .from('products')
     .select(
-      'id, name, kind, sale_price_cents, cost_price_cents, cost_price_manual_edited_at, pricing_tag_id',
+      'id, name, kind, sale_price_cents, cost_price_cents, cost_price_manual_edited_at, pricing_tag_id, ncm, cest, fiscal_origin, fci, fiscal_unit, description, is_active',
     )
     .in('id', ids)
 
@@ -97,6 +97,13 @@ export async function POST (request: NextRequest) {
     cost_price_cents?: number | null
     cost_price_manual_edited_at?: string | null
     pricing_tag_id?: string | null
+    ncm?: string | null
+    cest?: string | null
+    fiscal_origin?: number | null
+    fci?: string | null
+    fiscal_unit?: string | null
+    description?: string | null
+    is_active?: boolean | null
   }
 
   const rowById = new Map<string, PRow>()
@@ -111,7 +118,7 @@ export async function POST (request: NextRequest) {
       return { id, missing: true as const }
     }
     const st = stockByProduct.get(id)
-    const costPriceCents = resolveListDisplayCostCents({
+    const displayCostCents = resolveListDisplayCostCents({
       costPriceCents: row.cost_price_cents,
       costPriceManualEditedAt: row.cost_price_manual_edited_at,
       lastEntryUnitValueCents: st?.lastCents ?? null,
@@ -122,9 +129,18 @@ export async function POST (request: NextRequest) {
       name: row.name,
       kind: row.kind ?? null,
       salePriceCents: typeof row.sale_price_cents === 'number' ? row.sale_price_cents : null,
-      costPriceCents,
+      costPriceCents: displayCostCents,
+      catalogCostPriceCents:
+        typeof row.cost_price_cents === 'number' ? row.cost_price_cents : null,
       pricingTagId: row.pricing_tag_id != null ? String(row.pricing_tag_id) : null,
       deviceModelIds: compatByProduct.get(id) ?? [],
+      ncm: row.ncm != null ? String(row.ncm) : null,
+      cest: row.cest != null ? String(row.cest) : null,
+      fiscalOrigin: typeof row.fiscal_origin === 'number' ? row.fiscal_origin : null,
+      fci: row.fci != null ? String(row.fci) : null,
+      fiscalUnit: row.fiscal_unit != null ? String(row.fiscal_unit) : null,
+      description: row.description != null ? String(row.description) : null,
+      isActive: row.is_active !== false,
       missing: false as const,
     }
   })

@@ -28,7 +28,6 @@ import {
 } from '@/lib/data/hotsite-loja'
 import { getSiteUrl } from '@/lib/utils/site-url'
 import { HeroBrokenPhone } from './HeroBrokenPhone'
-import { HeroVideo } from './HeroVideo'
 import { LojaShell } from './LojaShell'
 import styles from './loja.module.css'
 import { WhatsAppIcon } from './WhatsAppIcon'
@@ -81,7 +80,6 @@ export default function LojaPage() {
 			<main id="conteudo-principal">
 				<section className={styles.hero} aria-labelledby="loja-titulo">
 					<div className={styles.heroStage}>
-						<HeroVideo />
 						<div className={styles.heroScrim} aria-hidden="true" />
 					</div>
 
@@ -108,11 +106,7 @@ export default function LojaPage() {
 								</a>
 							</div>
 						</div>
-						<HeroBrokenPhone
-							imageSrc={`/loja/iphone-quebrado.png?v=${
-								process.env.NODE_ENV === 'development' ? Date.now() : '1'
-							}`}
-						/>
+						<HeroBrokenPhone />
 						<ul className={styles.trust}>
 							<li className={styles.trustItem}>
 								<MapPin

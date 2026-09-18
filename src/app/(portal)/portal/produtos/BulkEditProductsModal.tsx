@@ -23,10 +23,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { toast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
+import { maskFci } from '@/lib/fiscal/fci'
+import { maskCest, maskNcm } from '@/lib/fiscal/ncm'
 import { suggestedSaleCents } from '@/lib/pricing/suggested-sale-cents'
+import {
+  BULK_EDIT_GROUP_LABELS,
+  hasBulkEditField,
+  type BulkEditFieldKey,
+  type BulkEditGroup,
+} from '@/lib/products/bulk-edit-fields'
 import { formatMoneyInput, maskedFromCents, moneyToCentsFromMasked } from '@/lib/utils/money'
 
 type BulkMetaItem =
@@ -38,8 +47,16 @@ type BulkMetaItem =
     kind: string | null
     salePriceCents: number | null
     costPriceCents: number | null
+    catalogCostPriceCents: number | null
     pricingTagId: string | null
     deviceModelIds: string[]
+    ncm: string | null
+    cest: string | null
+    fiscalOrigin: number | null
+    fci: string | null
+    fiscalUnit: string | null
+    description: string | null
+    isActive: boolean
   }
 
 type PricingTagRow = {
@@ -58,10 +75,29 @@ type DeviceCatalogRow = {
 
 type RowValues = {
   tag: string
-  /** Lista explícita de IDs de `device_models` (mesmo contrato do cadastro do produto). */
   modelIds: string[]
   saleMasked: string
+  costMasked: string
+  ncm: string
+  cest: string
+  fiscalOrigin: string
+  fci: string
+  fiscalUnit: string
+  description: string
+  isActive: boolean
 }
+
+const FISCAL_ORIGIN_OPTIONS = [
+  { value: '0', label: '0 - Nacional' },
+  { value: '1', label: '1 - Estrangeira (imp. direta)' },
+  { value: '2', label: '2 - Estrangeira (mercado interno)' },
+  { value: '3', label: '3 - Nacional CI 40–70%' },
+  { value: '4', label: '4 - Nacional PPB' },
+  { value: '5', label: '5 - Nacional CI ≤40%' },
+  { value: '6', label: '6 - Estrangeira (imp. direta, CAMEX)' },
+  { value: '7', label: '7 - Estrangeira (mercado interno, CAMEX)' },
+  { value: '8', label: '8 - Nacional CI >70%' },
+]
 
 function uniqModelIds (ids: string[]) {
   const seen = new Set<string>()
@@ -93,15 +129,19 @@ function shortModelId (id: string) {
   return id.length > 14 ? `${id.slice(0, 8)}…` : id
 }
 
+function normalizeFiscalOrigin (value: unknown) {
+  const n = Number(value ?? 0)
+  if (!Number.isFinite(n)) return '0'
+  return String(Math.min(8, Math.max(0, Math.round(n))))
+}
+
 type BulkDeviceModelsPickerProps = {
   value: string[]
   onChange: (ids: string[]) => void
   labels: Record<string, string>
   mergeLabelsFromRows: (rows: DeviceCatalogRow[]) => void
   disabled?: boolean
-  /** Lista original do cadastro (atalho Restaurar). */
   baselineIds?: string[]
-  /** Prefixo único para ids de checkbox (várias linhas na tabela). */
   instanceId?: string
 }
 
@@ -303,10 +343,38 @@ function parseMaskedMoneyToCents (raw: string): number | null | 'invalid' {
   return c
 }
 
+function rowChangedForFields (
+  cur: RowValues,
+  ini: RowValues,
+  fields: readonly BulkEditFieldKey[],
+  allowDeviceModel: boolean,
+): boolean {
+  if (hasBulkEditField(fields, 'pricingTagId') && cur.tag !== ini.tag) return true
+  if (
+    hasBulkEditField(fields, 'compatibleModelIds')
+    && allowDeviceModel
+    && !sameModelIdSet(cur.modelIds, ini.modelIds)
+  ) {
+    return true
+  }
+  if (hasBulkEditField(fields, 'salePrice') && cur.saleMasked !== ini.saleMasked) return true
+  if (hasBulkEditField(fields, 'costPrice') && cur.costMasked !== ini.costMasked) return true
+  if (hasBulkEditField(fields, 'ncm') && cur.ncm !== ini.ncm) return true
+  if (hasBulkEditField(fields, 'cest') && cur.cest !== ini.cest) return true
+  if (hasBulkEditField(fields, 'fiscalOrigin') && cur.fiscalOrigin !== ini.fiscalOrigin) return true
+  if (hasBulkEditField(fields, 'fci') && cur.fci !== ini.fci) return true
+  if (hasBulkEditField(fields, 'fiscalUnit') && cur.fiscalUnit !== ini.fiscalUnit) return true
+  if (hasBulkEditField(fields, 'description') && cur.description !== ini.description) return true
+  if (hasBulkEditField(fields, 'isActive') && cur.isActive !== ini.isActive) return true
+  return false
+}
+
 type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
   productIds: string[]
+  group: BulkEditGroup
+  fields: BulkEditFieldKey[]
   allowDeviceModel: boolean
   onSuccess: () => void
 }
@@ -315,9 +383,24 @@ export function BulkEditProductsModal ({
   open,
   onOpenChange,
   productIds,
+  group,
+  fields,
   allowDeviceModel,
   onSuccess,
 }: Props) {
+  const showCost = hasBulkEditField(fields, 'costPrice')
+  const showSale = hasBulkEditField(fields, 'salePrice')
+  const showTag = hasBulkEditField(fields, 'pricingTagId')
+  const showModels = hasBulkEditField(fields, 'compatibleModelIds') && allowDeviceModel
+  const showNcm = hasBulkEditField(fields, 'ncm')
+  const showCest = hasBulkEditField(fields, 'cest')
+  const showOrigin = hasBulkEditField(fields, 'fiscalOrigin')
+  const showFci = hasBulkEditField(fields, 'fci')
+  const showUnit = hasBulkEditField(fields, 'fiscalUnit')
+  const showDescription = hasBulkEditField(fields, 'description')
+  const showActive = hasBulkEditField(fields, 'isActive')
+  const showSuggested = showSale && (showTag || showCost)
+
   const [loadingMeta, setLoadingMeta] = useState(false)
   const [items, setItems] = useState<BulkMetaItem[]>([])
   const [pricingTags, setPricingTags] = useState<PricingTagRow[]>([])
@@ -328,9 +411,16 @@ export function BulkEditProductsModal ({
   const [templateTag, setTemplateTag] = useState('__keep__')
   const [templateModelAction, setTemplateModelAction] = useState<'keep' | 'clear' | 'replace'>('keep')
   const [templateModelIds, setTemplateModelIds] = useState<string[]>([])
-
   const [templateSaleMasked, setTemplateSaleMasked] = useState('')
+  const [templateCostMasked, setTemplateCostMasked] = useState('')
   const [templatePriceMode, setTemplatePriceMode] = useState<'fixed' | 'suggested'>('fixed')
+  const [templateNcm, setTemplateNcm] = useState('')
+  const [templateCest, setTemplateCest] = useState('')
+  const [templateOrigin, setTemplateOrigin] = useState('__keep__')
+  const [templateFci, setTemplateFci] = useState('')
+  const [templateUnit, setTemplateUnit] = useState('')
+  const [templateDescription, setTemplateDescription] = useState('')
+  const [templateActive, setTemplateActive] = useState<'__keep__' | 'true' | 'false'>('__keep__')
   const [submitting, setSubmitting] = useState(false)
 
   const resetTemplates = useCallback(() => {
@@ -338,7 +428,15 @@ export function BulkEditProductsModal ({
     setTemplateModelAction('keep')
     setTemplateModelIds([])
     setTemplateSaleMasked('')
+    setTemplateCostMasked('')
     setTemplatePriceMode('fixed')
+    setTemplateNcm('')
+    setTemplateCest('')
+    setTemplateOrigin('__keep__')
+    setTemplateFci('')
+    setTemplateUnit('')
+    setTemplateDescription('')
+    setTemplateActive('__keep__')
   }, [])
 
   const mergeLabelsFromRows = useCallback((rows: DeviceCatalogRow[]) => {
@@ -373,8 +471,16 @@ export function BulkEditProductsModal ({
             }),
           )
 
+      const needTags = showTag || showSale
       const [tagsRes, metaRes] = await Promise.all([
-        fetch('/api/portal/staff/pricing-tags'),
+        needTags
+          ? fetch('/api/portal/staff/pricing-tags')
+          : Promise.resolve(
+            new Response(JSON.stringify({ ok: true, pricingTags: [] }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          ),
         metaReq,
       ])
 
@@ -416,6 +522,17 @@ export function BulkEditProductsModal ({
           modelIds: uniqModelIds(it.deviceModelIds || []),
           saleMasked:
             typeof it.salePriceCents === 'number' ? maskedFromCents(it.salePriceCents) : '',
+          costMasked:
+            typeof it.catalogCostPriceCents === 'number'
+              ? maskedFromCents(it.catalogCostPriceCents)
+              : '',
+          ncm: maskNcm(it.ncm || ''),
+          cest: maskCest(it.cest || ''),
+          fiscalOrigin: normalizeFiscalOrigin(it.fiscalOrigin),
+          fci: maskFci(it.fci || ''),
+          fiscalUnit: String(it.fiscalUnit || 'UN'),
+          description: String(it.description || ''),
+          isActive: it.isActive !== false,
         }
       }
       setInitialRowStates(init)
@@ -427,7 +544,7 @@ export function BulkEditProductsModal ({
         for (const mid of row.deviceModelIds || []) idSet.add(mid)
       }
       const idArr = [...idSet]
-      if (allowDeviceModel && idArr.length > 0 && !cancelled) {
+      if (showModels && idArr.length > 0 && !cancelled) {
         const lr = await fetch(
           `/api/portal/device-models?ids=${encodeURIComponent(idArr.join(','))}`,
         )
@@ -447,23 +564,17 @@ export function BulkEditProductsModal ({
     return () => {
       cancelled = true
     }
-  }, [open, productIds, allowDeviceModel, resetTemplates])
+  }, [open, productIds, resetTemplates, showModels, showTag, showSale])
 
   const hasChanges = useMemo(() => {
     for (const id of Object.keys(rowStates)) {
       const a = rowStates[id]
       const b = initialRowStates[id]
       if (!a || !b) continue
-      if (
-        a.tag !== b.tag
-        || !sameModelIdSet(a.modelIds, b.modelIds)
-        || a.saleMasked !== b.saleMasked
-      ) {
-        return true
-      }
+      if (rowChangedForFields(a, b, fields, allowDeviceModel)) return true
     }
     return false
-  }, [rowStates, initialRowStates])
+  }, [rowStates, initialRowStates, fields, allowDeviceModel])
 
   const suggestionForItem = useCallback(
     (it: Extract<BulkMetaItem, { missing: false }>, row: RowValues): number | null => {
@@ -474,13 +585,18 @@ export function BulkEditProductsModal ({
       const tag = pricingTags.find((t) => t.id === tagId)
       if (!tag) return null
       const margin = tag.margin_bps != null ? Number(tag.margin_bps) : 0
+      let costCents = it.costPriceCents
+      if (showCost) {
+        const parsed = parseMaskedMoneyToCents(row.costMasked)
+        if (parsed !== 'invalid' && parsed != null) costCents = parsed
+      }
       return suggestedSaleCents({
-        costCents: it.costPriceCents,
+        costCents,
         marginBps: margin,
         minSuggestedSaleCents: tag.min_suggested_sale_cents,
       })
     },
-    [pricingTags],
+    [pricingTags, showCost],
   )
 
   function updateRow (id: string, patch: Partial<RowValues>) {
@@ -488,7 +604,14 @@ export function BulkEditProductsModal ({
       const cur = prev[id]
       if (!cur) return prev
       const merged = { ...cur, ...patch }
-      if (templatePriceMode === 'suggested' && Object.prototype.hasOwnProperty.call(patch, 'tag')) {
+      if (
+        templatePriceMode === 'suggested'
+        && showSale
+        && (
+          Object.prototype.hasOwnProperty.call(patch, 'tag')
+          || Object.prototype.hasOwnProperty.call(patch, 'costMasked')
+        )
+      ) {
         const it = items.find(
           (x): x is Extract<BulkMetaItem, { missing: false }> => !x.missing && x.id === id,
         )
@@ -543,8 +666,28 @@ export function BulkEditProductsModal ({
     })
   }
 
+  function applyCostToAllRows (masked: string) {
+    setRowStates((prev) => {
+      const next = { ...prev }
+      for (const id of Object.keys(next)) {
+        next[id] = { ...next[id], costMasked: masked }
+      }
+      return next
+    })
+  }
+
+  function applyFieldToAllRows (patch: Partial<RowValues>) {
+    setRowStates((prev) => {
+      const next = { ...prev }
+      for (const id of Object.keys(next)) {
+        next[id] = { ...next[id], ...patch }
+      }
+      return next
+    })
+  }
+
   useEffect(() => {
-    if (!open || loadingMeta || templatePriceMode !== 'suggested') return
+    if (!open || loadingMeta || templatePriceMode !== 'suggested' || !showSale) return
     setRowStates((prev) => {
       let changed = false
       const next = { ...prev }
@@ -568,6 +711,7 @@ export function BulkEditProductsModal ({
     templateTag,
     items,
     suggestionForItem,
+    showSale,
   ])
 
   function tagLabelForRow (
@@ -601,16 +745,28 @@ export function BulkEditProductsModal ({
 
     for (const it of okItems) {
       const cur = rowStates[it.id]
-      const ini = initialRowStates[it.id]
-      if (!cur || !ini) continue
-      const saleParsed = parseMaskedMoneyToCents(cur.saleMasked)
-      if (saleParsed === 'invalid') {
-        toast({
-          variant: 'destructive',
-          title: 'Preço inválido',
-          description: `Verifique o valor de venda em «${it.name}».`,
-        })
-        return
+      if (!cur) continue
+      if (showSale) {
+        const saleParsed = parseMaskedMoneyToCents(cur.saleMasked)
+        if (saleParsed === 'invalid') {
+          toast({
+            variant: 'destructive',
+            title: 'Preço inválido',
+            description: `Verifique o valor de venda em «${it.name}».`,
+          })
+          return
+        }
+      }
+      if (showCost) {
+        const costParsed = parseMaskedMoneyToCents(cur.costMasked)
+        if (costParsed === 'invalid') {
+          toast({
+            variant: 'destructive',
+            title: 'Custo inválido',
+            description: `Verifique o valor de custo em «${it.name}».`,
+          })
+          return
+        }
       }
     }
 
@@ -620,39 +776,56 @@ export function BulkEditProductsModal ({
       const cur = rowStates[it.id]
       const ini = initialRowStates[it.id]
       if (!cur || !ini) continue
-
-      if (
-        cur.tag === ini.tag
-        && sameModelIdSet(cur.modelIds, ini.modelIds)
-        && cur.saleMasked === ini.saleMasked
-      ) {
-        continue
-      }
+      if (!rowChangedForFields(cur, ini, fields, allowDeviceModel)) continue
 
       const body: Record<string, unknown> = { productId: it.id }
 
-      if (cur.tag !== ini.tag) {
+      if (showTag && cur.tag !== ini.tag) {
         if (cur.tag === '__clear__') body.pricingTagId = null
         else if (cur.tag !== '__keep__') body.pricingTagId = cur.tag
       }
 
-      if (allowDeviceModel && !sameModelIdSet(cur.modelIds, ini.modelIds)) {
+      if (showModels && !sameModelIdSet(cur.modelIds, ini.modelIds)) {
         body.compatibleModelIds = cur.modelIds
       }
 
-      const curCents = parseMaskedMoneyToCents(cur.saleMasked)
-      const iniCents = parseMaskedMoneyToCents(ini.saleMasked)
-      if (curCents === 'invalid') {
-        continue
-      }
-      if (curCents !== iniCents) {
-        body.salePrice = (curCents === null ? 0 : curCents) / 100
+      if (showSale && cur.saleMasked !== ini.saleMasked) {
+        const curCents = parseMaskedMoneyToCents(cur.saleMasked)
+        if (curCents !== 'invalid') {
+          body.salePrice = (curCents === null ? 0 : curCents) / 100
+        }
       }
 
-      if (Object.keys(body).length <= 1) {
-        continue
+      if (showCost && cur.costMasked !== ini.costMasked) {
+        const curCents = parseMaskedMoneyToCents(cur.costMasked)
+        if (curCents !== 'invalid') {
+          body.costPrice = (curCents === null ? 0 : curCents) / 100
+        }
       }
 
+      if (showNcm && cur.ncm !== ini.ncm) {
+        body.ncm = cur.ncm.trim() || null
+      }
+      if (showCest && cur.cest !== ini.cest) {
+        body.cest = cur.cest.trim() || null
+      }
+      if (showOrigin && cur.fiscalOrigin !== ini.fiscalOrigin) {
+        body.fiscalOrigin = Number(cur.fiscalOrigin)
+      }
+      if (showFci && cur.fci !== ini.fci) {
+        body.fci = cur.fci.trim() || null
+      }
+      if (showUnit && cur.fiscalUnit !== ini.fiscalUnit) {
+        body.fiscalUnit = cur.fiscalUnit.trim() || null
+      }
+      if (showDescription && cur.description !== ini.description) {
+        body.description = cur.description
+      }
+      if (showActive && cur.isActive !== ini.isActive) {
+        body.isActive = cur.isActive
+      }
+
+      if (Object.keys(body).length <= 1) continue
       patchItems.push(body)
     }
 
@@ -711,16 +884,34 @@ export function BulkEditProductsModal ({
     [items],
   )
 
+  const templateCols = [
+    showTag,
+    showModels,
+    showCost,
+    showSale,
+    showNcm,
+    showCest,
+    showOrigin,
+    showFci,
+    showUnit,
+    showDescription,
+    showActive,
+  ].filter(Boolean).length
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[min(92vh,900px)] w-[min(96vw,1180px)] max-w-[min(96vw,1180px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(96vw,1180px)]">
         <DialogHeader className="shrink-0 space-y-1 border-b px-6 py-4">
-          <DialogTitle>Editar em massa</DialogTitle>
+          <DialogTitle>
+            Editar em massa —
+            {' '}
+            {BULK_EDIT_GROUP_LABELS[group]}
+          </DialogTitle>
           <DialogDescription>
             {productIds.length} selecionado
             {productIds.length === 1 ? '' : 's'}
             {nMissing > 0 ? ` (${nMissing} não encontrado${nMissing === 1 ? '' : 's'} na base)` : ''}
-            . Tag e modelos compatíveis podem ser replicados pelo modelo acima. Preço: valor fixo (replica ao sair do campo) ou valor sugerido pela tag/custo.
+            . Use o modelo acima para replicar valores; edite linha a linha na tabela.
           </DialogDescription>
         </DialogHeader>
 
@@ -732,157 +923,338 @@ export function BulkEditProductsModal ({
             </div>
           ) : (
             <div className="flex h-full min-h-0 flex-col gap-4">
-              <div
-                className={cn(
-                  'grid shrink-0 grid-cols-1 gap-4 border-b border-border/60 pb-4 lg:gap-6',
-                  allowDeviceModel ? 'lg:grid-cols-3' : 'lg:grid-cols-2',
-                )}
-              >
-                <div className="space-y-2">
-                  <Label htmlFor="bulk-template-tag">Tag de precificação</Label>
-                  <Select
-                    value={templateTag}
-                    onValueChange={(v) => {
-                      setTemplateTag(v)
-                      applyTagToAllRows(v)
-                    }}
-                    disabled={submitting}
-                  >
-                    <SelectTrigger id="bulk-template-tag" className="w-full">
-                      <SelectValue placeholder="Modelo para linhas" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__keep__">Manter atual (cada linha)</SelectItem>
-                      <SelectItem value="__clear__">Remover tag</SelectItem>
-                      {pricingTags.map((t) => (
-                        <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {allowDeviceModel ? (
-                  <div className="space-y-2">
-                    <Label htmlFor="bulk-template-model">Modelos compatíveis</Label>
-                    <Select
-                      value={templateModelAction}
-                      onValueChange={(v) => {
-                        const next = v as 'keep' | 'clear' | 'replace'
-                        if (next === 'keep') {
-                          setTemplateModelIds([])
-                          setTemplateModelAction('keep')
-                          applyModelKeepToAllRows()
-                          return
-                        }
-                        if (next === 'clear') {
-                          setTemplateModelIds([])
-                          setTemplateModelAction('clear')
-                          syncAllRowsToTemplateIds([])
-                          return
-                        }
-                        setTemplateModelAction('replace')
-                        setTemplateModelIds([])
-                      }}
-                      disabled={submitting}
-                    >
-                      <SelectTrigger id="bulk-template-model" className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="keep">Manter cadastro de cada produto</SelectItem>
-                        <SelectItem value="clear">Remover todos os modelos</SelectItem>
-                        <SelectItem value="replace">Mesma lista em todas as linhas</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {templateModelAction === 'replace' ? (
-                      <BulkDeviceModelsPicker
-                        instanceId="bulk-template-dm"
-                        value={templateModelIds}
-                        onChange={(next) => {
-                          setTemplateModelIds(next)
-                          queueMicrotask(() => syncAllRowsToTemplateIds(next))
+              {templateCols > 0 ? (
+                <div
+                  className={cn(
+                    'grid shrink-0 grid-cols-1 gap-4 border-b border-border/60 pb-4 lg:gap-6',
+                    templateCols >= 3 ? 'lg:grid-cols-3' : templateCols === 2 ? 'lg:grid-cols-2' : 'lg:grid-cols-1',
+                  )}
+                >
+                  {showTag ? (
+                    <div className="space-y-2">
+                      <Label htmlFor="bulk-template-tag">Tag de precificação</Label>
+                      <Select
+                        value={templateTag}
+                        onValueChange={(v) => {
+                          setTemplateTag(v)
+                          applyTagToAllRows(v)
                         }}
-                        labels={modelLabels}
-                        mergeLabelsFromRows={mergeLabelsFromRows}
                         disabled={submitting}
-                      />
-                    ) : null}
-                  </div>
-                ) : null}
+                      >
+                        <SelectTrigger id="bulk-template-tag" className="w-full">
+                          <SelectValue placeholder="Modelo para linhas" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__keep__">Manter atual (cada linha)</SelectItem>
+                          <SelectItem value="__clear__">Remover tag</SelectItem>
+                          {pricingTags.map((t) => (
+                            <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : null}
 
-                <div className="space-y-3">
-                  <Label>Preço de venda</Label>
-                  <RadioGroup
-                    value={templatePriceMode}
-                    onValueChange={(v) => setTemplatePriceMode(v as 'fixed' | 'suggested')}
-                    className="grid gap-2"
-                    disabled={submitting}
-                  >
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="fixed" id="bulk-price-fixed" />
-                      <Label htmlFor="bulk-price-fixed" className="cursor-pointer font-normal">
-                        Valor fixo
-                      </Label>
+                  {showModels ? (
+                    <div className="space-y-2">
+                      <Label htmlFor="bulk-template-model">Modelos compatíveis</Label>
+                      <Select
+                        value={templateModelAction}
+                        onValueChange={(v) => {
+                          const next = v as 'keep' | 'clear' | 'replace'
+                          if (next === 'keep') {
+                            setTemplateModelIds([])
+                            setTemplateModelAction('keep')
+                            applyModelKeepToAllRows()
+                            return
+                          }
+                          if (next === 'clear') {
+                            setTemplateModelIds([])
+                            setTemplateModelAction('clear')
+                            syncAllRowsToTemplateIds([])
+                            return
+                          }
+                          setTemplateModelAction('replace')
+                          setTemplateModelIds([])
+                        }}
+                        disabled={submitting}
+                      >
+                        <SelectTrigger id="bulk-template-model" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="keep">Manter cadastro de cada produto</SelectItem>
+                          <SelectItem value="clear">Remover todos os modelos</SelectItem>
+                          <SelectItem value="replace">Mesma lista em todas as linhas</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {templateModelAction === 'replace' ? (
+                        <BulkDeviceModelsPicker
+                          instanceId="bulk-template-dm"
+                          value={templateModelIds}
+                          onChange={(next) => {
+                            setTemplateModelIds(next)
+                            queueMicrotask(() => syncAllRowsToTemplateIds(next))
+                          }}
+                          labels={modelLabels}
+                          mergeLabelsFromRows={mergeLabelsFromRows}
+                          disabled={submitting}
+                        />
+                      ) : null}
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="suggested" id="bulk-price-suggested" />
-                      <Label htmlFor="bulk-price-suggested" className="cursor-pointer font-normal">
-                        Valor sugerido (custo × tag)
-                      </Label>
-                    </div>
-                  </RadioGroup>
-                  {templatePriceMode === 'fixed' ? (
-                    <>
+                  ) : null}
+
+                  {showCost ? (
+                    <div className="space-y-2">
+                      <Label htmlFor="bulk-template-cost">Preço de custo</Label>
                       <Input
-                        id="bulk-template-sale"
+                        id="bulk-template-cost"
                         inputMode="numeric"
                         autoComplete="off"
                         placeholder="0,00"
-                        value={templateSaleMasked}
-                        onChange={(e) => setTemplateSaleMasked(formatMoneyInput(e.target.value))}
-                        onBlur={() => applySaleToAllRows(templateSaleMasked)}
+                        value={templateCostMasked}
+                        onChange={(e) => setTemplateCostMasked(formatMoneyInput(e.target.value))}
+                        onBlur={() => applyCostToAllRows(templateCostMasked)}
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.currentTarget.blur()
-                          }
+                          if (e.key === 'Enter') e.currentTarget.blur()
                         }}
                         className="h-9 tabular-nums"
                         disabled={submitting}
                       />
                       <p className="text-[11px] text-muted-foreground">
-                        Replica para todas as linhas ao sair do campo ou ao pressionar Enter.
+                        Replica ao sair do campo ou Enter.
                       </p>
-                    </>
-                  ) : (
-                    <p className="text-[11px] leading-snug text-muted-foreground">
-                      Preenche a coluna Venda com o sugerido de cada item (margem da tag da linha ou tag atual do
-                      produto quando a linha está em &quot;Manter&quot;). Ajuste as tags acima ou por linha na
-                      tabela.
-                    </p>
-                  )}
+                    </div>
+                  ) : null}
+
+                  {showSale ? (
+                    <div className="space-y-3">
+                      <Label>Preço de venda</Label>
+                      {showSuggested ? (
+                        <RadioGroup
+                          value={templatePriceMode}
+                          onValueChange={(v) => setTemplatePriceMode(v as 'fixed' | 'suggested')}
+                          className="grid gap-2"
+                          disabled={submitting}
+                        >
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="fixed" id="bulk-price-fixed" />
+                            <Label htmlFor="bulk-price-fixed" className="cursor-pointer font-normal">
+                              Valor fixo
+                            </Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="suggested" id="bulk-price-suggested" />
+                            <Label htmlFor="bulk-price-suggested" className="cursor-pointer font-normal">
+                              Valor sugerido (custo × tag)
+                            </Label>
+                          </div>
+                        </RadioGroup>
+                      ) : null}
+                      {templatePriceMode === 'fixed' || !showSuggested ? (
+                        <>
+                          <Input
+                            id="bulk-template-sale"
+                            inputMode="numeric"
+                            autoComplete="off"
+                            placeholder="0,00"
+                            value={templateSaleMasked}
+                            onChange={(e) => setTemplateSaleMasked(formatMoneyInput(e.target.value))}
+                            onBlur={() => applySaleToAllRows(templateSaleMasked)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') e.currentTarget.blur()
+                            }}
+                            className="h-9 tabular-nums"
+                            disabled={submitting}
+                          />
+                          <p className="text-[11px] text-muted-foreground">
+                            Replica ao sair do campo ou Enter.
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-[11px] leading-snug text-muted-foreground">
+                          Preenche a coluna Venda com o sugerido de cada item (margem da tag × custo).
+                        </p>
+                      )}
+                    </div>
+                  ) : null}
+
+                  {showNcm ? (
+                    <div className="space-y-2">
+                      <Label htmlFor="bulk-template-ncm">NCM</Label>
+                      <Input
+                        id="bulk-template-ncm"
+                        value={templateNcm}
+                        onChange={(e) => setTemplateNcm(maskNcm(e.target.value))}
+                        onBlur={() => applyFieldToAllRows({ ncm: templateNcm })}
+                        placeholder="0000.00.00"
+                        className="h-9"
+                        disabled={submitting}
+                      />
+                    </div>
+                  ) : null}
+
+                  {showCest ? (
+                    <div className="space-y-2">
+                      <Label htmlFor="bulk-template-cest">CEST</Label>
+                      <Input
+                        id="bulk-template-cest"
+                        value={templateCest}
+                        onChange={(e) => setTemplateCest(maskCest(e.target.value))}
+                        onBlur={() => applyFieldToAllRows({ cest: templateCest })}
+                        placeholder="00.000.00"
+                        className="h-9"
+                        disabled={submitting}
+                      />
+                    </div>
+                  ) : null}
+
+                  {showOrigin ? (
+                    <div className="space-y-2">
+                      <Label htmlFor="bulk-template-origin">Origem</Label>
+                      <Select
+                        value={templateOrigin}
+                        onValueChange={(v) => {
+                          setTemplateOrigin(v)
+                          if (v === '__keep__') return
+                          applyFieldToAllRows({ fiscalOrigin: v })
+                        }}
+                        disabled={submitting}
+                      >
+                        <SelectTrigger id="bulk-template-origin" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__keep__">Manter atual (cada linha)</SelectItem>
+                          {FISCAL_ORIGIN_OPTIONS.map((o) => (
+                            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : null}
+
+                  {showFci ? (
+                    <div className="space-y-2">
+                      <Label htmlFor="bulk-template-fci">FCI</Label>
+                      <Input
+                        id="bulk-template-fci"
+                        value={templateFci}
+                        onChange={(e) => setTemplateFci(maskFci(e.target.value))}
+                        onBlur={() => applyFieldToAllRows({ fci: templateFci })}
+                        className="h-9 font-mono text-xs"
+                        disabled={submitting}
+                      />
+                    </div>
+                  ) : null}
+
+                  {showUnit ? (
+                    <div className="space-y-2">
+                      <Label htmlFor="bulk-template-unit">Unidade</Label>
+                      <Input
+                        id="bulk-template-unit"
+                        value={templateUnit}
+                        maxLength={6}
+                        onChange={(e) => setTemplateUnit(e.target.value.toUpperCase())}
+                        onBlur={() => applyFieldToAllRows({ fiscalUnit: templateUnit.trim() || 'UN' })}
+                        placeholder="UN"
+                        className="h-9"
+                        disabled={submitting}
+                      />
+                    </div>
+                  ) : null}
+
+                  {showDescription ? (
+                    <div className="space-y-2 lg:col-span-2">
+                      <Label htmlFor="bulk-template-description">Descrição</Label>
+                      <Textarea
+                        id="bulk-template-description"
+                        value={templateDescription}
+                        onChange={(e) => setTemplateDescription(e.target.value)}
+                        onBlur={() => applyFieldToAllRows({ description: templateDescription })}
+                        rows={2}
+                        disabled={submitting}
+                      />
+                    </div>
+                  ) : null}
+
+                  {showActive ? (
+                    <div className="space-y-2">
+                      <Label htmlFor="bulk-template-active">Ativo</Label>
+                      <Select
+                        value={templateActive}
+                        onValueChange={(v) => {
+                          const next = v as '__keep__' | 'true' | 'false'
+                          setTemplateActive(next)
+                          if (next === '__keep__') return
+                          applyFieldToAllRows({ isActive: next === 'true' })
+                        }}
+                        disabled={submitting}
+                      >
+                        <SelectTrigger id="bulk-template-active" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__keep__">Manter atual (cada linha)</SelectItem>
+                          <SelectItem value="true">Ativo</SelectItem>
+                          <SelectItem value="false">Inativo</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : null}
                 </div>
-              </div>
+              ) : null}
 
               <div className="min-h-0 flex-1 overflow-hidden">
                 <p className="mb-2 text-xs font-medium text-muted-foreground">Itens — edite cada coluna</p>
                 <ScrollArea className="h-[min(48vh,420px)] rounded-md border">
-                  <table className="w-full min-w-[800px] border-collapse text-sm">
+                  <table className="w-full min-w-[640px] border-collapse text-sm">
                     <thead>
                       <tr className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
                         <th className="sticky top-0 z-10 min-w-[9rem] px-2 py-2 font-medium">Produto</th>
-                        <th className="sticky top-0 z-10 min-w-[10rem] px-2 py-2 font-medium">Tag de precificação</th>
-                        {allowDeviceModel ? (
+                        {showTag ? (
+                          <th className="sticky top-0 z-10 min-w-[10rem] px-2 py-2 font-medium">Tag</th>
+                        ) : null}
+                        {showModels ? (
                           <th className="sticky top-0 z-10 min-w-[9rem] px-2 py-2 font-medium">Modelos</th>
                         ) : null}
-                        <th className="sticky top-0 z-10 min-w-[7rem] px-2 py-2 font-medium">Venda</th>
-                        <th className="sticky top-0 z-10 w-24 px-2 py-2 font-medium">Sugerido</th>
+                        {showCost ? (
+                          <th className="sticky top-0 z-10 min-w-[7rem] px-2 py-2 font-medium">Custo</th>
+                        ) : null}
+                        {showSale ? (
+                          <th className="sticky top-0 z-10 min-w-[7rem] px-2 py-2 font-medium">Venda</th>
+                        ) : null}
+                        {showSuggested ? (
+                          <th className="sticky top-0 z-10 w-24 px-2 py-2 font-medium">Sugerido</th>
+                        ) : null}
+                        {showNcm ? (
+                          <th className="sticky top-0 z-10 min-w-[7rem] px-2 py-2 font-medium">NCM</th>
+                        ) : null}
+                        {showCest ? (
+                          <th className="sticky top-0 z-10 min-w-[6rem] px-2 py-2 font-medium">CEST</th>
+                        ) : null}
+                        {showOrigin ? (
+                          <th className="sticky top-0 z-10 min-w-[8rem] px-2 py-2 font-medium">Origem</th>
+                        ) : null}
+                        {showFci ? (
+                          <th className="sticky top-0 z-10 min-w-[10rem] px-2 py-2 font-medium">FCI</th>
+                        ) : null}
+                        {showUnit ? (
+                          <th className="sticky top-0 z-10 min-w-[4rem] px-2 py-2 font-medium">Un.</th>
+                        ) : null}
+                        {showDescription ? (
+                          <th className="sticky top-0 z-10 min-w-[12rem] px-2 py-2 font-medium">Descrição</th>
+                        ) : null}
+                        {showActive ? (
+                          <th className="sticky top-0 z-10 min-w-[5rem] px-2 py-2 font-medium">Ativo</th>
+                        ) : null}
                       </tr>
                     </thead>
                     <tbody>
                       {tableRows.map((it) => {
                         const row = rowStates[it.id]
                         if (!row) return null
-                        const sugg = suggestionForItem(it, row)
+                        const sugg = showSuggested ? suggestionForItem(it, row) : null
                         const iniModels = initialRowStates[it.id]?.modelIds ?? []
 
                         return (
@@ -892,29 +1264,31 @@ export function BulkEditProductsModal ({
                                 {it.name}
                               </span>
                             </td>
-                            <td className="px-1 py-1.5">
-                              <Select
-                                value={row.tag}
-                                onValueChange={(v) => updateRow(it.id, { tag: v })}
-                                disabled={submitting}
-                              >
-                                <SelectTrigger className="h-9 max-w-[200px] text-xs">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="__keep__">
-                                    Manter (
-                                    {tagLabelForRow(it, row)}
-                                    )
-                                  </SelectItem>
-                                  <SelectItem value="__clear__">Remover tag</SelectItem>
-                                  {pricingTags.map((t) => (
-                                    <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </td>
-                            {allowDeviceModel ? (
+                            {showTag ? (
+                              <td className="px-1 py-1.5">
+                                <Select
+                                  value={row.tag}
+                                  onValueChange={(v) => updateRow(it.id, { tag: v })}
+                                  disabled={submitting}
+                                >
+                                  <SelectTrigger className="h-9 max-w-[200px] text-xs">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="__keep__">
+                                      Manter (
+                                      {tagLabelForRow(it, row)}
+                                      )
+                                    </SelectItem>
+                                    <SelectItem value="__clear__">Remover tag</SelectItem>
+                                    {pricingTags.map((t) => (
+                                      <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </td>
+                            ) : null}
+                            {showModels ? (
                               <td className="px-1 py-1.5 align-middle">
                                 <div className="flex max-w-[11rem] flex-col gap-0.5">
                                   <BulkDeviceModelsPicker
@@ -932,21 +1306,123 @@ export function BulkEditProductsModal ({
                                 </div>
                               </td>
                             ) : null}
-                            <td className="px-1 py-1.5">
-                              <Input
-                                inputMode="numeric"
-                                autoComplete="off"
-                                placeholder="0,00"
-                                value={row.saleMasked}
-                                onChange={(e) =>
-                                  updateRow(it.id, { saleMasked: formatMoneyInput(e.target.value) })}
-                                className="h-9 w-[7.5rem] tabular-nums text-xs"
-                                disabled={submitting}
-                              />
-                            </td>
-                            <td className="px-2 py-2 text-xs tabular-nums text-muted-foreground">
-                              {formatBrl(sugg)}
-                            </td>
+                            {showCost ? (
+                              <td className="px-1 py-1.5">
+                                <Input
+                                  inputMode="numeric"
+                                  autoComplete="off"
+                                  placeholder="0,00"
+                                  value={row.costMasked}
+                                  onChange={(e) =>
+                                    updateRow(it.id, { costMasked: formatMoneyInput(e.target.value) })}
+                                  className="h-9 w-[7.5rem] tabular-nums text-xs"
+                                  disabled={submitting}
+                                />
+                              </td>
+                            ) : null}
+                            {showSale ? (
+                              <td className="px-1 py-1.5">
+                                <Input
+                                  inputMode="numeric"
+                                  autoComplete="off"
+                                  placeholder="0,00"
+                                  value={row.saleMasked}
+                                  onChange={(e) =>
+                                    updateRow(it.id, { saleMasked: formatMoneyInput(e.target.value) })}
+                                  className="h-9 w-[7.5rem] tabular-nums text-xs"
+                                  disabled={submitting}
+                                />
+                              </td>
+                            ) : null}
+                            {showSuggested ? (
+                              <td className="px-2 py-2 text-xs tabular-nums text-muted-foreground">
+                                {formatBrl(sugg)}
+                              </td>
+                            ) : null}
+                            {showNcm ? (
+                              <td className="px-1 py-1.5">
+                                <Input
+                                  value={row.ncm}
+                                  onChange={(e) => updateRow(it.id, { ncm: maskNcm(e.target.value) })}
+                                  className="h-9 w-[8rem] text-xs"
+                                  disabled={submitting}
+                                />
+                              </td>
+                            ) : null}
+                            {showCest ? (
+                              <td className="px-1 py-1.5">
+                                <Input
+                                  value={row.cest}
+                                  onChange={(e) => updateRow(it.id, { cest: maskCest(e.target.value) })}
+                                  className="h-9 w-[7rem] text-xs"
+                                  disabled={submitting}
+                                />
+                              </td>
+                            ) : null}
+                            {showOrigin ? (
+                              <td className="px-1 py-1.5">
+                                <Select
+                                  value={row.fiscalOrigin}
+                                  onValueChange={(v) => updateRow(it.id, { fiscalOrigin: v })}
+                                  disabled={submitting}
+                                >
+                                  <SelectTrigger className="h-9 max-w-[10rem] text-xs">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {FISCAL_ORIGIN_OPTIONS.map((o) => (
+                                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </td>
+                            ) : null}
+                            {showFci ? (
+                              <td className="px-1 py-1.5">
+                                <Input
+                                  value={row.fci}
+                                  onChange={(e) => updateRow(it.id, { fci: maskFci(e.target.value) })}
+                                  className="h-9 w-[12rem] font-mono text-[10px]"
+                                  disabled={submitting}
+                                />
+                              </td>
+                            ) : null}
+                            {showUnit ? (
+                              <td className="px-1 py-1.5">
+                                <Input
+                                  value={row.fiscalUnit}
+                                  maxLength={6}
+                                  onChange={(e) =>
+                                    updateRow(it.id, { fiscalUnit: e.target.value.toUpperCase() })}
+                                  className="h-9 w-[4rem] text-xs"
+                                  disabled={submitting}
+                                />
+                              </td>
+                            ) : null}
+                            {showDescription ? (
+                              <td className="px-1 py-1.5">
+                                <Textarea
+                                  value={row.description}
+                                  onChange={(e) => updateRow(it.id, { description: e.target.value })}
+                                  rows={2}
+                                  className="min-w-[12rem] text-xs"
+                                  disabled={submitting}
+                                />
+                              </td>
+                            ) : null}
+                            {showActive ? (
+                              <td className="px-1 py-1.5">
+                                <div className="flex h-9 items-center px-1">
+                                  <Checkbox
+                                    checked={row.isActive}
+                                    onCheckedChange={(checked) =>
+                                      updateRow(it.id, { isActive: checked === true })}
+                                    disabled={submitting}
+                                    aria-label={`Ativo — ${it.name}`}
+                                  />
+                                </div>
+                              </td>
+                            ) : null}
                           </tr>
                         )
                       })}
