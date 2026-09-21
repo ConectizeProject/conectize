@@ -8,6 +8,7 @@ import {
 	lojaWhatsAppHref,
 } from '@/lib/data/hotsite-loja'
 import styles from './loja.module.css'
+import { LojaWhatsAppLink } from './LojaWhatsAppLink'
 import { WhatsAppIcon } from './WhatsAppIcon'
 
 export function LojaShell({
@@ -53,15 +54,14 @@ export function LojaShell({
 						))}
 					</nav>
 
-					<a
+					<LojaWhatsAppLink
 						className={`${styles.ctaWhatsapp} ${styles.headerCta}`}
 						href={lojaWhatsAppHref}
-						target="_blank"
-						rel="noopener noreferrer"
+						placement="header"
 					>
 						<WhatsAppIcon className="h-4 w-4" />
 						WhatsApp
-					</a>
+					</LojaWhatsAppLink>
 				</div>
 			</header>
 
@@ -93,16 +93,15 @@ export function LojaShell({
 				</div>
 			</footer>
 
-			<a
+			<LojaWhatsAppLink
 				className={styles.fab}
 				href={lojaWhatsAppHref}
-				target="_blank"
-				rel="noopener noreferrer"
+				placement="fab"
 				aria-label="Falar no WhatsApp"
 			>
 				<WhatsAppIcon className="h-5 w-5" />
 				<span>Orçamento</span>
-			</a>
+			</LojaWhatsAppLink>
 		</div>
 	)
 }
