@@ -150,7 +150,9 @@ export async function middleware(request: NextRequest) {
 		const isPublicPortalPath =
 			pathname === '/portal/login' ||
 			pathname === '/portal/auth/callback' ||
-			pathname === '/portal/redefinir-senha'
+			pathname === '/portal/redefinir-senha' ||
+			pathname === '/portal/verify-mfa' ||
+			pathname.startsWith('/portal/verify-mfa/')
 
 		const requestHeaders = new Headers(request.headers)
 		requestHeaders.set(PORTAL_INTENDED_PATH_HEADER, intendedPath)
@@ -229,6 +231,8 @@ export async function middleware(request: NextRequest) {
 				pathname.startsWith('/portal/contador/') ||
 				pathname === '/portal/complete-profile' ||
 				pathname.startsWith('/portal/complete-profile/') ||
+				pathname === '/portal/seguranca' ||
+				pathname.startsWith('/portal/seguranca/') ||
 				pathname === '/portal/logout'
 
 			if (!allowedAccountant && !isPublicPortalPath) {
@@ -250,6 +254,8 @@ export async function middleware(request: NextRequest) {
 				pathname.startsWith('/portal/minhas-ordens/') ||
 				pathname === '/portal/complete-profile' ||
 				pathname.startsWith('/portal/complete-profile/') ||
+				pathname === '/portal/seguranca' ||
+				pathname.startsWith('/portal/seguranca/') ||
 				pathname.startsWith('/portal/ordens/') ||
 				pathname === '/portal/revendaaparelhos' ||
 				pathname === '/portal/revendaaparelhos/' ||
@@ -277,7 +283,9 @@ export async function middleware(request: NextRequest) {
 				pathname === '/portal/minhas-ordens' ||
 				pathname.startsWith('/portal/minhas-ordens/') ||
 				pathname === '/portal/complete-profile' ||
-				pathname.startsWith('/portal/complete-profile/')
+				pathname.startsWith('/portal/complete-profile/') ||
+				pathname === '/portal/seguranca' ||
+				pathname.startsWith('/portal/seguranca/')
 
 			if (!allowed && !isPublicPortalPath) {
 				url.pathname = '/portal/minhas-ordens'
