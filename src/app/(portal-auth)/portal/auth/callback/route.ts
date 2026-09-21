@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
+import { buildMfaVerifyPath, userNeedsMfaChallenge } from '@/lib/auth/mfa'
 import { assertSafePortalPath } from '@/lib/auth/safe-redirect'
 import { getSupabaseEnv } from '@/lib/supabase/env'
 
@@ -21,7 +22,6 @@ export async function GET(request: Request) {
   }
 
   const cookieStore = await cookies()
-  const redirectUrl = new URL(safeRedirect, requestUrl.origin)
   const cookiesToSet: { name: string; value: string; options: Record<string, unknown> }[] = []
 
   const { url, anonKey } = getSupabaseEnv()
@@ -54,6 +54,12 @@ export async function GET(request: Request) {
         )
       )
     }
+
+    const needsMfa = await userNeedsMfaChallenge(supabase)
+    const destination = needsMfa
+      ? buildMfaVerifyPath(safeRedirect)
+      : safeRedirect
+    const redirectUrl = new URL(destination, requestUrl.origin)
 
     const response = NextResponse.redirect(redirectUrl)
     const isLocalhost = requestUrl.hostname === 'localhost' || requestUrl.hostname === '127.0.0.1'

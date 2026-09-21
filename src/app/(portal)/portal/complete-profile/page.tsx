@@ -37,7 +37,7 @@ export default async function CompleteProfilePage ({
   const isCpfLocked = Boolean(cpf)
 
   return (
-    <div className="max-w-xl">
+    <div className="mx-auto w-full max-w-xl">
       <Card>
         <CardHeader>
           <CardTitle>{cpf ? 'Dados de cadastro' : 'Complete seu cadastro'}</CardTitle>
