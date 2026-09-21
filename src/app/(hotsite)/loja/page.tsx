@@ -29,6 +29,7 @@ import {
 import { getSiteUrl } from '@/lib/utils/site-url'
 import { HeroBrokenPhone } from './HeroBrokenPhone'
 import { LojaShell } from './LojaShell'
+import { LojaWhatsAppLink } from './LojaWhatsAppLink'
 import styles from './loja.module.css'
 import { WhatsAppIcon } from './WhatsAppIcon'
 
@@ -92,15 +93,14 @@ export default function LojaPage() {
 							</h1>
 							<p className={styles.lead}>{lojaCopy.heroLead}</p>
 							<div className={styles.actions}>
-								<a
+								<LojaWhatsAppLink
 									className={styles.ctaWhatsapp}
 									href={lojaWhatsAppHref}
-									target="_blank"
-									rel="noopener noreferrer"
+									placement="hero"
 								>
 									<WhatsAppIcon className="h-5 w-5" />
 									Pedir orçamento
-								</a>
+								</LojaWhatsAppLink>
 								<a className={styles.ctaGhost} href="#unidade">
 									Ver a loja
 								</a>
@@ -397,15 +397,14 @@ export default function LojaPage() {
 								Respondemos pelo WhatsApp com as opções da loja.
 							</p>
 							<div className={styles.ctaActions}>
-								<a
+								<LojaWhatsAppLink
 									className={styles.ctaWhatsapp}
 									href={lojaWhatsAppHref}
-									target="_blank"
-									rel="noopener noreferrer"
+									placement="contato"
 								>
 									<WhatsAppIcon className="h-5 w-5" />
 									Falar no WhatsApp
-								</a>
+								</LojaWhatsAppLink>
 								<a className={styles.ctaGhost} href={`tel:${business.phone}`}>
 									Ligar {business.phoneDisplay}
 								</a>
