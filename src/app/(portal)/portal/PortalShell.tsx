@@ -7,6 +7,7 @@ import {
 	LogOut,
 	Moon,
 	Settings,
+	Shield,
 	Sun,
 } from 'lucide-react'
 import Link from 'next/link'
@@ -38,6 +39,7 @@ import type { SupabasePlatformStatusBanner } from '@/lib/supabase/platform-statu
 import { cn } from '@/lib/utils'
 import { PlatformOrgSwitcher } from './PlatformOrgSwitcher'
 import { PortalRoleSwitcher } from './PortalRoleSwitcher'
+import { MfaSetupPromptDialog } from './MfaSetupPromptDialog'
 
 export type PlatformOrganizationOption = {
 	id: string
@@ -51,8 +53,10 @@ type PortalShellProps = {
 	role: string
 	realRole?: string
 	simulatedRole?: string | null
+	userId: string
 	userEmail: string
 	userName: string
+	hasVerifiedMfa?: boolean
 	/** Nome da organização ativa (`organizations.name`). */
 	organizationName?: string | null
 	/** Exibe menu WhatsApp apenas quando a integração existir na empresa ativa. */
@@ -250,6 +254,15 @@ export function PortalShell(props: PortalShellProps) {
 												<span>Alterar dados</span>
 											</Link>
 										</DropdownMenuItem>
+										<DropdownMenuItem asChild>
+											<Link
+												href="/portal/seguranca"
+												className="flex items-center gap-2"
+											>
+												<Shield className="h-4 w-4" strokeWidth={1.75} />
+												<span>Segurança</span>
+											</Link>
+										</DropdownMenuItem>
 										{isAdmin && (
 											<DropdownMenuItem asChild>
 												<Link
@@ -312,6 +325,11 @@ export function PortalShell(props: PortalShellProps) {
 					</div>
 				</main>
 			</div>
+			<MfaSetupPromptDialog
+				userId={props.userId}
+				realRole={props.realRole || props.role}
+				hasVerifiedMfa={Boolean(props.hasVerifiedMfa)}
+			/>
 			<SalesOrderCupomPrintHost />
 			<OrdemPrintPreviewHost />
 		</PortalBrandingProvider>

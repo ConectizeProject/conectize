@@ -15,6 +15,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { buildPortalAuthCallbackUrl } from '@/lib/auth/callback-url'
 import { shouldSkipDuplicateLoginSessionProbe } from '@/lib/auth/login-session-probe-guard'
+import {
+	buildMfaVerifyPath,
+	userNeedsMfaChallenge,
+} from '@/lib/auth/mfa'
 import { assertSafePortalPath } from '@/lib/auth/safe-redirect'
 import { getAuthSiteOrigin } from '@/lib/auth/site-origin'
 import type { SupabasePlatformStatusBanner } from '@/lib/supabase/platform-status'
@@ -37,6 +41,12 @@ export function LoginClient({
 	const router = useRouter()
 	const searchParams = useSearchParams()
 
+	const redirectTo = useMemo(() => {
+		const q = searchParams.get('redirectTo')
+		if (q) return assertSafePortalPath(q)
+		return assertSafePortalPath(fallbackReturnPath)
+	}, [searchParams, fallbackReturnPath])
+
 	const [email, setEmail] = useState('')
 	const [password, setPassword] = useState('')
 	const [isSubmitting, setIsSubmitting] = useState(false)
@@ -44,14 +54,9 @@ export function LoginClient({
 	const [message, setMessage] = useState<string | null>(null)
 	const [errorMessage, setErrorMessage] = useState<string | null>(null)
 	const [isRedirecting, setIsRedirecting] = useState(false)
+	const [postLoginPath, setPostLoginPath] = useState(redirectTo)
 	const [isGoogleLoading, setIsGoogleLoading] = useState(false)
 	const [isMagicLinkLoading, setIsMagicLinkLoading] = useState(false)
-
-	const redirectTo = useMemo(() => {
-		const q = searchParams.get('redirectTo')
-		if (q) return assertSafePortalPath(q)
-		return assertSafePortalPath(fallbackReturnPath)
-	}, [searchParams, fallbackReturnPath])
 
 	const supabase = useSupabaseBrowserClient()
 
@@ -69,6 +74,23 @@ export function LoginClient({
 			),
 		)
 	}, [searchParams])
+
+	// Nunca aceite credenciais na URL (histórico, logs, Referer).
+	useEffect(() => {
+		if (typeof window === 'undefined') return
+		const url = new URL(window.location.href)
+		const hadSecrets =
+			url.searchParams.has('password') || url.searchParams.has('email')
+		if (!hadSecrets) return
+		url.searchParams.delete('password')
+		url.searchParams.delete('email')
+		const qs = url.searchParams.toString()
+		window.history.replaceState(
+			null,
+			'',
+			qs ? `${url.pathname}?${qs}` : url.pathname,
+		)
+	}, [])
 
 	/**
 	 * 1) Para o auto-refresh do GoTrue antes de qualquer outra chamada — evita ticks / recover
@@ -96,7 +118,11 @@ export function LoginClient({
 
 				if (!userErr && userData?.user) {
 					redirectIfValidSessionRan.current = true
-					router.replace(redirectTo)
+					const needsMfa = await userNeedsMfaChallenge(supabase)
+					if (!alive) return
+					router.replace(
+						needsMfa ? buildMfaVerifyPath(redirectTo) : redirectTo,
+					)
 					return
 				}
 
@@ -132,9 +158,9 @@ export function LoginClient({
 	useEffect(() => {
 		if (!isRedirecting) return
 		router.refresh()
-		const id = setTimeout(() => router.replace(redirectTo), 80)
+		const id = setTimeout(() => router.replace(postLoginPath), 80)
 		return () => clearTimeout(id)
-	}, [isRedirecting, router, redirectTo])
+	}, [isRedirecting, router, postLoginPath])
 
 	async function onForgotPassword(event?: React.MouseEvent<HTMLButtonElement>) {
 		event?.preventDefault()
@@ -330,6 +356,10 @@ export function LoginClient({
 				return
 			}
 
+			const needsMfa = await userNeedsMfaChallenge(supabase)
+			setPostLoginPath(
+				needsMfa ? buildMfaVerifyPath(redirectTo) : redirectTo,
+			)
 			setIsRedirecting(true)
 		} catch (err) {
 			setErrorMessage(
@@ -380,7 +410,13 @@ export function LoginClient({
 						</CardHeader>
 						<CardContent>
 							<div className="space-y-6">
-								<form onSubmit={onSubmit} className="space-y-4">
+								<form
+									method="post"
+									action="/portal/login"
+									onSubmit={onSubmit}
+									className="space-y-4"
+									autoComplete="on"
+								>
 									<div className="space-y-2">
 										<Label htmlFor="email">E-mail</Label>
 										<Input

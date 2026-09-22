@@ -38,6 +38,12 @@ npm start
 
 O projeto estará disponível em `http://localhost:3000`
 
+### MFA (autenticação em duas etapas)
+
+No Supabase Dashboard: **Authentication → Multi-Factor → Enable App Authenticator (TOTP)**.
+
+No portal: **menu do usuário → Segurança**. Admin/staff veem um aviso opcional para ativar; quem já ativou precisa do código no login.
+
 ## Estrutura do Projeto
 
 ```

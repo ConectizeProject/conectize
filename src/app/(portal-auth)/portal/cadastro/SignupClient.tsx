@@ -168,7 +168,7 @@ export function SignupClient() {
         </CardHeader>
         <CardContent>
           <div className="space-y-6">
-            <form onSubmit={onSubmit} className="space-y-4">
+            <form method="post" action="/portal/cadastro" onSubmit={onSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">E-mail</Label>
                 <Input

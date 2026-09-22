@@ -8,10 +8,9 @@ function isMissingHubConnectionColumn (error: PostgrestError | null): boolean {
   return String(error.message || '').includes('hub_connection_id')
 }
 
-function needsManualUpsert (error: PostgrestError | null): boolean {
+function isUniqueViolation (error: PostgrestError | null): boolean {
   if (!error) return false
-  if (error.code === '42P10') return true
-  return String(error.message || '').includes('ON CONFLICT')
+  return error.code === '23505' || String(error.message || '').includes('duplicate key')
 }
 
 /** Detecta se a migration multi-instância foi aplicada no Supabase. */
@@ -40,10 +39,20 @@ export type UpsertWhatsappConversationInput = {
   state?: Record<string, unknown>
 }
 
-async function manualUpsertWhatsappConversation (
+/**
+ * Upsert via select+update/insert.
+ *
+ * Os índices únicos de `whatsapp_conversations` são **parciais**
+ * (`WHERE hub_connection_id IS NOT NULL` / `IS NULL`). O PostgREST `.upsert`
+ * gera `ON CONFLICT (cols)` sem o predicado parcial → Postgres `42P10`.
+ * Por isso não usamos `.upsert` aqui.
+ */
+async function upsertWhatsappConversationByLookup (
   supabase: SupabaseClient,
   input: UpsertWhatsappConversationInput,
   useHub: boolean,
+  supportsHubColumn: boolean,
+  raceRetry = false,
 ): Promise<{ ok: true; id: string } | { ok: false; error: PostgrestError }> {
   let lookup = supabase
     .from('whatsapp_conversations')
@@ -53,6 +62,9 @@ async function manualUpsertWhatsappConversation (
 
   if (useHub) {
     lookup = lookup.eq('hub_connection_id', input.hubConnectionId as string)
+  } else if (supportsHubColumn) {
+    // Índice legado: unique (organization_id, wa_from) WHERE hub_connection_id IS NULL
+    lookup = lookup.is('hub_connection_id', null)
   }
 
   const { data: existing, error: findErr } = await lookup.maybeSingle()
@@ -84,7 +96,11 @@ async function manualUpsertWhatsappConversation (
     last_message_at: input.lastMessageAt,
     ...patch,
   }
-  if (useHub) insertRow.hub_connection_id = input.hubConnectionId
+  if (useHub) {
+    insertRow.hub_connection_id = input.hubConnectionId
+  } else if (supportsHubColumn) {
+    insertRow.hub_connection_id = null
+  }
 
   const { data: inserted, error: insertErr } = await supabase
     .from('whatsapp_conversations')
@@ -92,8 +108,32 @@ async function manualUpsertWhatsappConversation (
     .select('id')
     .single()
 
+  if (!insertErr && inserted?.id) {
+    return { ok: true, id: inserted.id as string }
+  }
+
+  // Corrida: outra request inseriu entre o select e o insert.
+  if (isUniqueViolation(insertErr) && !raceRetry) {
+    return upsertWhatsappConversationByLookup(
+      supabase,
+      input,
+      useHub,
+      supportsHubColumn,
+      true,
+    )
+  }
+
   if (insertErr) return { ok: false, error: insertErr }
-  return { ok: true, id: inserted.id as string }
+  return {
+    ok: false,
+    error: {
+      name: 'PostgrestError',
+      message: 'insert_failed',
+      details: '',
+      hint: '',
+      code: 'PGRST116',
+    } as PostgrestError,
+  }
 }
 
 export async function upsertWhatsappConversation (
@@ -102,38 +142,10 @@ export async function upsertWhatsappConversation (
 ): Promise<{ ok: true; id: string } | { ok: false; error: PostgrestError }> {
   const supportsHub = await whatsappSupportsHubConnectionId(supabase)
   const useHub = supportsHub && Boolean(input.hubConnectionId)
-
-  const row: Record<string, unknown> = {
-    organization_id: input.organizationId,
-    wa_from: input.waFrom,
-    last_message_at: input.lastMessageAt,
-  }
-  if (input.needsStaffAttention !== undefined) {
-    row.needs_staff_attention = input.needsStaffAttention
-  }
-  if (input.state) row.state = input.state
-  if (useHub) row.hub_connection_id = input.hubConnectionId
-
-  const onConflict = useHub
-    ? 'organization_id,hub_connection_id,wa_from'
-    : 'organization_id,wa_from'
-
-  const { data, error } = await supabase
-    .from('whatsapp_conversations')
-    .upsert(row, { onConflict })
-    .select('id')
-    .maybeSingle()
-
-  if (!error && data?.id) return { ok: true, id: data.id as string }
-
-  if (
-    error &&
-    !isMissingHubConnectionColumn(error) &&
-    !needsManualUpsert(error)
-  ) {
-    return { ok: false, error }
-  }
-
-  const manual = await manualUpsertWhatsappConversation(supabase, input, useHub)
-  return manual
+  return upsertWhatsappConversationByLookup(
+    supabase,
+    input,
+    useHub,
+    supportsHub,
+  )
 }

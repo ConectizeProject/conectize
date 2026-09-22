@@ -1,10 +1,18 @@
+import { headers } from 'next/headers'
+import { redirect } from 'next/navigation'
+import { PORTAL_INTENDED_PATH_HEADER } from '@/lib/auth/portal-intended-path'
+import {
+  buildMfaVerifyPath,
+  userHasVerifiedTotp,
+  userNeedsMfaChallenge,
+} from '@/lib/auth/mfa'
 import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
+import { getPortalOrganizationId } from '@/lib/organizations/portal-organization-context'
 import { getSupabasePlatformStatus } from '@/lib/supabase/platform-status'
 import {
   createSupabaseServerClient,
   getPortalAuth,
 } from '@/lib/supabase/server'
-import { getPortalOrganizationId } from '@/lib/organizations/portal-organization-context'
 import { RouteProviders } from '@/providers/route-providers'
 import { PortalShell } from './PortalShell'
 
@@ -31,6 +39,15 @@ export default async function PortalLayout({
   }
 
   const supabase = await createSupabaseServerClient()
+
+  const needsMfaChallenge = await userNeedsMfaChallenge(supabase)
+  if (needsMfaChallenge) {
+    const h = await headers()
+    const intended = h.get(PORTAL_INTENDED_PATH_HEADER)?.trim() || '/portal'
+    redirect(buildMfaVerifyPath(intended))
+  }
+
+  const hasVerifiedMfa = await userHasVerifiedTotp(supabase)
   const activeOrganizationId = await getPortalOrganizationId(supabase, user.id)
   let organizationDisplayName: string | null = null
   let hasWhatsappIntegration = false
@@ -71,8 +88,10 @@ export default async function PortalLayout({
         role={role}
         realRole={realRole}
         simulatedRole={simulatedRole}
+        userId={user.id}
         userEmail={user.email || ''}
         userName={fullName}
+        hasVerifiedMfa={hasVerifiedMfa}
         organizationName={organizationDisplayName}
         hasWhatsappIntegration={hasWhatsappIntegration}
         supabasePlatformStatus={supabasePlatformStatus}
@@ -84,4 +103,3 @@ export default async function PortalLayout({
     </RouteProviders>
   )
 }
-

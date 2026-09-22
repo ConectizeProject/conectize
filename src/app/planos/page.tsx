@@ -35,11 +35,15 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion'
 import { Separator } from '@/components/ui/separator'
+import { getSiteUrl } from '@/lib/utils/site-url'
 
 export const metadata = {
   title: 'Planos — Conectize',
   description:
     'Sistema completo para assistências técnicas: ordens de serviço, clientes, estoque, revenda, financeiro, WhatsApp e integrações. Tudo isolado por empresa.',
+  alternates: {
+    canonical: `${getSiteUrl()}/planos`,
+  },
 }
 
 const heroBenefits = [
