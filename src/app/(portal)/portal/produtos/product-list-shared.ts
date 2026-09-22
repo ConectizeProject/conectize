@@ -25,7 +25,7 @@ export type ProductRow = {
 export function productListShowsStock (product: ProductRow): boolean {
 	if (product.kind === 'service') return false
 	if (product.has_variations) return false
-	return Boolean(product.has_stock_movements)
+	return true
 }
 
 const MAX_PRODUCT_LIST_IMAGE_URL_LEN = 2048

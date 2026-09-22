@@ -28,6 +28,7 @@ type Props = {
 	isSelected: boolean
 	isProductTab: boolean
 	bulkBusy: boolean
+	blingHubConnected?: boolean
 	isSyncing: boolean
 	isDuplicating: boolean
 	isBarcodeGenerating: boolean
@@ -49,6 +50,7 @@ export const ProductListTableRow = memo(function ProductListTableRow ({
 	isSelected,
 	isProductTab,
 	bulkBusy,
+	blingHubConnected = false,
 	isSyncing,
 	isDuplicating,
 	isBarcodeGenerating,
@@ -123,10 +125,14 @@ export const ProductListTableRow = memo(function ProductListTableRow ({
 					/>
 				</div>
 			</td>
-			<td className="min-w-0 py-2 pr-2 align-top">
-				<ProductListNameImageBlock product={product} nameTruncate />
+			<td className="min-w-0 py-2 pr-2 align-middle">
+				<ProductListNameImageBlock
+					product={product}
+					nameTruncate
+					blingHubConnected={blingHubConnected}
+				/>
 			</td>
-			<td className="min-w-0 px-2 py-2 align-top">
+			<td className="min-w-0 px-2 py-2 align-middle">
 				{product.sku
 					? (
 						<button
@@ -144,7 +150,7 @@ export const ProductListTableRow = memo(function ProductListTableRow ({
 					)
 					: '—'}
 			</td>
-			<td className="min-w-0 px-2 py-2 align-top">
+			<td className="min-w-0 px-2 py-2 align-middle">
 				{(() => {
 					if (displayBarcode && !isBarcodeGenerating) {
 						return (
@@ -214,7 +220,7 @@ export const ProductListTableRow = memo(function ProductListTableRow ({
 				})()}
 			</td>
 			{isProductTab && (
-				<td className="min-w-0 px-2 py-2 align-top text-right">
+				<td className="min-w-0 px-2 py-2 align-middle text-center">
 					{productListShowsStock(product)
 						? (
 							<button
@@ -233,15 +239,16 @@ export const ProductListTableRow = memo(function ProductListTableRow ({
 						)}
 				</td>
 			)}
-			<td className="min-w-0 px-2 py-2 align-top text-right">
+			<td className="min-w-0 px-2 py-2 align-middle text-right">
 				<QuickSalePriceCell
 					productId={product.id}
 					blingId={product.bling_id}
+					blingHubConnected={blingHubConnected}
 					salePriceCents={product.sale_price_cents}
 				/>
 			</td>
 			{isProductTab && (
-				<td className="min-w-0 px-2 py-2 align-top text-right">
+				<td className="min-w-0 px-2 py-2 align-middle text-right">
 					<QuickCostPriceCell
 						productId={product.id}
 						blingId={product.bling_id}
@@ -249,7 +256,7 @@ export const ProductListTableRow = memo(function ProductListTableRow ({
 					/>
 				</td>
 			)}
-			<td className="py-2 pl-2 align-top text-right" onClick={(e) => e.stopPropagation()}>
+			<td className="py-2 pl-2 align-middle text-right" onClick={(e) => e.stopPropagation()}>
 				<div className="flex items-center justify-end gap-0.5">
 					<Button
 						type="button"
@@ -307,7 +314,7 @@ export const ProductListTableRow = memo(function ProductListTableRow ({
 							<Tag className="mr-2 h-4 w-4" />
 							Imprimir etiqueta
 						</DropdownMenuItem>
-						{product.bling_id && (
+						{blingHubConnected && product.bling_id && (
 							<DropdownMenuItem
 								onSelect={(event) => {
 									event.preventDefault()

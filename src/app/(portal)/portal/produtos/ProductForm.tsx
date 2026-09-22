@@ -23,7 +23,11 @@ import {
 } from '@/components/ui/dialog'
 import { Switch } from '@/components/ui/switch'
 import { suggestedSaleCents } from '@/lib/pricing/suggested-sale-cents'
-import { composePortalVariationDisplayName } from '@/lib/products/variation-display-name'
+import {
+  composePortalVariationDisplayName,
+  DEFAULT_VARIATION_ATTRIBUTE_KEY,
+  resolveVariationAttributesFromName,
+} from '@/lib/products/variation-display-name'
 import { cn } from '@/lib/utils'
 import { formatMoneyInput, maskedFromCents, moneyToCentsFromMasked } from '@/lib/utils/money'
 import { toast } from '@/hooks/use-toast'
@@ -336,35 +340,53 @@ export function ProductForm ({
   const [compatibleSuggestions, setCompatibleSuggestions] = useState<{ value: string; label: string }[]>([])
   const deviceCompatBlurRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  const effectiveParentAttrKeys = useMemo(() => {
+    if (parentVariationAttributeKeys.length > 0) return parentVariationAttributeKeys
+    if (creatingAsVariation || isVariation) return [DEFAULT_VARIATION_ATTRIBUTE_KEY]
+    return [] as string[]
+  }, [parentVariationAttributeKeys, creatingAsVariation, isVariation])
+
   const useAttrMode = Boolean(
     (isVariation || creatingAsVariation) &&
     parentProductNameForVariation &&
-    parentVariationAttributeKeys.length > 0,
+    effectiveParentAttrKeys.length > 0,
   )
 
   const [attrValues, setAttrValues] = useState<Record<string, string>>({})
   useEffect(() => {
     if (!useAttrMode) return
     const next: Record<string, string> = {}
-    for (const k of parentVariationAttributeKeys) {
-      next[k] = String(product?.variationAttributeValues?.[k] ?? '').trim()
+    const stored = product?.variationAttributeValues ?? {}
+    const hasStored = effectiveParentAttrKeys.some((k) => String(stored[k] || '').trim())
+    const parsed =
+      !hasStored && parentProductNameForVariation && product?.name
+        ? resolveVariationAttributesFromName(
+          parentProductNameForVariation,
+          product.name,
+          effectiveParentAttrKeys,
+        ).values
+        : null
+    for (const k of effectiveParentAttrKeys) {
+      next[k] = String(stored[k] ?? parsed?.[k] ?? '').trim()
     }
     setAttrValues(next)
   }, [
     useAttrMode,
     product?.id,
+    product?.name,
     product?.variationAttributeValues,
-    parentVariationAttributeKeys,
+    parentProductNameForVariation,
+    effectiveParentAttrKeys,
   ])
 
   const composedVariationName = useMemo(() => {
     if (!useAttrMode || !parentProductNameForVariation) return ''
     return composePortalVariationDisplayName(
       parentProductNameForVariation,
-      parentVariationAttributeKeys,
+      effectiveParentAttrKeys,
       attrValues,
     )
-  }, [useAttrMode, parentProductNameForVariation, parentVariationAttributeKeys, attrValues])
+  }, [useAttrMode, parentProductNameForVariation, effectiveParentAttrKeys, attrValues])
 
   const showVariationKeyEditor =
     !creatingAsVariation &&
@@ -643,7 +665,7 @@ export function ProductForm ({
     }
 
     if (useAttrMode) {
-      for (const k of parentVariationAttributeKeys) {
+      for (const k of effectiveParentAttrKeys) {
         if (!String(attrValues[k] || '').trim()) {
           setSubmitErrors({ name: `Informe o valor para «${k}».` })
           return
@@ -789,7 +811,7 @@ export function ProductForm ({
 
     if (useAttrMode) {
       const vals: Record<string, string> = {}
-      for (const k of parentVariationAttributeKeys) {
+      for (const k of effectiveParentAttrKeys) {
         vals[k] = String(attrValues[k] || '').trim()
       }
       payload.variationAttributeValues = vals
@@ -862,7 +884,7 @@ export function ProductForm ({
           <span className="font-medium text-foreground">{composedVariationName || '—'}</span>
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
-          {parentVariationAttributeKeys.map((attrKey) => (
+          {effectiveParentAttrKeys.map((attrKey) => (
             <div key={attrKey} className="space-y-2">
               <Label htmlFor={`attr-${attrKey}`}>{attrKey}</Label>
               <Input

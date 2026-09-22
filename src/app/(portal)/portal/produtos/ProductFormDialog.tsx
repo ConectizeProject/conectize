@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { GripVertical, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -21,6 +21,7 @@ import {
   type CompatibleEntry,
 } from './ProductForm'
 import { ProductStockPanel } from './ProductStockPanel'
+import { VariationDisplayName } from './VariationDisplayName'
 
 type SavePhase = 'idle' | 'saving' | 'syncing'
 
@@ -37,6 +38,8 @@ type Props = {
   defaultKind?: 'product' | 'service'
   /** Só edição: aba inicial (ex.: abrir pela coluna Estoque). */
   initialEditTab?: 'dados' | 'variacoes' | 'estoque'
+  /** Organização tem conexão Bling no Hub. */
+  blingHubConnected?: boolean
   onOpenChange: (open: boolean) => void
   onSuccess?: () => void
   /** Atualiza o saldo na lista sem recarregar a página. */
@@ -84,6 +87,7 @@ export function ProductFormDialog ({
   initialParentName,
   defaultKind = 'product',
   initialEditTab,
+  blingHubConnected = false,
   onOpenChange,
   onSuccess,
   onStockChange,
@@ -102,7 +106,29 @@ export function ProductFormDialog ({
   const [savePhase, setSavePhase] = useState<SavePhase>('idle')
   const [draggingVariationId, setDraggingVariationId] = useState<string | null>(null)
   const [dragOverVariationId, setDragOverVariationId] = useState<string | null>(null)
-  const [reorderingVariations, setReorderingVariations] = useState(false)
+  const [reorderingVariationId, setReorderingVariationId] = useState<string | null>(null)
+  const variationOrderPersistSeqRef = useRef(0)
+  const draggingVariationIdRef = useRef<string | null>(null)
+  const variationsScrollRef = useRef<HTMLDivElement | null>(null)
+  const variationsListRef = useRef<Product[]>([])
+  variationsListRef.current = variations
+
+  function autoScrollVariationsList (clientY: number) {
+    const el = variationsScrollRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const edge = 48
+    const maxStep = 22
+    if (clientY < rect.top + edge) {
+      const intensity = Math.min(1, Math.max(0.25, (rect.top + edge - clientY) / edge))
+      el.scrollTop -= Math.ceil(maxStep * intensity)
+      return
+    }
+    if (clientY > rect.bottom - edge) {
+      const intensity = Math.min(1, Math.max(0.25, (clientY - (rect.bottom - edge)) / edge))
+      el.scrollTop += Math.ceil(maxStep * intensity)
+    }
+  }
   const [editTab, setEditTab] = useState<'dados' | 'variacoes' | 'estoque'>('dados')
   const [syncingProduct, setSyncingProduct] = useState(false)
   const [syncingStock, setSyncingStock] = useState(false)
@@ -157,7 +183,9 @@ export function ProductFormDialog ({
     setSyncingProduct(false)
     setSyncingStock(false)
     setApplyImageChildrenBusy(false)
-    setReorderingVariations(false)
+    setReorderingVariationId(null)
+    variationOrderPersistSeqRef.current = 0
+    draggingVariationIdRef.current = null
     setDraggingVariationId(null)
     setDragOverVariationId(null)
     if (mode === 'create') {
@@ -412,7 +440,7 @@ export function ProductFormDialog ({
         setFormProduct(mapProductToForm(nextProduct))
       }
 
-      const hasBling = Boolean(nextProduct?.blingId)
+      const hasBling = blingHubConnected && Boolean(nextProduct?.blingId)
 
       if (hasBling) {
         setSavePhase('syncing')
@@ -498,11 +526,12 @@ export function ProductFormDialog ({
     return next
   }
 
-  async function persistVariationOrder (nextList: Product[]) {
+  async function persistVariationOrder (nextList: Product[], movedId: string) {
     if (!productId) return
     const ids = nextList.map((v) => v.id)
     if (ids.length === 0) return
-    setReorderingVariations(true)
+    const seq = ++variationOrderPersistSeqRef.current
+    setReorderingVariationId(movedId)
     try {
       const res = await fetch(`/api/portal/produtos/${productId}/variations-order`, {
         method: 'POST',
@@ -513,9 +542,12 @@ export function ProductFormDialog ({
       if (!res.ok || !data?.ok) {
         throw new Error(data?.error || 'Falha ao atualizar ordem')
       }
-      setVariations(Array.isArray(data.variations) ? (data.variations as Product[]) : nextList)
-      toast({ variant: 'success', title: 'Ordem das variações atualizada' })
+      if (seq !== variationOrderPersistSeqRef.current) return
+      if (Array.isArray(data.variations)) {
+        setVariations(data.variations as Product[])
+      }
     } catch {
+      if (seq !== variationOrderPersistSeqRef.current) return
       toast({
         variant: 'destructive',
         title: 'Erro ao ordenar variações',
@@ -523,9 +555,9 @@ export function ProductFormDialog ({
       })
       void loadEdit()
     } finally {
-      setReorderingVariations(false)
-      setDraggingVariationId(null)
-      setDragOverVariationId(null)
+      if (seq === variationOrderPersistSeqRef.current) {
+        setReorderingVariationId(null)
+      }
     }
   }
 
@@ -536,6 +568,7 @@ export function ProductFormDialog ({
     : 'Editar produto/serviço'
 
   const blingIdLabel = (() => {
+    if (!blingHubConnected) return null
     const b = loadedProduct?.blingId ?? initialBlingId
     if (b != null && String(b).trim()) return String(b)
     return '—'
@@ -696,12 +729,16 @@ export function ProductFormDialog ({
                       <span className="font-mono tabular-nums text-foreground/70 select-all">
                         {formProduct.id}
                       </span>
-                      <span className="mx-1.5 text-muted-foreground/40" aria-hidden>·</span>
-                      <span className="text-muted-foreground/90">Bling</span>
-                      {' '}
-                      <span className="font-mono tabular-nums text-foreground/70 select-all">
-                        {blingIdLabel}
-                      </span>
+                      {blingIdLabel != null ? (
+                        <>
+                          <span className="mx-1.5 text-muted-foreground/40" aria-hidden>·</span>
+                          <span className="text-muted-foreground/90">Bling</span>
+                          {' '}
+                          <span className="font-mono tabular-nums text-foreground/70 select-all">
+                            {blingIdLabel}
+                          </span>
+                        </>
+                      ) : null}
                     </p>
                   </div>
                   <TabsList className="h-auto w-full justify-start gap-0 rounded-none border-0 bg-transparent p-0">
@@ -736,7 +773,11 @@ export function ProductFormDialog ({
                     {...productEditTabMountProps}
                     className={variationTabPanelClass}
                   >
-                    {(loadedProduct.blingId || savePhase !== 'idle' || isVariationChild) ? (
+                    {(
+                      (blingHubConnected && loadedProduct.blingId)
+                      || savePhase !== 'idle'
+                      || isVariationChild
+                    ) ? (
                       <div className="mb-5 space-y-3">
                         {isVariationChild && parentSummaryForVariation ? (
                           <div className="flex gap-3 rounded-lg border border-border/80 bg-muted/15 p-3 sm:p-3.5">
@@ -798,7 +839,7 @@ export function ProductFormDialog ({
                           </div>
                         ) : null}
 
-                        {loadedProduct.blingId ? (
+                        {blingHubConnected && loadedProduct.blingId ? (
                           <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/80 bg-muted/15 px-3 py-2.5">
                             <p className="mr-auto text-xs text-muted-foreground">
                               Integração Bling
@@ -922,14 +963,14 @@ export function ProductFormDialog ({
                                     <span className="mx-1.5 text-muted-foreground/50" aria-hidden>
                                       ·
                                     </span>
-                                    <span className="text-xs">arraste para reordenar</span>
+                                    <span className="text-xs">arraste pelo ícone para reordenar</span>
                                   </p>
                                   {canManageVariationsTab ? (
                                     <Button
                                       type="button"
                                       variant="outline"
                                       size="sm"
-                                      disabled={savePhase !== 'idle' || reorderingVariations}
+                                      disabled={savePhase !== 'idle'}
                                       onClick={() => {
                                         if (!loadedProduct) return
                                         onCreateVariationFromParent?.({
@@ -943,9 +984,17 @@ export function ProductFormDialog ({
                                     </Button>
                                   ) : null}
                                 </div>
-                                <div className="max-h-[min(52vh,420px)] overflow-auto rounded-md border border-border/60 bg-background">
+                                <div
+                                  ref={variationsScrollRef}
+                                  className="max-h-[min(52vh,420px)] overflow-y-auto overscroll-contain rounded-md border border-border/60 bg-background"
+                                  onDragOver={(event) => {
+                                    if (!draggingVariationIdRef.current) return
+                                    event.preventDefault()
+                                    autoScrollVariationsList(event.clientY)
+                                  }}
+                                >
                                   <table className="w-full min-w-0 text-sm">
-                                    <thead>
+                                    <thead className="sticky top-0 z-[1]">
                                       <tr className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
                                         <th className="w-10 px-2 py-2 font-medium" />
                                         <th className="px-2 py-2 font-medium">Nome</th>
@@ -958,38 +1007,69 @@ export function ProductFormDialog ({
                                       {variations.map((v) => (
                                         <tr
                                           key={v.id}
-                                          className={`border-b border-border/40 last:border-0 ${dragOverVariationId === v.id ? 'bg-primary/10' : ''}`}
-                                          draggable={savePhase === 'idle' && !reorderingVariations}
-                                          onDragStart={() => {
-                                            if (savePhase !== 'idle' || reorderingVariations) return
-                                            setDraggingVariationId(v.id)
-                                            setDragOverVariationId(v.id)
-                                          }}
+                                          className={`border-b border-border/40 last:border-0 ${dragOverVariationId === v.id ? 'bg-primary/10' : ''} ${draggingVariationId === v.id ? 'opacity-60' : ''}`}
                                           onDragOver={(event) => {
-                                            if (!draggingVariationId) return
+                                            if (!draggingVariationIdRef.current) return
                                             event.preventDefault()
+                                            event.dataTransfer.dropEffect = 'move'
+                                            autoScrollVariationsList(event.clientY)
                                             if (dragOverVariationId !== v.id) {
                                               setDragOverVariationId(v.id)
                                             }
                                           }}
                                           onDrop={(event) => {
-                                            if (!draggingVariationId) return
+                                            const movedId = draggingVariationIdRef.current
+                                            if (!movedId) return
                                             event.preventDefault()
-                                            const nextList = moveVariationInList(variations, draggingVariationId, v.id)
-                                            if (nextList === variations) return
-                                            setVariations(nextList)
-                                            void persistVariationOrder(nextList)
-                                          }}
-                                          onDragEnd={() => {
+                                            event.stopPropagation()
+                                            const nextList = moveVariationInList(
+                                              variationsListRef.current,
+                                              movedId,
+                                              v.id,
+                                            )
+                                            draggingVariationIdRef.current = null
                                             setDraggingVariationId(null)
                                             setDragOverVariationId(null)
+                                            if (nextList === variationsListRef.current) return
+                                            setVariations(nextList)
+                                            void persistVariationOrder(nextList, movedId)
                                           }}
                                         >
                                           <td className="px-2 py-2 text-center text-muted-foreground">
-                                            <GripVertical className="mx-auto h-4 w-4" />
+                                            {reorderingVariationId === v.id ? (
+                                              <Loader2 className="mx-auto h-4 w-4 animate-spin" aria-label="Salvando ordem" />
+                                            ) : (
+                                              <span
+                                                className={`inline-flex touch-none ${savePhase === 'idle' ? 'cursor-grab active:cursor-grabbing' : 'cursor-not-allowed opacity-50'}`}
+                                                draggable={savePhase === 'idle'}
+                                                onDragStart={(event) => {
+                                                  if (savePhase !== 'idle') {
+                                                    event.preventDefault()
+                                                    return
+                                                  }
+                                                  event.dataTransfer.effectAllowed = 'move'
+                                                  event.dataTransfer.setData('text/plain', v.id)
+                                                  draggingVariationIdRef.current = v.id
+                                                  setDraggingVariationId(v.id)
+                                                  setDragOverVariationId(v.id)
+                                                }}
+                                                onDragEnd={() => {
+                                                  draggingVariationIdRef.current = null
+                                                  setDraggingVariationId(null)
+                                                  setDragOverVariationId(null)
+                                                }}
+                                              >
+                                                <GripVertical className="mx-auto h-4 w-4" aria-hidden />
+                                                <span className="sr-only">Arrastar para reordenar</span>
+                                              </span>
+                                            )}
                                           </td>
-                                          <td className="max-w-[240px] truncate px-2 py-2 font-medium text-foreground">
-                                            {v.name}
+                                          <td className="max-w-[240px] px-2 py-2 font-medium text-foreground">
+                                            <VariationDisplayName
+                                              name={v.name}
+                                              parentName={loadedProduct?.name}
+                                              truncate
+                                            />
                                           </td>
                                           <td className="px-2 py-2 text-muted-foreground">
                                             {v.sku || '—'}
@@ -1005,7 +1085,7 @@ export function ProductFormDialog ({
                                               variant="ghost"
                                               size="sm"
                                               className="h-8"
-                                              disabled={savePhase !== 'idle' || reorderingVariations}
+                                              disabled={savePhase !== 'idle'}
                                               onClick={() => onNavigateToProductId?.(v.id)}
                                             >
                                               Abrir
@@ -1016,12 +1096,6 @@ export function ProductFormDialog ({
                                     </tbody>
                                   </table>
                                 </div>
-                                {reorderingVariations && (
-                                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                    Salvando nova ordem...
-                                  </div>
-                                )}
                               </div>
                             )}
                           </div>

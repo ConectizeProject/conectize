@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import { getBlingConnectionForCurrentUser } from '@/lib/integrations/bling/api'
 import { getProductById } from '@/lib/products/service'
 import { updateProductAndSyncBling } from '@/lib/products/update-product-with-bling'
 
@@ -51,7 +52,8 @@ export async function POST (
     return NextResponse.json({ ok: false, error, message }, { status: 400 })
   }
 
-  const shouldSyncToBling = Boolean(updateRes.product.blingId)
+  const hub = await getBlingConnectionForCurrentUser()
+  const shouldSyncToBling = hub.ok === true && Boolean(updateRes.product.blingId)
   return NextResponse.json({
     ok: true,
     product: updateRes.product,

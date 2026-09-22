@@ -29,6 +29,7 @@ type Props = {
 	isSelected: boolean
 	isProductTab: boolean
 	bulkBusy: boolean
+	blingHubConnected?: boolean
 	isSyncing: boolean
 	isDuplicating: boolean
 	isBarcodeGenerating: boolean
@@ -50,6 +51,7 @@ export const ProductListCard = memo(function ProductListCard({
 	isSelected,
 	isProductTab,
 	bulkBusy,
+	blingHubConnected = false,
 	isSyncing,
 	isDuplicating,
 	isBarcodeGenerating,
@@ -196,7 +198,10 @@ export const ProductListCard = memo(function ProductListCard({
 				<div className="min-w-0 flex-1 space-y-3">
 					<div className="flex flex-wrap items-start justify-between gap-2">
 						<div className="min-w-0 flex-1">
-							<ProductListNameImageBlock product={product} />
+							<ProductListNameImageBlock
+								product={product}
+								blingHubConnected={blingHubConnected}
+							/>
 						</div>
 						<div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
 							<DropdownMenu modal={false}>
@@ -245,7 +250,7 @@ export const ProductListCard = memo(function ProductListCard({
 										<Tag className="mr-2 h-4 w-4" />
 										Imprimir etiqueta
 									</DropdownMenuItem>
-									{product.bling_id && (
+									{blingHubConnected && product.bling_id && (
 										<DropdownMenuItem
 											onClick={() => onSyncFromBling(product.id)}
 											disabled={isSyncing}
@@ -341,6 +346,7 @@ export const ProductListCard = memo(function ProductListCard({
 										align="left"
 										productId={product.id}
 										blingId={product.bling_id}
+										blingHubConnected={blingHubConnected}
 										salePriceCents={product.sale_price_cents}
 									/>
 								</dd>
