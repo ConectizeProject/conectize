@@ -12,6 +12,7 @@ import {
 	PORTAL_SIMULATED_ROLE_COOKIE,
 	resolveEffectivePortalRole,
 } from './src/lib/auth/portal-role-simulation'
+import { goneCrawlResponse, isGoneCrawlPath } from './src/lib/utils/gone-crawl-paths'
 import { resolveLegacyServiceDestination } from './src/lib/utils/legacy-service-redirect'
 
 function getSupabaseEnv() {
@@ -116,6 +117,8 @@ async function getUserRole(supabase: SupabaseClient, request: NextRequest) {
 
 export async function middleware(request: NextRequest) {
 	const { pathname } = request.nextUrl
+
+	if (isGoneCrawlPath(pathname)) return goneCrawlResponse()
 
 	if (pathname.startsWith('/api/portal')) {
 		return refreshPortalApiSession(request)
@@ -344,6 +347,10 @@ export const config = {
 	matcher: [
 		'/servicos',
 		'/servicos/:path*',
+		'/share',
+		'/navigationaddresses-hub',
+		'/p/:path*',
+		'/zO2ixMhVjY2kPD8dEV5bg==',
 		'/portal',
 		'/portal/:path*',
 		'/api/portal/:path*',

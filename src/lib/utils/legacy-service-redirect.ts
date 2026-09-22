@@ -1,8 +1,40 @@
-import { brands, services } from '@/lib/data/services'
-import { buildServiceProductSlug } from '@/lib/utils/service-product-slug'
+import { brands, getBrandBySlug, getModelBySlugAnyType, getServiceBySlug, services } from '@/lib/data/services'
+import { buildServiceProductSlug, parseServiceProductSlug } from '@/lib/utils/service-product-slug'
 
 const serviceSlugs = new Set(services.map((s) => s.slug))
 const brandSlugs = new Set(Object.keys(brands))
+
+/** Nome de tipo colado em maiúscula no fim de um slug que já termina com o tipo. */
+const DUPLICATED_DEVICE_LABEL = /-(Smartphone|Tablet|iPhone|iPad|MacBook)$/
+
+function isIndexableServiceSlug (slug: string): boolean {
+  const parsed = parseServiceProductSlug(slug)
+  if (!parsed.isValid) return false
+
+  const service = getServiceBySlug(parsed.serviceSlug)
+  const brand = getBrandBySlug(parsed.brandSlug)
+  if (!service || !brand || !service.brands.includes(brand.slug)) return false
+
+  const excluded = service.excludedDeviceTypes?.[brand.slug] || []
+  const deviceType = brand.deviceTypes?.[parsed.modelSlug]
+  if (deviceType) return !excluded.includes(deviceType.slug)
+
+  const model = getModelBySlugAnyType(parsed.brandSlug, parsed.modelSlug)
+  if (!model) return false
+  return !excluded.includes(model.deviceType.slug)
+}
+
+function resolveDuplicatedDeviceSuffix (slug: string): string | null {
+  const match = slug.match(DUPLICATED_DEVICE_LABEL)
+  if (!match) return null
+
+  const prefix = slug.slice(0, -match[0].length)
+  const label = match[1].toLowerCase()
+  if (!prefix.endsWith(`-${label}`)) return null
+  if (!isIndexableServiceSlug(prefix)) return null
+
+  return `/servicos/${prefix}`
+}
 
 /**
  * Resolve URLs legadas de /servicos/* para o destino canônico.
@@ -15,7 +47,7 @@ export function resolveLegacyServiceDestination (segments: string[]): string | n
   if (segments.length === 1) {
     const slug = segments[0]
     if (serviceSlugs.has(slug)) return `/servicos?servico=${encodeURIComponent(slug)}`
-    return null
+    return resolveDuplicatedDeviceSuffix(slug)
   }
 
   // /servicos/<marca>/<servico>/<modelo>
