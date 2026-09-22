@@ -25,4 +25,16 @@ describe('resolveLegacyServiceDestination', () => {
       resolveLegacyServiceDestination(['troca-de-bateria-samsung-galaxy-a54'])
     ).toBeNull()
   })
+
+  it('redirects a duplicated device label glued onto a hub slug', () => {
+    expect(
+      resolveLegacyServiceDestination(['reparo-de-agua-motorola-smartphone-Smartphone'])
+    ).toBe('/servicos/reparo-de-agua-motorola-smartphone')
+  })
+
+  it('returns null when the capitalized suffix is not a real page', () => {
+    expect(
+      resolveLegacyServiceDestination(['reparo-de-agua-motorola-smartphone-iPhone'])
+    ).toBeNull()
+  })
 })
