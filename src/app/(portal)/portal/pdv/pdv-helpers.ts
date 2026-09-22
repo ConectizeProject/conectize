@@ -64,12 +64,6 @@ export function maxCreditInstallments (method: PaymentMethod | undefined) {
   return Math.max(1, ...fees.map((fee) => Number(fee.installments) || 1))
 }
 
-export function pickAddedPaymentMethod (methods: PaymentMethod[]) {
-  return methods.find((m) => normalizePaymentType(m.type) !== 'dinheiro')
-    ?? methods[0]
-    ?? null
-}
-
 /** Ajusta a linha de dinheiro para o restante do total (após outros métodos). */
 export function redistributeCashPaymentLine (lines: PaymentLine[], totalCents: number): PaymentLine[] {
   const cashIdx = lines.findIndex((line) => line.payment_method_type === 'dinheiro')

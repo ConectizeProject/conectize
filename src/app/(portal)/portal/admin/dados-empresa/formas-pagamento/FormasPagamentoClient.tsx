@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -29,9 +29,11 @@ const PAYMENT_TYPES = [
   { value: 'dinheiro', label: 'Dinheiro' },
   { value: 'pix_direto', label: 'PIX direto' },
   { value: 'pix_maquina', label: 'PIX máquina' },
-  { value: 'credito', label: 'Crédito' },
   { value: 'debito', label: 'Débito' },
+  { value: 'credito', label: 'Crédito' },
 ] as const
+
+const PAYMENT_TYPE_ORDER = PAYMENT_TYPES.map((type) => type.value)
 
 type CreditInstallmentFee = { installments: number; fee_percent: number }
 
@@ -47,11 +49,89 @@ type PaymentMethod = {
 
 type Bank = { id: string; name: string }
 
-type Props = {
-  initialPaymentMethods: PaymentMethod[]
+type PaymentTypeGroup = {
+  type: string
+  label: string
+  methods: PaymentMethod[]
 }
 
-export function FormasPagamentoClient({ initialPaymentMethods }: Props) {
+type AccountGroup = {
+  key: string
+  name: string
+  types: PaymentTypeGroup[]
+}
+
+type Props = {
+  initialPaymentMethods: PaymentMethod[]
+  initialContas?: Bank[]
+}
+
+function formatFeePercent (value: number) {
+  return `${value.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`
+}
+
+function typeSortIndex (type: string) {
+  const index = (PAYMENT_TYPE_ORDER as readonly string[]).indexOf(type)
+  return index === -1 ? PAYMENT_TYPE_ORDER.length : index
+}
+
+function sortedInstallmentFees (fees: CreditInstallmentFee[]) {
+  return [...fees].sort((a, b) => a.installments - b.installments)
+}
+
+function groupPaymentMethods (methods: PaymentMethod[], contas: Bank[]): AccountGroup[] {
+  const contaNameById = new Map(contas.map((conta) => [conta.id, conta.name]))
+  const byAccount = new Map<string, PaymentMethod[]>()
+
+  for (const method of methods) {
+    const key = method.conta_id || '__none__'
+    const list = byAccount.get(key) ?? []
+    list.push(method)
+    byAccount.set(key, list)
+  }
+
+  const groups: AccountGroup[] = []
+
+  for (const [key, accountMethods] of byAccount) {
+    const byType = new Map<string, PaymentMethod[]>()
+    for (const method of accountMethods) {
+      const typeList = byType.get(method.type) ?? []
+      typeList.push(method)
+      byType.set(method.type, typeList)
+    }
+
+    const types: PaymentTypeGroup[] = [...byType.entries()]
+      .map(([type, typeMethods]) => ({
+        type,
+        label: PAYMENT_TYPES.find((item) => item.value === type)?.label ?? type,
+        methods: [...typeMethods].sort((a, b) =>
+          a.sort_order - b.sort_order || a.description.localeCompare(b.description, 'pt-BR')
+        ),
+      }))
+      .sort((a, b) => typeSortIndex(a.type) - typeSortIndex(b.type))
+
+    groups.push({
+      key,
+      name: key === '__none__'
+        ? 'Sem conta'
+        : (contaNameById.get(key) ?? 'Conta'),
+      types,
+    })
+  }
+
+  groups.sort((a, b) => {
+    if (a.key === '__none__') return 1
+    if (b.key === '__none__') return -1
+    const aOrder = Math.min(...a.types.flatMap((typeGroup) => typeGroup.methods.map((method) => method.sort_order)))
+    const bOrder = Math.min(...b.types.flatMap((typeGroup) => typeGroup.methods.map((method) => method.sort_order)))
+    if (aOrder !== bOrder) return aOrder - bOrder
+    return a.name.localeCompare(b.name, 'pt-BR')
+  })
+
+  return groups
+}
+
+export function FormasPagamentoClient({ initialPaymentMethods, initialContas = [] }: Props) {
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>(initialPaymentMethods)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -61,7 +141,11 @@ export function FormasPagamentoClient({ initialPaymentMethods }: Props) {
   const [formFeePercent, setFormFeePercent] = useState('')
   const [formCreditFees, setFormCreditFees] = useState<CreditInstallmentFee[]>([])
   const [formContaId, setFormContaId] = useState<string>('')
-  const [contas, setContas] = useState<Bank[]>([])
+  const [contas, setContas] = useState<Bank[]>(initialContas)
+  const accountGroups = useMemo(
+    () => groupPaymentMethods(paymentMethods, contas),
+    [paymentMethods, contas]
+  )
 
   const loadPaymentMethods = useCallback(async () => {
     const res = await portalFetch('/api/portal/admin/payment-methods')
@@ -198,12 +282,8 @@ export function FormasPagamentoClient({ initialPaymentMethods }: Props) {
     loadPaymentMethods()
   }
 
-  function getTypeLabel(type: string) {
-    return PAYMENT_TYPES.find((t) => t.value === type)?.label ?? type
-  }
-
   return (
-    <div className="max-w-2xl space-y-6">
+    <div className="max-w-4xl space-y-6">
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -225,48 +305,84 @@ export function FormasPagamentoClient({ initialPaymentMethods }: Props) {
               Nenhuma forma de pagamento cadastrada. Clique em &quot;Nova&quot; para adicionar.
             </p>
           ) : (
-            <ul className="space-y-2">
-              {paymentMethods.map((pm) => (
-                <li
-                  key={pm.id}
-                  className="flex items-center justify-between rounded-md border px-4 py-3"
-                >
-                  <div>
-                    <p className="font-medium">{pm.description}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {getTypeLabel(pm.type)}
-                      {pm.conta_id && contas.length > 0 && (
-                        <> • Conta: {contas.find((c) => c.id === pm.conta_id)?.name ?? pm.conta_id}</>
-                      )}
-                      {pm.fee_percent > 0 && ` • Taxa: ${pm.fee_percent}%`}
-                      {pm.type === 'credito' &&
-                        Array.isArray(pm.credit_installment_fees) &&
-                        pm.credit_installment_fees.length > 0 && (
-                          <>
-                            {' • Parcelas: '}
-                            {pm.credit_installment_fees
-                              .map((f) => `${f.installments}x ${f.fee_percent}%`)
-                              .join(', ')}
-                          </>
-                        )}
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button variant="ghost" size="sm" onClick={() => openEdit(pm)}>
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-destructive hover:text-destructive"
-                      onClick={() => handleDelete(pm.id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </li>
+            <div className="space-y-4">
+              {accountGroups.map((group) => (
+                <section key={group.key} className="overflow-hidden rounded-lg border">
+                  <h3 className="border-b bg-muted/50 px-4 py-2.5 text-sm font-semibold">
+                    {group.name}
+                  </h3>
+                  <ul className="divide-y">
+                    {group.types.map((typeGroup) => (
+                      <li key={typeGroup.type} className="space-y-3 px-4 py-3">
+                        {typeGroup.methods.map((pm) => {
+                          const installmentFees = pm.type === 'credito'
+                            ? sortedInstallmentFees(
+                              Array.isArray(pm.credit_installment_fees) ? pm.credit_installment_fees : []
+                            )
+                            : []
+                          const showsInstallments = installmentFees.length > 0
+                          const showsFee = !showsInstallments && pm.fee_percent > 0
+
+                          return (
+                            <div key={pm.id} className="space-y-2">
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="font-medium">
+                                    {typeGroup.label}
+                                    {showsFee ? (
+                                      <span className="ml-2 text-sm font-normal text-muted-foreground">
+                                        {formatFeePercent(pm.fee_percent)}
+                                      </span>
+                                    ) : null}
+                                  </p>
+                                  {typeGroup.methods.length > 1 ? (
+                                    <p className="truncate text-sm text-muted-foreground">{pm.description}</p>
+                                  ) : null}
+                                </div>
+                                <div className="flex shrink-0 gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => openEdit(pm)}
+                                    aria-label={`Editar ${typeGroup.label}`}
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-destructive hover:text-destructive"
+                                    onClick={() => handleDelete(pm.id)}
+                                    aria-label={`Excluir ${typeGroup.label}`}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </div>
+                              {showsInstallments ? (
+                                <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
+                                  {installmentFees.map((fee) => (
+                                    <li
+                                      key={fee.installments}
+                                      className="rounded-md border bg-muted/30 px-2.5 py-2"
+                                    >
+                                      <p className="text-xs text-muted-foreground">{fee.installments}x</p>
+                                      <p className="text-sm font-medium tabular-nums">
+                                        {formatFeePercent(fee.fee_percent)}
+                                      </p>
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : null}
+                            </div>
+                          )
+                        })}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
               ))}
-            </ul>
+            </div>
           )}
         </CardContent>
       </Card>
