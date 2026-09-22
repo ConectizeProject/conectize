@@ -11,7 +11,7 @@ export type PortalPaymentMethodCatalogItem = {
 
 /**
  * Catálogo de formas de pagamento (Server Components / waterfall).
- * Mesma query que GET /api/portal/payment-methods.
+ * O PDV usa GET /api/portal/payment-methods, que também devolve a conta financeira.
  */
 export async function fetchPaymentMethodsCatalogForPortal(
   supabase: SupabaseClient

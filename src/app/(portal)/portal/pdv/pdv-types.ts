@@ -43,6 +43,10 @@ export type PaymentMethod = {
   description: string
   type: 'dinheiro' | 'pix_direto' | 'pix_maquina' | 'credito' | 'debito'
   credit_installment_fees?: CreditInstallmentFee[] | null
+  fee_percent?: number | null
+  sort_order?: number | null
+  conta_id?: string | null
+  conta_name?: string | null
 }
 
 export type OrderSummary = {

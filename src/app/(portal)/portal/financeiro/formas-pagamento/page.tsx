@@ -26,14 +26,26 @@ export default async function FormasPagamentoPage () {
     return <FormasPagamentoClient initialPaymentMethods={[]} />
   }
 
-  const { data: paymentMethods } = await supabase
-    .from('payment_methods')
-    .select('*')
-    .eq('organization_id', organizationId)
-    .order('sort_order', { ascending: true })
+  const [{ data: paymentMethods }, { data: contas }] = await Promise.all([
+    supabase
+      .from('payment_methods')
+      .select('*')
+      .eq('organization_id', organizationId)
+      .order('sort_order', { ascending: true }),
+    supabase
+      .from('contas')
+      .select('id, name')
+      .eq('organization_id', organizationId)
+      .is('deleted_at', null)
+      .order('name', { ascending: true }),
+  ])
 
   return (
     <FormasPagamentoClient
+      initialContas={(contas ?? []).map((conta) => ({
+        id: conta.id,
+        name: conta.name ?? '',
+      }))}
       initialPaymentMethods={(paymentMethods ?? []).map((pm) => ({
         id: pm.id,
         description: pm.description ?? '',

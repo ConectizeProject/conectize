@@ -1,7 +1,6 @@
 ﻿'use client'
 
 import {
-	AlertCircle,
 	Barcode,
 	Loader2,
 	MoreVertical,
@@ -77,6 +76,7 @@ import {
 	QuantityStepper,
 } from './PdvFormControls'
 import { PdvOfflineBanner } from './PdvOfflineBanner'
+import { PdvPaymentCards } from './PdvPaymentCards'
 import { ProductPreview, ProductThumbImage } from './PdvProductPreview'
 import {
 	findLocalCatalogByCode,
@@ -95,7 +95,6 @@ import {
 	mergeCartItem,
 	normalizePaymentType,
 	orderStatusChromeClass,
-	pickAddedPaymentMethod,
 	redistributeCashPaymentLine,
 	sortOrders,
 } from './pdv-helpers'
@@ -1684,16 +1683,13 @@ export function PdvClient({
 		})
 	}
 
-	function addPaymentLine(method?: PaymentMethod) {
-		const picked = method ?? pickAddedPaymentMethod(paymentMethods)
+	function addPaymentLine() {
 		setPayments((prev) => {
 			const next = [
 				...prev,
 				{
-					payment_method_id: picked?.id ?? null,
-					payment_method_type: picked
-						? normalizePaymentType(picked.type)
-						: 'outro',
+					payment_method_id: null,
+					payment_method_type: 'outro' as const,
 					amountMasked: '',
 					installments: 1,
 				},
@@ -1713,6 +1709,37 @@ export function PdvClient({
 		setPayments((prev) =>
 			prev.map((line, index) => (index === idx ? { ...line, ...patch } : line)),
 		)
+	}
+
+	function selectPaymentMethod(idx: number, methodId: string | null) {
+		const method = methodId
+			? paymentMethods.find((item) => item.id === methodId)
+			: undefined
+		const nextType = method ? normalizePaymentType(method.type) : 'outro'
+		setPayments((prev) => {
+			let next = prev.map((row, index) => {
+				if (index !== idx) return row
+				const maxInstallments = method ? maxCreditInstallments(method) : 1
+				return {
+					...row,
+					payment_method_id: method?.id ?? null,
+					payment_method_type: nextType,
+					installments:
+						nextType === 'credito'
+							? Math.min(maxInstallments, Math.max(1, row.installments || 1))
+							: 1,
+				}
+			})
+			if (!method) return next
+			const receivedCents = moneyToCentsFromMasked(cashReceivedMasked) || 0
+			if (
+				receivedCents > 0 &&
+				next.some((line) => line.payment_method_type === 'dinheiro')
+			) {
+				next = redistributeCashPaymentLine(next, totalCents)
+			}
+			return next
+		})
 	}
 
 	/** Redistribui dinheiro ao sair do campo de valor (não altera o valor digitado). */
@@ -2743,170 +2770,23 @@ export function PdvClient({
 											<p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
 												Forma de pagamento
 											</p>
-											<div className="space-y-2">
-												{payments.map((line, idx) => {
-													const selectedMethod = paymentMethods.find(
-														(m) => m.id === line.payment_method_id,
-													)
-													const isCredit =
-														selectedMethod?.type === 'credito' ||
-														line.payment_method_type === 'credito'
-													const maxInstallments =
-														maxCreditInstallments(selectedMethod)
-													return (
-														<div
-															key={`${idx}-${line.payment_method_type}`}
-															className="grid gap-1 sm:grid-cols-[1fr_auto]"
-														>
-															<select
-																className="h-9 rounded border bg-background px-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
-																value={line.payment_method_id || ''}
-																disabled={!hasCartItems}
-																onChange={(e) => {
-																	const id = e.target.value || null
-																	const method = paymentMethods.find(
-																		(m) => m.id === id,
-																	)
-																	const nextType = method
-																		? normalizePaymentType(method.type)
-																		: line.payment_method_type
-																	setPayments((prev) => {
-																		let next = prev.map((row, index) =>
-																			index === idx
-																				? {
-																						...row,
-																						payment_method_id: id,
-																						payment_method_type: nextType,
-																						installments:
-																							nextType === 'credito'
-																								? Math.max(
-																										1,
-																										row.installments || 1,
-																									)
-																								: 1,
-																					}
-																				: row,
-																		)
-																		const receivedCents =
-																			moneyToCentsFromMasked(
-																				cashReceivedMasked,
-																			) || 0
-																		if (
-																			receivedCents > 0 &&
-																			next.some(
-																				(p) =>
-																					p.payment_method_type === 'dinheiro',
-																			)
-																		) {
-																			next = redistributeCashPaymentLine(
-																				next,
-																				totalCents,
-																			)
-																		}
-																		return next
-																	})
-																}}
-															>
-																<option value="" disabled>
-																	Selecione…
-																</option>
-																{paymentMethods.map((method) => (
-																	<option key={method.id} value={method.id}>
-																		{method.description}
-																	</option>
-																))}
-															</select>
-															<div className="flex gap-1">
-																{isCredit ? (
-																	<select
-																		className="h-9 w-[4.5rem] shrink-0 rounded border bg-background px-1 text-sm disabled:cursor-not-allowed disabled:opacity-60"
-																		value={String(
-																			Math.min(
-																				line.installments || 1,
-																				maxInstallments,
-																			),
-																		)}
-																		disabled={!hasCartItems}
-																		aria-label="Parcelas"
-																		onChange={(e) =>
-																			setPaymentLine(idx, {
-																				installments: Math.max(
-																					1,
-																					Number.parseInt(e.target.value, 10) ||
-																						1,
-																				),
-																			})
-																		}
-																	>
-																		{Array.from(
-																			{ length: maxInstallments },
-																			(_, i) => i + 1,
-																		).map((n) => (
-																			<option key={n} value={String(n)}>
-																				{n}x
-																			</option>
-																		))}
-																	</select>
-																) : null}
-																<Input
-																	value={line.amountMasked}
-																	onChange={(e) =>
-																		setPaymentLine(idx, {
-																			amountMasked: formatMoneyInput(
-																				e.target.value,
-																			),
-																		})
-																	}
-																	onBlur={() => commitPaymentLineAmount(idx)}
-																	placeholder="0,00"
-																	disabled={!hasCartItems}
-																/>
-																{payments.length > 1 ? (
-																	<Button
-																		variant="ghost"
-																		size="icon"
-																		disabled={!hasCartItems}
-																		onClick={() => removePaymentLine(idx)}
-																	>
-																		<Trash2 className="h-4 w-4" />
-																	</Button>
-																) : null}
-															</div>
-														</div>
-													)
-												})}
-												<Button
-													variant="outline"
-													size="sm"
-													disabled={!hasCartItems}
-													onClick={() => addPaymentLine()}
-												>
-													Adicionar pagamento
-												</Button>
-												{hasCartItems ? (
-													<div
-														className={cn(
-															'flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm',
-															paidCents > totalCents
-																? 'border-destructive/50 bg-destructive/5 text-destructive'
-																: 'border-border bg-muted/30 text-foreground',
-														)}
-													>
-														<span className="inline-flex items-center gap-1.5 font-medium">
-															{paidCents > totalCents ? (
-																<AlertCircle
-																	className="h-4 w-4 shrink-0 text-destructive"
-																	aria-hidden
-																/>
-															) : null}
-															Total pago
-														</span>
-														<strong className="tabular-nums">
-															{maskedFromCents(paidCents)}
-														</strong>
-													</div>
-												) : null}
-											</div>
+											<PdvPaymentCards
+												payments={payments}
+												paymentMethods={paymentMethods}
+												disabled={!hasCartItems}
+												paidCents={paidCents}
+												totalCents={totalCents}
+												onSelectMethod={selectPaymentMethod}
+												onSelectInstallments={(idx, installments) =>
+													setPaymentLine(idx, { installments })
+												}
+												onAmountChange={(idx, amountMasked) =>
+													setPaymentLine(idx, { amountMasked })
+												}
+												onAmountBlur={commitPaymentLineAmount}
+												onRemove={removePaymentLine}
+												onAdd={() => addPaymentLine()}
+											/>
 										</div>
 									</div>
 								</TabsContent>
