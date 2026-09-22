@@ -3,12 +3,16 @@
 import { useEffect, useState, Suspense } from 'react'
 import { usePathname } from 'next/navigation'
 import { PedidosVendaList } from '@/app/(portal)/portal/vendas/PedidosVendaList'
+import { SoldProductsList } from '@/app/(portal)/portal/vendas/SoldProductsList'
 import { FiscalDocumentsList } from '@/app/(portal)/portal/vendas/fiscal-documents/FiscalDocumentsList'
 
-type ListTab = 'pedidos' | 'nfce' | 'nfe'
+type ListTab = 'pedidos' | 'produtos' | 'nfce' | 'nfe'
 
 function listTabFromPath (pathname: string): ListTab | null {
   if (pathname === '/portal/vendas' || pathname === '/portal/vendas/') return 'pedidos'
+  if (pathname === '/portal/vendas/produtos' || pathname === '/portal/vendas/produtos/') {
+    return 'produtos'
+  }
   if (pathname === '/portal/vendas/nfce' || pathname === '/portal/vendas/nfce/') return 'nfce'
   if (pathname === '/portal/vendas/nfe' || pathname === '/portal/vendas/nfe/') return 'nfe'
   return null
@@ -38,6 +42,7 @@ export function VendasListKeepAlive () {
   const listTab = listTabFromPath(pathname)
   const [visited, setVisited] = useState(() => ({
     pedidos: listTab === 'pedidos',
+    produtos: listTab === 'produtos',
     nfce: listTab === 'nfce',
     nfe: listTab === 'nfe',
   }))
@@ -53,6 +58,13 @@ export function VendasListKeepAlive () {
         <KeepAlivePane active={listTab === 'pedidos'}>
           <Suspense fallback={<p className="p-4 text-sm text-muted-foreground">Carregando…</p>}>
             <PedidosVendaList />
+          </Suspense>
+        </KeepAlivePane>
+      ) : null}
+      {visited.produtos ? (
+        <KeepAlivePane active={listTab === 'produtos'}>
+          <Suspense fallback={<p className="p-4 text-sm text-muted-foreground">Carregando…</p>}>
+            <SoldProductsList />
           </Suspense>
         </KeepAlivePane>
       ) : null}
