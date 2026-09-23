@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import { getBlingConnectionForCurrentUser } from '@/lib/integrations/bling/api'
 import { isPortalFieldForBling } from '@/lib/products/bling-sync'
 import { syncProductToBling } from '@/lib/products/update-product-with-bling'
 
@@ -13,6 +14,14 @@ export async function POST (
   const auth = await requireStaffOrAdmin()
   if (auth.ok === false) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
+  }
+
+  const hub = await getBlingConnectionForCurrentUser()
+  if (hub.ok === false) {
+    return NextResponse.json({
+      ok: false,
+      error: hub.error === 'not_authenticated' ? hub.error : 'bling_not_connected',
+    }, { status: hub.error === 'not_authenticated' ? 401 : 400 })
   }
 
   const body = await request.json().catch(() => ({})) as {

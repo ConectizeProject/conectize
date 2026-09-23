@@ -8,6 +8,7 @@ import { QuickPriceEditor } from './QuickPriceEditor'
 type QuickSalePriceCellProps = {
 	productId: string
 	blingId?: string | null
+	blingHubConnected?: boolean
 	salePriceCents?: number | null
 	/** Padrão: direita (células de tabela). Use `left` no card mobile. */
 	align?: 'left' | 'right'
@@ -16,10 +17,12 @@ type QuickSalePriceCellProps = {
 export const QuickSalePriceCell = memo(function QuickSalePriceCell ({
 	productId,
 	blingId,
+	blingHubConnected = false,
 	salePriceCents,
 	align = 'right',
 }: QuickSalePriceCellProps) {
 	const router = useRouter()
+	const shouldSyncToBling = blingHubConnected && Boolean(blingId)
 
 	async function persistSalePrice (cents: number | null) {
 		if (cents === null) {
@@ -33,7 +36,7 @@ export const QuickSalePriceCell = memo(function QuickSalePriceCell ({
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					salePrice: cents / 100,
-					syncToBling: Boolean(blingId),
+					syncToBling: shouldSyncToBling,
 				}),
 			})
 
@@ -46,13 +49,13 @@ export const QuickSalePriceCell = memo(function QuickSalePriceCell ({
 				return false
 			}
 
-			if (blingId && data?.syncedToBling !== true) {
+			if (shouldSyncToBling && data?.syncedToBling !== true) {
 				toast({
 					title: 'Preço salvo no portal',
 					description: data?.message || data?.syncError || 'Falha ao sincronizar com o Bling. O item ficou pendente de sincronização.',
 					variant: 'destructive',
 				})
-			} else if (blingId) {
+			} else if (shouldSyncToBling) {
 				toast({
 					title: 'Preço salvo e sincronizado com o Bling.',
 					variant: 'success',

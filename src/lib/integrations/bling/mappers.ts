@@ -22,6 +22,9 @@ export type LocalProduct = {
 	cofinsCst?: string | null;
 	/** Estoque atual no Bling; usado na importação para criar/alinhar movimentos. */
 	estoqueAtual?: number;
+	/** Chaves inferidas na variação (para promover ao pai no upsert). */
+	variationAttributeKeys?: string[];
+	variationAttributeValues?: Record<string, string>;
 };
 
 export type LocalStockMovement = {
@@ -788,7 +791,13 @@ function buildVariationDisplayName(
 		.map(({ tipo, valor }) => {
 			const t = tipo.trim();
 			const v = valor.trim();
-			if (t && v) return `${t.toLowerCase()}:${v}`;
+			if (t && v) {
+				const label =
+					t === t.toLowerCase()
+						? t.charAt(0).toUpperCase() + t.slice(1)
+						: t;
+				return `${label}:${v}`;
+			}
 			return v || t;
 		})
 		.filter(Boolean);
@@ -796,6 +805,32 @@ function buildVariationDisplayName(
 	if (p && segments.length > 0) return `${p} ${segments.join(" ")}`.trim();
 	if (segments.length > 0) return segments.join(" ");
 	return fb || p || "Produto";
+}
+
+function variationAttrsFromParts(parts: VariationPart[]): {
+	keys: string[];
+	values: Record<string, string>;
+} {
+	const keys: string[] = [];
+	const values: Record<string, string> = {};
+	const seen = new Set<string>();
+	for (const part of parts) {
+		const rawTipo = part.tipo.trim();
+		const valor = part.valor.trim();
+		if (!valor) continue;
+		const key = rawTipo
+			? rawTipo === rawTipo.toLowerCase()
+				? rawTipo.charAt(0).toUpperCase() + rawTipo.slice(1)
+				: rawTipo
+			: "Modelo";
+		const low = key.toLowerCase();
+		if (!seen.has(low)) {
+			seen.add(low);
+			keys.push(key);
+		}
+		values[key] = valor;
+	}
+	return { keys, values };
 }
 
 /**
@@ -841,6 +876,8 @@ export function mapBlingProductToLocal(
 	const parentId = resolveParentBlingId(slice, ownHint);
 	const sliceNome = String(dto.nome || "").trim();
 	let name = sliceNome;
+	let variationAttributeKeys: string[] | undefined;
+	let variationAttributeValues: Record<string, string> | undefined;
 	if (parentId) {
 		const parentName = resolveBlingParentNameForVariation(
 			flat,
@@ -854,6 +891,24 @@ export function mapBlingProductToLocal(
 			sliceNome,
 		);
 		name = buildVariationDisplayName(parentName, parts, sliceNome);
+		const attrs = variationAttrsFromParts(parts);
+		if (attrs.keys.length > 0) {
+			variationAttributeKeys = attrs.keys;
+			variationAttributeValues = attrs.values;
+		} else if (name && parentName && name.toLowerCase() !== parentName.toLowerCase()) {
+			const rest = name.toLowerCase().startsWith(parentName.toLowerCase())
+				? name.slice(parentName.length).trim()
+				: name.trim();
+			if (rest) {
+				variationAttributeKeys = ["Modelo"];
+				variationAttributeValues = { Modelo: rest };
+				name = buildVariationDisplayName(
+					parentName,
+					[{ tipo: "Modelo", valor: rest }],
+					sliceNome,
+				);
+			}
+		}
 	}
 	const barcode = getBarcode(dto);
 	const { saleCents, costCents } = resolveSaleAndCostCents(dto);
@@ -895,6 +950,8 @@ export function mapBlingProductToLocal(
 		kind,
 		...fiscal,
 		estoqueAtual,
+		...(variationAttributeKeys ? { variationAttributeKeys } : {}),
+		...(variationAttributeValues ? { variationAttributeValues } : {}),
 	};
 }
 

@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { hasBlingHubConnection } from '@/lib/integrations/bling/api'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { ProdutosGestaoClient } from './ProdutosGestaoClient'
 import { effectiveSearchTokens } from '@/lib/products/product-search'
@@ -44,14 +45,17 @@ export async function ProdutosGestaoTab ({
   const supabase = await createSupabaseServerClient()
   const searchTokens = effectiveSearchTokens(query)
 
-  const slice = await fetchGestaoListRawSlice(supabase, {
-    query,
-    kindFilter,
-    offset: 0,
-    limit: loaded,
-    sku: skuRaw,
-    barcode: barcodeRaw,
-  })
+  const [slice, blingHubConnected] = await Promise.all([
+    fetchGestaoListRawSlice(supabase, {
+      query,
+      kindFilter,
+      offset: 0,
+      limit: loaded,
+      sku: skuRaw,
+      barcode: barcodeRaw,
+    }),
+    hasBlingHubConnection(supabase),
+  ])
 
   const hrefOpts = {
     q: query,
@@ -106,6 +110,7 @@ export async function ProdutosGestaoTab ({
       invalidSearchTokens={slice.hasSearchButNoValidTokens}
       initialEditProductId={initialEditProductId}
       initialCreateVariationParentId={initialCreateVariationParentId}
+      blingHubConnected={blingHubConnected}
     />
   )
 }

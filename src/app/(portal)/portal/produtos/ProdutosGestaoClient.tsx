@@ -25,6 +25,7 @@ type ProdutosGestaoClientProps = {
   invalidSearchTokens?: boolean
   initialEditProductId?: string
   initialCreateVariationParentId?: string
+  blingHubConnected?: boolean
 }
 
 function filtersKey (f: FilterValues): string {
@@ -49,6 +50,7 @@ export function ProdutosGestaoClient ({
   invalidSearchTokens: initialInvalidSearchTokens = false,
   initialEditProductId,
   initialCreateVariationParentId,
+  blingHubConnected = false,
 }: ProdutosGestaoClientProps) {
   const serverFiltersKey = filtersKey({ q: query, kind: kindFilter, sku, barcode })
   const lastServerFiltersKeyRef = useRef(serverFiltersKey)
@@ -182,6 +184,7 @@ export function ProdutosGestaoClient ({
         filterKind={activeFilters.kind}
         initialEditProductId={initialEditProductId}
         initialCreateVariationParentId={initialCreateVariationParentId}
+        blingHubConnected={blingHubConnected}
       />
     </div>
   )

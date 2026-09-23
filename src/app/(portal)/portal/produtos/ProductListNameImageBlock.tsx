@@ -1,24 +1,32 @@
 'use client'
 
+import { cn } from '@/lib/utils'
 import { isSafeProductListImageUrl, type ProductRow } from './product-list-shared'
+import { VariationDisplayName } from './VariationDisplayName'
 
 type Props = {
 	product: ProductRow
 	/** Na tabela desktop, uma linha com reticências; nos cards, quebra de linha. */
 	nameTruncate?: boolean
+	/** Organização tem conexão Bling no Hub. */
+	blingHubConnected?: boolean
 }
 
 /**
  * Nome + miniatura. Em variações, a barrinha antes da foto fica no meio vertical (alinhada à miniatura).
  */
-export function ProductListNameImageBlock ({ product, nameTruncate = false }: Props) {
+export function ProductListNameImageBlock ({
+	product,
+	nameTruncate = false,
+	blingHubConnected = false,
+}: Props) {
 	return (
 		<div
-			className={
-				product.is_variation
-					? 'relative flex min-w-0 items-center gap-3 pl-6'
-					: 'flex min-w-0 items-start gap-3'
-			}
+			className={cn(
+				'relative flex min-w-0 gap-3',
+				product.is_variation || nameTruncate ? 'items-center' : 'items-start',
+				product.is_variation && 'pl-6',
+			)}
 		>
 			{product.is_variation ? (
 				<span
@@ -52,17 +60,26 @@ export function ProductListNameImageBlock ({ product, nameTruncate = false }: Pr
 			</div>
 			<div className="flex min-w-0 flex-col gap-0.5">
 				<div className="flex flex-wrap items-center gap-2 font-medium">
-					<span
-						className={`min-w-0 ${nameTruncate ? 'truncate' : 'break-words'} ${product.is_active ? '' : 'text-muted-foreground line-through'}`}
-					>
-						{product.name}
-					</span>
+					{product.is_variation ? (
+						<VariationDisplayName
+							name={product.name}
+							parentName={product.parent_name}
+							truncate={nameTruncate}
+							inactive={!product.is_active}
+						/>
+					) : (
+						<span
+							className={`min-w-0 ${nameTruncate ? 'truncate' : 'break-words'} ${product.is_active ? '' : 'text-muted-foreground line-through'}`}
+						>
+							{product.name}
+						</span>
+					)}
 					{!product.is_active && (
 						<span className="shrink-0 rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
 							Inativo
 						</span>
 					)}
-					{product.bling_id && product.bling_sync_pending && (
+					{blingHubConnected && product.bling_id && product.bling_sync_pending && (
 						<span className="shrink-0 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-400">
 							Desincronizado
 						</span>

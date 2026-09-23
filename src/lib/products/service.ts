@@ -5,8 +5,12 @@ import { normalizeOptionalGtin } from "@/lib/fiscal/gtin";
 import { normalizeOptionalCest, normalizeOptionalNcm } from "@/lib/fiscal/ncm";
 import {
 	composePortalVariationDisplayName,
+	DEFAULT_VARIATION_ATTRIBUTE_KEY,
+	inferVariationAttributeKeysFromChildNames,
 	parseVariationAttributeKeys,
 	parseVariationAttributeValues,
+	resolveVariationAttributesFromName,
+	variationAttributesNeedRepair,
 } from "@/lib/products/variation-display-name";
 import { createProductSyncSnapshot } from "@/lib/products/bling-sync";
 import { fetchProductHasVariationChildren } from "@/lib/products/parent-has-variations";
@@ -334,6 +338,8 @@ export async function createProduct(
 	const attrVals = parseVariationAttributeValues(input.variationAttributeValues);
 
 	let finalName = name;
+	let resolvedAttrKeys = attrKeys;
+	let resolvedAttrVals = attrVals;
 
 	const parentKey =
 		input.parentBlingId != null ? String(input.parentBlingId).trim() : "";
@@ -344,7 +350,7 @@ export async function createProduct(
 	if (parentProductIdFromInput) {
 		const { data: parentById } = await auth.supabase
 			.from("products")
-			.select("id, bling_id")
+			.select("id, bling_id, name, variation_attribute_keys")
 			.eq("id", parentProductIdFromInput)
 			.limit(1)
 			.maybeSingle();
@@ -353,23 +359,53 @@ export async function createProduct(
 			const k = String(parentById.bling_id).trim();
 			resolvedParentBlingId = k || null;
 		}
-		if (parentProductIdFromInput && Object.keys(attrVals).length > 0) {
-			const { data: parentRow } = await auth.supabase
-				.from("products")
-				.select("name, variation_attribute_keys")
-				.eq("id", parentProductIdFromInput)
-				.maybeSingle();
-			if (parentRow) {
-				const pKeys = parseVariationAttributeKeys(
-					(parentRow as { variation_attribute_keys?: unknown }).variation_attribute_keys,
-				);
-				if (pKeys.length > 0) {
-					finalName = composePortalVariationDisplayName(
-						String((parentRow as { name?: unknown }).name || "").trim(),
-						pKeys,
-						attrVals,
-					);
+		if (parentById) {
+			let pKeys = parseVariationAttributeKeys(
+				(parentById as { variation_attribute_keys?: unknown }).variation_attribute_keys,
+			);
+			const parentName = String(
+				(parentById as { name?: unknown }).name || "",
+			).trim();
+
+			if (pKeys.length === 0) {
+				if (Object.keys(attrVals).length > 0) {
+					pKeys = parseVariationAttributeKeys(Object.keys(attrVals));
+				} else if (name) {
+					const inferred = inferVariationAttributeKeysFromChildNames(parentName, [
+						name,
+					]);
+					pKeys =
+						inferred.length > 0 ? inferred : [DEFAULT_VARIATION_ATTRIBUTE_KEY];
+				} else {
+					pKeys = [DEFAULT_VARIATION_ATTRIBUTE_KEY];
 				}
+				await auth.supabase
+					.from("products")
+					.update({
+						variation_attribute_keys: pKeys,
+						updated_at: new Date().toISOString(),
+					})
+					.eq("id", parentProductId);
+			}
+
+			resolvedAttrKeys = [];
+			if (Object.keys(attrVals).length > 0) {
+				resolvedAttrVals = attrVals;
+			} else if (name) {
+				const resolved = resolveVariationAttributesFromName(
+					parentName,
+					name,
+					pKeys,
+				);
+				resolvedAttrVals = resolved.values;
+			}
+
+			if (pKeys.length > 0 && Object.keys(resolvedAttrVals).length > 0) {
+				finalName = composePortalVariationDisplayName(
+					parentName,
+					pKeys,
+					resolvedAttrVals,
+				);
 			}
 		}
 	} else if (parentKey && parentKey !== "0") {
@@ -421,8 +457,8 @@ export async function createProduct(
 		is_active: input.isActive ?? true,
 		created_by: auth.userId,
 		catalog_sort_key: catalogSortKey,
-		variation_attribute_keys: attrKeys,
-		variation_attribute_values: attrVals,
+		variation_attribute_keys: parentProductId ? [] : resolvedAttrKeys,
+		variation_attribute_values: parentProductId ? resolvedAttrVals : attrVals,
 	};
 
 	const { data, error } = await auth.supabase
@@ -436,6 +472,232 @@ export async function createProduct(
 	}
 
 	return { ok: true as const, product: mapRowToProduct(data) };
+}
+
+type RepairVariationAttributesResult =
+	| {
+			ok: true
+			product: Product
+			variations: Product[]
+			updatedChildren: number
+			parentKeysChanged: boolean
+	  }
+	| { ok: false; error: "not_authenticated" | "not_found" | "db_error" };
+
+/**
+ * Infere `variation_attribute_keys` no pai e valores/nomes nas variações
+ * a partir dos nomes atuais (ex.: «Display iPhone Modelo:8G Black» ou «16 Pro Max»).
+ */
+export async function repairVariationAttributesForParent(
+	parentProductId: string,
+	opts?: { supabase?: SupabaseServerClient; organizationId?: string },
+): Promise<RepairVariationAttributesResult> {
+	const auth = opts?.supabase && opts.organizationId
+		? {
+				ok: true as const,
+				supabase: opts.supabase,
+				organizationId: opts.organizationId,
+			}
+		: await requireAuth();
+	if (!auth.ok) return { ok: false, error: "not_authenticated" };
+
+	const { data: parentRow, error: parentErr } = await auth.supabase
+		.from("products")
+		.select("*")
+		.eq("id", parentProductId)
+		.maybeSingle();
+
+	if (parentErr || !parentRow) {
+		return { ok: false, error: "not_found" };
+	}
+
+	const parent = mapRowToProduct(parentRow);
+	if (parent.parentBlingId != null || parent.parentProductId != null) {
+		return { ok: false, error: "not_found" };
+	}
+
+	const blingKey = parent.blingId ? String(parent.blingId).trim() : "";
+	let childQuery = auth.supabase
+		.from("products")
+		.select("*")
+		.eq("organization_id", auth.organizationId);
+
+	if (blingKey) {
+		childQuery = childQuery.or(
+			`parent_bling_id.eq.${blingKey},parent_product_id.eq.${parent.id}`,
+		);
+	} else {
+		childQuery = childQuery.eq("parent_product_id", parent.id);
+	}
+
+	const { data: childRows, error: childErr } = await childQuery.order(
+		"catalog_sort_key",
+		{ ascending: true, nullsFirst: false },
+	);
+
+	if (childErr) return { ok: false, error: "db_error" };
+
+	const children = (childRows ?? []).map(mapRowToProduct);
+	if (children.length === 0) {
+		return {
+			ok: true,
+			product: parent,
+			variations: [],
+			updatedChildren: 0,
+			parentKeysChanged: false,
+		};
+	}
+
+	let keys = parseVariationAttributeKeys(parent.variationAttributeKeys);
+	if (keys.length === 0) {
+		keys = inferVariationAttributeKeysFromChildNames(
+			parent.name,
+			children.map((c) => c.name),
+		);
+	}
+	if (keys.length === 0) {
+		keys = [DEFAULT_VARIATION_ATTRIBUTE_KEY];
+	}
+
+	const parentKeysChanged =
+		JSON.stringify(parseVariationAttributeKeys(parent.variationAttributeKeys)) !==
+		JSON.stringify(keys);
+
+	if (parentKeysChanged) {
+		const { error: parentUpdErr } = await auth.supabase
+			.from("products")
+			.update({
+				variation_attribute_keys: keys,
+				updated_at: new Date().toISOString(),
+			})
+			.eq("id", parent.id);
+		if (parentUpdErr) return { ok: false, error: "db_error" };
+	}
+
+	let updatedChildren = 0;
+	const nextVariations: Product[] = [];
+
+	for (const child of children) {
+		const { values, displayName } = resolveVariationAttributesFromName(
+			parent.name,
+			child.name,
+			keys,
+		);
+		const prevVals = parseVariationAttributeValues(child.variationAttributeValues);
+		const valuesEqual =
+			Object.keys(values).length === Object.keys(prevVals).length &&
+			Object.keys(values).every((k) => {
+				const loose = Object.keys(prevVals).find(
+					(pk) => pk.toLowerCase() === k.toLowerCase(),
+				);
+				return loose != null && prevVals[loose] === values[k];
+			});
+		const sameName = String(child.name || "").trim() === displayName;
+		if (valuesEqual && sameName) {
+			nextVariations.push({
+				...child,
+				variationAttributeValues: values,
+				name: displayName,
+			});
+			continue;
+		}
+
+		const snapshot = createProductSyncSnapshot({
+			name: displayName,
+			sku: child.sku,
+			barcode: child.barcode,
+			description: child.description,
+			salePriceCents: child.salePriceCents,
+			costPriceCents: child.costPriceCents,
+			isActive: child.isActive,
+			kind: child.kind ?? null,
+		});
+
+		const { data: updatedRow, error: updErr } = await auth.supabase
+			.from("products")
+			.update({
+				name: displayName,
+				variation_attribute_values: values,
+				bling_sync_snapshot: snapshot,
+				updated_at: new Date().toISOString(),
+			})
+			.eq("id", child.id)
+			.select("*")
+			.maybeSingle();
+
+		if (updErr || !updatedRow) return { ok: false, error: "db_error" };
+		updatedChildren += 1;
+		nextVariations.push(mapRowToProduct(updatedRow));
+	}
+
+	const productOut: Product = {
+		...parent,
+		variationAttributeKeys: keys,
+	};
+
+	return {
+		ok: true,
+		product: productOut,
+		variations: nextVariations,
+		updatedChildren,
+		parentKeysChanged,
+	};
+}
+
+export async function repairAllVariationAttributesForOrganization(): Promise<
+	| { ok: true; parentsRepaired: number; childrenUpdated: number }
+	| { ok: false; error: "not_authenticated" | "db_error" }
+> {
+	const auth = await requireAuth();
+	if (!auth.ok) return { ok: false, error: "not_authenticated" };
+
+	const { data: childLinks, error: linkErr } = await auth.supabase
+		.from("products")
+		.select("parent_product_id, parent_bling_id")
+		.eq("organization_id", auth.organizationId)
+		.or("parent_product_id.not.is.null,parent_bling_id.not.is.null");
+
+	if (linkErr) return { ok: false, error: "db_error" };
+
+	const parentIds = new Set<string>();
+	const parentBlingIds = new Set<string>();
+	for (const row of childLinks ?? []) {
+		const pid = (row as { parent_product_id?: string | null }).parent_product_id;
+		const pbling = (row as { parent_bling_id?: string | null }).parent_bling_id;
+		if (pid) parentIds.add(String(pid).trim());
+		if (pbling != null && String(pbling).trim()) {
+			parentBlingIds.add(String(pbling).trim());
+		}
+	}
+
+	if (parentBlingIds.size > 0) {
+		const { data: byBling } = await auth.supabase
+			.from("products")
+			.select("id")
+			.eq("organization_id", auth.organizationId)
+			.in("bling_id", [...parentBlingIds]);
+		for (const r of byBling ?? []) {
+			const id = String((r as { id?: unknown }).id || "").trim();
+			if (id) parentIds.add(id);
+		}
+	}
+
+	let parentsRepaired = 0;
+	let childrenUpdated = 0;
+
+	for (const id of parentIds) {
+		const repaired = await repairVariationAttributesForParent(id, {
+			supabase: auth.supabase,
+			organizationId: auth.organizationId,
+		});
+		if (!repaired.ok) continue;
+		if (repaired.updatedChildren > 0 || repaired.parentKeysChanged) {
+			parentsRepaired += 1;
+			childrenUpdated += repaired.updatedChildren;
+		}
+	}
+
+	return { ok: true, parentsRepaired, childrenUpdated };
 }
 
 export async function getProductByIdWithVariations(
@@ -459,34 +721,65 @@ export async function getProductByIdWithVariations(
 		return { ok: true as const, product, variations: [] };
 	}
 
-	const blingKey = product.blingId ? String(product.blingId).trim() : "";
-
-	if (blingKey) {
-		const { data: vars } = await auth.supabase
+	const loadActiveVariations = async (): Promise<Product[]> => {
+		const blingKey = product.blingId ? String(product.blingId).trim() : "";
+		if (blingKey) {
+			const { data: vars } = await auth.supabase
+				.from("products")
+				.select("*")
+				.eq("parent_bling_id", blingKey)
+				.eq("is_active", true)
+				.order("catalog_sort_key", { ascending: true, nullsFirst: false });
+			return (vars ?? []).map(mapRowToProduct);
+		}
+		const { data: byParentUuid } = await auth.supabase
 			.from("products")
 			.select("*")
-			.eq("parent_bling_id", blingKey)
+			.eq("parent_product_id", product.id)
 			.eq("is_active", true)
 			.order("catalog_sort_key", { ascending: true, nullsFirst: false });
+		return (byParentUuid ?? []).map(mapRowToProduct);
+	};
 
-		return {
-			ok: true as const,
-			product,
-			variations: (vars ?? []).map(mapRowToProduct),
-		};
+	let variations = await loadActiveVariations();
+
+	if (
+		variations.length > 0 &&
+		variationAttributesNeedRepair({
+			parentName: product.name,
+			parentKeys: product.variationAttributeKeys,
+			children: variations.map((v) => ({
+				name: v.name,
+				values: v.variationAttributeValues,
+			})),
+		})
+	) {
+		const repaired = await repairVariationAttributesForParent(product.id, {
+			supabase: auth.supabase,
+			organizationId: auth.organizationId,
+		});
+		if (repaired.ok) {
+			return {
+				ok: true as const,
+				product: repaired.product,
+				variations: repaired.variations.filter((v) => v.isActive !== false),
+			};
+		}
+		variations = await loadActiveVariations();
+		const refreshed = await getProductById(product.id);
+		if (refreshed.ok && "product" in refreshed) {
+			return {
+				ok: true as const,
+				product: refreshed.product,
+				variations,
+			};
+		}
 	}
-
-	const { data: byParentUuid } = await auth.supabase
-		.from("products")
-		.select("*")
-		.eq("parent_product_id", product.id)
-		.eq("is_active", true)
-		.order("catalog_sort_key", { ascending: true, nullsFirst: false });
 
 	return {
 		ok: true as const,
 		product,
-		variations: (byParentUuid ?? []).map(mapRowToProduct),
+		variations,
 	};
 }
 

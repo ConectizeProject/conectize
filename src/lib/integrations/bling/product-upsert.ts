@@ -149,6 +149,47 @@ export async function upsertBlingProductForOrganization (params: {
 	}
 	applyFiscalFieldsToPayload(payload, local)
 
+	const isVariation = Boolean(
+		local.parentBlingId != null && String(local.parentBlingId).trim(),
+	)
+	if (isVariation && local.variationAttributeValues) {
+		payload.variation_attribute_values = local.variationAttributeValues
+		payload.variation_attribute_keys = []
+	}
+
+	const mergeParentKeys = async () => {
+		if (!isVariation || !local.variationAttributeKeys?.length) return
+		const parentBling = String(local.parentBlingId).trim()
+		const { data: parent } = await supabase
+			.from('products')
+			.select('id, variation_attribute_keys')
+			.eq('organization_id', organizationId)
+			.eq('bling_id', parentBling)
+			.maybeSingle()
+		if (!parent?.id) return
+		const existingKeys = Array.isArray(parent.variation_attribute_keys)
+			? parent.variation_attribute_keys.map((k: unknown) => String(k || '').trim()).filter(Boolean)
+			: []
+		const seen = new Set(existingKeys.map((k: string) => k.toLowerCase()))
+		const merged = [...existingKeys]
+		for (const k of local.variationAttributeKeys) {
+			const label = String(k || '').trim()
+			if (!label) continue
+			const low = label.toLowerCase()
+			if (seen.has(low)) continue
+			seen.add(low)
+			merged.push(label)
+		}
+		if (merged.length === existingKeys.length && existingKeys.length > 0) return
+		await supabase
+			.from('products')
+			.update({
+				variation_attribute_keys: merged,
+				updated_at: new Date().toISOString(),
+			})
+			.eq('id', parent.id)
+	}
+
 	const { data: existing } = await supabase
 		.from('products')
 		.select('id')
@@ -172,6 +213,10 @@ export async function upsertBlingProductForOrganization (params: {
 			bling_sync_snapshot: payload.bling_sync_snapshot,
 			updated_at: new Date().toISOString(),
 		}
+		if (isVariation && local.variationAttributeValues) {
+			updatePayload.variation_attribute_values = local.variationAttributeValues
+			updatePayload.variation_attribute_keys = []
+		}
 		applyFiscalFieldsToPayload(updatePayload, local)
 
 		const { error: updateErr } = await supabase
@@ -181,6 +226,8 @@ export async function upsertBlingProductForOrganization (params: {
 		if (updateErr) {
 			throw new Error('db_error')
 		}
+
+		await mergeParentKeys()
 
 		const { data: movements } = await supabase
 			.from('product_stock_movements')
@@ -223,6 +270,8 @@ export async function upsertBlingProductForOrganization (params: {
 	if (insertErr || !inserted?.id) {
 		throw new Error('db_error')
 	}
+
+	await mergeParentKeys()
 
 	if (estoqueAtual > 0) {
 		await supabase

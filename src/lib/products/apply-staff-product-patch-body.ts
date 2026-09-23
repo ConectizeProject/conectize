@@ -1,4 +1,5 @@
 import type { PortalFieldForBling } from '@/lib/products/bling-sync'
+import { getBlingConnectionForCurrentUser } from '@/lib/integrations/bling/api'
 import {
   composePortalVariationDisplayName,
   parseVariationAttributeKeys,
@@ -353,6 +354,8 @@ export async function applyStaffProductPatchFromBody (
   }
 
   const wantSyncToBling = body.syncToBling === true
+  const hub = wantSyncToBling ? await getBlingConnectionForCurrentUser() : null
+  const canSyncToBling = wantSyncToBling && hub !== null && hub.ok === true
 
   const hasProductPatch = Object.keys(patch).length > 0
   const hasCompatUpdate = compatibleIds !== null
@@ -402,7 +405,7 @@ export async function applyStaffProductPatchFromBody (
   const fresh = await getProductById(id)
   let productOut = fresh.ok && 'product' in fresh ? fresh.product : midProduct
 
-  if (wantSyncToBling && productOut.blingId) {
+  if (canSyncToBling && productOut.blingId) {
     const sync = await syncProductToBling(id, {
       portalFieldsChanged: blingFieldsChanged ?? [],
     })

@@ -85,6 +85,8 @@ type Props = {
 	initialEditProductId?: string
 	/** Query `?newVariationOf=` — abre modal de criação de variação vinculada ao pai. */
 	initialCreateVariationParentId?: string
+	/** Organização tem conexão Bling no Hub. */
+	blingHubConnected?: boolean
 }
 
 export function ProductsListClient({
@@ -98,6 +100,7 @@ export function ProductsListClient({
 	filterKind = 'all',
 	initialEditProductId,
 	initialCreateVariationParentId,
+	blingHubConnected = false,
 }: Props) {
 	const router = useRouter()
 	const [editingProduct, setEditingProduct] = useState<Pick<ProductRow, 'id' | 'name' | 'bling_id'> | null>(null)
@@ -534,7 +537,7 @@ export function ProductsListClient({
 				setBarcodeOptimistic({ productId, barcode: rawBarcode })
 			}
 
-			if (data?.shouldSyncToBling) {
+			if (data?.shouldSyncToBling && blingHubConnected) {
 				setBarcodeGeneratingStage('syncing')
 				toast({
 					variant: 'default',
@@ -568,7 +571,9 @@ export function ProductsListClient({
 			toast({
 				variant: 'success',
 				title: 'Finalizado',
-				description: 'Código de barras gerado e sincronizado.',
+				description: blingHubConnected && data?.shouldSyncToBling
+					? 'Código de barras gerado e sincronizado.'
+					: 'Código de barras gerado.',
 			})
 			await router.refresh()
 			clearBarcodeGenerationOnly()
@@ -580,17 +585,17 @@ export function ProductsListClient({
 			})
 			clearBarcodeGenerationAndOptimistic()
 		}
-	}, [router])
+	}, [blingHubConnected, router])
 
 	const openDeleteDialog = useCallback((product: ProductRow) => {
-		const hasBling = Boolean(product.bling_id)
+		const hasBling = blingHubConnected && Boolean(product.bling_id)
 		setDeleteDialog({
 			id: product.id,
 			name: product.name,
 			hasBling,
 		})
 		setInactivateOnBling(hasBling)
-	}, [])
+	}, [blingHubConnected])
 
 	async function handleConfirmDelete() {
 		if (!deleteDialog) return
@@ -814,7 +819,7 @@ export function ProductsListClient({
 					setBulkMassProgress({ completed, total })
 					continue
 				}
-				if (data?.shouldSyncToBling) {
+				if (data?.shouldSyncToBling && blingHubConnected) {
 					const syncRes = await fetch(`/api/portal/produtos/${productId}/sync-bling`, {
 						method: 'POST',
 						headers: { 'Content-Type': 'application/json' },
@@ -1005,6 +1010,7 @@ export function ProductsListClient({
 								</DropdownMenuItem>
 							</DropdownMenuContent>
 						</DropdownMenu>
+						{blingHubConnected ? (
 						<Button
 							type="button"
 							variant="secondary"
@@ -1039,6 +1045,7 @@ export function ProductsListClient({
 										</>
 									)}
 						</Button>
+						) : null}
 						<Button
 							type="button"
 							variant="secondary"
@@ -1073,6 +1080,7 @@ export function ProductsListClient({
 										</>
 									)}
 						</Button>
+						{blingHubConnected ? (
 						<Button
 							type="button"
 							variant="secondary"
@@ -1107,6 +1115,7 @@ export function ProductsListClient({
 										</>
 									)}
 						</Button>
+						) : null}
 					</div>
 				</div>
 			)}
@@ -1121,6 +1130,7 @@ export function ProductsListClient({
 								isSelected={selectedIds.has(product.id)}
 								isProductTab={isProductTab}
 								bulkBusy={bulkBusy}
+								blingHubConnected={blingHubConnected}
 								isSyncing={syncingId === product.id}
 								isDuplicating={duplicatingId === product.id}
 								isBarcodeGenerating={barcodeGeneratingId === product.id}
@@ -1189,7 +1199,7 @@ export function ProductsListClient({
 											<th className="min-w-0 py-2 px-2 text-left font-medium">SKU</th>
 											<th className="min-w-0 py-2 px-2 text-left font-medium">Código de barras</th>
 											{isProductTab && (
-												<th className="min-w-0 py-2 px-2 text-right font-medium">Estoque</th>
+												<th className="min-w-0 py-2 px-2 text-center font-medium">Estoque</th>
 											)}
 											<th className="min-w-0 py-2 px-2 text-right font-medium">Preço de venda</th>
 											{isProductTab && (
@@ -1206,6 +1216,7 @@ export function ProductsListClient({
 												isSelected={selectedIds.has(product.id)}
 												isProductTab={isProductTab}
 												bulkBusy={bulkBusy}
+												blingHubConnected={blingHubConnected}
 												isSyncing={syncingId === product.id}
 												isDuplicating={duplicatingId === product.id}
 												isBarcodeGenerating={barcodeGeneratingId === product.id}
@@ -1331,6 +1342,7 @@ export function ProductsListClient({
 				initialParentName={!editingProduct ? (createVariationParent?.name ?? null) : null}
 				defaultKind={filterKind === 'service' ? 'service' : 'product'}
 				initialEditTab={productEditInitialTab}
+				blingHubConnected={blingHubConnected}
 				onOpenChange={(open) => {
 					if (!open) {
 						setCreateDialogOpen(false)
@@ -1399,11 +1411,7 @@ export function ProductsListClient({
 											</span>
 										</label>
 									)
-									: (
-										<p className="text-xs">
-											Este item não está vinculado ao Bling; nada será alterado lá.
-										</p>
-									)}
+									: null}
 							</div>
 						</AlertDialogDescription>
 					</AlertDialogHeader>

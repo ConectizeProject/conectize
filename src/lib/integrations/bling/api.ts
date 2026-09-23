@@ -220,6 +220,21 @@ export async function getBlingConnectionForCurrentUser (): Promise<BlingConnecti
   return { ok: true as const, connection: data as HubConnection }
 }
 
+/** True se a organização atual tem conexão Bling no Hub (RLS já restringe por org). */
+export async function hasBlingHubConnection (
+  supabase: SupabaseClient,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('hub_connections')
+    .select('id')
+    .eq('platform_id', BLING_PLATFORM_ID)
+    .limit(1)
+    .maybeSingle()
+
+  if (error) return false
+  return Boolean(data?.id)
+}
+
 export async function getBlingConnectionById (id: string): Promise<BlingConnectionByIdResult> {
   const supabase = await createSupabaseServerClient()
   const { data, error } = await supabase
