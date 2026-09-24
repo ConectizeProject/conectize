@@ -52,6 +52,7 @@ import {
 	productTableCheckboxColumnWidthPx,
 	productTableActionsColumnWidthPx,
 	getProductTableCheckboxColumnStyle,
+	productRowPatchFromApiProduct,
 	type ProductRow,
 } from './product-list-shared'
 import type { PortalFieldForBling } from '@/lib/products/bling-sync'
@@ -152,6 +153,7 @@ export function ProductsListClient({
 
 	const [extraRows, setExtraRows] = useState<ProductRow[]>([])
 	const [stockOverrides, setStockOverrides] = useState<Record<string, number>>({})
+	const [rowOverrides, setRowOverrides] = useState<Record<string, Partial<ProductRow>>>({})
 	const [loadMoreBusy, setLoadMoreBusy] = useState(false)
 	const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null)
 	const loadMoreInFlightRef = useRef(false)
@@ -360,14 +362,18 @@ export function ProductsListClient({
 
 	const rows = useMemo(
 		() =>
-			mergedProducts.map((p) => ({
-				...p,
-				is_active: p.is_active !== false,
-				current_stock: typeof stockOverrides[p.id] === 'number'
-					? stockOverrides[p.id]
-					: p.current_stock,
-			})),
-		[mergedProducts, stockOverrides]
+			mergedProducts.map((p) => {
+				const override = rowOverrides[p.id]
+				const merged = override ? { ...p, ...override } : p
+				return {
+					...merged,
+					is_active: merged.is_active !== false,
+					current_stock: typeof stockOverrides[p.id] === 'number'
+						? stockOverrides[p.id]
+						: merged.current_stock,
+				}
+			}),
+		[mergedProducts, stockOverrides, rowOverrides]
 	)
 
 	const filteredRows = useMemo(() => {
@@ -1165,8 +1171,8 @@ export function ProductsListClient({
 											<col style={{ width: '9%' }} />
 											<col style={{ width: '12%' }} />
 											<col style={{ width: '7%' }} />
-											<col style={{ width: '13%' }} />
 											<col style={{ width: '10%' }} />
+											<col style={{ width: '13%' }} />
 											<col style={{ width: `${productTableActionsColumnWidthPx}px` }} />
 										</colgroup>
 									) : (
@@ -1201,10 +1207,10 @@ export function ProductsListClient({
 											{isProductTab && (
 												<th className="min-w-0 py-2 px-2 text-center font-medium">Estoque</th>
 											)}
-											<th className="min-w-0 py-2 px-2 text-right font-medium">Preço de venda</th>
 											{isProductTab && (
 												<th className="min-w-0 py-2 px-2 text-right font-medium">Preço de custo</th>
 											)}
+											<th className="min-w-0 py-2 px-2 text-right font-medium">Preço de venda</th>
 											<th className="min-w-0 py-2 pl-2 text-right font-medium">Ações</th>
 										</tr>
 									</thead>
@@ -1351,7 +1357,17 @@ export function ProductsListClient({
 						setProductEditInitialTab(undefined)
 					}
 				}}
-				onSuccess={() => router.refresh()}
+				onSuccess={(product) => {
+					if (product?.id) {
+						const patch = productRowPatchFromApiProduct(product)
+						setRowOverrides((prev) => ({
+							...prev,
+							[product.id]: { ...(prev[product.id] || {}), ...patch },
+						}))
+						return
+					}
+					router.refresh()
+				}}
 				onStockChange={(id, currentStock) => {
 					setStockOverrides((prev) => ({ ...prev, [id]: currentStock }))
 				}}

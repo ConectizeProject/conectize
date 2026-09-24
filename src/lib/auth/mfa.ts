@@ -26,11 +26,20 @@ export function shouldPromptMfaSetup (
 	return isMfaSetupPromptRole(realRole) && !hasVerifiedMfa
 }
 
-/** Sessão AAL1 com fator verificado pendente de desafio. */
+/**
+ * Sessão AAL1 com fator verificado pendente de desafio.
+ * O access token é validado no Auth server antes de decidir o desafio.
+ */
 export async function userNeedsMfaChallenge (
 	supabase: SupabaseClient,
 ): Promise<boolean> {
-	const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+	const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+	const accessToken = sessionData.session?.access_token
+	if (sessionError || !accessToken) return false
+
+	const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel(
+		accessToken,
+	)
 	if (error || !data) return false
 	return data.currentLevel === 'aal1' && data.nextLevel === 'aal2'
 }

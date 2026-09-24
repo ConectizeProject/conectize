@@ -162,6 +162,7 @@ async function updateFiscalAction (formData: FormData) {
     ibscbsEnabled: operationNature.ibscbsEnabled,
     ibscbsCst: operationNature.ibscbsCst,
     ibscbsCclassTrib: operationNature.ibscbsCclassTrib,
+    marginTaxPercent: Number(formData.get('marginTaxPercent') || 0),
   })
 
   let saved
@@ -358,6 +359,28 @@ export default async function FiscalSettingsPage ({
               <div className='flex items-end'>
                 <SefazCommunicationTestButton />
               </div>
+            </div>
+
+            <div className='space-y-2'>
+              <Label htmlFor='marginTaxPercent'>Alíquota média para margem (%)</Label>
+              <Input
+                id='marginTaxPercent'
+                name='marginTaxPercent'
+                type='number'
+                inputMode='decimal'
+                min={0}
+                max={100}
+                step='0.01'
+                defaultValue={
+                  profile?.margin_tax_percent != null
+                    ? String(profile.margin_tax_percent)
+                    : '0'
+                }
+                className='max-w-xs tabular-nums'
+              />
+              <p className='text-xs text-muted-foreground'>
+                Usada na listagem de vendas (Por produtos) para estimar imposto quando o pedido tiver NFC-e ou NF-e autorizada.
+              </p>
             </div>
           </CardContent>
         </Card>

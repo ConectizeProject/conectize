@@ -21,11 +21,13 @@ import { cn } from '@/lib/utils'
 
 const TABS = [
   { href: '/portal/vendas', id: 'pedidos', label: 'Pedidos' },
+  { href: '/portal/vendas/produtos', id: 'produtos', label: 'Por produtos' },
   { href: '/portal/vendas/nfce', id: 'nfce', label: 'NFC-e' },
   { href: '/portal/vendas/nfe', id: 'nfe', label: 'NF-e' },
 ] as const
 
 function activeTab (pathname: string) {
+  if (pathname.startsWith('/portal/vendas/produtos')) return 'produtos'
   if (pathname.startsWith('/portal/vendas/nfce')) return 'nfce'
   if (pathname.startsWith('/portal/vendas/nfe')) return 'nfe'
   return 'pedidos'

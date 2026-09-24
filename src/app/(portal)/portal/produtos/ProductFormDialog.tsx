@@ -41,7 +41,8 @@ type Props = {
   /** Organização tem conexão Bling no Hub. */
   blingHubConnected?: boolean
   onOpenChange: (open: boolean) => void
-  onSuccess?: () => void
+  /** Após criar/atualizar; na edição recebe o produto salvo para atualizar a lista sem refresh. */
+  onSuccess?: (product?: Product) => void
   /** Atualiza o saldo na lista sem recarregar a página. */
   onStockChange?: (productId: string, currentStock: number) => void
   onNavigateToProductId?: (id: string) => void
@@ -435,6 +436,7 @@ export function ProductFormDialog ({
       }
 
       const nextProduct = (data.product || null) as Product | null
+      let savedProduct = nextProduct
       if (nextProduct) {
         setLoadedProduct(nextProduct)
         setFormProduct(mapProductToForm(nextProduct))
@@ -461,11 +463,12 @@ export function ProductFormDialog ({
             description: syncData?.message || syncData?.error || 'Salvo no portal; falha ao enviar ao Bling.',
             variant: 'destructive',
           })
-          onSuccess?.()
+          onSuccess?.(savedProduct ?? undefined)
           return
         }
         const syncedProduct = (syncData.product || null) as Product | null
         if (syncedProduct) {
+          savedProduct = syncedProduct
           setLoadedProduct(syncedProduct)
           setFormProduct(mapProductToForm(syncedProduct))
         }
@@ -478,7 +481,7 @@ export function ProductFormDialog ({
       })
       setSavePhase('idle')
       onOpenChange(false)
-      onSuccess?.()
+      onSuccess?.(savedProduct ?? undefined)
     } catch {
       setSavePhase('idle')
       toast({ title: 'Erro ao salvar', variant: 'destructive' })

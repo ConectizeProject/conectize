@@ -22,6 +22,39 @@ export type ProductRow = {
 	parent_name?: string | null
 }
 
+/** Campos visíveis na listagem a partir do produto retornado pela API de edição. */
+export function productRowPatchFromApiProduct (product: {
+	id: string
+	name: string
+	sku?: string | null
+	barcode?: string | null
+	imageUrl?: string | null
+	salePriceCents?: number | null
+	costPriceCents?: number | null
+	blingId?: string | null
+	blingSyncPending?: boolean
+	kind?: 'product' | 'service' | null
+	isActive?: boolean
+	parentBlingId?: string | null
+	parentProductId?: string | null
+}): Partial<ProductRow> & { id: string } {
+	return {
+		id: product.id,
+		name: product.name,
+		sku: product.sku ?? null,
+		barcode: product.barcode ?? null,
+		image_url: product.imageUrl ?? null,
+		sale_price_cents: product.salePriceCents ?? null,
+		cost_price_cents: product.costPriceCents ?? null,
+		bling_id: product.blingId ?? null,
+		bling_sync_pending: Boolean(product.blingSyncPending),
+		kind: product.kind ?? null,
+		is_active: product.isActive !== false,
+		parent_bling_id: product.parentBlingId ?? null,
+		parent_product_id: product.parentProductId ?? null,
+	}
+}
+
 export function productListShowsStock (product: ProductRow): boolean {
 	if (product.kind === 'service') return false
 	if (product.has_variations) return false
