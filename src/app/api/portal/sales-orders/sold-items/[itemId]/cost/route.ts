@@ -5,6 +5,11 @@ import {
   paymentFeeDetailsForSaleEntries,
 } from '@/lib/resale/resale-commission'
 import { computeSoldItemMargin } from '@/lib/vendas/sold-item-margin'
+import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
+import {
+  extractOsSoldProductLines,
+  parseSoldOsItemId,
+} from '@/lib/vendas/sold-os-product-lines'
 
 type Params = Promise<{ itemId: string }>
 
@@ -30,6 +35,22 @@ function allocateProportion (
   return Math.floor((total * sub) / orderTotal)
 }
 
+function marginPayload (margin: ReturnType<typeof computeSoldItemMargin>) {
+  return {
+    revenueCents: margin.revenueCents,
+    shippingCents: margin.shippingCents,
+    feeCents: margin.feeCents,
+    feeDetails: margin.feeDetails,
+    effectiveUnitCostCents: margin.effectiveUnitCostCents,
+    costTotalCents: margin.costTotalCents,
+    grossProfitCents: margin.grossProfitCents,
+    taxCents: margin.taxCents,
+    contributionMarginCents: margin.contributionMarginCents,
+    contributionMarginPercent: margin.contributionMarginPercent,
+    canEditCost: margin.canEditCost,
+  }
+}
+
 export async function PATCH (
   request: NextRequest,
   { params }: { params: Params },
@@ -40,7 +61,8 @@ export async function PATCH (
   }
 
   const { itemId } = await params
-  if (!UUID_RE.test(itemId)) {
+  const osRef = parseSoldOsItemId(itemId)
+  if (!osRef && !UUID_RE.test(itemId)) {
     return NextResponse.json({ ok: false, error: 'invalid_id' }, { status: 400 })
   }
 
@@ -55,6 +77,215 @@ export async function PATCH (
   const unitCostCents = Math.round(Number(unitCostRaw))
   if (!Number.isFinite(unitCostCents) || unitCostCents < 0) {
     return NextResponse.json({ ok: false, error: 'unit_cost_invalid' }, { status: 400 })
+  }
+
+  if (osRef) {
+    const { data: orderRow, error: orderErr } = await auth.supabase
+      .from('service_orders')
+      .select('id, status, services, services_total_cents, payment_methods')
+      .eq('organization_id', auth.organizationId)
+      .eq('id', osRef.orderId)
+      .maybeSingle()
+
+    if (orderErr) {
+      return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+    }
+    if (!orderRow?.id || String(orderRow.status) !== 'finalizada') {
+      return NextResponse.json({ ok: false, error: 'not_found' }, { status: 404 })
+    }
+
+    const servicesRaw = orderRow.services
+    const services = Array.isArray(servicesRaw)
+      ? [...servicesRaw]
+      : typeof servicesRaw === 'string'
+        ? (() => {
+          try {
+            const p = JSON.parse(servicesRaw)
+            return Array.isArray(p) ? [...p] : []
+          } catch {
+            return []
+          }
+        })()
+        : []
+
+    if (osRef.lineIndex >= services.length) {
+      return NextResponse.json({ ok: false, error: 'not_found' }, { status: 404 })
+    }
+
+    const line = services[osRef.lineIndex]
+    if (!line || typeof line !== 'object' || String((line as { kind?: unknown }).kind) !== 'product') {
+      return NextResponse.json({ ok: false, error: 'not_found' }, { status: 404 })
+    }
+
+    const productId = parseOptionalUuid((line as { sourceProductId?: unknown }).sourceProductId)
+    if (!productId) {
+      return NextResponse.json({ ok: false, error: 'product_required' }, { status: 400 })
+    }
+
+    const quantityRaw = Number.parseInt(String((line as { quantity?: unknown }).quantity ?? '1'), 10)
+    const quantity =
+      Number.isFinite(quantityRaw) && quantityRaw > 0
+        ? Math.min(9999, Math.max(1, quantityRaw))
+        : 1
+    const nextLine = {
+      ...(line as Record<string, unknown>),
+      unitCostCents,
+      costCents: unitCostCents * quantity,
+      noCost: false,
+    }
+    services[osRef.lineIndex] = nextLine
+
+    const { error: updOsErr } = await auth.supabase
+      .from('service_orders')
+      .update({
+        services,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('organization_id', auth.organizationId)
+      .eq('id', osRef.orderId)
+
+    if (updOsErr) {
+      return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+    }
+
+    const { data: productRow, error: productErr } = await auth.supabase
+      .from('products')
+      .select('id, cost_price_cents')
+      .eq('organization_id', auth.organizationId)
+      .eq('id', productId)
+      .maybeSingle()
+
+    if (productErr || !productRow?.id) {
+      return NextResponse.json({ ok: false, error: 'product_not_found' }, { status: 404 })
+    }
+
+    if (scope === 'sale_and_product') {
+      const { error: updProductErr } = await auth.supabase
+        .from('products')
+        .update({
+          cost_price_cents: unitCostCents,
+          cost_price_manual_edited_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('organization_id', auth.organizationId)
+        .eq('id', productId)
+
+      if (updProductErr) {
+        return NextResponse.json({ ok: false, error: 'product_update_failed' }, { status: 500 })
+      }
+    }
+
+    const extracted = extractOsSoldProductLines(services).find(
+      (l) => l.lineIndex === osRef.lineIndex,
+    )
+    const lineValueCents = Math.max(0, Number((line as { valueCents?: unknown }).valueCents) || 0)
+    const lineUnitCents = Math.max(0, Number((line as { unitValueCents?: unknown }).unitValueCents) || 0)
+    const subtotalCents = extracted?.valueCents ?? (lineValueCents || lineUnitCents * quantity)
+    const orderTotalCents = Math.max(0, Number(orderRow.services_total_cents) || 0)
+
+    let orderFeeCents = 0
+    let orderFeeDetails: Array<{ label: string, amountCents: number }> = []
+    const payRaw = orderRow.payment_methods
+    const payArr = Array.isArray(payRaw)
+      ? payRaw
+      : typeof payRaw === 'string'
+        ? (() => {
+          try {
+            const p = JSON.parse(payRaw)
+            return Array.isArray(p) ? p : []
+          } catch {
+            return []
+          }
+        })()
+        : []
+    const entries = payArr
+      .map((pay) => {
+        if (!pay || typeof pay !== 'object') return null
+        const pmId = parseOptionalUuid((pay as { payment_method_id?: unknown }).payment_method_id)
+        if (!pmId) return null
+        return {
+          payment_method_id: pmId,
+          value_cents: Math.max(0, Number((pay as { value_cents?: unknown }).value_cents) || 0),
+          installments: Math.max(
+            1,
+            Math.min(24, Number((pay as { installments?: unknown }).installments) || 1),
+          ),
+        }
+      })
+      .filter((e): e is NonNullable<typeof e> => e != null)
+
+    if (entries.length > 0) {
+      const pmIds = [...new Set(entries.map((e) => e.payment_method_id))]
+      const { data: pmRows } = await auth.supabase
+        .from('payment_methods')
+        .select('id, description, fee_percent, type, credit_installment_fees')
+        .eq('organization_id', auth.organizationId)
+        .in('id', pmIds)
+      const paymentMethods = (pmRows ?? []).map((row) => ({
+        id: String(row.id),
+        description: String(row.description || ''),
+        fee_percent: Number(row.fee_percent) || 0,
+        type: String(row.type || ''),
+        credit_installment_fees: Array.isArray(row.credit_installment_fees)
+          ? row.credit_installment_fees
+          : null,
+      }))
+      orderFeeCents = paymentFeeCentsForSaleEntries(entries, paymentMethods)
+      orderFeeDetails = paymentFeeDetailsForSaleEntries(entries, paymentMethods)
+    }
+
+    const [{ data: fiscalProfile }, { data: fiscalDocs }] = await Promise.all([
+      auth.supabase
+        .from('organization_fiscal_profiles')
+        .select('margin_tax_percent')
+        .eq('organization_id', auth.organizationId)
+        .maybeSingle(),
+      auth.supabase
+        .from('fiscal_documents')
+        .select('id')
+        .eq('organization_id', auth.organizationId)
+        .eq('service_order_id', osRef.orderId)
+        .eq('status', 'authorized')
+        .in('model', ['55', '65'])
+        .limit(1),
+    ])
+
+    const marginTaxPercent = Number(
+      (fiscalProfile as { margin_tax_percent?: number | null } | null)?.margin_tax_percent,
+    ) || 0
+    const allocatedFeeCents = allocateProportion(orderFeeCents, subtotalCents, orderTotalCents)
+    const feeDetails =
+      orderFeeCents > 0 && allocatedFeeCents > 0
+        ? orderFeeDetails.map((d) => ({
+          label: d.label,
+          amountCents: allocateProportion(d.amountCents, subtotalCents, orderTotalCents),
+        })).filter((d) => d.amountCents > 0)
+        : []
+
+    const margin = computeSoldItemMargin({
+      quantity,
+      subtotalCents,
+      lineUnitCostCents: unitCostCents,
+      productCostCents:
+        scope === 'sale_and_product'
+          ? unitCostCents
+          : Math.max(0, Number(productRow.cost_price_cents) || 0),
+      hasProduct: true,
+      allocatedShippingCents: 0,
+      allocatedFeeCents,
+      feeDetails,
+      marginTaxPercent,
+      hasAuthorizedFiscalDoc: (fiscalDocs ?? []).length > 0,
+    })
+
+    return NextResponse.json({
+      ok: true,
+      itemId,
+      productId,
+      unitCostCents,
+      scope,
+      margin: marginPayload(margin),
+    })
   }
 
   const { data: itemRow, error: itemErr } = await auth.supabase
@@ -250,18 +481,6 @@ export async function PATCH (
     productId,
     unitCostCents,
     scope,
-    margin: {
-      revenueCents: margin.revenueCents,
-      shippingCents: margin.shippingCents,
-      feeCents: margin.feeCents,
-      feeDetails: margin.feeDetails,
-      effectiveUnitCostCents: margin.effectiveUnitCostCents,
-      costTotalCents: margin.costTotalCents,
-      grossProfitCents: margin.grossProfitCents,
-      taxCents: margin.taxCents,
-      contributionMarginCents: margin.contributionMarginCents,
-      contributionMarginPercent: margin.contributionMarginPercent,
-      canEditCost: margin.canEditCost,
-    },
+    margin: marginPayload(margin),
   })
 }

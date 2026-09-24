@@ -30,6 +30,7 @@ import {
 
 type SoldItem = {
   id: string
+  source?: 'sale' | 'service_order'
   productId: string | null
   productName: string
   productSku: string | null
@@ -48,6 +49,8 @@ type SoldItem = {
     mlOrderId: string | null
     mlPackId: string | null
     customerName: string | null
+    href?: string | null
+    label?: string | null
   }
   margin: SoldItemMarginBreakdownData & {
     effectiveUnitCostCents: number | null
@@ -168,8 +171,10 @@ export function SoldProductsList () {
         title: 'Custo atualizado',
         description:
           costScope === 'sale_and_product'
-            ? 'Atualizado na venda e no cadastro do produto.'
-            : 'Atualizado somente nesta venda.',
+            ? 'Atualizado neste item e no cadastro do produto.'
+            : editItem.source === 'service_order'
+              ? 'Atualizado somente nesta linha da OS.'
+              : 'Atualizado somente nesta venda.',
       })
     } catch (err) {
       toast({
@@ -188,7 +193,7 @@ export function SoldProductsList () {
         <CardHeader className='pb-3'>
           <CardTitle className='text-base font-semibold'>Últimos produtos vendidos</CardTitle>
           <p className='text-sm text-muted-foreground'>
-            Itens de pedidos pagos, com lucro bruto e margem de contribuição (frete, tarifas e imposto quando houver NFC/NF).
+            Produtos de pedidos pagos e de OS finalizadas (sem serviços), com lucro bruto e margem de contribuição.
           </p>
         </CardHeader>
         <CardContent className='space-y-3 p-0 sm:p-0'>
@@ -201,9 +206,18 @@ export function SoldProductsList () {
           ) : (
             <ul className='divide-y divide-border'>
               {items.map((item) => {
-                const orderHref = item.order.id
-                  ? `/portal/vendas/${encodeURIComponent(item.order.id)}`
-                  : null
+                const orderHref =
+                  item.order.href
+                  || (item.source === 'service_order' && item.order.orderNumber > 0
+                    ? `/portal/ordens/${encodeURIComponent(String(item.order.orderNumber))}`
+                    : item.order.id
+                      ? `/portal/vendas/${encodeURIComponent(item.order.id)}`
+                      : null)
+                const orderLabel =
+                  item.order.label
+                  || (item.source === 'service_order'
+                    ? `OS #${item.order.orderNumber || '—'}`
+                    : `Pedido #${item.order.orderNumber}`)
                 const orderDate = item.order.createdAt
                   ? new Date(item.order.createdAt).toLocaleString('pt-BR', {
                     day: '2-digit',
@@ -284,10 +298,10 @@ export function SoldProductsList () {
                           href={orderHref}
                           className='font-medium text-primary hover:underline'
                         >
-                          Pedido #{item.order.orderNumber}
+                          {orderLabel}
                         </Link>
                       ) : (
-                        <span className='font-medium'>Pedido #{item.order.orderNumber}</span>
+                        <span className='font-medium'>{orderLabel}</span>
                       )}
                       {item.order.mlPackId ? (
                         <p className='text-xs text-muted-foreground'>
@@ -374,9 +388,13 @@ export function SoldProductsList () {
               <label className='flex cursor-pointer items-start gap-2 text-sm'>
                 <RadioGroupItem value='sale' id='cost-scope-sale' className='mt-0.5' />
                 <span>
-                  <span className='font-medium'>Só esta venda</span>
+                  <span className='font-medium'>
+                    {editItem?.source === 'service_order' ? 'Só esta OS' : 'Só esta venda'}
+                  </span>
                   <span className='mt-0.5 block text-xs text-muted-foreground'>
-                    Atualiza o custo apenas nesta linha do pedido.
+                    {editItem?.source === 'service_order'
+                      ? 'Atualiza o custo apenas nesta linha da ordem de serviço.'
+                      : 'Atualiza o custo apenas nesta linha do pedido.'}
                   </span>
                 </span>
               </label>
@@ -387,9 +405,9 @@ export function SoldProductsList () {
                   className='mt-0.5'
                 />
                 <span>
-                  <span className='font-medium'>Venda e produto</span>
+                  <span className='font-medium'>Item e produto</span>
                   <span className='mt-0.5 block text-xs text-muted-foreground'>
-                    Atualiza esta venda e o custo no cadastro do produto.
+                    Atualiza este item e o custo no cadastro do produto.
                   </span>
                 </span>
               </label>
