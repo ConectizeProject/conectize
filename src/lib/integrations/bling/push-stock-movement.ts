@@ -61,6 +61,10 @@ export async function pushStockMovementToBling (input: PushStockMovementInput): 
   const clientRes = await getBlingClientForCurrentUser()
   if (!clientRes.ok || !('client' in clientRes)) {
     const error = 'error' in clientRes ? clientRes.error : 'bling_client_unavailable'
+    // Sem conta Bling no HUB: estoque permanece só no portal (não é erro).
+    if (error === 'bling_not_connected' || error === 'not_authenticated') {
+      return
+    }
     throw new Error(error)
   }
 
