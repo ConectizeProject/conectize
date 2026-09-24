@@ -38,7 +38,9 @@ export async function POST (request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'items_invalid_or_empty' }, { status: 400 })
   }
 
-  type RowResult = { productId: string; ok: true } | { productId: string; ok: false; error: string }
+  type RowResult =
+    | { productId: string; ok: true }
+    | { productId: string; ok: false; error: string; message?: string }
 
   const results: RowResult[] = []
   for (let i = 0; i < items.length; i += CONCURRENCY) {
@@ -47,7 +49,12 @@ export async function POST (request: NextRequest) {
       chunk.map(async ({ productId, body }): Promise<RowResult> => {
         const r = await applyStaffProductPatchFromBody(productId, body)
         if (r.ok === true) return { productId, ok: true as const }
-        return { productId, ok: false as const, error: r.error }
+        return {
+          productId,
+          ok: false as const,
+          error: r.error,
+          ...(r.message ? { message: r.message } : {}),
+        }
       }),
     )
     results.push(...chunkResults)

@@ -58,6 +58,8 @@ export type FiscalProfileInput = {
   ibscbsEnabled: boolean
   ibscbsCst: string
   ibscbsCclassTrib: string
+  /** Alíquota média (%) para estimativa de imposto na margem de vendas. */
+  marginTaxPercent: number
 }
 
 export type FiscalCertificatePublic = FiscalCertificateMetadata & {
@@ -89,6 +91,10 @@ export function normalizeFiscalProfileInput (raw: Partial<FiscalProfileInput>): 
   const ibscbsCst = fiscalIbscbsCstOrNull(raw.ibscbsCst || '000') || '000'
   const ibscbsCclassTrib = fiscalIbscbsCclassTribOrNull(ibscbsCst, raw.ibscbsCclassTrib || `${ibscbsCst}001`)
     || `${ibscbsCst}001`
+  const marginTaxRaw = Number(raw.marginTaxPercent)
+  const marginTaxPercent = Number.isFinite(marginTaxRaw)
+    ? Math.min(100, Math.max(0, Math.round(marginTaxRaw * 100) / 100))
+    : 0
 
   return {
     legalName: nullIfEmpty(raw.legalName),
@@ -129,6 +135,7 @@ export function normalizeFiscalProfileInput (raw: Partial<FiscalProfileInput>): 
     ibscbsEnabled: Boolean(raw.ibscbsEnabled),
     ibscbsCst,
     ibscbsCclassTrib,
+    marginTaxPercent,
   }
 }
 
@@ -212,6 +219,7 @@ export async function upsertFiscalProfile (
       ibscbs_enabled: input.ibscbsEnabled,
       ibscbs_cst: input.ibscbsCst,
       ibscbs_cclass_trib: input.ibscbsCclassTrib,
+      margin_tax_percent: input.marginTaxPercent,
       updated_at: new Date().toISOString(),
     })
 

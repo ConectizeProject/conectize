@@ -1,7 +1,13 @@
 /**
  * Margem de item vendido (aba Vendas «Por produtos»).
- * Custo: unitário efetivo da linha se > 0; senão custo do produto se > 0; senão 0 (exibição).
+ * Lucro bruto = receita − frete − tarifas.
+ * Margem de contribuição = lucro bruto − custo − imposto (se NFC/NF).
  */
+
+export type SoldItemFeeDetail = {
+  label: string
+  amountCents: number
+}
 
 export type SoldItemMarginInput = {
   quantity: number
@@ -12,21 +18,33 @@ export type SoldItemMarginInput = {
   productCostCents: number | null | undefined
   /** Tem produto vinculado na plataforma. */
   hasProduct: boolean
+  /** Frete alocado a este item (centavos). */
+  allocatedShippingCents?: number
   /** Taxa de pagamento alocada a este item (centavos). */
   allocatedFeeCents: number
+  /** Detalhe das tarifas para tooltip (valores já alocados ao item). */
+  feeDetails?: SoldItemFeeDetail[]
+  /** Alíquota média da empresa (%). Só aplicada se hasAuthorizedFiscalDoc. */
+  marginTaxPercent?: number
+  /** Pedido tem NFC-e ou NF-e autorizada. */
+  hasAuthorizedFiscalDoc?: boolean
 }
 
 export type SoldItemMargin = {
   revenueCents: number
+  shippingCents: number
+  feeCents: number
+  feeDetails: SoldItemFeeDetail[]
   /**
    * Custo unitário cadastrado (linha ou produto); null = não definido (UI ainda mostra total 0).
    */
   effectiveUnitCostCents: number | null
   costTotalCents: number
-  grossMarginCents: number
-  feeCents: number
-  netMarginCents: number
-  netMarginPercent: number | null
+  /** Receita − frete − tarifas. */
+  grossProfitCents: number
+  taxCents: number
+  contributionMarginCents: number
+  contributionMarginPercent: number | null
   canEditCost: boolean
 }
 
@@ -53,10 +71,33 @@ export function resolveEffectiveUnitCostCents (input: {
   return null
 }
 
+export function computeTaxCents (
+  revenueCents: number,
+  marginTaxPercent: number,
+  hasAuthorizedFiscalDoc: boolean,
+): number {
+  if (!hasAuthorizedFiscalDoc) return 0
+  const revenue = Math.max(0, Math.trunc(revenueCents) || 0)
+  const percent = Number(marginTaxPercent)
+  if (!Number.isFinite(percent) || percent <= 0 || revenue <= 0) return 0
+  const capped = Math.min(100, Math.max(0, percent))
+  return Math.round((revenue * capped) / 100)
+}
+
 export function computeSoldItemMargin (input: SoldItemMarginInput): SoldItemMargin {
   const qty = Math.max(1, toNonNegInt(input.quantity) || 1)
   const revenueCents = Math.max(0, Math.trunc(Number(input.subtotalCents) || 0))
+  const shippingCents = Math.max(0, Math.trunc(Number(input.allocatedShippingCents) || 0))
   const feeCents = Math.max(0, Math.trunc(Number(input.allocatedFeeCents) || 0))
+  const feeDetails = Array.isArray(input.feeDetails)
+    ? input.feeDetails
+      .map((d) => ({
+        label: String(d.label || '').trim() || 'Tarifa',
+        amountCents: Math.max(0, Math.trunc(Number(d.amountCents) || 0)),
+      }))
+      .filter((d) => d.amountCents > 0)
+    : []
+
   const effectiveUnitCostCents = resolveEffectiveUnitCostCents({
     hasProduct: input.hasProduct,
     lineUnitCostCents: input.lineUnitCostCents,
@@ -65,25 +106,33 @@ export function computeSoldItemMargin (input: SoldItemMarginInput): SoldItemMarg
 
   const unitForTotal = effectiveUnitCostCents ?? 0
   const costTotalCents = unitForTotal * qty
-  const grossMarginCents = revenueCents - costTotalCents
-  const netMarginCents = grossMarginCents - feeCents
-  const netMarginPercent =
-    revenueCents > 0 ? (netMarginCents / revenueCents) * 100 : null
+  const grossProfitCents = revenueCents - shippingCents - feeCents
+  const taxCents = computeTaxCents(
+    revenueCents,
+    Number(input.marginTaxPercent) || 0,
+    Boolean(input.hasAuthorizedFiscalDoc),
+  )
+  const contributionMarginCents = grossProfitCents - costTotalCents - taxCents
+  const contributionMarginPercent =
+    revenueCents > 0 ? (contributionMarginCents / revenueCents) * 100 : null
 
   return {
     revenueCents,
+    shippingCents,
+    feeCents,
+    feeDetails,
     effectiveUnitCostCents,
     costTotalCents,
-    grossMarginCents,
-    feeCents,
-    netMarginCents,
-    netMarginPercent,
+    grossProfitCents,
+    taxCents,
+    contributionMarginCents,
+    contributionMarginPercent,
     canEditCost: input.hasProduct,
   }
 }
 
 /**
- * Aloca a taxa total do pedido entre itens na proporção do subtotal.
+ * Aloca um valor total do pedido entre itens na proporção do subtotal.
  * O resto de arredondamento vai para o item de maior subtotal.
  */
 export function allocateOrderFeeToItems (
@@ -121,4 +170,12 @@ export function allocateOrderFeeToItems (
     allocated[maxIdx] += remainder
   }
   return allocated
+}
+
+/** Aloca frete do pedido (mesmo critério das tarifas). */
+export function allocateOrderShippingToItems (
+  orderShippingCents: number,
+  itemSubtotalsCents: number[],
+): number[] {
+  return allocateOrderFeeToItems(orderShippingCents, itemSubtotalsCents)
 }

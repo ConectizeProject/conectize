@@ -211,6 +211,16 @@ type DeleteStockMovementResult =
 	| AuthFailure
 	| { ok: false; error: "not_found" | "db_error" };
 
+export type UpdateStockMovementInput = {
+	quantity: number;
+	unitValueCents?: number | null;
+};
+
+type UpdateStockMovementResult =
+	| { ok: true; movement: StockMovement; currentStock: number | null }
+	| AuthFailure
+	| { ok: false; error: "not_found" | "not_editable" | "quantity_invalid" | "db_error" };
+
 type GetProductCurrentStockResult =
 	| { ok: true; currentStock: number }
 	| AuthFailure
@@ -1677,6 +1687,80 @@ export async function deleteStockMovement(
 	const currentStock = await getProductCurrentStock(productId);
 	return {
 		ok: true as const,
+		currentStock:
+			currentStock.ok && "currentStock" in currentStock
+				? currentStock.currentStock
+				: null,
+	};
+}
+
+export async function updateStockMovement(
+	productId: string,
+	movementId: string,
+	input: UpdateStockMovementInput,
+): Promise<UpdateStockMovementResult> {
+	const auth = await requireAuth();
+	if (!auth.ok) return { ok: false, error: "not_authenticated" };
+
+	const productUuid = String(productId || "").trim().toLowerCase();
+	const movementUuid = String(movementId || "").trim().toLowerCase();
+	if (!UUID_RE.test(productUuid) || !UUID_RE.test(movementUuid)) {
+		return { ok: false as const, error: "not_found" as const };
+	}
+
+	const quantity = Number(input.quantity);
+	if (!Number.isFinite(quantity) || quantity <= 0) {
+		return { ok: false as const, error: "quantity_invalid" as const };
+	}
+
+	const unitValueCents = normalizeMoney(input.unitValueCents ?? 0) ?? 0;
+	if (unitValueCents < 0) {
+		return { ok: false as const, error: "quantity_invalid" as const };
+	}
+	const totalValueCents = unitValueCents * quantity;
+
+	const { data: existing, error: findError } = await auth.supabase
+		.from("product_stock_movements")
+		.select("id, source, type")
+		.eq("id", movementUuid)
+		.eq("product_id", productUuid)
+		.maybeSingle();
+
+	if (findError) {
+		return { ok: false as const, error: "db_error" as const };
+	}
+	if (!existing?.id) {
+		return { ok: false as const, error: "not_found" as const };
+	}
+	const existingSource = String((existing as { source?: string }).source || "");
+	const existingType = String((existing as { type?: string }).type || "");
+	const isManual = existingSource === "manual";
+	const isBlingEntry = existingSource === "bling" && existingType === "entry";
+	if (!isManual && !isBlingEntry) {
+		return { ok: false as const, error: "not_editable" as const };
+	}
+
+	const { data: updated, error: updateError } = await auth.supabase
+		.from("product_stock_movements")
+		.update({
+			quantity,
+			unit_value_cents: unitValueCents,
+			total_value_cents: totalValueCents,
+		})
+		.eq("id", movementUuid)
+		.eq("product_id", productUuid)
+		.select("*")
+		.maybeSingle();
+
+	if (updateError || !updated) {
+		return { ok: false as const, error: "db_error" as const };
+	}
+
+	const movement = mapRowToMovement(updated);
+	const currentStock = await getProductCurrentStock(productId);
+	return {
+		ok: true as const,
+		movement,
 		currentStock:
 			currentStock.ok && "currentStock" in currentStock
 				? currentStock.currentStock

@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
-import { paymentFeeCentsForSaleEntries } from '@/lib/resale/resale-commission'
+import {
+  paymentFeeCentsForSaleEntries,
+  paymentFeeDetailsForSaleEntries,
+} from '@/lib/resale/resale-commission'
+import {
+  resolveDisplayCostCentsFromHints,
+  trackLastEntryCost,
+  type LastEntryCostHint,
+} from '@/lib/products/list-display-cost'
 import { computeSoldItemMargin } from '@/lib/vendas/sold-item-margin'
 import { vendasListPage, vendasListRange } from '@/lib/vendas/list-pagination'
 
@@ -10,6 +18,7 @@ type ProductJoin = {
   sku?: string | null
   image_url?: string | null
   cost_price_cents?: number | null
+  cost_price_manual_edited_at?: string | null
 } | null
 
 function unwrapProduct (raw: unknown): ProductJoin {
@@ -28,17 +37,33 @@ function paymentInstallments (metadata: unknown): number {
   return Number.isFinite(n) && n >= 1 ? Math.round(n) : 1
 }
 
-function allocateFeeForItem (
-  orderFeeCents: number,
+function allocateProportion (
+  totalCents: number,
   itemSubtotalCents: number,
   orderTotalCents: number,
 ): number {
-  const fee = Math.max(0, Math.trunc(orderFeeCents) || 0)
-  if (fee <= 0) return 0
-  const sub = Math.max(0, Math.trunc(itemSubtotalCents) || 0)
-  const total = Math.max(0, Math.trunc(orderTotalCents) || 0)
+  const total = Math.max(0, Math.trunc(totalCents) || 0)
   if (total <= 0) return 0
-  return Math.floor((fee * sub) / total)
+  const sub = Math.max(0, Math.trunc(itemSubtotalCents) || 0)
+  const orderTotal = Math.max(0, Math.trunc(orderTotalCents) || 0)
+  if (orderTotal <= 0) return 0
+  return Math.floor((total * sub) / orderTotal)
+}
+
+function serializeMargin (margin: ReturnType<typeof computeSoldItemMargin>) {
+  return {
+    revenueCents: margin.revenueCents,
+    shippingCents: margin.shippingCents,
+    feeCents: margin.feeCents,
+    feeDetails: margin.feeDetails,
+    effectiveUnitCostCents: margin.effectiveUnitCostCents,
+    costTotalCents: margin.costTotalCents,
+    grossProfitCents: margin.grossProfitCents,
+    taxCents: margin.taxCents,
+    contributionMarginCents: margin.contributionMarginCents,
+    contributionMarginPercent: margin.contributionMarginPercent,
+    canEditCost: margin.canEditCost,
+  }
 }
 
 export async function GET (request: NextRequest) {
@@ -69,6 +94,7 @@ export async function GET (request: NextRequest) {
         status,
         created_at,
         total_cents,
+        surcharge_cents,
         ml_order_id,
         ml_pack_id,
         customer_name
@@ -78,7 +104,8 @@ export async function GET (request: NextRequest) {
         name,
         sku,
         image_url,
-        cost_price_cents
+        cost_price_cents,
+        cost_price_manual_edited_at
       )
     `,
       { count: 'exact' },
@@ -104,23 +131,88 @@ export async function GET (request: NextRequest) {
       }).filter(Boolean),
     ),
   ]
+  const productIds = [
+    ...new Set(
+      items
+        .map((row) => {
+          const product = unwrapProduct((row as { products?: unknown }).products)
+          return product?.id ? String(product.id) : ''
+        })
+        .filter(Boolean),
+    ),
+  ]
 
   const feeByOrderId = new Map<string, number>()
+  const feeDetailsByOrderId = new Map<string, Array<{ label: string, amountCents: number }>>()
+  const hasFiscalByOrderId = new Set<string>()
+  const lastEntryByProductId = new Map<string, LastEntryCostHint>()
+
+  const [
+    { data: fiscalProfile },
+    fiscalDocsRes,
+    paymentsRes,
+    lastEntriesRes,
+  ] = await Promise.all([
+    auth.supabase
+      .from('organization_fiscal_profiles')
+      .select('margin_tax_percent')
+      .eq('organization_id', auth.organizationId)
+      .maybeSingle(),
+    orderIds.length > 0
+      ? auth.supabase
+        .from('fiscal_documents')
+        .select('sales_order_id')
+        .eq('organization_id', auth.organizationId)
+        .eq('status', 'authorized')
+        .in('model', ['55', '65'])
+        .in('sales_order_id', orderIds)
+      : Promise.resolve({ data: [] as Array<{ sales_order_id?: string }> }),
+    orderIds.length > 0
+      ? auth.supabase
+        .from('sales_order_payments')
+        .select('sales_order_id, payment_method_id, amount_cents, status, metadata')
+        .eq('organization_id', auth.organizationId)
+        .in('sales_order_id', orderIds)
+        .neq('status', 'canceled')
+      : Promise.resolve({ data: [] as unknown[] }),
+    productIds.length > 0
+      ? auth.supabase
+        .from('product_stock_movements')
+        .select('product_id, type, unit_value_cents, created_at')
+        .eq('organization_id', auth.organizationId)
+        .in('product_id', productIds)
+        .eq('type', 'entry')
+        .gt('unit_value_cents', 0)
+      : Promise.resolve({ data: [] as unknown[] }),
+  ])
+
+  for (const row of lastEntriesRes.data ?? []) {
+    trackLastEntryCost(
+      lastEntryByProductId,
+      String((row as { product_id?: string }).product_id || ''),
+      String((row as { type?: string }).type || 'entry'),
+      Number((row as { unit_value_cents?: number }).unit_value_cents) || 0,
+      (row as { created_at?: string | null }).created_at,
+    )
+  }
+
+  const marginTaxPercent = Number(
+    (fiscalProfile as { margin_tax_percent?: number | null } | null)?.margin_tax_percent,
+  ) || 0
+
+  for (const doc of fiscalDocsRes.data ?? []) {
+    const oid = String((doc as { sales_order_id?: string }).sales_order_id || '')
+    if (oid) hasFiscalByOrderId.add(oid)
+  }
 
   if (orderIds.length > 0) {
-    const { data: payRows } = await auth.supabase
-      .from('sales_order_payments')
-      .select('sales_order_id, payment_method_id, amount_cents, status, metadata')
-      .eq('organization_id', auth.organizationId)
-      .in('sales_order_id', orderIds)
-      .neq('status', 'canceled')
-
+    const payRows = paymentsRes.data ?? []
     const paymentsByOrderId = new Map<
       string,
       Array<{ payment_method_id: string, value_cents: number | null, installments: number }>
     >()
 
-    for (const pay of payRows ?? []) {
+    for (const pay of payRows) {
       const oid = String((pay as { sales_order_id?: string }).sales_order_id || '')
       const pmId = String((pay as { payment_method_id?: string | null }).payment_method_id || '')
       if (!oid || !pmId) continue
@@ -142,6 +234,7 @@ export async function GET (request: NextRequest) {
     ]
     let paymentMethods: Array<{
       id: string
+      description: string
       fee_percent: number
       type: string
       credit_installment_fees?: Array<{ installments: number, fee_percent: number }> | null
@@ -149,11 +242,12 @@ export async function GET (request: NextRequest) {
     if (pmIds.length > 0) {
       const { data: pmRows } = await auth.supabase
         .from('payment_methods')
-        .select('id, fee_percent, type, credit_installment_fees')
+        .select('id, description, fee_percent, type, credit_installment_fees')
         .eq('organization_id', auth.organizationId)
         .in('id', pmIds)
       paymentMethods = (pmRows ?? []).map((row) => ({
         id: String(row.id),
+        description: String(row.description || ''),
         fee_percent: Number(row.fee_percent) || 0,
         type: String(row.type || ''),
         credit_installment_fees: Array.isArray(row.credit_installment_fees)
@@ -164,9 +258,10 @@ export async function GET (request: NextRequest) {
 
     for (const oid of orderIds) {
       const entries = paymentsByOrderId.get(oid) ?? []
-      feeByOrderId.set(
+      feeByOrderId.set(oid, paymentFeeCentsForSaleEntries(entries, paymentMethods))
+      feeDetailsByOrderId.set(
         oid,
-        paymentFeeCentsForSaleEntries(entries, paymentMethods),
+        paymentFeeDetailsForSaleEntries(entries, paymentMethods),
       )
     }
   }
@@ -188,14 +283,38 @@ export async function GET (request: NextRequest) {
     const orderTotalCents = order
       ? Math.max(0, Number(order.total_cents) || 0)
       : 0
+    const orderShippingCents = order
+      ? Math.max(0, Number(order.surcharge_cents) || 0)
+      : 0
     const lineUnitCostCents = Math.max(
       0,
       Number((row as { unit_cost_cents?: number }).unit_cost_cents) || 0,
     )
+    const productCostResolved = hasProduct
+      ? resolveDisplayCostCentsFromHints({
+        costPriceCents: product?.cost_price_cents,
+        costPriceManualEditedAt: product?.cost_price_manual_edited_at,
+        lastEntry: lastEntryByProductId.get(String(product!.id)),
+      })
+      : null
     const productCostCents =
-      product?.cost_price_cents != null
-        ? Math.max(0, Number(product.cost_price_cents) || 0)
-        : null
+      productCostResolved != null ? Math.max(0, productCostResolved) : null
+
+    const orderFeeCents = feeByOrderId.get(orderId) ?? 0
+    const allocatedFeeCents = allocateProportion(orderFeeCents, subtotalCents, orderTotalCents)
+    const allocatedShippingCents = allocateProportion(
+      orderShippingCents,
+      subtotalCents,
+      orderTotalCents,
+    )
+    const orderFeeDetails = feeDetailsByOrderId.get(orderId) ?? []
+    const feeDetails =
+      orderFeeCents > 0 && allocatedFeeCents > 0
+        ? orderFeeDetails.map((d) => ({
+          label: d.label,
+          amountCents: allocateProportion(d.amountCents, subtotalCents, orderTotalCents),
+        })).filter((d) => d.amountCents > 0)
+        : []
 
     const margin = computeSoldItemMargin({
       quantity,
@@ -203,11 +322,11 @@ export async function GET (request: NextRequest) {
       lineUnitCostCents,
       productCostCents,
       hasProduct,
-      allocatedFeeCents: allocateFeeForItem(
-        feeByOrderId.get(orderId) ?? 0,
-        subtotalCents,
-        orderTotalCents,
-      ),
+      allocatedShippingCents,
+      allocatedFeeCents,
+      feeDetails,
+      marginTaxPercent,
+      hasAuthorizedFiscalDoc: hasFiscalByOrderId.has(orderId),
     })
 
     return {
@@ -242,16 +361,7 @@ export async function GET (request: NextRequest) {
             ? String(order.customer_name).trim()
             : null,
       },
-      margin: {
-        revenueCents: margin.revenueCents,
-        effectiveUnitCostCents: margin.effectiveUnitCostCents,
-        costTotalCents: margin.costTotalCents,
-        grossMarginCents: margin.grossMarginCents,
-        feeCents: margin.feeCents,
-        netMarginCents: margin.netMarginCents,
-        netMarginPercent: margin.netMarginPercent,
-        canEditCost: margin.canEditCost,
-      },
+      margin: serializeMargin(margin),
     }
   })
 

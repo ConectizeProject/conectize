@@ -6,6 +6,7 @@ import {
   listStockMovements,
   addStockMovement,
   deleteStockMovement,
+  updateStockMovement,
   type StockMovementType,
 } from '@/lib/products/service'
 import { fetchProductHasVariationChildren } from '@/lib/products/parent-has-variations'
@@ -187,6 +188,59 @@ export async function POST (
     currentStock: result.currentStock ?? null,
     movement: result.movement,
     blingPushError,
+  })
+}
+
+export async function PATCH (
+  request: Request,
+  { params }: { params: Params },
+) {
+  const { id } = await params
+  const auth = await requireStaffOrAdmin()
+  if (auth.ok === false) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status })
+  }
+
+  const body = await request.json().catch(() => ({})) as {
+    movementId?: string
+    quantity?: number
+    unitValueCents?: number
+  }
+  const movementId = String(body.movementId || '').trim()
+  if (!movementId) {
+    return NextResponse.json({ error: 'movement_id_required' }, { status: 400 })
+  }
+
+  const quantity = Number(body.quantity)
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    return NextResponse.json({ error: 'invalid_quantity' }, { status: 400 })
+  }
+
+  const unitValueCents = typeof body.unitValueCents === 'number' && body.unitValueCents >= 0
+    ? Math.round(body.unitValueCents)
+    : 0
+
+  const result = await updateStockMovement(id, movementId, {
+    quantity,
+    unitValueCents,
+  })
+
+  if (result.ok === false) {
+    const status =
+      result.error === 'not_authenticated'
+        ? 401
+        : result.error === 'not_found'
+          ? 404
+          : result.error === 'not_editable' || result.error === 'quantity_invalid'
+            ? 400
+            : 500
+    return NextResponse.json({ error: result.error }, { status })
+  }
+
+  return NextResponse.json({
+    ok: true,
+    currentStock: result.currentStock,
+    movement: result.movement,
   })
 }
 

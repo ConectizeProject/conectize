@@ -9,6 +9,17 @@ import {
 export { mapSalesOrdersWithFinancePosted }
 import { toDbCustomerType } from '@/lib/sales-orders/customer-type'
 import { nfeXmlText, NFE_XNOME_MAX } from '@/lib/fiscal/xml-strings'
+import {
+  buildFifoLayers,
+  consumeFifoCost,
+  type FifoLayer,
+  type FifoMovementInput,
+} from '@/lib/products/fifo-stock-cost'
+import {
+  resolveDisplayCostCentsFromHints,
+  trackLastEntryCost,
+  type LastEntryCostHint,
+} from '@/lib/products/list-display-cost'
 
 function salesOrderCustomerName (value: unknown) {
   return nfeXmlText(value, NFE_XNOME_MAX) || 'Consumidor Final'
@@ -238,6 +249,95 @@ async function loadStocklessProductIds (
   return { ok: true as const, stocklessIds }
 }
 
+async function loadFifoStateForProducts (
+  auth: AuthCtx,
+  productIds: string[],
+): Promise<
+  | {
+      ok: true
+      layersByProduct: Map<string, FifoLayer[]>
+      fallbackCostByProduct: Map<string, number>
+    }
+  | { ok: false, error: 'db_error' }
+> {
+  const uniqueIds = [...new Set(productIds.filter(Boolean))]
+  const layersByProduct = new Map<string, FifoLayer[]>()
+  const fallbackCostByProduct = new Map<string, number>()
+  if (uniqueIds.length === 0) {
+    return { ok: true, layersByProduct, fallbackCostByProduct }
+  }
+
+  const [{ data: products, error: productsError }, { data: movements, error: movError }] =
+    await Promise.all([
+      auth.supabase
+        .from('products')
+        .select('id, cost_price_cents, cost_price_manual_edited_at')
+        .eq('organization_id', auth.organizationId)
+        .in('id', uniqueIds),
+      auth.supabase
+        .from('product_stock_movements')
+        .select('product_id, type, quantity, unit_value_cents, created_at, id')
+        .eq('organization_id', auth.organizationId)
+        .in('product_id', uniqueIds)
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true }),
+    ])
+
+  if (productsError || movError) return { ok: false, error: 'db_error' }
+
+  const lastEntryByProduct = new Map<string, LastEntryCostHint>()
+  const movByProduct = new Map<string, FifoMovementInput[]>()
+  for (const row of movements ?? []) {
+    const productId = String((row as { product_id?: string }).product_id || '')
+    if (!productId) continue
+    const type = String((row as { type?: string }).type || '')
+    const unitValueCents = toInt((row as { unit_value_cents?: number }).unit_value_cents, 0)
+    trackLastEntryCost(
+      lastEntryByProduct,
+      productId,
+      type,
+      unitValueCents,
+      (row as { created_at?: string | null }).created_at,
+    )
+    const list = movByProduct.get(productId) ?? []
+    list.push({
+      type,
+      quantity: toInt((row as { quantity?: number }).quantity, 0),
+      unitValueCents,
+    })
+    movByProduct.set(productId, list)
+  }
+
+  for (const row of products ?? []) {
+    const id = String((row as { id?: string }).id || '')
+    if (!id) continue
+    const displayCost = resolveDisplayCostCentsFromHints({
+      costPriceCents: (row as { cost_price_cents?: number | null }).cost_price_cents,
+      costPriceManualEditedAt:
+        (row as { cost_price_manual_edited_at?: string | null }).cost_price_manual_edited_at,
+      lastEntry: lastEntryByProduct.get(id),
+    })
+    fallbackCostByProduct.set(id, Math.max(0, toInt(displayCost, 0)))
+  }
+
+  for (const productId of uniqueIds) {
+    if (!fallbackCostByProduct.has(productId)) {
+      const displayCost = resolveDisplayCostCentsFromHints({
+        costPriceCents: null,
+        costPriceManualEditedAt: null,
+        lastEntry: lastEntryByProduct.get(productId),
+      })
+      fallbackCostByProduct.set(productId, Math.max(0, toInt(displayCost, 0)))
+    }
+    layersByProduct.set(
+      productId,
+      buildFifoLayers(movByProduct.get(productId) ?? []),
+    )
+  }
+
+  return { ok: true, layersByProduct, fallbackCostByProduct }
+}
+
 async function applySalesOrderStockExits (
   auth: AuthCtx,
   orderId: string,
@@ -249,12 +349,35 @@ async function applySalesOrderStockExits (
   )
   if (!stockless.ok) return { ok: false as const, error: 'db_error' as const }
 
+  const stockableItems = items.filter(
+    (item) => !stockless.stocklessIds.has(item.product_id),
+  )
+  const fifoState = await loadFifoStateForProducts(
+    auth,
+    stockableItems.map((item) => item.product_id),
+  )
+  if (!fifoState.ok) return { ok: false as const, error: 'db_error' as const }
+
   for (const item of items) {
     if (stockless.stocklessIds.has(item.product_id)) continue
     const itemId = String(item.id || '')
     if (!itemId) return { ok: false as const, error: 'db_error' as const }
     const quantity = toInt(item.quantity, 1)
-    const unitCost = toInt(item.unit_cost_cents ?? 0, 0)
+
+    const layers = fifoState.layersByProduct.get(item.product_id) ?? []
+    const productCostCents = fifoState.fallbackCostByProduct.get(item.product_id) ?? 0
+    const consumed = consumeFifoCost(layers, quantity, productCostCents)
+    fifoState.layersByProduct.set(item.product_id, consumed.layers)
+    const unitCost = consumed.unitCostCents
+
+    const { error: costUpdError } = await auth.supabase
+      .from('sales_order_items')
+      .update({ unit_cost_cents: unitCost })
+      .eq('organization_id', auth.organizationId)
+      .eq('id', itemId)
+      .eq('sales_order_id', orderId)
+    if (costUpdError) return { ok: false as const, error: 'db_error' as const }
+
     const ref = `sales_order:${orderId}:item:${itemId}`
     const inserted = await insertSalesOrderStockMovement(auth, {
       orderId,

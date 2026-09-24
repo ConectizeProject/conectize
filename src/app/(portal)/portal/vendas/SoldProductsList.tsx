@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { Pencil } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -23,18 +22,11 @@ import { toast } from '@/hooks/use-toast'
 import { VendasListPagination } from '@/app/(portal)/portal/vendas/VendasListPagination'
 import { VENDAS_LIST_PAGE_SIZE } from '@/lib/vendas/list-pagination'
 import { isSafeProductListImageUrl } from '@/app/(portal)/portal/produtos/product-list-shared'
-import { cn } from '@/lib/utils'
-
-type SoldItemMargin = {
-  revenueCents: number
-  effectiveUnitCostCents: number | null
-  costTotalCents: number
-  grossMarginCents: number
-  feeCents: number
-  netMarginCents: number
-  netMarginPercent: number | null
-  canEditCost: boolean
-}
+import { ProductEditDialog } from '@/app/(portal)/portal/produtos/ProductEditDialog'
+import {
+  SoldItemMarginBreakdown,
+  type SoldItemMarginBreakdownData,
+} from '@/app/(portal)/portal/vendas/SoldItemMarginBreakdown'
 
 type SoldItem = {
   id: string
@@ -57,20 +49,9 @@ type SoldItem = {
     mlPackId: string | null
     customerName: string | null
   }
-  margin: SoldItemMargin
-}
-
-function formatSignedCents (cents: number | null | undefined, empty = '—') {
-  if (cents == null) return empty
-  const abs = maskedFromCents(Math.abs(cents))
-  if (cents < 0) return `− ${abs}`
-  if (cents > 0) return abs
-  return abs
-}
-
-function formatPercent (value: number | null | undefined) {
-  if (value == null || !Number.isFinite(value)) return null
-  return `${value.toFixed(2).replace('.', ',')}%`
+  margin: SoldItemMarginBreakdownData & {
+    effectiveUnitCostCents: number | null
+  }
 }
 
 export function SoldProductsList () {
@@ -86,6 +67,10 @@ export function SoldProductsList () {
   const [costMasked, setCostMasked] = useState('')
   const [costScope, setCostScope] = useState<'sale' | 'sale_and_product'>('sale')
   const [savingCost, setSavingCost] = useState(false)
+  const [editingProduct, setEditingProduct] = useState<{
+    id: string
+    name: string
+  } | null>(null)
 
   const load = useCallback(async (pageNum: number) => {
     setLoading(true)
@@ -165,7 +150,7 @@ export function SoldProductsList () {
       if (!res.ok || !data?.ok) {
         throw new Error(data?.error || 'Não foi possível atualizar o custo.')
       }
-      const nextMargin = data.margin as SoldItemMargin
+      const nextMargin = data.margin as SoldItem['margin']
       setItems((prev) =>
         prev.map((row) => {
           if (row.id !== editItem.id) return row
@@ -203,7 +188,7 @@ export function SoldProductsList () {
         <CardHeader className='pb-3'>
           <CardTitle className='text-base font-semibold'>Últimos produtos vendidos</CardTitle>
           <p className='text-sm text-muted-foreground'>
-            Itens de pedidos pagos, com margem bruta e líquida (após taxas de pagamento).
+            Itens de pedidos pagos, com lucro bruto e margem de contribuição (frete, tarifas e imposto quando houver NFC/NF).
           </p>
         </CardHeader>
         <CardContent className='space-y-3 p-0 sm:p-0'>
@@ -219,8 +204,6 @@ export function SoldProductsList () {
                 const orderHref = item.order.id
                   ? `/portal/vendas/${encodeURIComponent(item.order.id)}`
                   : null
-                const netPositive = item.margin.netMarginCents >= 0
-                const netNegative = item.margin.netMarginCents < 0
                 const orderDate = item.order.createdAt
                   ? new Date(item.order.createdAt).toLocaleString('pt-BR', {
                     day: '2-digit',
@@ -234,7 +217,7 @@ export function SoldProductsList () {
                 return (
                   <li
                     key={item.id}
-                    className='grid gap-4 px-4 py-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(140px,0.55fr)] lg:items-center'
+                    className='grid gap-4 px-4 py-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(160px,0.55fr)] lg:items-center'
                   >
                     <div className='flex min-w-0 gap-3'>
                       <span className='inline-flex h-7 shrink-0 items-center justify-center rounded-md bg-amber-500/15 px-2 text-xs font-semibold tabular-nums text-amber-800 dark:text-amber-300'>
@@ -261,9 +244,24 @@ export function SoldProductsList () {
                         )}
                       </div>
                       <div className='min-w-0 space-y-1'>
-                        <p className='truncate text-sm font-semibold text-foreground'>
-                          {item.productName}
-                        </p>
+                        {item.productId ? (
+                          <button
+                            type='button'
+                            className='block w-full truncate text-left text-sm font-semibold text-foreground hover:text-primary hover:underline'
+                            onClick={() => {
+                              setEditingProduct({
+                                id: item.productId!,
+                                name: item.productName,
+                              })
+                            }}
+                          >
+                            {item.productName}
+                          </button>
+                        ) : (
+                          <p className='truncate text-sm font-semibold text-foreground'>
+                            {item.productName}
+                          </p>
+                        )}
                         <div className='flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground'>
                           {item.productSku ? (
                             <span className='font-mono tabular-nums'>SKU {item.productSku}</span>
@@ -312,55 +310,16 @@ export function SoldProductsList () {
                       ) : null}
                     </div>
 
-                    <div className='space-y-0.5 text-right text-sm tabular-nums'>
-                      <p className='font-semibold text-emerald-600 dark:text-emerald-400'>
-                        {formatSignedCents(item.margin.revenueCents)}
-                      </p>
-                      <div className='flex items-center justify-end gap-1 text-red-600 dark:text-red-400'>
-                        <span>− {maskedFromCents(item.margin.costTotalCents)}</span>
-                        {item.margin.canEditCost ? (
-                          <Button
-                            type='button'
-                            variant='ghost'
-                            size='icon'
-                            className='h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground'
-                            aria-label='Editar custo'
-                            onClick={() => openCostEditor(item)}
-                          >
-                            <Pencil className='h-3.5 w-3.5' />
-                          </Button>
-                        ) : null}
-                      </div>
-                      {item.margin.feeCents > 0 ? (
-                        <p className='text-red-600 dark:text-red-400'>
-                          − {maskedFromCents(item.margin.feeCents)}
-                          <span className='ml-1 text-[10px] font-normal uppercase tracking-wide text-muted-foreground'>
-                            taxas
-                          </span>
-                        </p>
-                      ) : null}
-                      <div className='border-t border-border/60 pt-1'>
-                        <p
-                          className={cn(
-                            'font-semibold',
-                            netPositive && 'text-emerald-600 dark:text-emerald-400',
-                            netNegative && 'text-red-600 dark:text-red-400',
-                          )}
-                        >
-                          {formatSignedCents(item.margin.netMarginCents)}
-                        </p>
-                        {formatPercent(item.margin.netMarginPercent) ? (
-                          <p
-                            className={cn(
-                              'text-xs',
-                              netPositive && 'text-emerald-600/90 dark:text-emerald-400/90',
-                              netNegative && 'text-red-600/90 dark:text-red-400/90',
-                            )}
-                          >
-                            ({formatPercent(item.margin.netMarginPercent)})
-                          </p>
-                        ) : null}
-                      </div>
+                    <div className='flex justify-end lg:justify-end'>
+                      <SoldItemMarginBreakdown
+                        margin={item.margin}
+                        quantity={item.quantity}
+                        onEditCost={
+                          item.margin.canEditCost
+                            ? () => openCostEditor(item)
+                            : undefined
+                        }
+                      />
                     </div>
                   </li>
                 )
@@ -451,6 +410,22 @@ export function SoldProductsList () {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ProductEditDialog
+        open={Boolean(editingProduct)}
+        mode='edit'
+        productId={editingProduct?.id ?? null}
+        initialName={editingProduct?.name}
+        onOpenChange={(open) => {
+          if (!open) setEditingProduct(null)
+        }}
+        onSuccess={() => {
+          void load(page)
+        }}
+        onNavigateToProductId={(id) => {
+          setEditingProduct({ id, name: '' })
+        }}
+      />
     </>
   )
 }

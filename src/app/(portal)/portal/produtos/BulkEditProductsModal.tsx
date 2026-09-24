@@ -369,6 +369,32 @@ function rowChangedForFields (
   return false
 }
 
+function bulkPatchErrorLabel (error: string, message?: string) {
+  if (message && String(message).trim()) return String(message).trim()
+  switch (error) {
+    case 'cest_required':
+      return 'Informe o CEST exigido para o NCM.'
+    case 'cest_mismatch':
+      return 'CEST incompatível com o NCM.'
+    case 'cest_not_required':
+      return 'Este NCM não deve ter CEST.'
+    case 'invalid_ncm':
+      return 'NCM inválido (8 dígitos).'
+    case 'invalid_cest':
+      return 'CEST inválido (7 dígitos).'
+    case 'invalid_fci':
+      return 'FCI inválido (formato UUID).'
+    case 'fiscalOrigin_invalid':
+      return 'Origem fiscal inválida.'
+    case 'nothing_to_update':
+      return 'Nada para atualizar nesta linha.'
+    case 'not_found':
+      return 'Produto não encontrado.'
+    default:
+      return error || 'Falha ao salvar'
+  }
+}
+
 type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -686,6 +712,95 @@ export function BulkEditProductsModal ({
     })
   }
 
+  /** Aplica o template às linhas de forma síncrona (evita perder blur ao clicar em Salvar). */
+  function buildEffectiveRowStates (): Record<string, RowValues> {
+    const patch: Partial<RowValues> = {}
+
+    if (showTag && templateTag !== '__keep__') {
+      patch.tag = templateTag
+    }
+    if (showModels) {
+      if (templateModelAction === 'clear') patch.modelIds = []
+      else if (templateModelAction === 'replace') patch.modelIds = uniqModelIds(templateModelIds)
+    }
+    if (showCost && templateCostMasked.trim()) {
+      patch.costMasked = templateCostMasked
+    }
+    if (showSale && templatePriceMode === 'fixed' && templateSaleMasked.trim()) {
+      patch.saleMasked = templateSaleMasked
+    }
+    if (showNcm && templateNcm.trim()) {
+      patch.ncm = templateNcm
+    }
+    if (showCest && templateCest.trim()) {
+      patch.cest = templateCest
+    }
+    if (showOrigin && templateOrigin !== '__keep__') {
+      patch.fiscalOrigin = templateOrigin
+    }
+    if (showFci && templateFci.trim()) {
+      patch.fci = templateFci
+    }
+    if (showUnit && templateUnit.trim()) {
+      patch.fiscalUnit = templateUnit.trim().toUpperCase()
+    }
+    if (showDescription && templateDescription.trim()) {
+      patch.description = templateDescription
+    }
+    if (showActive && templateActive !== '__keep__') {
+      patch.isActive = templateActive === 'true'
+    }
+
+    if (Object.keys(patch).length === 0) return rowStates
+
+    const next: Record<string, RowValues> = {}
+    for (const id of Object.keys(rowStates)) {
+      next[id] = { ...rowStates[id], ...patch }
+    }
+    return next
+  }
+
+  const hasPendingTemplate = useMemo(() => {
+    if (showTag && templateTag !== '__keep__') return true
+    if (showModels && templateModelAction !== 'keep') return true
+    if (showCost && templateCostMasked.trim()) return true
+    if (showSale && templatePriceMode === 'fixed' && templateSaleMasked.trim()) return true
+    if (showNcm && templateNcm.trim()) return true
+    if (showCest && templateCest.trim()) return true
+    if (showOrigin && templateOrigin !== '__keep__') return true
+    if (showFci && templateFci.trim()) return true
+    if (showUnit && templateUnit.trim()) return true
+    if (showDescription && templateDescription.trim()) return true
+    if (showActive && templateActive !== '__keep__') return true
+    return false
+  }, [
+    showTag,
+    templateTag,
+    showModels,
+    templateModelAction,
+    showCost,
+    templateCostMasked,
+    showSale,
+    templatePriceMode,
+    templateSaleMasked,
+    showNcm,
+    templateNcm,
+    showCest,
+    templateCest,
+    showOrigin,
+    templateOrigin,
+    showFci,
+    templateFci,
+    showUnit,
+    templateUnit,
+    showDescription,
+    templateDescription,
+    showActive,
+    templateActive,
+  ])
+
+  const canSubmit = hasChanges || hasPendingTemplate
+
   useEffect(() => {
     if (!open || loadingMeta || templatePriceMode !== 'suggested' || !showSale) return
     setRowStates((prev) => {
@@ -728,7 +843,22 @@ export function BulkEditProductsModal ({
   }
 
   async function handleSubmit () {
-    if (!hasChanges) {
+    const effectiveRows = buildEffectiveRowStates()
+    if (effectiveRows !== rowStates) {
+      setRowStates(effectiveRows)
+    }
+
+    let anyChanged = false
+    for (const id of Object.keys(effectiveRows)) {
+      const a = effectiveRows[id]
+      const b = initialRowStates[id]
+      if (!a || !b) continue
+      if (rowChangedForFields(a, b, fields, allowDeviceModel)) {
+        anyChanged = true
+        break
+      }
+    }
+    if (!anyChanged) {
       toast({
         variant: 'destructive',
         title: 'Nada para aplicar',
@@ -744,7 +874,7 @@ export function BulkEditProductsModal ({
     }
 
     for (const it of okItems) {
-      const cur = rowStates[it.id]
+      const cur = effectiveRows[it.id]
       if (!cur) continue
       if (showSale) {
         const saleParsed = parseMaskedMoneyToCents(cur.saleMasked)
@@ -773,7 +903,7 @@ export function BulkEditProductsModal ({
     const patchItems: Array<Record<string, unknown>> = []
 
     for (const it of okItems) {
-      const cur = rowStates[it.id]
+      const cur = effectiveRows[it.id]
       const ini = initialRowStates[it.id]
       if (!cur || !ini) continue
       if (!rowChangedForFields(cur, ini, fields, allowDeviceModel)) continue
@@ -859,15 +989,48 @@ export function BulkEditProductsModal ({
         return
       }
 
+      const failResults = Array.isArray(data?.results)
+        ? (data.results as Array<{ ok?: boolean; error?: string; message?: string; productId?: string }>)
+          .filter((r) => r && r.ok === false)
+        : []
+      const nameById = new Map(okItems.map((it) => [it.id, it.name]))
+      const failHints = failResults.slice(0, 3).map((r) => {
+        const name = nameById.get(String(r.productId || '')) || 'Produto'
+        return `${name}: ${bulkPatchErrorLabel(String(r.error || ''), r.message)}`
+      })
+      const failExtra = failResults.length > 3
+        ? ` (+${failResults.length - 3} outra${failResults.length - 3 === 1 ? '' : 's'})`
+        : ''
+
       toast({
-        variant: fail > 0 ? 'default' : 'success',
+        variant: fail > 0 ? (ok > 0 ? 'default' : 'destructive') : 'success',
         title: 'Edição em massa',
-        description: `${ok} atualizado${ok === 1 ? '' : 's'}${fail > 0 ? `, ${fail} falha(s)` : ''}.`,
+        description: fail > 0
+          ? `${ok} atualizado${ok === 1 ? '' : 's'}, ${fail} falha${fail === 1 ? '' : 's'}.${failHints.length > 0 ? ` ${failHints.join(' · ')}${failExtra}` : ''}`
+          : `${ok} atualizado${ok === 1 ? '' : 's'}.`,
       })
 
-      if (ok > 0) {
+      if (ok > 0 && fail === 0) {
         onSuccess()
         onOpenChange(false)
+      } else if (ok > 0) {
+        onSuccess()
+        setInitialRowStates((prev) => {
+          const next = { ...prev }
+          for (const r of Array.isArray(data?.results) ? data.results : []) {
+            if (!r || r.ok !== true) continue
+            const id = String(r.productId || '')
+            if (id && effectiveRows[id]) next[id] = { ...effectiveRows[id] }
+          }
+          return next
+        })
+        setRowStates((prev) => {
+          const next = { ...prev }
+          for (const id of Object.keys(effectiveRows)) {
+            next[id] = { ...effectiveRows[id] }
+          }
+          return next
+        })
       }
     } catch {
       toast({ variant: 'destructive', title: 'Erro ao salvar' })
@@ -1086,11 +1249,21 @@ export function BulkEditProductsModal ({
                         id="bulk-template-ncm"
                         value={templateNcm}
                         onChange={(e) => setTemplateNcm(maskNcm(e.target.value))}
-                        onBlur={() => applyFieldToAllRows({ ncm: templateNcm })}
+                        onBlur={(e) => {
+                          const next = maskNcm(e.target.value)
+                          setTemplateNcm(next)
+                          if (next.trim()) applyFieldToAllRows({ ncm: next })
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') e.currentTarget.blur()
+                        }}
                         placeholder="0000.00.00"
                         className="h-9"
                         disabled={submitting}
                       />
+                      <p className="text-[11px] text-muted-foreground">
+                        Replica ao sair do campo ou Enter. Também aplica ao salvar.
+                      </p>
                     </div>
                   ) : null}
 
@@ -1101,7 +1274,14 @@ export function BulkEditProductsModal ({
                         id="bulk-template-cest"
                         value={templateCest}
                         onChange={(e) => setTemplateCest(maskCest(e.target.value))}
-                        onBlur={() => applyFieldToAllRows({ cest: templateCest })}
+                        onBlur={(e) => {
+                          const next = maskCest(e.target.value)
+                          setTemplateCest(next)
+                          if (next.trim()) applyFieldToAllRows({ cest: next })
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') e.currentTarget.blur()
+                        }}
                         placeholder="00.000.00"
                         className="h-9"
                         disabled={submitting}
@@ -1141,7 +1321,14 @@ export function BulkEditProductsModal ({
                         id="bulk-template-fci"
                         value={templateFci}
                         onChange={(e) => setTemplateFci(maskFci(e.target.value))}
-                        onBlur={() => applyFieldToAllRows({ fci: templateFci })}
+                        onBlur={(e) => {
+                          const next = maskFci(e.target.value)
+                          setTemplateFci(next)
+                          if (next.trim()) applyFieldToAllRows({ fci: next })
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') e.currentTarget.blur()
+                        }}
                         className="h-9 font-mono text-xs"
                         disabled={submitting}
                       />
@@ -1156,7 +1343,14 @@ export function BulkEditProductsModal ({
                         value={templateUnit}
                         maxLength={6}
                         onChange={(e) => setTemplateUnit(e.target.value.toUpperCase())}
-                        onBlur={() => applyFieldToAllRows({ fiscalUnit: templateUnit.trim() || 'UN' })}
+                        onBlur={(e) => {
+                          const next = e.target.value.trim().toUpperCase() || 'UN'
+                          setTemplateUnit(next)
+                          applyFieldToAllRows({ fiscalUnit: next })
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') e.currentTarget.blur()
+                        }}
                         placeholder="UN"
                         className="h-9"
                         disabled={submitting}
@@ -1441,7 +1635,7 @@ export function BulkEditProductsModal ({
           <Button
             type="button"
             onClick={() => void handleSubmit()}
-            disabled={submitting || loadingMeta || nOk === 0 || !hasChanges}
+            disabled={submitting || loadingMeta || nOk === 0 || !canSubmit}
           >
             {submitting ? (
               <>

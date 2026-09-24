@@ -33,3 +33,42 @@ export function resolveListDisplayCostCents (args: {
   if (typeof entryCents === 'number' && entryCents > 0) return entryCents
   return null
 }
+
+export type LastEntryCostHint = {
+  unitValueCents: number
+  timeMs: number
+}
+
+/** Atualiza o mapa com a entrada mais recente que tenha valor > 0. */
+export function trackLastEntryCost (
+  byProductId: Map<string, LastEntryCostHint>,
+  productId: string,
+  type: string,
+  unitValueCents: number,
+  createdAt: string | null | undefined,
+) {
+  if (!productId) return
+  if (String(type || '').toLowerCase() !== 'entry') return
+  const cents = Math.trunc(Number(unitValueCents) || 0)
+  if (cents <= 0) return
+  const timeMs = createdAt ? new Date(createdAt).getTime() : NaN
+  if (!Number.isFinite(timeMs) || timeMs <= 0) return
+  const prev = byProductId.get(productId)
+  if (!prev || timeMs >= prev.timeMs) {
+    byProductId.set(productId, { unitValueCents: cents, timeMs })
+  }
+}
+
+/** Custo de exibição (cadastro / última entrada) para fallback quando FIFO não se aplica. */
+export function resolveDisplayCostCentsFromHints (args: {
+  costPriceCents: number | null | undefined
+  costPriceManualEditedAt: string | null | undefined
+  lastEntry: LastEntryCostHint | null | undefined
+}): number | null {
+  return resolveListDisplayCostCents({
+    costPriceCents: args.costPriceCents,
+    costPriceManualEditedAt: args.costPriceManualEditedAt,
+    lastEntryUnitValueCents: args.lastEntry?.unitValueCents ?? null,
+    lastEntryTimeMs: args.lastEntry?.timeMs ?? null,
+  })
+}

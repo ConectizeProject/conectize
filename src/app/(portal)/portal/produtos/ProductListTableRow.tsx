@@ -239,14 +239,6 @@ export const ProductListTableRow = memo(function ProductListTableRow ({
 						)}
 				</td>
 			)}
-			<td className="min-w-0 px-2 py-2 align-middle text-right">
-				<QuickSalePriceCell
-					productId={product.id}
-					blingId={product.bling_id}
-					blingHubConnected={blingHubConnected}
-					salePriceCents={product.sale_price_cents}
-				/>
-			</td>
 			{isProductTab && (
 				<td className="min-w-0 px-2 py-2 align-middle text-right">
 					<QuickCostPriceCell
@@ -256,6 +248,14 @@ export const ProductListTableRow = memo(function ProductListTableRow ({
 					/>
 				</td>
 			)}
+			<td className="min-w-0 px-2 py-2 align-middle text-right">
+				<QuickSalePriceCell
+					productId={product.id}
+					blingId={product.bling_id}
+					blingHubConnected={blingHubConnected}
+					salePriceCents={product.sale_price_cents}
+				/>
+			</td>
 			<td className="py-2 pl-2 align-middle text-right" onClick={(e) => e.stopPropagation()}>
 				<div className="flex items-center justify-end gap-0.5">
 					<Button

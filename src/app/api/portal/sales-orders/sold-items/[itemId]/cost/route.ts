@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
-import { paymentFeeCentsForSaleEntries } from '@/lib/resale/resale-commission'
+import {
+  paymentFeeCentsForSaleEntries,
+  paymentFeeDetailsForSaleEntries,
+} from '@/lib/resale/resale-commission'
 import { computeSoldItemMargin } from '@/lib/vendas/sold-item-margin'
 
 type Params = Promise<{ itemId: string }>
@@ -12,6 +15,19 @@ function paymentInstallments (metadata: unknown): number {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return 1
   const n = Number((metadata as { installments?: unknown }).installments)
   return Number.isFinite(n) && n >= 1 ? Math.round(n) : 1
+}
+
+function allocateProportion (
+  totalCents: number,
+  itemSubtotalCents: number,
+  orderTotalCents: number,
+): number {
+  const total = Math.max(0, Math.trunc(totalCents) || 0)
+  if (total <= 0) return 0
+  const sub = Math.max(0, Math.trunc(itemSubtotalCents) || 0)
+  const orderTotal = Math.max(0, Math.trunc(orderTotalCents) || 0)
+  if (orderTotal <= 0) return 0
+  return Math.floor((total * sub) / orderTotal)
 }
 
 export async function PATCH (
@@ -54,7 +70,8 @@ export async function PATCH (
       sales_orders!inner (
         id,
         status,
-        total_cents
+        total_cents,
+        surcharge_cents
       )
     `,
     )
@@ -74,6 +91,7 @@ export async function PATCH (
     id?: string
     status?: string
     total_cents?: number
+    surcharge_cents?: number
   } | null
   if (!order?.id || order.status !== 'paid') {
     return NextResponse.json({ ok: false, error: 'order_not_paid' }, { status: 400 })
@@ -126,6 +144,7 @@ export async function PATCH (
 
   const orderId = String(order.id)
   let orderFeeCents = 0
+  let orderFeeDetails: Array<{ label: string, amountCents: number }> = []
   const { data: payRows } = await auth.supabase
     .from('sales_order_payments')
     .select('payment_method_id, amount_cents, status, metadata')
@@ -149,11 +168,12 @@ export async function PATCH (
     const pmIds = [...new Set(entries.map((e) => e.payment_method_id))]
     const { data: pmRows } = await auth.supabase
       .from('payment_methods')
-      .select('id, fee_percent, type, credit_installment_fees')
+      .select('id, description, fee_percent, type, credit_installment_fees')
       .eq('organization_id', auth.organizationId)
       .in('id', pmIds)
     const paymentMethods = (pmRows ?? []).map((row) => ({
       id: String(row.id),
+      description: String(row.description || ''),
       fee_percent: Number(row.fee_percent) || 0,
       type: String(row.type || ''),
       credit_installment_fees: Array.isArray(row.credit_installment_fees)
@@ -161,7 +181,29 @@ export async function PATCH (
         : null,
     }))
     orderFeeCents = paymentFeeCentsForSaleEntries(entries, paymentMethods)
+    orderFeeDetails = paymentFeeDetailsForSaleEntries(entries, paymentMethods)
   }
+
+  const [{ data: fiscalProfile }, { data: fiscalDocs }] = await Promise.all([
+    auth.supabase
+      .from('organization_fiscal_profiles')
+      .select('margin_tax_percent')
+      .eq('organization_id', auth.organizationId)
+      .maybeSingle(),
+    auth.supabase
+      .from('fiscal_documents')
+      .select('id')
+      .eq('organization_id', auth.organizationId)
+      .eq('sales_order_id', orderId)
+      .eq('status', 'authorized')
+      .in('model', ['55', '65'])
+      .limit(1),
+  ])
+
+  const marginTaxPercent = Number(
+    (fiscalProfile as { margin_tax_percent?: number | null } | null)?.margin_tax_percent,
+  ) || 0
+  const hasAuthorizedFiscalDoc = (fiscalDocs ?? []).length > 0
 
   const quantity = Math.max(1, Number((itemRow as { quantity?: number }).quantity) || 1)
   const subtotalCents = Math.max(
@@ -169,10 +211,20 @@ export async function PATCH (
     Number((itemRow as { subtotal_cents?: number }).subtotal_cents) || 0,
   )
   const orderTotalCents = Math.max(0, Number(order.total_cents) || 0)
-  const allocatedFeeCents =
-    orderTotalCents > 0
-      ? Math.floor((orderFeeCents * subtotalCents) / orderTotalCents)
-      : 0
+  const orderShippingCents = Math.max(0, Number(order.surcharge_cents) || 0)
+  const allocatedFeeCents = allocateProportion(orderFeeCents, subtotalCents, orderTotalCents)
+  const allocatedShippingCents = allocateProportion(
+    orderShippingCents,
+    subtotalCents,
+    orderTotalCents,
+  )
+  const feeDetails =
+    orderFeeCents > 0 && allocatedFeeCents > 0
+      ? orderFeeDetails.map((d) => ({
+        label: d.label,
+        amountCents: allocateProportion(d.amountCents, subtotalCents, orderTotalCents),
+      })).filter((d) => d.amountCents > 0)
+      : []
 
   const productCostCents =
     scope === 'sale_and_product'
@@ -185,7 +237,11 @@ export async function PATCH (
     lineUnitCostCents: unitCostCents,
     productCostCents,
     hasProduct: true,
+    allocatedShippingCents,
     allocatedFeeCents,
+    feeDetails,
+    marginTaxPercent,
+    hasAuthorizedFiscalDoc,
   })
 
   return NextResponse.json({
@@ -196,12 +252,15 @@ export async function PATCH (
     scope,
     margin: {
       revenueCents: margin.revenueCents,
+      shippingCents: margin.shippingCents,
+      feeCents: margin.feeCents,
+      feeDetails: margin.feeDetails,
       effectiveUnitCostCents: margin.effectiveUnitCostCents,
       costTotalCents: margin.costTotalCents,
-      grossMarginCents: margin.grossMarginCents,
-      feeCents: margin.feeCents,
-      netMarginCents: margin.netMarginCents,
-      netMarginPercent: margin.netMarginPercent,
+      grossProfitCents: margin.grossProfitCents,
+      taxCents: margin.taxCents,
+      contributionMarginCents: margin.contributionMarginCents,
+      contributionMarginPercent: margin.contributionMarginPercent,
       canEditCost: margin.canEditCost,
     },
   })

@@ -339,18 +339,6 @@ export const ProductListCard = memo(function ProductListCard({
 									: 'grid grid-cols-1 gap-x-3 gap-y-1'
 							}
 						>
-							<div className="min-w-0">
-								<dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Preço venda</dt>
-								<dd className="mt-0.5 min-w-0" onClick={(e) => e.stopPropagation()}>
-									<QuickSalePriceCell
-										align="left"
-										productId={product.id}
-										blingId={product.bling_id}
-										blingHubConnected={blingHubConnected}
-										salePriceCents={product.sale_price_cents}
-									/>
-								</dd>
-							</div>
 							{isProductTab && (
 								<div className="min-w-0">
 									<dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Custo</dt>
@@ -364,6 +352,18 @@ export const ProductListCard = memo(function ProductListCard({
 									</dd>
 								</div>
 							)}
+							<div className="min-w-0">
+								<dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Preço venda</dt>
+								<dd className="mt-0.5 min-w-0" onClick={(e) => e.stopPropagation()}>
+									<QuickSalePriceCell
+										align="left"
+										productId={product.id}
+										blingId={product.bling_id}
+										blingHubConnected={blingHubConnected}
+										salePriceCents={product.sale_price_cents}
+									/>
+								</dd>
+							</div>
 						</div>
 					</dl>
 				</div>
