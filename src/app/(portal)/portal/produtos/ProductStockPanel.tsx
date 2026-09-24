@@ -9,14 +9,24 @@ import {
   History,
   Loader2,
   Package,
+  Pencil,
   Scale,
   Trash2,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { cn, formatCurrency } from '@/lib/utils'
+import { formatMoneyInput, maskedFromCents, moneyToCentsFromMasked } from '@/lib/utils/money'
 import { useToast } from '@/hooks/use-toast'
 import { appConfirm } from '@/lib/ui/app-dialogs'
 import { getOrdemPortalPath } from '@/lib/orders/ordem-portal-path'
@@ -159,6 +169,11 @@ function parseMovement (raw: unknown, fallbackProductId: string): Movement | nul
   }
 }
 
+function canEditMovement (m: Movement) {
+  if (m.source === 'manual') return true
+  return m.source === 'bling' && m.type === 'entry'
+}
+
 function movementKey (id: string) {
   return String(id || '').trim().toLowerCase()
 }
@@ -250,6 +265,10 @@ export function ProductStockPanel ({
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [editing, setEditing] = useState<Movement | null>(null)
+  const [editQuantity, setEditQuantity] = useState('1')
+  const [editUnitValue, setEditUnitValue] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
   const [type, setType] = useState<MovementType>('entry')
   const [quantity, setQuantity] = useState('1')
   const [unitValue, setUnitValue] = useState('')
@@ -513,6 +532,116 @@ export function ProductStockPanel ({
     }
   }
 
+  function openEditMovement (m: Movement) {
+    setEditing(m)
+    setEditQuantity(String(m.quantity))
+    setEditUnitValue(m.unitValueCents > 0 ? maskedFromCents(m.unitValueCents) : '')
+  }
+
+  function closeEditMovement () {
+    if (editSaving) return
+    setEditing(null)
+  }
+
+  async function handleSaveEdit () {
+    if (!editing) return
+    const qty = Number(editQuantity.replace(',', '.'))
+    if (!Number.isFinite(qty) || qty <= 0) {
+      toast({
+        variant: 'destructive',
+        title: 'Quantidade inválida',
+        description: 'Informe uma quantidade a partir de 1.',
+      })
+      return
+    }
+    const trimmed = String(editUnitValue || '').trim()
+    const unitValueCents = trimmed === ''
+      ? 0
+      : moneyToCentsFromMasked(trimmed)
+    if (unitValueCents == null || unitValueCents < 0) {
+      toast({
+        variant: 'destructive',
+        title: 'Valor inválido',
+        description: 'Informe um valor unitário no formato 0,00.',
+      })
+      return
+    }
+
+    setEditSaving(true)
+    try {
+      const res = await fetch(`/api/portal/produtos/${productId}/estoque`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          movementId: editing.id,
+          quantity: qty,
+          unitValueCents,
+        }),
+      })
+      if (res.ok) {
+        const json = await res.json().catch(() => ({})) as {
+          currentStock?: number
+          movement?: unknown
+        }
+        const updated = parseMovement(json.movement, productId)
+        const nextStock = typeof json.currentStock === 'number' ? json.currentStock : null
+        toast({ title: 'Lançamento atualizado' })
+        fetchGenRef.current += 1
+        if (updated) {
+          const updatedKey = movementKey(updated.id)
+          setData((prev) => {
+            if (!prev) return prev
+            return {
+              ...prev,
+              currentStock: nextStock ?? prev.currentStock,
+              movements: prev.movements.map((item) => (
+                movementKey(item.id) === updatedKey ? updated : item
+              )),
+            }
+          })
+        } else if (nextStock != null) {
+          setData((prev) => (prev ? { ...prev, currentStock: nextStock } : prev))
+        }
+        if (nextStock != null) onStockChange?.(nextStock)
+        setEditing(null)
+      } else {
+        let description = 'Não foi possível salvar a alteração.'
+        try {
+          const errJson = await res.json() as { error?: string }
+          const code = errJson?.error
+          if (code === 'invalid_quantity' || code === 'quantity_invalid') {
+            description = 'Quantidade inválida.'
+          } else if (code === 'not_editable' || code === 'not_manual') {
+            description = 'Só é possível editar lançamentos manuais ou entradas do Bling.'
+          } else if (code === 'not_found') {
+            description = 'Lançamento não encontrado.'
+          } else if (code === 'not_authenticated') {
+            description = 'Sessão expirada. Entre novamente.'
+          } else if (code === 'forbidden') {
+            description = 'Sem permissão para esta ação.'
+          } else if (typeof code === 'string') {
+            description = code
+          }
+        } catch {
+          // mantém mensagem padrão
+        }
+        toast({
+          variant: 'destructive',
+          title: 'Erro ao salvar',
+          description,
+        })
+      }
+    } catch {
+      toast({
+        variant: 'destructive',
+        title: 'Erro de rede',
+        description: 'Não foi possível conectar ao servidor.',
+      })
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
   return (
     <div className="space-y-5">
       <div className="relative overflow-hidden rounded-lg border border-border/80 bg-gradient-to-br from-muted/40 via-card to-card px-4 py-5 sm:px-5">
@@ -684,6 +813,7 @@ export function ProductStockPanel ({
                     <th className="px-3 py-2.5 text-left font-medium">Data</th>
                     <th className="px-3 py-2.5 text-left font-medium">Tipo</th>
                     <th className="px-3 py-2.5 text-right font-medium">Qtd</th>
+                    <th className="px-3 py-2.5 text-right font-medium">Valor</th>
                     <th className="px-3 py-2.5 text-right font-medium">Total</th>
                     <th className="px-3 py-2.5 text-left font-medium">Origem</th>
                     <th className="px-3 py-2.5 text-right font-medium">
@@ -724,27 +854,45 @@ export function ProductStockPanel ({
                           {quantityDisplay(m)}
                         </td>
                         <td className="px-3 py-2.5 text-right align-middle tabular-nums text-muted-foreground">
+                          {m.unitValueCents ? formatCurrency(m.unitValueCents / 100) : '—'}
+                        </td>
+                        <td className="px-3 py-2.5 text-right align-middle tabular-nums text-muted-foreground">
                           {m.totalValueCents ? formatCurrency(m.totalValueCents / 100) : '—'}
                         </td>
                         <td className="px-3 py-2.5 align-middle">
                           {originCell(m)}
                         </td>
                         <td className="px-3 py-2.5 text-right align-middle">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                            aria-label="Excluir lançamento"
-                            disabled={isDeleting}
-                            onClick={() => void handleDeleteMovement(m)}
-                          >
-                            {isDeleting ? (
-                              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                            ) : (
-                              <Trash2 className="h-4 w-4" aria-hidden />
-                            )}
-                          </Button>
+                          <div className="flex items-center justify-end gap-0.5">
+                            {canEditMovement(m) ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                aria-label="Editar lançamento"
+                                disabled={isDeleting || editSaving}
+                                onClick={() => openEditMovement(m)}
+                              >
+                                <Pencil className="h-4 w-4" aria-hidden />
+                              </Button>
+                            ) : null}
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                              aria-label="Excluir lançamento"
+                              disabled={isDeleting}
+                              onClick={() => void handleDeleteMovement(m)}
+                            >
+                              {isDeleting ? (
+                                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                              ) : (
+                                <Trash2 className="h-4 w-4" aria-hidden />
+                              )}
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     )
@@ -791,6 +939,90 @@ export function ProductStockPanel ({
           </div>
         )}
       </StockSection>
+
+      <Dialog
+        open={editing != null}
+        onOpenChange={(open) => {
+          if (!open) closeEditMovement()
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Editar lançamento</DialogTitle>
+            <DialogDescription>
+              Altere a quantidade ou o valor unitário. O tipo permanece o mesmo.
+            </DialogDescription>
+          </DialogHeader>
+          {editing ? (
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label>Tipo</Label>
+                <div>
+                  <Badge
+                    variant="outline"
+                    className={cn('font-medium', movementTypeBadgeClass(editing.type))}
+                  >
+                    {movementTypeLabel(editing.type)}
+                  </Badge>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="product-stock-edit-qty">Quantidade</Label>
+                  <Input
+                    id="product-stock-edit-qty"
+                    type="number"
+                    inputMode="numeric"
+                    step={1}
+                    min={1}
+                    value={editQuantity}
+                    onChange={(e) => setEditQuantity(e.target.value)}
+                    className="tabular-nums"
+                    disabled={editSaving}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="product-stock-edit-unit">Valor unitário (R$)</Label>
+                  <Input
+                    id="product-stock-edit-unit"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    value={editUnitValue}
+                    onChange={(e) => setEditUnitValue(formatMoneyInput(e.target.value))}
+                    className="tabular-nums"
+                    placeholder="0,00"
+                    disabled={editSaving}
+                  />
+                </div>
+              </div>
+            </div>
+          ) : null}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={closeEditMovement}
+              disabled={editSaving}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void handleSaveEdit()}
+              disabled={editSaving}
+            >
+              {editSaving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                  Salvando...
+                </>
+              ) : (
+                'Salvar'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
