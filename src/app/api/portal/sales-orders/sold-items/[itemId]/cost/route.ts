@@ -178,9 +178,9 @@ export async function PATCH (
     const extracted = extractOsSoldProductLines(services).find(
       (l) => l.lineIndex === osRef.lineIndex,
     )
-    const subtotalCents = extracted?.valueCents
-      ?? Math.max(0, Number((line as { valueCents?: unknown }).valueCents) || 0)
-      || Math.max(0, Number((line as { unitValueCents?: unknown }).unitValueCents) || 0) * quantity
+    const lineValueCents = Math.max(0, Number((line as { valueCents?: unknown }).valueCents) || 0)
+    const lineUnitCents = Math.max(0, Number((line as { unitValueCents?: unknown }).unitValueCents) || 0)
+    const subtotalCents = extracted?.valueCents ?? (lineValueCents || lineUnitCents * quantity)
     const orderTotalCents = Math.max(0, Number(orderRow.services_total_cents) || 0)
 
     let orderFeeCents = 0
