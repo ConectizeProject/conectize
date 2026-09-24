@@ -35,6 +35,15 @@ type ParsedPaymentMethodItem = {
   value_cents: number
 }
 
+/** Chave 1-1 do lançamento financeiro da OS (JSON de pagamento não tem id de linha). */
+export function serviceOrderFinanceSourceKey (
+  orderId: string,
+  paymentMethodId: string,
+  index: number,
+) {
+  return `service_order:${orderId}:payment:${paymentMethodId}:${index}`
+}
+
 type SyncOptions = {
   supabase: SupabaseClient
   orderId: string
@@ -313,7 +322,7 @@ export async function syncServiceOrderFinancialTransactions ({
   const occurredAt = buildOccurredAt(order, preservedOccurredAt)
 
   const transactionsToInsert = parsedMethods
-    .map((item) => {
+    .map((item, index) => {
       const contaId = contaByPaymentMethodId.get(item.payment_method_id)
       if (!contaId) return null
       const paymentMethodLabel = descriptionByPaymentMethodId.get(item.payment_method_id) || 'Metodo de pagamento'
@@ -324,6 +333,7 @@ export async function syncServiceOrderFinancialTransactions ({
         type: 'entrada',
         occurred_at: occurredAt,
         service_order_id: order.id,
+        source_key: serviceOrderFinanceSourceKey(order.id, item.payment_method_id, index),
         description: `OS #${order.display_number ?? 'S/N'} - ${paymentMethodLabel}`,
       }
     })
@@ -343,6 +353,7 @@ export async function syncServiceOrderFinancialTransactions ({
     .from('financial_transactions')
     .insert(transactionsToInsert)
   if (insertError) {
+    if (String(insertError.code || '') === '23505') return
     throw new Error(`Erro ao inserir transações financeiras da OS: ${insertError.message}`)
   }
 
@@ -1127,6 +1138,7 @@ export async function syncSalesOrderFinancialTransactions ({
         type: 'entrada' as const,
         occurred_at: occurredAt,
         sales_order_id: order.id,
+        sales_order_payment_id: payment.id,
         description: `Pedido #${order.order_number ?? order.id.slice(0, 8)} - ${label}`,
       }
     })
@@ -1152,6 +1164,8 @@ export async function syncSalesOrderFinancialTransactions ({
     .from('financial_transactions')
     .insert(rows)
   if (insertError) {
+    // Corrida: outro sync já inseriu o mesmo sales_order_payment_id.
+    if (String(insertError.code || '') === '23505') return
     throw new Error(`Erro ao inserir transações financeiras do pedido: ${insertError.message}`)
   }
 
@@ -1359,7 +1373,7 @@ export const __private__ = {
   toSaoPauloDate,
   toSaoPauloIsoStart,
   toSaoPauloIsoEnd,
-  netSalesOrderPaymentAmounts,
+  serviceOrderFinanceSourceKey,
 }
 
 async function dedupeServiceOrderFinancialTransactions ({
