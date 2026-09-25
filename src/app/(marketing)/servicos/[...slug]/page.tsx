@@ -42,15 +42,29 @@ function resolveProductSlug (segments: string[]): string {
   return segments[0]
 }
 
-const includedInService = [
-  'Diagnóstico completo do problema',
-  'Substituição com peça de alta qualidade',
-  'Testes de funcionalidade após o reparo',
-  'Garantia de 6 meses em todos os serviços realizados',
-  'Suporte técnico após o reparo'
-]
+function isAppleIphoneBattery (serviceSlug: string, brandSlug: string, deviceTypeSlug: string) {
+  return serviceSlug === 'troca-de-bateria' && brandSlug === 'apple' && deviceTypeSlug === 'iphone'
+}
 
-function ServiceFocusContent(props: { title: string; paragraphs: string[] }) {
+function iphoneGenerationKey (slug: string) {
+  if (!slug.startsWith('iphone-')) return null
+  const head = slug.slice('iphone-'.length).split('-')[0]
+  return head || null
+}
+
+function ServiceFocusContent (props: { title: string, paragraphs: string[], warrantyMonths?: number }) {
+  const warrantyMonths = props.warrantyMonths ?? 6
+  const isBatteryWarranty = warrantyMonths === 12
+  const includedInService = [
+    'Diagnóstico completo do problema',
+    'Substituição com peça de alta qualidade',
+    'Testes de funcionalidade após o reparo',
+    isBatteryWarranty
+      ? 'Garantia de 12 meses na troca de bateria'
+      : 'Garantia de 6 meses em todos os serviços realizados',
+    'Suporte técnico após o reparo'
+  ]
+
   return (
     <section className="bg-card rounded-xl p-8 mb-12 border border-border">
       <h2 className="text-2xl font-bold text-foreground mb-4">
@@ -88,7 +102,9 @@ function ServiceFocusContent(props: { title: string; paragraphs: string[] }) {
             Garantia
           </h3>
           <p className="text-muted-foreground">
-            Oferecemos garantia de 6 meses. A garantia cobre defeitos de fabricação da peça e problemas relacionados à instalação.
+            {isBatteryWarranty
+              ? 'A troca de bateria tem garantia de 12 meses. A garantia cobre defeitos de fabricação da peça e problemas relacionados à instalação.'
+              : 'Oferecemos garantia de 6 meses. A garantia cobre defeitos de fabricação da peça e problemas relacionados à instalação.'}
           </p>
         </div>
       </div>
@@ -216,13 +232,20 @@ export default async function ServiceProductPage({ params }: PageProps) {
       deviceType
     })
 
-    const breadcrumbs = [
-      { label: 'Home', href: '/' },
-      { label: 'Serviços', href: '/servicos' },
-      { label: brand.displayName, href: '/servicos' },
-      { label: service.name, href: hubHref },
-      { label: deviceType.displayName, href: hubHref }
-    ]
+    const iphoneBatteryHub = isAppleIphoneBattery(service.slug, brand.slug, deviceType.slug)
+    const breadcrumbs = iphoneBatteryHub
+      ? [
+          { label: 'Home', href: '/' },
+          { label: 'Serviços', href: '/servicos' },
+          { label: 'Troca de bateria iPhone', href: hubHref }
+        ]
+      : [
+          { label: 'Home', href: '/' },
+          { label: 'Serviços', href: '/servicos' },
+          { label: brand.displayName, href: '/servicos' },
+          { label: service.name, href: hubHref },
+          { label: deviceType.displayName, href: hubHref }
+        ]
 
     const structuredData = getServiceJsonLd({
       name: content.h1,
@@ -258,16 +281,26 @@ export default async function ServiceProductPage({ params }: PageProps) {
                 </header>
 
                 <ServiceFocusContent
-                  title={`Sobre o serviço de ${service.name} para ${deviceType.displayName}`}
-                  paragraphs={[
-                    `Serviço especializado de ${service.name.toLowerCase()} para ${deviceType.displayName} (${brand.displayName}) em Belo Horizonte. Realizamos o reparo com peças de alta qualidade, garantindo compatibilidade, experiência e durabilidade do seu dispositivo.`,
-                    `${deviceType.displayName} ${brand.displayName} exige cuidados específicos durante o processo de ${service.name.toLowerCase()}. Nossa equipe técnica tem experiência comprovada e utiliza técnicas profissionais para entregar um reparo estável e seguro.`
-                  ]}
+                  title={iphoneBatteryHub
+                    ? 'Sobre a troca de bateria para iPhone'
+                    : `Sobre o serviço de ${service.name} para ${deviceType.displayName}`}
+                  warrantyMonths={service.slug === 'troca-de-bateria' ? 12 : 6}
+                  paragraphs={iphoneBatteryHub
+                    ? [
+                        'A troca devolve autonomia ao iPhone no uso do dia a dia. Antes de substituir a bateria, conferimos carga, aquecimento e desligamentos inesperados.',
+                        'Atendemos do iPhone mais recente aos modelos anteriores. Informe o aparelho no WhatsApp e receba o orçamento.'
+                      ]
+                    : [
+                        `Serviço especializado de ${service.name.toLowerCase()} para ${deviceType.displayName} (${brand.displayName}) em Belo Horizonte. Realizamos o reparo com peças de alta qualidade, garantindo compatibilidade, experiência e durabilidade do seu dispositivo.`,
+                        `${deviceType.displayName} ${brand.displayName} exige cuidados específicos durante o processo de ${service.name.toLowerCase()}. Nossa equipe técnica tem experiência comprovada e utiliza técnicas profissionais para entregar um reparo estável e seguro.`
+                      ]}
                 />
 
                 <section className="bg-card rounded-xl p-8 mb-12 border border-border">
                   <h2 className="text-2xl font-bold text-foreground mb-4">
-                    Sinais e problemas comuns nesta rota
+                    {iphoneBatteryHub
+                      ? 'Quando a bateria do iPhone precisa ser trocada'
+                      : `Sinais de que o ${deviceType.displayName} precisa de ${service.name.toLowerCase()}`}
                   </h2>
                   <ul className="list-disc list-inside space-y-2 text-muted-foreground">
                     {content.sections.problems.map((item) => (
@@ -303,7 +336,9 @@ export default async function ServiceProductPage({ params }: PageProps) {
 
                 <section className="bg-card rounded-xl p-8 border border-border">
                   <h2 className="text-2xl font-bold text-foreground mb-4">
-                    FAQ — {service.name}
+                    {iphoneBatteryHub
+                      ? 'Perguntas frequentes sobre a troca de bateria do iPhone'
+                      : `Perguntas frequentes sobre ${service.name.toLowerCase()}`}
                   </h2>
                   <div className="space-y-6">
                     {content.sections.faq.map((item) => (
@@ -396,17 +431,28 @@ export default async function ServiceProductPage({ params }: PageProps) {
     })
     .slice(0, 8)
 
-  const siblingModels = modelData.deviceType.models
-    .filter((entry) => entry !== model.slug)
-    .slice(0, 6)
+  const iphoneBatteryModel = isAppleIphoneBattery(service.slug, brand.slug, modelData.deviceType.slug)
+  const generationKey = iphoneGenerationKey(model.slug)
+  const siblingModels = iphoneBatteryModel
+    ? modelData.deviceType.models.filter((entry) => entry !== model.slug && iphoneGenerationKey(entry) === generationKey)
+    : modelData.deviceType.models
+      .filter((entry) => entry !== model.slug)
+      .slice(0, 6)
 
-  const breadcrumbs = [
-    { label: 'Home', href: '/' },
-    { label: 'Serviços', href: '/servicos' },
-    { label: brand.displayName, href: '/servicos' },
-    { label: service.name, href: hubHref },
-    { label: model.displayName, href: `/servicos/${slug}` }
-  ]
+  const breadcrumbs = iphoneBatteryModel
+    ? [
+        { label: 'Home', href: '/' },
+        { label: 'Serviços', href: '/servicos' },
+        { label: 'Troca de bateria iPhone', href: hubHref },
+        { label: model.displayName, href: `/servicos/${slug}` }
+      ]
+    : [
+        { label: 'Home', href: '/' },
+        { label: 'Serviços', href: '/servicos' },
+        { label: brand.displayName, href: '/servicos' },
+        { label: service.name, href: hubHref },
+        { label: model.displayName, href: `/servicos/${slug}` }
+      ]
 
   const structuredData = getServiceJsonLd({
     name: content.h1,
@@ -440,19 +486,36 @@ export default async function ServiceProductPage({ params }: PageProps) {
                 <p className="text-lg text-muted-foreground">
                   {content.sections.intro}
                 </p>
+                {iphoneBatteryModel ? (
+                  <p className="mt-4 text-muted-foreground">
+                    <Link href={hubHref} className="font-medium text-primary hover:underline">
+                      Confira também nosso serviço de troca de bateria para iPhone.
+                    </Link>
+                  </p>
+                ) : null}
               </header>
 
               <ServiceFocusContent
-                title={`Sobre o serviço de ${service.name} para ${model.displayName}`}
-                paragraphs={[
-                  `Serviço especializado de ${service.name.toLowerCase()} para ${model.displayName} (${modelData.deviceType.displayName} ${brand.displayName}) em Belo Horizonte. Realizamos o reparo com peças de alta qualidade, garantindo compatibilidade, experiência e durabilidade do seu dispositivo.`,
-                  `O ${model.displayName} é um ${modelData.deviceType.displayName} ${brand.displayName} que requer cuidados específicos durante o processo de ${service.name.toLowerCase()}. Nossa equipe técnica possui experiência comprovada com este modelo e utiliza técnicas profissionais para garantir um reparo de qualidade.`
-                ]}
+                title={iphoneBatteryModel
+                  ? `Sobre a troca de bateria do ${model.displayName}`
+                  : `Sobre o serviço de ${service.name} para ${model.displayName}`}
+                warrantyMonths={service.slug === 'troca-de-bateria' ? 12 : 6}
+                paragraphs={iphoneBatteryModel
+                  ? [
+                      `No ${model.displayName}, a bateria cansada aparece como autonomia curta, desligamento repentino e aquecimento na carga. A troca usa peça compatível com esse aparelho.`,
+                      'Depois da instalação, testamos carga e estabilidade. A garantia da bateria é de 12 meses.'
+                    ]
+                  : [
+                      `Serviço especializado de ${service.name.toLowerCase()} para ${model.displayName} (${modelData.deviceType.displayName} ${brand.displayName}) em Belo Horizonte. Realizamos o reparo com peças de alta qualidade, garantindo compatibilidade, experiência e durabilidade do seu dispositivo.`,
+                      `O ${model.displayName} é um ${modelData.deviceType.displayName} ${brand.displayName} que requer cuidados específicos durante o processo de ${service.name.toLowerCase()}. Nossa equipe técnica possui experiência comprovada com este modelo e utiliza técnicas profissionais para garantir um reparo de qualidade.`
+                    ]}
               />
 
               <section className="bg-card rounded-xl p-8 mb-12 border border-border">
                 <h2 className="text-2xl font-bold text-foreground mb-4">
-                  Sinais e problemas comuns no {model.displayName}
+                  {iphoneBatteryModel
+                    ? `Quando a bateria do ${model.displayName} precisa ser trocada`
+                    : `Sinais de que o ${model.displayName} precisa de ${service.name.toLowerCase()}`}
                 </h2>
                 <ul className="list-disc list-inside space-y-2 text-muted-foreground">
                   {content.sections.problems.map((item) => (
@@ -463,7 +526,9 @@ export default async function ServiceProductPage({ params }: PageProps) {
 
               <section className="bg-card rounded-xl p-8 mb-12 border border-border">
                 <h2 className="text-2xl font-bold text-foreground mb-4">
-                  FAQ — {service.name} ({brand.displayName})
+                  {iphoneBatteryModel
+                    ? `Perguntas frequentes sobre a troca de bateria do ${model.displayName}`
+                    : `Perguntas frequentes sobre ${service.name.toLowerCase()} do ${model.displayName}`}
                 </h2>
                 <div className="space-y-6">
                   {content.sections.faq.map((item) => (
@@ -480,14 +545,16 @@ export default async function ServiceProductPage({ params }: PageProps) {
                   Outros serviços para {model.displayName}
                 </h2>
                 <ul className="flex flex-wrap gap-2">
-                  <li>
-                    <Link
-                      href={hubHref}
-                      className="inline-flex rounded-lg border border-border bg-secondary/30 px-3 py-2 text-sm font-medium text-foreground hover:bg-secondary/40"
-                    >
-                      Todos os {modelData.deviceType.displayName}
-                    </Link>
-                  </li>
+                  {iphoneBatteryModel ? null : (
+                    <li>
+                      <Link
+                        href={hubHref}
+                        className="inline-flex rounded-lg border border-border bg-secondary/30 px-3 py-2 text-sm font-medium text-foreground hover:bg-secondary/40"
+                      >
+                        Todos os {modelData.deviceType.displayName}
+                      </Link>
+                    </li>
+                  )}
                   {relatedServices.map((entry) => (
                     <li key={entry.slug}>
                       <Link
@@ -508,7 +575,9 @@ export default async function ServiceProductPage({ params }: PageProps) {
               {siblingModels.length > 0 && (
                 <section className="bg-card rounded-xl p-8 mb-12 border border-border">
                   <h2 className="text-2xl font-bold text-foreground mb-4">
-                    Outros modelos {modelData.deviceType.displayName}
+                    {iphoneBatteryModel
+                      ? 'Também trocamos a bateria destes iPhones'
+                      : `Outros modelos ${modelData.deviceType.displayName}`}
                   </h2>
                   <ul className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
                     {siblingModels.map((modelSlug) => (
@@ -552,7 +621,9 @@ export default async function ServiceProductPage({ params }: PageProps) {
                   href={hubHref}
                   className="text-sm text-muted-foreground hover:text-primary transition-colors"
                 >
-                  ← Ver outras opções de {modelData.deviceType.displayName}
+                  {iphoneBatteryModel
+                    ? 'Confira também nosso serviço de troca de bateria para iPhone.'
+                    : `← Ver outras opções de ${modelData.deviceType.displayName}`}
                 </Link>
               </div>
             </article>

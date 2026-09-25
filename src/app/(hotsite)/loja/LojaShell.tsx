@@ -15,9 +15,13 @@ import { WhatsAppIcon } from './WhatsAppIcon'
 export function LojaShell({
 	children,
 	navBase = lojaPath,
+	whatsappHref = lojaWhatsAppHref,
+	nav = lojaNav,
 }: {
 	children: React.ReactNode
 	navBase?: string
+	whatsappHref?: string
+	nav?: readonly { href: string; label: string }[]
 }) {
 	return (
 		<div className={styles.page}>
@@ -45,7 +49,7 @@ export function LojaShell({
 					</Link>
 
 					<nav className={styles.nav} aria-label="Seções da loja">
-						{lojaNav.map((item) => (
+						{nav.map((item) => (
 							<a
 								key={item.href}
 								href={`${navBase}${item.href}`}
@@ -58,7 +62,7 @@ export function LojaShell({
 
 					<LojaWhatsAppLink
 						className={`${styles.ctaWhatsapp} ${styles.headerCta}`}
-						href={lojaWhatsAppHref}
+						href={whatsappHref}
 						placement="header"
 					>
 						<WhatsAppIcon className="h-4 w-4" />
@@ -97,7 +101,7 @@ export function LojaShell({
 
 			<LojaWhatsAppLink
 				className={styles.fab}
-				href={lojaWhatsAppHref}
+				href={whatsappHref}
 				placement="fab"
 				aria-label="Falar no WhatsApp"
 			>
