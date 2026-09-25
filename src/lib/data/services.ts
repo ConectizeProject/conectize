@@ -83,9 +83,9 @@ export const services: Service[] = [
   {
     slug: 'reparo-de-audio',
     name: 'Reparo de Áudio',
-    description: 'Correção de problemas de áudio incluindo alto-falante, microfone, fone de ouvido e sistema de som. Restauramos a qualidade de áudio do seu dispositivo.',
+    description: 'Correção de problemas de áudio incluindo alto-falante, microfone, entrada P2 e sistema de som do aparelho. Restauramos a qualidade de áudio do seu dispositivo.',
     shortDescription: 'Reparo de sistema de microfones e auto falantes',
-    keywords: ['alto-falante', 'microfone', 'fone de ouvido', 'áudio'],
+    keywords: ['alto-falante', 'microfone', 'entrada P2', 'áudio'],
     brands: ['apple', 'samsung', 'xiaomi', 'motorola', 'lg'],
     excludedDeviceTypes: {
       apple: ['watch']

@@ -77,7 +77,7 @@ const services: Service[] = [
   {
     icon: Smartphone,
     title: "Troca de Conector",
-    description: "Substituição de conectores de carga e fones de ouvido.",
+    description: "Substituição de conector de carga e entrada P2.",
     href: buildServicesHubHref({ servico: "troca-de-conector" }),
   },
   {

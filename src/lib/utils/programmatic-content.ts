@@ -743,7 +743,7 @@ function getServiceProblems(service: Service, brand: Brand, deviceType: DeviceTy
             'Microfone baixo em ligações',
             'Alto-falante chiando ou estourado',
             'Sem áudio em vídeos',
-            'Fone não reconhece (P2/USB-C)',
+            'Entrada P2/USB-C não reconhece',
             'Som abafado por sujeira/umidade',
             'Áudio falhando intermitente'
         ]
