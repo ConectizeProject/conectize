@@ -14,7 +14,18 @@ import { getSiteUrl } from '@/lib/utils/site-url'
 import { Breadcrumbs } from '@/components/seo/Breadcrumbs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { BatteryModelPage, resolveBatteryModelLanding } from '../battery-model-page'
+import {
+	IphoneRearGlassHubPage,
+	iphoneRearGlassHubSeo,
+	IPHONE_REAR_GLASS_HUB_SLUG,
+} from '../iphone-rear-glass-hub-page'
+import {
+	IphoneScreenHubPage,
+	iphoneScreenHubSeo,
+	IPHONE_SCREEN_HUB_SLUG,
+} from '../iphone-screen-hub-page'
 import { PocoX6ProScreenPage, POCO_X6_PRO_GLASS_SLUG, pocoX6ProScreenSeo } from '../poco-x6-pro-screen-page'
+import { ASSISTENCIA_IPHONE_PATH } from '@/lib/marketing/iphone-pillars'
 
 import { FreteCalculatorLazy } from '@/components/FreteCalculatorLazy'
 
@@ -134,6 +145,36 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       alternates: { canonical: `${getSiteUrl()}/servicos/${POCO_X6_PRO_GLASS_SLUG}` }
     }
   }
+  if (slug === IPHONE_SCREEN_HUB_SLUG) {
+    return {
+      title: iphoneScreenHubSeo.title,
+      description: iphoneScreenHubSeo.description,
+      robots: { index: true, follow: true },
+      alternates: { canonical: `${getSiteUrl()}/servicos/${IPHONE_SCREEN_HUB_SLUG}` },
+      openGraph: {
+        title: iphoneScreenHubSeo.title,
+        description: iphoneScreenHubSeo.description,
+        url: `${getSiteUrl()}/servicos/${IPHONE_SCREEN_HUB_SLUG}`,
+        locale: 'pt_BR',
+        type: 'website',
+      },
+    }
+  }
+  if (slug === IPHONE_REAR_GLASS_HUB_SLUG) {
+    return {
+      title: iphoneRearGlassHubSeo.title,
+      description: iphoneRearGlassHubSeo.description,
+      robots: { index: true, follow: true },
+      alternates: { canonical: `${getSiteUrl()}/servicos/${IPHONE_REAR_GLASS_HUB_SLUG}` },
+      openGraph: {
+        title: iphoneRearGlassHubSeo.title,
+        description: iphoneRearGlassHubSeo.description,
+        url: `${getSiteUrl()}/servicos/${IPHONE_REAR_GLASS_HUB_SLUG}`,
+        locale: 'pt_BR',
+        type: 'website',
+      },
+    }
+  }
   const parsed = parseServiceProductSlug(slug)
   if (!parsed.isValid) {
     return {
@@ -226,6 +267,8 @@ export default async function ServiceProductPage({ params }: PageProps) {
   const batteryLanding = resolveBatteryModelLanding(slug)
   if (batteryLanding) return <BatteryModelPage landing={batteryLanding} />
   if (slug === POCO_X6_PRO_GLASS_SLUG) return <PocoX6ProScreenPage />
+  if (slug === IPHONE_SCREEN_HUB_SLUG) return <IphoneScreenHubPage />
+  if (slug === IPHONE_REAR_GLASS_HUB_SLUG) return <IphoneRearGlassHubPage />
   const parsed = parseServiceProductSlug(slug)
   if (!parsed.isValid) notFound()
 
@@ -508,10 +551,16 @@ export default async function ServiceProductPage({ params }: PageProps) {
                 <p className="text-lg text-muted-foreground">
                   {content.sections.intro}
                 </p>
-                {iphoneBatteryModel ? (
+                {brand.slug === 'apple' && modelData.deviceType.slug === 'iphone' ? (
                   <p className="mt-4 text-muted-foreground">
                     <Link href={hubHref} className="font-medium text-primary hover:underline">
-                      Confira também nosso serviço de troca de bateria para iPhone.
+                      {iphoneBatteryModel
+                        ? 'Voltar ao hub de troca de bateria para iPhone'
+                        : `Voltar ao hub de ${service.name.toLowerCase()} para iPhone`}
+                    </Link>
+                    {' · '}
+                    <Link href={ASSISTENCIA_IPHONE_PATH} className="font-medium text-primary hover:underline">
+                      Assistência técnica iPhone em BH
                     </Link>
                   </p>
                 ) : null}

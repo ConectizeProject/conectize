@@ -34,9 +34,14 @@ export function generateMetaDescription (service: Service, brand?: Brand, device
 }
 
 export function generateKeywords (service: Service, brand?: Brand, deviceType?: DeviceType, model?: Model): string {
+  // Meta keywords têm pouco peso no Google; evita termos que sugerem serviço que não oferecemos.
+  const serviceKeywords = service.slug === 'reparo-de-audio'
+    ? service.keywords.filter((keyword) => !/fone/i.test(keyword))
+    : service.keywords
+
   const baseKeywords = [
     service.name.toLowerCase(),
-    ...service.keywords,
+    ...serviceKeywords,
     'belo horizonte',
     'bh',
     'assistência técnica',

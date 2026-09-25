@@ -8,6 +8,7 @@ import { validateCestNcmPair } from '@/lib/fiscal/cest-lookup'
 import { isNfceServiceItem } from '@/lib/fiscal/certificate-validity'
 import { fiscalCestOrNull, fiscalNcmOrNull } from '@/lib/fiscal/ncm'
 import { buildNfcePagamentoLine, resolveNfcePaymentAmountsWithChange } from '@/lib/fiscal/nfce-payment'
+import { validateCfopCsosnPair } from '@/lib/fiscal/cfop-csosn'
 import { lookupIbgeCityCodeFromCep } from '@/lib/fiscal/viacep'
 import { fiscalDocumentKind } from '@/lib/fiscal/document-status'
 import {
@@ -442,6 +443,14 @@ export async function buildNfceFromPreparedOrder (input: BuildNfcePreparedInput)
     const valorTotal = centsToValue(fiscalItemCents[index])
     const valorUnitario = quantity > 0 ? valorTotal / quantity : valorTotal
     const csosn = onlyDigits(operationNature?.icms_csosn || profile.default_csosn || '') || '102'
+    const cfopCsosn = validateCfopCsosnPair(cfop, csosn)
+    if (cfopCsosn.ok === false) {
+      return {
+        ok: false,
+        error: cfopCsosn.error,
+        message: `Item ${index + 1} (${productName}): ${cfopCsosn.message}`,
+      }
+    }
     const icmsCst = onlyDigits(operationNature?.icms_cst || '') || null
     const gtin = fiscalGtinOrNull(product.barcode)
     const origem = toIcmsOrigin(product.fiscal_origin ?? operationNature?.default_origin ?? profile.default_origin)

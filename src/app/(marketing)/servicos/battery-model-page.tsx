@@ -290,6 +290,17 @@ export function BatteryModelPage({
 									>
 										{landing.hubLinkLabel}
 									</Link>
+									{landing.hubHref.includes('apple-iphone') ? (
+										<>
+											{' · '}
+											<Link
+												href="/assistencia-apple-bh"
+												className="font-medium text-primary hover:underline"
+											>
+												Assistência técnica iPhone em BH
+											</Link>
+										</>
+									) : null}
 								</p>
 							</section>
 

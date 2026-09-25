@@ -1,0 +1,15 @@
+---
+description: Não usar travessão (—) em textos do site
+alwaysApply: true
+---
+
+# Tipografia: sem travessão
+
+Nunca use o caractere travessão `—` (em dash / U+2014) em textos do site, copy de marketing, FAQ, UI ou strings visíveis ao usuário.
+
+Prefira:
+- vírgula
+- ponto final (nova frase)
+- dois-pontos `:`
+
+Exemplo: "Preço e prazo no orçamento: peça pelo WhatsApp."

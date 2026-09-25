@@ -34,6 +34,7 @@ import {
 	SERVICES_HUB_PATH,
 } from '@/lib/utils/services-hub'
 import { getSiteUrl } from '@/lib/utils/site-url'
+import { IPHONE_PILLAR_LINKS } from '@/lib/marketing/iphone-pillars'
 
 type SearchParams = Promise<{
 	marca?: string
@@ -517,6 +518,36 @@ export default async function ConsertoCelularBeloHorizontePage({
 
 							{!isFiltering ? (
 								<>
+									<section className="bg-card rounded-xl p-8 mb-12 border border-border">
+										<h2 className="text-2xl font-bold text-foreground mb-4">
+											iPhone em Belo Horizonte: páginas em destaque
+										</h2>
+										<p className="text-muted-foreground mb-6">
+											Guias focados em assistência e conserto de iPhone, troca
+											de tela e vidro traseiro.
+										</p>
+										<ul className="grid sm:grid-cols-2 gap-4">
+											{IPHONE_PILLAR_LINKS.map((pillar) => (
+												<li key={pillar.href}>
+													<Link
+														href={pillar.href}
+														className="block h-full rounded-xl border border-border bg-secondary/30 p-5 hover:bg-secondary/40 transition-colors"
+													>
+														<span className="font-semibold text-foreground">
+															{pillar.label}
+														</span>
+														<span className="mt-2 block text-sm text-muted-foreground">
+															{pillar.blurb}
+														</span>
+														<span className="mt-3 inline-block text-sm font-medium text-primary">
+															Abrir →
+														</span>
+													</Link>
+												</li>
+											))}
+										</ul>
+									</section>
+
 									<section className="bg-card rounded-xl p-8 mb-12 border border-border">
 										<h2 className="text-2xl font-bold text-foreground mb-4">
 											Conserto e Assistência Técnica de Celulares

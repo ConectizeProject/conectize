@@ -12,6 +12,9 @@ function getFiscalErrorMessage (error: string | null) {
   if (error === 'file_too_large') return 'O certificado deve ter até 2 MB.'
   if (error === 'invalid_file') return 'Envie um arquivo .pfx ou .p12 válido.'
   if (error === 'db') return 'Não foi possível salvar os dados fiscais.'
+  if (error === 'cfop_csosn_mismatch') {
+    return 'CFOP e CSOSN incompatíveis. Sem ST: CFOP 5102 + CSOSN 102. Com ST: CFOP 5405 + CSOSN 500.'
+  }
   return 'Não foi possível salvar as configurações fiscais.'
 }
 

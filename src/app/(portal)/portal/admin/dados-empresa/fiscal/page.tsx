@@ -27,6 +27,7 @@ import {
   upsertDefaultFiscalOperationNature,
   type FiscalOperationType,
 } from '@/lib/fiscal/operation-nature'
+import { validateCfopCsosnPair } from '@/lib/fiscal/cfop-csosn'
 import {
   IBSCBS_CSTS,
   IBSCBS_CST_LABELS,
@@ -124,6 +125,14 @@ async function updateFiscalAction (formData: FormData) {
     ibscbsCst: String(formData.get('ibscbsCst') || '000'),
     ibscbsCclassTrib: String(formData.get('ibscbsCclassTrib') || '000001'),
   })
+
+  const cfopCsosn = validateCfopCsosnPair(
+    operationNature.defaultCfop,
+    operationNature.icmsCsosn || '102',
+  )
+  if (cfopCsosn.ok === false) {
+    redirect(`/portal/admin/dados-empresa/fiscal?error=${encodeURIComponent(cfopCsosn.error)}`)
+  }
 
   const profile = normalizeFiscalProfileInput({
     legalName: String(formData.get('legalName') || ''),
@@ -596,6 +605,9 @@ export default async function FiscalSettingsPage ({
               <div className='space-y-2'>
                 <Label htmlFor='defaultCfop'>CFOP padrão NFC-e/NF-e</Label>
                 <Input id='defaultCfop' name='defaultCfop' defaultValue={nfceNature.defaultCfop} maxLength={4} />
+                <p className='text-xs text-muted-foreground'>
+                  Venda sem ST: 5102. Venda com ST: 5405.
+                </p>
               </div>
               <div className='space-y-2'>
                 <Label htmlFor='defaultOrigin'>Origem</Label>
@@ -608,6 +620,9 @@ export default async function FiscalSettingsPage ({
               <div className='space-y-2'>
                 <Label htmlFor='defaultCsosn'>CSOSN</Label>
                 <Input id='defaultCsosn' name='defaultCsosn' defaultValue={nfceNature.icmsCsosn || '102'} maxLength={3} />
+                <p className='text-xs text-muted-foreground'>
+                  Sem ST: 102. Com ST: 500. CFOP e CSOSN precisam combinar.
+                </p>
               </div>
               <div className='space-y-2'>
                 <Label htmlFor='defaultIcmsCst'>ICMS CST</Label>
