@@ -111,9 +111,10 @@ const nextConfig = {
 
 		// Só 1 segmento aqui: next.config não consegue montar slug com hífen
 		// (ex.: troca-de-bateria-samsung-galaxy-a54). Multi-segmento fica no proxy + catch-all.
+		const servicesHubPath = '/conserto-de-celular-belo-horizonte'
 		const serviceRedirects = serviceSlugs.map((serviceSlug) => ({
 			source: `/servicos/${serviceSlug}`,
-			destination: `/servicos?servico=${serviceSlug}`,
+			destination: `${servicesHubPath}?servico=${serviceSlug}`,
 			permanent: true,
 		}))
 

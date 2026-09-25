@@ -1,5 +1,6 @@
 import { brands, getBrandBySlug, getModelBySlugAnyType, getServiceBySlug, services } from '@/lib/data/services'
 import { buildServiceProductSlug, parseServiceProductSlug } from '@/lib/utils/service-product-slug'
+import { buildServicesHubHref } from '@/lib/utils/services-hub'
 
 const serviceSlugs = new Set(services.map((s) => s.slug))
 const brandSlugs = new Set(Object.keys(brands))
@@ -46,7 +47,7 @@ export function resolveLegacyServiceDestination (segments: string[]): string | n
   // /servicos/<servico> → hub
   if (segments.length === 1) {
     const slug = segments[0]
-    if (serviceSlugs.has(slug)) return `/servicos?servico=${encodeURIComponent(slug)}`
+    if (serviceSlugs.has(slug)) return buildServicesHubHref({ servico: slug })
     return resolveDuplicatedDeviceSuffix(slug)
   }
 
@@ -62,7 +63,7 @@ export function resolveLegacyServiceDestination (segments: string[]): string | n
     }
     // /servicos/<servico>/<marca>/<tipo> → hub
     if (serviceSlugs.has(a) && brandSlugs.has(b)) {
-      return `/servicos?marca=${encodeURIComponent(b)}&servico=${encodeURIComponent(a)}`
+      return buildServicesHubHref({ marca: b, servico: a })
     }
   }
 
@@ -70,10 +71,10 @@ export function resolveLegacyServiceDestination (segments: string[]): string | n
   if (segments.length === 2) {
     const [a, b] = segments
     if (brandSlugs.has(a) && serviceSlugs.has(b)) {
-      return `/servicos?marca=${encodeURIComponent(a)}&servico=${encodeURIComponent(b)}`
+      return buildServicesHubHref({ marca: a, servico: b })
     }
     if (serviceSlugs.has(a) && brandSlugs.has(b)) {
-      return `/servicos?marca=${encodeURIComponent(b)}&servico=${encodeURIComponent(a)}`
+      return buildServicesHubHref({ marca: b, servico: a })
     }
   }
 

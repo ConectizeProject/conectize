@@ -259,7 +259,7 @@ export function BatteryModelPage({
 					<Breadcrumbs
 						items={[
 							{ label: 'Home', href: '/' },
-							{ label: 'Serviços', href: '/servicos' },
+							{ label: 'Serviços', href: '/conserto-de-celular-belo-horizonte' },
 							{ label: landing.hubLabel, href: landing.hubHref },
 							{ label: landing.name, href: landing.pageHref },
 						]}

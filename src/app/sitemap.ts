@@ -19,7 +19,7 @@ export default function sitemap (): MetadataRoute.Sitemap {
     },
     // Páginas principais
     {
-      url: `${baseUrl}/servicos`,
+      url: `${baseUrl}/conserto-de-celular-belo-horizonte`,
       lastModified,
       changeFrequency: 'weekly',
       priority: 0.9,

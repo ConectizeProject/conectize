@@ -2,12 +2,13 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { MapPin, Phone, Mail } from 'lucide-react'
 import { business } from '@/lib/data/business'
+import { buildServicesHubHref } from '@/lib/utils/services-hub'
 
 const footerServices = [
   { label: 'Assistência Apple (iPhone, iPad, Mac)', href: '/assistencia-apple-bh' },
   { label: 'Troca de Tela', href: '/troca-de-tela-celular-bh' },
-  { label: 'Troca de Bateria', href: '/servicos?servico=troca-de-bateria' },
-  { label: 'Reparo de Placa', href: '/servicos?servico=reparo-de-placa' },
+  { label: 'Troca de Bateria', href: buildServicesHubHref({ servico: 'troca-de-bateria' }) },
+  { label: 'Reparo de Placa', href: buildServicesHubHref({ servico: 'reparo-de-placa' }) },
   { label: 'Coleta em Domicílio', href: '/coleta' }
 ]
 

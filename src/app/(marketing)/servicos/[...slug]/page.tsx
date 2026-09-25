@@ -258,13 +258,13 @@ export default async function ServiceProductPage({ params }: PageProps) {
     const breadcrumbs = iphoneBatteryHub
       ? [
           { label: 'Home', href: '/' },
-          { label: 'Serviços', href: '/servicos' },
+          { label: 'Serviços', href: '/conserto-de-celular-belo-horizonte' },
           { label: 'Troca de bateria iPhone', href: hubHref }
         ]
       : [
           { label: 'Home', href: '/' },
-          { label: 'Serviços', href: '/servicos' },
-          { label: brand.displayName, href: '/servicos' },
+          { label: 'Serviços', href: '/conserto-de-celular-belo-horizonte' },
+          { label: brand.displayName, href: '/conserto-de-celular-belo-horizonte' },
           { label: service.name, href: hubHref },
           { label: deviceType.displayName, href: hubHref }
         ]
@@ -464,14 +464,14 @@ export default async function ServiceProductPage({ params }: PageProps) {
   const breadcrumbs = iphoneBatteryModel
     ? [
         { label: 'Home', href: '/' },
-        { label: 'Serviços', href: '/servicos' },
+        { label: 'Serviços', href: '/conserto-de-celular-belo-horizonte' },
         { label: 'Troca de bateria iPhone', href: hubHref },
         { label: model.displayName, href: `/servicos/${slug}` }
       ]
     : [
         { label: 'Home', href: '/' },
-        { label: 'Serviços', href: '/servicos' },
-        { label: brand.displayName, href: '/servicos' },
+        { label: 'Serviços', href: '/conserto-de-celular-belo-horizonte' },
+        { label: brand.displayName, href: '/conserto-de-celular-belo-horizonte' },
         { label: service.name, href: hubHref },
         { label: model.displayName, href: `/servicos/${slug}` }
       ]

@@ -174,7 +174,7 @@ export function PocoX6ProScreenPage() {
 					<Breadcrumbs
 						items={[
 							{ label: 'Home', href: '/' },
-							{ label: 'Serviços', href: '/servicos' },
+							{ label: 'Serviços', href: '/conserto-de-celular-belo-horizonte' },
 							{ label: 'Troca de vidro Xiaomi', href: hubHref },
 							{ label: 'Troca de tela e vidro', href: pageHref },
 						]}

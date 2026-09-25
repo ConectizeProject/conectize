@@ -15,7 +15,7 @@ export function ClearServicosFiltersButton (props: { className?: string }) {
     setIsClearing(true)
 
     try {
-      router.push(pathname || '/servicos')
+      router.push(pathname || '/conserto-de-celular-belo-horizonte')
     } finally {
       const elapsedMs = Date.now() - startAt
       const remainingMs = Math.max(0, 1000 - elapsedMs)

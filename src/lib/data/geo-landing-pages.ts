@@ -36,8 +36,8 @@ export const geoLandingPages: GeoLandingPage[] = [
     whatsappMessage: 'Olá! Gostaria de um orçamento para assistência técnica de celular em Belo Horizonte.',
     serviceLinks: [
       { label: 'Troca de tela', href: '/troca-de-tela-celular-bh' },
-      { label: 'Troca de bateria', href: '/servicos?servico=troca-de-bateria' },
-      { label: 'Reparo de placa', href: '/servicos?servico=reparo-de-placa' },
+      { label: 'Troca de bateria', href: '/conserto-de-celular-belo-horizonte?servico=troca-de-bateria' },
+      { label: 'Reparo de placa', href: '/conserto-de-celular-belo-horizonte?servico=reparo-de-placa' },
       { label: 'Coleta em domicílio', href: '/coleta' }
     ],
     sections: [
@@ -175,7 +175,7 @@ export const geoLandingPages: GeoLandingPage[] = [
     serviceLinks: [
       { label: 'Troca de tela iPhone', href: '/servicos/troca-de-tela-apple-iphone' },
       { label: 'Troca de tela Samsung', href: '/servicos/troca-de-tela-samsung-smartphone' },
-      { label: 'Troca de vidro da tela', href: '/servicos?servico=troca-de-vidro-da-tela' },
+      { label: 'Troca de vidro da tela', href: '/conserto-de-celular-belo-horizonte?servico=troca-de-vidro-da-tela' },
       { label: 'Coleta em domicílio', href: '/coleta' }
     ],
     sections: [

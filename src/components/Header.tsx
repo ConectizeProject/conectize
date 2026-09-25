@@ -5,6 +5,7 @@ import Image from 'next/image'
 import { Menu, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useState } from 'react'
+import { SERVICES_HUB_PATH } from '@/lib/utils/services-hub'
 
 const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -28,7 +29,7 @@ const Header = () => {
 
           {/* Desktop menu */}
           <div className="hidden md:flex items-center gap-8">
-            <Link href="/servicos" className="text-foreground hover:text-primary-accessible transition-colors font-medium">
+            <Link href={SERVICES_HUB_PATH} className="text-foreground hover:text-primary-accessible transition-colors font-medium">
               Serviços
             </Link>
             <Link href="/coleta" className="text-foreground hover:text-primary-accessible transition-colors font-medium">
@@ -73,7 +74,7 @@ const Header = () => {
           <div id="mobile-menu" className="md:hidden pt-4 pb-2 animate-fade-in">
             <div className="flex flex-col gap-4">
               <Link
-                href="/servicos"
+                href={SERVICES_HUB_PATH}
                 onClick={() => setIsMenuOpen(false)}
                 className="text-foreground hover:text-primary-accessible transition-colors font-medium text-left py-2"
               >

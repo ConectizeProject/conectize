@@ -11,7 +11,13 @@ describe('resolveLegacyServiceDestination', () => {
   it('redirects brand/service hub', () => {
     expect(
       resolveLegacyServiceDestination(['apple', 'reparo-de-placa'])
-    ).toBe('/servicos?marca=apple&servico=reparo-de-placa')
+    ).toBe('/conserto-de-celular-belo-horizonte?marca=apple&servico=reparo-de-placa')
+  })
+
+  it('redirects single service segment to the services hub', () => {
+    expect(
+      resolveLegacyServiceDestination(['troca-de-bateria'])
+    ).toBe('/conserto-de-celular-belo-horizonte?servico=troca-de-bateria')
   })
 
   it('redirects service/brand/type/model to canonical slug', () => {
