@@ -13,6 +13,7 @@ import { listServiceHubs } from '@/lib/utils/service-hubs'
 import { getSiteUrl } from '@/lib/utils/site-url'
 import { Breadcrumbs } from '@/components/seo/Breadcrumbs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Iphone13BatteryPage, IPHONE_13_BATTERY_SLUG, iphone13BatterySeo } from '../iphone-13-battery-page'
 
 import { FreteCalculatorLazy } from '@/components/FreteCalculatorLazy'
 
@@ -115,6 +116,14 @@ function ServiceFocusContent (props: { title: string, paragraphs: string[], warr
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug: segments } = await params
   const slug = resolveProductSlug(segments)
+  if (slug === IPHONE_13_BATTERY_SLUG) {
+    return {
+      title: iphone13BatterySeo.title,
+      description: iphone13BatterySeo.description,
+      robots: { index: true, follow: true },
+      alternates: { canonical: `${getSiteUrl()}/servicos/${IPHONE_13_BATTERY_SLUG}` }
+    }
+  }
   const parsed = parseServiceProductSlug(slug)
   if (!parsed.isValid) {
     return {
@@ -204,6 +213,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 export default async function ServiceProductPage({ params }: PageProps) {
   const { slug: segments } = await params
   const slug = resolveProductSlug(segments)
+  if (slug === IPHONE_13_BATTERY_SLUG) return <Iphone13BatteryPage />
   const parsed = parseServiceProductSlug(slug)
   if (!parsed.isValid) notFound()
 
