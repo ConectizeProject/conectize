@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Outfit } from 'next/font/google'
 import Script from 'next/script'
+import { WhatsAppClickTracker } from '@/components/analytics/WhatsAppClickTracker'
 import { GoogleAnalyticsSafe } from '@/components/GoogleAnalyticsSafe'
 import { business } from '@/lib/data/business'
 import { THEME_BOOT_SCRIPT } from '@/lib/theme-boot-script'
@@ -101,6 +102,7 @@ export default function RootLayout({
 					dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }}
 				/>
 				<GoogleAnalyticsSafe />
+				<WhatsAppClickTracker />
 				{children}
 			</body>
 		</html>

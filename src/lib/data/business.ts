@@ -213,15 +213,6 @@ export function getServiceJsonLd(input: {
       '@type': 'LocalBusiness',
       '@id': `${business.siteUrl}/#localbusiness`,
       name: business.name,
-      telephone: business.phone,
-      address: {
-        '@type': 'PostalAddress',
-        streetAddress: business.address.streetAddress,
-        addressLocality: business.address.addressLocality,
-        addressRegion: business.address.addressRegion,
-        postalCode: business.address.postalCode,
-        addressCountry: business.address.addressCountry
-      }
     }
   }
 }

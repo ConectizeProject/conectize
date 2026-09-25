@@ -482,6 +482,7 @@ export default async function ConsertoCelularBeloHorizontePage({
 											href={whatsappHref}
 											target="_blank"
 											rel="noopener noreferrer"
+											data-placement="aside"
 											className="flex items-center justify-center gap-2 bg-[hsl(142,70%,45%)] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[hsl(142,70%,40%)] transition-colors"
 										>
 											<MessageCircle className="w-5 h-5" />
