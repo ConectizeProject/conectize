@@ -13,7 +13,8 @@ import { listServiceHubs } from '@/lib/utils/service-hubs'
 import { getSiteUrl } from '@/lib/utils/site-url'
 import { Breadcrumbs } from '@/components/seo/Breadcrumbs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Iphone13BatteryPage, IPHONE_13_BATTERY_SLUG, iphone13BatterySeo } from '../iphone-13-battery-page'
+import { BatteryModelPage, resolveBatteryModelLanding } from '../battery-model-page'
+import { PocoX6ProScreenPage, POCO_X6_PRO_GLASS_SLUG, pocoX6ProScreenSeo } from '../poco-x6-pro-screen-page'
 
 import { FreteCalculatorLazy } from '@/components/FreteCalculatorLazy'
 
@@ -116,12 +117,21 @@ function ServiceFocusContent (props: { title: string, paragraphs: string[], warr
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug: segments } = await params
   const slug = resolveProductSlug(segments)
-  if (slug === IPHONE_13_BATTERY_SLUG) {
+  const batteryLanding = resolveBatteryModelLanding(slug)
+  if (batteryLanding) {
     return {
-      title: iphone13BatterySeo.title,
-      description: iphone13BatterySeo.description,
+      title: batteryLanding.seo.title,
+      description: batteryLanding.seo.description,
       robots: { index: true, follow: true },
-      alternates: { canonical: `${getSiteUrl()}/servicos/${IPHONE_13_BATTERY_SLUG}` }
+      alternates: { canonical: `${getSiteUrl()}/servicos/${slug}` }
+    }
+  }
+  if (slug === POCO_X6_PRO_GLASS_SLUG) {
+    return {
+      title: pocoX6ProScreenSeo.title,
+      description: pocoX6ProScreenSeo.description,
+      robots: { index: true, follow: true },
+      alternates: { canonical: `${getSiteUrl()}/servicos/${POCO_X6_PRO_GLASS_SLUG}` }
     }
   }
   const parsed = parseServiceProductSlug(slug)
@@ -213,7 +223,9 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 export default async function ServiceProductPage({ params }: PageProps) {
   const { slug: segments } = await params
   const slug = resolveProductSlug(segments)
-  if (slug === IPHONE_13_BATTERY_SLUG) return <Iphone13BatteryPage />
+  const batteryLanding = resolveBatteryModelLanding(slug)
+  if (batteryLanding) return <BatteryModelPage landing={batteryLanding} />
+  if (slug === POCO_X6_PRO_GLASS_SLUG) return <PocoX6ProScreenPage />
   const parsed = parseServiceProductSlug(slug)
   if (!parsed.isValid) notFound()
 

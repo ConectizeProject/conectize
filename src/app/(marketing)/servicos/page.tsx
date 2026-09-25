@@ -38,6 +38,10 @@ const quickFilters = [
     href: `/servicos/${buildServiceProductSlug({ serviceSlug: 'troca-de-bateria', brandSlug: 'samsung', modelSlug: 'smartphone' })}`
   },
   {
+    label: 'Troca de tela POCO X6 Pro',
+    href: `/servicos/${buildServiceProductSlug({ serviceSlug: 'troca-de-vidro-da-tela', brandSlug: 'xiaomi', modelSlug: 'poco-x6-pro' })}`
+  },
+  {
     label: 'Troca de vidro do iPhone',
     href: `/servicos/${buildServiceProductSlug({ serviceSlug: 'troca-de-vidro-da-tela', brandSlug: 'apple', modelSlug: 'iphone' })}`
   },
