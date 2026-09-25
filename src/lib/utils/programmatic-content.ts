@@ -22,6 +22,10 @@ type Input = {
     model?: Model
 }
 
+function isAppleIphoneBattery (service: Service, brand: Brand, deviceType: DeviceType) {
+    return service.slug === 'troca-de-bateria' && brand.slug === 'apple' && deviceType.slug === 'iphone'
+}
+
 const city = 'Belo Horizonte'
 
 function normalizeSpaces(value: string) {
@@ -333,7 +337,7 @@ function getFaq(service: Service, brand: Brand, deviceType: DeviceType, model?: 
             },
             {
                 q: 'Qual é o prazo e a garantia?',
-                a: 'Em geral até 24h úteis. Garantia de 6 meses para o serviço e peça instalada.'
+                a: 'Em geral até 24h úteis. Garantia de 12 meses para o serviço e a peça instalada.'
             }
         ]
     }
@@ -1071,12 +1075,31 @@ function getIntro(service: Service, brand: Brand, deviceType: DeviceType, model?
         }
     }
 
+    if (isAppleIphoneBattery(service, brand, deviceType)) {
+        if (model) {
+            return normalizeSpaces(
+                `Trocamos a bateria do ${deviceLabel} em ${city}. ` +
+                `Se a carga acaba rápido, o aparelho desliga com porcentagem ainda alta ou esquenta ao carregar, avaliamos a bateria e passamos o orçamento antes da troca.`
+            )
+        }
+
+        return normalizeSpaces(
+            `Trocamos a bateria do iPhone em ${city}. ` +
+            `Se a autonomia caiu, o aparelho desliga sozinho ou esquenta na carga, avaliamos o seu modelo e passamos o orçamento, com garantia de 12 meses na peça instalada.`
+        )
+    }
+
     return normalizeSpaces(
         `${compact} em ${city} para ${deviceLabel} ${brand.displayName}. `
     )
 }
 
 function buildTitle(service: Service, brand: Brand, deviceType: DeviceType, model?: Model) {
+    if (isAppleIphoneBattery(service, brand, deviceType)) {
+        const device = model ? getDeviceLabel(brand, deviceType, model) : 'iPhone'
+        return ensureTitle(`Troca de Bateria ${device} em BH | Conectize`)
+    }
+
     const s = compactService(service)
     const device = getDeviceLabel(brand, deviceType, model)
 
@@ -1128,6 +1151,18 @@ function buildDescription(service: Service, brand: Brand, deviceType: DeviceType
         )
     }
 
+    if (isAppleIphoneBattery(service, brand, deviceType)) {
+        if (model) {
+            return ensureDescription(
+                `Trocamos a bateria do ${device} em ${city}, com diagnóstico de autonomia, orçamento e garantia de 12 meses na peça instalada.`
+            )
+        }
+
+        return ensureDescription(
+            `Troca de bateria para iPhone em ${city}. Atendemos vários modelos, com diagnóstico, orçamento e garantia de 12 meses na peça instalada.`
+        )
+    }
+
     if (service.slug === 'troca-de-bateria' && brand.slug === 'apple') {
         return ensureDescription(
             `Troca de bateria em ${city} para ${device}. Corrige desligamentos, aquecimento e autonomia baixa com testes de carga e estabilidade. Ideal para iPhone com queda brusca de porcentagem.`
@@ -1143,9 +1178,11 @@ export function generateProgrammaticContent(input: Input): ProgrammaticContent {
     const { service, brand, deviceType, model } = input
     const deviceLabel = getDeviceLabel(brand, deviceType, model)
 
-    const h1 = model
-        ? `${service.name} ${brand.displayName} ${deviceLabel} em ${city}`
-        : `${service.name} ${brand.displayName} ${deviceLabel} em ${city}`
+    const h1 = isAppleIphoneBattery(service, brand, deviceType)
+        ? `Troca de Bateria do ${model ? deviceLabel : 'iPhone'} em ${city}`
+        : model
+            ? `${service.name} ${brand.displayName} ${deviceLabel} em ${city}`
+            : `${service.name} ${brand.displayName} ${deviceLabel} em ${city}`
 
     return {
         title: buildTitle(service, brand, deviceType, model),

@@ -5,14 +5,17 @@ import {
 	Headphones,
 	MapPin,
 	Monitor,
+	RectangleHorizontal,
 	Shield,
+	ShoppingBag,
 	Smartphone,
-	Star,
+	Square,
 	Store,
 	Tablet,
+	type LucideIcon,
 } from 'lucide-react'
 import type { Metadata } from 'next'
-import { business, getFormattedOpeningHours } from '@/lib/data/business'
+import Link from 'next/link'
 import {
 	getLojaFaqJsonLd,
 	getLojaJsonLd,
@@ -21,26 +24,30 @@ import {
 	lojaHighlights,
 	lojaLines,
 	lojaPath,
-	lojaGoogleRating,
 	lojaProducts,
-	lojaTestimonials,
 	lojaWhatsAppHref,
 } from '@/lib/data/hotsite-loja'
 import { getSiteUrl } from '@/lib/utils/site-url'
 import { HeroBrokenPhone } from './HeroBrokenPhone'
+import { LojaContactCta } from './LojaContactCta'
+import { LojaReviews } from './LojaReviews'
 import { LojaShell } from './LojaShell'
+import { LojaStoreSection } from './LojaStoreSection'
 import { LojaWhatsAppLink } from './LojaWhatsAppLink'
 import styles from './loja.module.css'
 import { WhatsAppIcon } from './WhatsAppIcon'
 
-const productIcons = [
-	Monitor,
-	Battery,
-	Shield,
-	Smartphone,
-	Cable,
-	Headphones,
-] as const
+const productIcons: Record<string, LucideIcon> = {
+	'Telas e displays': Monitor,
+	'Vidro frontal': Square,
+	Baterias: Battery,
+	'Vidro traseiro': RectangleHorizontal,
+	Capinhas: Shield,
+	Películas: Smartphone,
+	'Carregadores e cabos': Cable,
+	'Áudio e extras': Headphones,
+	Acessórios: ShoppingBag,
+}
 const lineIcons = [Smartphone, Tablet, Store] as const
 
 export const metadata: Metadata = {
@@ -65,8 +72,6 @@ export const metadata: Metadata = {
 }
 
 export default function LojaPage() {
-	const hours = getFormattedOpeningHours()
-
 	return (
 		<LojaShell navBase="">
 			<script
@@ -167,16 +172,20 @@ export default function LojaPage() {
 							</p>
 						</div>
 						<div className={`${styles.grid} ${styles.products}`}>
-							{lojaProducts.map((product, index) => {
-								const Icon = productIcons[index] ?? Smartphone
+							{lojaProducts.map((product) => {
+								const Icon = productIcons[product.title] ?? Smartphone
 								return (
-									<article key={product.title} className={styles.card}>
+									<Link
+										key={product.title}
+										href={product.href}
+										className={`${styles.card} ${styles.cardLink}`}
+									>
 										<div className={styles.icon}>
 											<Icon className="h-5 w-5" aria-hidden="true" />
 										</div>
 										<h3>{product.title}</h3>
 										<p>{product.description}</p>
-									</article>
+									</Link>
 								)
 							})}
 						</div>
@@ -243,129 +252,8 @@ export default function LojaPage() {
 					</div>
 				</section>
 
-				<section
-					id="avaliacoes"
-					className={styles.reviews}
-					aria-labelledby="avaliacoes-titulo"
-				>
-					<div className={styles.wrap}>
-						<div className={styles.reviewsHead}>
-							<p className={styles.reviewsKicker}>Avaliações</p>
-							<h2 id="avaliacoes-titulo">O que os clientes dizem sobre a gente</h2>
-						</div>
-
-						<div className={styles.reviewsScore}>
-							<p className={styles.reviewsScoreValue}>
-								{lojaGoogleRating.ratingValue.toFixed(1)}
-							</p>
-							<div className={styles.reviewsScoreMeta}>
-								<div
-									className={styles.reviewsStars}
-									aria-label={`${lojaGoogleRating.ratingValue} de 5 estrelas`}
-								>
-									{Array.from({ length: 5 }).map((_, index) => (
-										<Star
-											key={index}
-											className={styles.reviewsStar}
-											aria-hidden="true"
-										/>
-									))}
-								</div>
-								<p>
-									{lojaGoogleRating.reviewCountLabel} avaliações no{' '}
-									{lojaGoogleRating.sourceLabel}
-								</p>
-								<a
-									href={lojaGoogleRating.mapsUrl}
-									target="_blank"
-									rel="noopener noreferrer"
-								>
-									Ver no Google
-								</a>
-							</div>
-						</div>
-
-						<div className={styles.reviewsGrid}>
-							{lojaTestimonials.map((item) => (
-								<figure key={item.name} className={styles.reviewCard}>
-									<div
-										className={styles.reviewsStars}
-										aria-hidden="true"
-									>
-										{Array.from({ length: 5 }).map((_, index) => (
-											<Star
-												key={index}
-												className={styles.reviewsStar}
-											/>
-										))}
-									</div>
-									<blockquote>
-										<p>“{item.quote}”</p>
-									</blockquote>
-									<figcaption>
-										<strong>{item.name}</strong>
-									</figcaption>
-								</figure>
-							))}
-						</div>
-					</div>
-				</section>
-
-				<section
-					id="unidade"
-					className={`${styles.section} ${styles.sectionAlt}`}
-					aria-labelledby="unidade-titulo"
-				>
-					<div className={styles.wrap}>
-						<div className={styles.storeGrid}>
-							<div className={styles.storeCopy}>
-								<p className={styles.kicker}>Unidade</p>
-								<h2 id="unidade-titulo">Visite a loja em Santa Efigênia</h2>
-								<p>
-									Atendimento presencial em Belo Horizonte. Se preferir, chame
-									no WhatsApp para confirmar estoque e horário antes de vir.
-								</p>
-							</div>
-							<ul className={styles.storeMeta}>
-								<li className={styles.metaRow}>
-									<MapPin
-										className={`${styles.accentIcon} h-5 w-5`}
-										aria-hidden="true"
-									/>
-									<div>
-										<p className={styles.metaTitle}>
-											{business.address.streetAddress}
-										</p>
-										<p className="mt-1">
-											{business.address.neighborhood},{' '}
-											{business.address.addressLocality} -{' '}
-											{business.address.addressRegion}{' '}
-											{business.address.postalCode}
-										</p>
-										<a
-											href={business.hasMap}
-											target="_blank"
-											rel="noopener noreferrer"
-										>
-											Abrir no Google Maps
-										</a>
-									</div>
-								</li>
-								<li className={styles.metaRow}>
-									<Clock
-										className={`${styles.accentIcon} h-5 w-5`}
-										aria-hidden="true"
-									/>
-									<div>
-										{hours.map((item) => (
-											<p key={item}>{item}</p>
-										))}
-									</div>
-								</li>
-							</ul>
-						</div>
-					</div>
-				</section>
+				<LojaReviews />
+				<LojaStoreSection />
 
 				<section className={styles.section} aria-labelledby="faq-titulo">
 					<div className={styles.wrap}>
@@ -384,34 +272,7 @@ export default function LojaPage() {
 					</div>
 				</section>
 
-				<section
-					id="contato"
-					className={styles.section}
-					aria-labelledby="contato-titulo"
-				>
-					<div className={styles.wrap}>
-						<div className={styles.ctaBand}>
-							<h2 id="contato-titulo">Peça seu orçamento agora</h2>
-							<p>
-								Informe o modelo do aparelho e o produto que você procura.
-								Respondemos pelo WhatsApp com as opções da loja.
-							</p>
-							<div className={styles.ctaActions}>
-								<LojaWhatsAppLink
-									className={styles.ctaWhatsapp}
-									href={lojaWhatsAppHref}
-									placement="contato"
-								>
-									<WhatsAppIcon className="h-5 w-5" />
-									Falar no WhatsApp
-								</LojaWhatsAppLink>
-								<a className={styles.ctaGhost} href={`tel:${business.phone}`}>
-									Ligar {business.phoneDisplay}
-								</a>
-							</div>
-						</div>
-					</div>
-				</section>
+				<LojaContactCta />
 			</main>
 		</LojaShell>
 	)
