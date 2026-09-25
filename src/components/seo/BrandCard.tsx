@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import type { Brand } from '@/lib/types/seo'
+import { buildServicesHubHref } from '@/lib/utils/services-hub'
 
 interface BrandCardProps {
   brand: Brand
@@ -12,8 +13,8 @@ export function BrandCard ({ brand, serviceSlug }: BrandCardProps) {
     0
   )
   const totalDeviceTypes = Object.keys(brand.deviceTypes).length
-  const href = `/servicos?marca=${brand.slug}&servico=${serviceSlug}`
-  
+  const href = buildServicesHubHref({ marca: brand.slug, servico: serviceSlug })
+
   return (
     <Link
       href={href}
@@ -28,4 +29,3 @@ export function BrandCard ({ brand, serviceSlug }: BrandCardProps) {
     </Link>
   )
 }
-

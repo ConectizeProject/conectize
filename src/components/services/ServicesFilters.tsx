@@ -59,7 +59,7 @@ function getModelOptions(brandSlug: string, serviceSlug?: string, deviceTypeSlug
 
 export function ServicesFilters() {
   const router = useRouter()
-  const pathname = usePathname() || '/servicos'
+  const pathname = usePathname() || '/conserto-de-celular-belo-horizonte'
   const searchParams = useSearchParams()
 
   const marca = searchParams.get('marca') || ''

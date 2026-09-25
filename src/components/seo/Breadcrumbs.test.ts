@@ -6,7 +6,7 @@ describe('getBreadcrumbJsonLd', () => {
   it('emits absolute www URLs and 1-based positions', () => {
     const jsonLd = getBreadcrumbJsonLd([
       { label: 'Home', href: '/' },
-      { label: 'Serviços', href: '/servicos' },
+      { label: 'Serviços', href: '/conserto-de-celular-belo-horizonte' },
       { label: 'Troca de Tela', href: '/servicos/troca-de-tela-apple-iphone' },
     ])
 
@@ -22,7 +22,7 @@ describe('getBreadcrumbJsonLd', () => {
         '@type': 'ListItem',
         position: 2,
         name: 'Serviços',
-        item: `${getSiteUrl()}/servicos`,
+        item: `${getSiteUrl()}/conserto-de-celular-belo-horizonte`,
       },
       {
         '@type': 'ListItem',

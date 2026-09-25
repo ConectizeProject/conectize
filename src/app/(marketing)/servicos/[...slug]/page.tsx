@@ -13,6 +13,8 @@ import { listServiceHubs } from '@/lib/utils/service-hubs'
 import { getSiteUrl } from '@/lib/utils/site-url'
 import { Breadcrumbs } from '@/components/seo/Breadcrumbs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { BatteryModelPage, resolveBatteryModelLanding } from '../battery-model-page'
+import { PocoX6ProScreenPage, POCO_X6_PRO_GLASS_SLUG, pocoX6ProScreenSeo } from '../poco-x6-pro-screen-page'
 
 import { FreteCalculatorLazy } from '@/components/FreteCalculatorLazy'
 
@@ -115,6 +117,23 @@ function ServiceFocusContent (props: { title: string, paragraphs: string[], warr
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug: segments } = await params
   const slug = resolveProductSlug(segments)
+  const batteryLanding = resolveBatteryModelLanding(slug)
+  if (batteryLanding) {
+    return {
+      title: batteryLanding.seo.title,
+      description: batteryLanding.seo.description,
+      robots: { index: true, follow: true },
+      alternates: { canonical: `${getSiteUrl()}/servicos/${slug}` }
+    }
+  }
+  if (slug === POCO_X6_PRO_GLASS_SLUG) {
+    return {
+      title: pocoX6ProScreenSeo.title,
+      description: pocoX6ProScreenSeo.description,
+      robots: { index: true, follow: true },
+      alternates: { canonical: `${getSiteUrl()}/servicos/${POCO_X6_PRO_GLASS_SLUG}` }
+    }
+  }
   const parsed = parseServiceProductSlug(slug)
   if (!parsed.isValid) {
     return {
@@ -204,6 +223,9 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 export default async function ServiceProductPage({ params }: PageProps) {
   const { slug: segments } = await params
   const slug = resolveProductSlug(segments)
+  const batteryLanding = resolveBatteryModelLanding(slug)
+  if (batteryLanding) return <BatteryModelPage landing={batteryLanding} />
+  if (slug === POCO_X6_PRO_GLASS_SLUG) return <PocoX6ProScreenPage />
   const parsed = parseServiceProductSlug(slug)
   if (!parsed.isValid) notFound()
 
@@ -236,13 +258,13 @@ export default async function ServiceProductPage({ params }: PageProps) {
     const breadcrumbs = iphoneBatteryHub
       ? [
           { label: 'Home', href: '/' },
-          { label: 'Serviços', href: '/servicos' },
+          { label: 'Serviços', href: '/conserto-de-celular-belo-horizonte' },
           { label: 'Troca de bateria iPhone', href: hubHref }
         ]
       : [
           { label: 'Home', href: '/' },
-          { label: 'Serviços', href: '/servicos' },
-          { label: brand.displayName, href: '/servicos' },
+          { label: 'Serviços', href: '/conserto-de-celular-belo-horizonte' },
+          { label: brand.displayName, href: '/conserto-de-celular-belo-horizonte' },
           { label: service.name, href: hubHref },
           { label: deviceType.displayName, href: hubHref }
         ]
@@ -442,14 +464,14 @@ export default async function ServiceProductPage({ params }: PageProps) {
   const breadcrumbs = iphoneBatteryModel
     ? [
         { label: 'Home', href: '/' },
-        { label: 'Serviços', href: '/servicos' },
+        { label: 'Serviços', href: '/conserto-de-celular-belo-horizonte' },
         { label: 'Troca de bateria iPhone', href: hubHref },
         { label: model.displayName, href: `/servicos/${slug}` }
       ]
     : [
         { label: 'Home', href: '/' },
-        { label: 'Serviços', href: '/servicos' },
-        { label: brand.displayName, href: '/servicos' },
+        { label: 'Serviços', href: '/conserto-de-celular-belo-horizonte' },
+        { label: brand.displayName, href: '/conserto-de-celular-belo-horizonte' },
         { label: service.name, href: hubHref },
         { label: model.displayName, href: `/servicos/${slug}` }
       ]

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Smartphone, Battery, Monitor, Cpu, Wifi, Camera, Settings, Wrench, LucideIcon } from "lucide-react";
+import { buildServicesHubHref, SERVICES_HUB_PATH } from "@/lib/utils/services-hub";
 
 interface Service {
   icon: LucideIcon | null;
@@ -35,55 +36,55 @@ const services: Service[] = [
     icon: Monitor,
     title: "Troca de Vidro da Tela",
     description: "Substituição de vidro da tela quebrado ou arranhado para todas as marcas de celulares.",
-    href: "/servicos?servico=troca-de-vidro-da-tela",
+    href: buildServicesHubHref({ servico: "troca-de-vidro-da-tela" }),
   },
   {
     icon: Smartphone,
     title: "Troca de Vidro/Tampa Traseira",
     description: "Substituição de vidro traseiro e tampa traseira quebrada, trincada ou arranhada.",
-    href: "/servicos?servico=troca-de-vidro-tampa-traseira",
+    href: buildServicesHubHref({ servico: "troca-de-vidro-tampa-traseira" }),
   },
   {
     icon: Battery,
     title: "Troca de Bateria",
     description: "Baterias de alta qualidade para seu celular durar mais.",
-    href: "/servicos?servico=troca-de-bateria",
+    href: buildServicesHubHref({ servico: "troca-de-bateria" }),
   },
   {
     icon: Cpu,
     title: "Reparo de Placa",
     description: "Conserto de placas lógicas e componentes internos com precisão.",
-    href: "/servicos?servico=reparo-de-placa",
+    href: buildServicesHubHref({ servico: "reparo-de-placa" }),
   },
   {
     icon: Wifi,
     title: "Problemas de Conectividade",
     description: "Reparos em Wi-Fi, Bluetooth, antenas e conexões de rede.",
-    href: "/servicos?servico=troca-de-conector",
+    href: buildServicesHubHref({ servico: "troca-de-conector" }),
   },
   {
     icon: Camera,
     title: "Reparo de Câmera",
     description: "Troca e conserto de câmeras frontais e traseiras.",
-    href: "/servicos?servico=troca-de-camera",
+    href: buildServicesHubHref({ servico: "troca-de-camera" }),
   },
   {
     icon: Settings,
     title: "Problemas de Software",
     description: "Formatação, atualização e resolução de problemas de sistema.",
-    href: "/servicos?servico=correcoes-de-software",
+    href: buildServicesHubHref({ servico: "correcoes-de-software" }),
   },
   {
     icon: Smartphone,
     title: "Troca de Conector",
     description: "Substituição de conectores de carga e fones de ouvido.",
-    href: "/servicos?servico=troca-de-conector",
+    href: buildServicesHubHref({ servico: "troca-de-conector" }),
   },
   {
     icon: Wrench,
     title: "Manutenção Geral",
     description: "Limpeza, diagnóstico completo e manutenção preventiva.",
-    href: "/servicos",
+    href: SERVICES_HUB_PATH,
   },
 ];
 

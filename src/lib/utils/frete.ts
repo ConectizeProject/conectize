@@ -9,11 +9,8 @@ const CONECTIZE_LNG = -43.9248
 // Configuração da coleta (faixas e valores) para facilitar ajustes
 export const COLETA_DISTANCE_MULTIPLIER = 1.8
 export const COLETA_PRICE_TIERS: Array<{ maxKm: number | null; price: number }> = [
-  { maxKm: 3, price: 0 },
   { maxKm: 5, price: 20 },
-  { maxKm: 10, price: 30 },
   { maxKm: 15, price: 40 },
-  { maxKm: 20, price: 50 },
   { maxKm: null, price: 60 }
 ]
 

@@ -1,5 +1,6 @@
 import type { Service, Brand, DeviceType, Model, BreadcrumbItem } from '../types/seo'
 import { buildServiceProductSlug } from './service-product-slug'
+import { buildServicesHubHref, SERVICES_HUB_PATH } from './services-hub'
 import { getSiteUrl } from './site-url'
 
 export { getSiteUrl } from './site-url'
@@ -64,14 +65,14 @@ export function generateKeywords (service: Service, brand?: Brand, deviceType?: 
 export function generateBreadcrumbs (service: Service, brand?: Brand, deviceType?: DeviceType, model?: Model): BreadcrumbItem[] {
   const breadcrumbs: BreadcrumbItem[] = [
     { label: 'Home', href: '/' },
-    { label: 'Serviços', href: '/servicos' }
+    { label: 'Serviços', href: SERVICES_HUB_PATH }
   ]
 
   if (brand) {
-    breadcrumbs.push({ label: brand.displayName, href: `/servicos?marca=${brand.slug}` })
-    breadcrumbs.push({ label: service.name, href: `/servicos?marca=${brand.slug}&servico=${service.slug}` })
+    breadcrumbs.push({ label: brand.displayName, href: buildServicesHubHref({ marca: brand.slug }) })
+    breadcrumbs.push({ label: service.name, href: buildServicesHubHref({ marca: brand.slug, servico: service.slug }) })
   } else {
-    breadcrumbs.push({ label: service.name, href: `/servicos?servico=${service.slug}` })
+    breadcrumbs.push({ label: service.name, href: buildServicesHubHref({ servico: service.slug }) })
   }
 
   if (brand && model) {
@@ -103,8 +104,8 @@ export function generateCanonicalUrl (service: Service, brand?: Brand, deviceTyp
       modelSlug: deviceType.slug
     })}`
   }
-  if (brand) return `/servicos?marca=${brand.slug}&servico=${service.slug}`
-  return `/servicos?servico=${service.slug}`
+  if (brand) return buildServicesHubHref({ marca: brand.slug, servico: service.slug })
+  return buildServicesHubHref({ servico: service.slug })
 }
 
 export function generateStructuredData (service: Service, brand?: Brand, deviceType?: DeviceType, model?: Model) {
