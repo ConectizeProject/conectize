@@ -141,6 +141,21 @@ const Services = () => {
             );
           })}
         </div>
+
+        <p className="mt-10 text-center text-muted-foreground text-sm md:text-base">
+          Veja também:{' '}
+          <Link href="/conserto-iphone-bh" className="text-primary font-medium hover:underline">
+            Conserto de iPhone em BH
+          </Link>
+          {' · '}
+          <Link href="/servicos/troca-de-tela-apple-iphone" className="text-primary font-medium hover:underline">
+            Troca de tela de iPhone
+          </Link>
+          {' · '}
+          <Link href="/servicos/troca-de-vidro-tampa-traseira-apple-iphone" className="text-primary font-medium hover:underline">
+            Troca de vidro traseiro do iPhone
+          </Link>
+        </p>
       </div>
     </section>
   );
