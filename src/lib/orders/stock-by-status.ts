@@ -81,6 +81,17 @@ function getProductLines (services: unknown) {
   }))
 }
 
+/**
+ * Quantidade ainda a baixar para chegar em `desiredQty`, dado o líquido já saído.
+ * Evita debitar de novo o que já saiu (ex.: qty aumentada após aprovação, na finalização).
+ */
+export function remainingStockExitQuantity (desiredQty: number, netExitQty: number) {
+  const desired = Math.max(0, Math.trunc(Number(desiredQty) || 0))
+  const net = Math.max(0, Math.trunc(Number(netExitQty) || 0))
+  if (desired <= 0 || net >= desired) return 0
+  return desired - net
+}
+
 async function loadServiceOrderProductNetExit (
   supabase: SupabaseClient,
   orderId: string,
@@ -219,8 +230,9 @@ export async function applyOrderStatusStockTransition (input: ApplyOrderStatusSt
     let moveQty = quantity
 
     if (type === 'exit') {
-      // Já há saída líquida suficiente (retry / finalize após aprovado).
-      if (net >= quantity) continue
+      // Só a diferença ainda não baixada (retry / finalize após qty aumentada).
+      moveQty = remainingStockExitQuantity(quantity, net)
+      if (moveQty <= 0) continue
 
       const baseRef = serviceOrderStockExitExternalReference(input.orderId, line.productId)
       const { data: baseExit } = await input.supabase
