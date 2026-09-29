@@ -27,6 +27,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { cn, formatCurrency } from '@/lib/utils'
 import { formatMoneyInput, maskedFromCents, moneyToCentsFromMasked } from '@/lib/utils/money'
+import { isStockMovementEditable } from '@/lib/products/stock-movement-editable'
 import { useToast } from '@/hooks/use-toast'
 import { appConfirm } from '@/lib/ui/app-dialogs'
 import { getOrdemPortalPath } from '@/lib/orders/ordem-portal-path'
@@ -170,8 +171,7 @@ function parseMovement (raw: unknown, fallbackProductId: string): Movement | nul
 }
 
 function canEditMovement (m: Movement) {
-  if (m.source === 'manual') return true
-  return m.source === 'bling' && m.type === 'entry'
+  return isStockMovementEditable(m.source, m.type)
 }
 
 function movementKey (id: string) {

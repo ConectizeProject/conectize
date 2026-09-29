@@ -14,6 +14,7 @@ import {
 } from "@/lib/products/variation-display-name";
 import { createProductSyncSnapshot } from "@/lib/products/bling-sync";
 import { fetchProductHasVariationChildren } from "@/lib/products/parent-has-variations";
+import { isStockMovementEditable } from "@/lib/products/stock-movement-editable";
 import {
 	ensurePortalOrganizationContext,
 	getPortalOrganizationId,
@@ -1673,11 +1674,12 @@ export async function deleteStockMovement(
 	if (!existing?.id) {
 		return { ok: false as const, error: "not_found" as const };
 	}
-	const existingSource = String((existing as { source?: string }).source || "");
-	const existingType = String((existing as { type?: string }).type || "");
-	const isManual = existingSource === "manual";
-	const isBlingEntry = existingSource === "bling" && existingType === "entry";
-	if (!isManual && !isBlingEntry) {
+	if (
+		!isStockMovementEditable(
+			(existing as { source?: string }).source,
+			(existing as { type?: string }).type,
+		)
+	) {
 		return { ok: false as const, error: "not_editable" as const };
 	}
 
@@ -1739,11 +1741,12 @@ export async function updateStockMovement(
 	if (!existing?.id) {
 		return { ok: false as const, error: "not_found" as const };
 	}
-	const existingSource = String((existing as { source?: string }).source || "");
-	const existingType = String((existing as { type?: string }).type || "");
-	const isManual = existingSource === "manual";
-	const isBlingEntry = existingSource === "bling" && existingType === "entry";
-	if (!isManual && !isBlingEntry) {
+	if (
+		!isStockMovementEditable(
+			(existing as { source?: string }).source,
+			(existing as { type?: string }).type,
+		)
+	) {
 		return { ok: false as const, error: "not_editable" as const };
 	}
 
