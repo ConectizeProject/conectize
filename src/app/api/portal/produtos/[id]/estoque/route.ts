@@ -266,7 +266,9 @@ export async function DELETE (
       ? 401
       : result.error === 'not_found'
         ? 404
-        : 500
+        : result.error === 'not_editable'
+          ? 400
+          : 500
     return NextResponse.json({ error: result.error }, { status })
   }
 

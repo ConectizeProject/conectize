@@ -27,6 +27,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { cn, formatCurrency } from '@/lib/utils'
 import { formatMoneyInput, maskedFromCents, moneyToCentsFromMasked } from '@/lib/utils/money'
+import { isStockMovementEditable } from '@/lib/products/stock-movement-editable'
 import { useToast } from '@/hooks/use-toast'
 import { appConfirm } from '@/lib/ui/app-dialogs'
 import { getOrdemPortalPath } from '@/lib/orders/ordem-portal-path'
@@ -170,8 +171,7 @@ function parseMovement (raw: unknown, fallbackProductId: string): Movement | nul
 }
 
 function canEditMovement (m: Movement) {
-  if (m.source === 'manual') return true
-  return m.source === 'bling' && m.type === 'entry'
+  return isStockMovementEditable(m.source, m.type)
 }
 
 function movementKey (id: string) {
@@ -509,7 +509,9 @@ export function ProductStockPanel ({
           const errJson = await res.json() as { error?: string }
           const code = errJson?.error
           if (code === 'not_found') description = 'Lançamento não encontrado.'
-          else if (code === 'not_authenticated') description = 'Sessão expirada. Entre novamente.'
+          else if (code === 'not_editable' || code === 'not_manual') {
+            description = 'Só é possível excluir lançamentos manuais ou entradas do Bling.'
+          } else if (code === 'not_authenticated') description = 'Sessão expirada. Entre novamente.'
           else if (code === 'forbidden') description = 'Sem permissão para esta ação.'
           else if (typeof code === 'string') description = code
         } catch {
@@ -865,33 +867,35 @@ export function ProductStockPanel ({
                         <td className="px-3 py-2.5 text-right align-middle">
                           <div className="flex items-center justify-end gap-0.5">
                             {canEditMovement(m) ? (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                                aria-label="Editar lançamento"
-                                disabled={isDeleting || editSaving}
-                                onClick={() => openEditMovement(m)}
-                              >
-                                <Pencil className="h-4 w-4" aria-hidden />
-                              </Button>
+                              <>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                  aria-label="Editar lançamento"
+                                  disabled={isDeleting || editSaving}
+                                  onClick={() => openEditMovement(m)}
+                                >
+                                  <Pencil className="h-4 w-4" aria-hidden />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                  aria-label="Excluir lançamento"
+                                  disabled={isDeleting}
+                                  onClick={() => void handleDeleteMovement(m)}
+                                >
+                                  {isDeleting ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                                  ) : (
+                                    <Trash2 className="h-4 w-4" aria-hidden />
+                                  )}
+                                </Button>
+                              </>
                             ) : null}
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                              aria-label="Excluir lançamento"
-                              disabled={isDeleting}
-                              onClick={() => void handleDeleteMovement(m)}
-                            >
-                              {isDeleting ? (
-                                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                              ) : (
-                                <Trash2 className="h-4 w-4" aria-hidden />
-                              )}
-                            </Button>
                           </div>
                         </td>
                       </tr>

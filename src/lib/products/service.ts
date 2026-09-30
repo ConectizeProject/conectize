@@ -14,6 +14,7 @@ import {
 } from "@/lib/products/variation-display-name";
 import { createProductSyncSnapshot } from "@/lib/products/bling-sync";
 import { fetchProductHasVariationChildren } from "@/lib/products/parent-has-variations";
+import { isStockMovementEditable } from "@/lib/products/stock-movement-editable";
 import {
 	ensurePortalOrganizationContext,
 	getPortalOrganizationId,
@@ -209,7 +210,7 @@ type ListStockMovementsResult =
 type DeleteStockMovementResult =
 	| { ok: true; currentStock: number | null }
 	| AuthFailure
-	| { ok: false; error: "not_found" | "db_error" };
+	| { ok: false; error: "not_found" | "not_editable" | "db_error" };
 
 export type UpdateStockMovementInput = {
 	quantity: number;
@@ -1662,7 +1663,7 @@ export async function deleteStockMovement(
 
 	const { data: existing, error: findError } = await auth.supabase
 		.from("product_stock_movements")
-		.select("id")
+		.select("id, source, type")
 		.eq("id", movementUuid)
 		.eq("product_id", productUuid)
 		.maybeSingle();
@@ -1672,6 +1673,14 @@ export async function deleteStockMovement(
 	}
 	if (!existing?.id) {
 		return { ok: false as const, error: "not_found" as const };
+	}
+	if (
+		!isStockMovementEditable(
+			(existing as { source?: string }).source,
+			(existing as { type?: string }).type,
+		)
+	) {
+		return { ok: false as const, error: "not_editable" as const };
 	}
 
 	const { error: deleteError } = await auth.supabase
@@ -1732,11 +1741,12 @@ export async function updateStockMovement(
 	if (!existing?.id) {
 		return { ok: false as const, error: "not_found" as const };
 	}
-	const existingSource = String((existing as { source?: string }).source || "");
-	const existingType = String((existing as { type?: string }).type || "");
-	const isManual = existingSource === "manual";
-	const isBlingEntry = existingSource === "bling" && existingType === "entry";
-	if (!isManual && !isBlingEntry) {
+	if (
+		!isStockMovementEditable(
+			(existing as { source?: string }).source,
+			(existing as { type?: string }).type,
+		)
+	) {
 		return { ok: false as const, error: "not_editable" as const };
 	}
 
