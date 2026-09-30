@@ -7,13 +7,13 @@ import {
 	buildWhatsAppUrl,
 	business,
 	getFaqPageJsonLd,
-	getLocalBusinessJsonLd,
 	getServiceJsonLd,
 } from '@/lib/data/business'
 import {
 	ASSISTENCIA_IPHONE_PATH,
 	CONSERTO_IPHONE_PATH,
 	IPHONE_GLASS_HUB_PATH,
+	IPHONE_REAR_GLASS_HUB_PATH,
 	IPHONE_SCREEN_HUB_PATH,
 	IPHONE_SCREEN_HUB_SLUG,
 	listIphoneSeoModels,
@@ -89,10 +89,6 @@ export function IphoneScreenHubPage () {
 		<>
 			<script
 				type="application/ld+json"
-				dangerouslySetInnerHTML={{ __html: JSON.stringify(getLocalBusinessJsonLd()) }}
-			/>
-			<script
-				type="application/ld+json"
 				dangerouslySetInnerHTML={{
 					__html: JSON.stringify(getServiceJsonLd({
 						name: iphoneScreenHubSeo.h1,
@@ -129,6 +125,10 @@ export function IphoneScreenHubPage () {
 									{' · '}
 									<Link href={CONSERTO_IPHONE_PATH} className="text-primary font-medium hover:underline">
 										Conserto de iPhone
+									</Link>
+									{' · '}
+									<Link href={IPHONE_REAR_GLASS_HUB_PATH} className="text-primary font-medium hover:underline">
+										Vidro traseiro do iPhone
 									</Link>
 								</p>
 							</header>
@@ -253,6 +253,7 @@ export function IphoneScreenHubPage () {
 									href={buildWhatsAppUrl(whatsappMessage)}
 									target="_blank"
 									rel="noopener noreferrer"
+									data-placement="cta-final"
 									className="inline-flex items-center justify-center gap-2 bg-[hsl(142,70%,45%)] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[hsl(142,70%,40%)] transition-colors"
 								>
 									<MessageCircle className="w-5 h-5" />
@@ -280,6 +281,7 @@ export function IphoneScreenHubPage () {
 										href={buildWhatsAppUrl(whatsappMessage)}
 										target="_blank"
 										rel="noopener noreferrer"
+										data-placement="aside"
 										className="flex items-center justify-center gap-2 bg-[hsl(142,70%,45%)] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[hsl(142,70%,40%)] transition-colors"
 									>
 										<MessageCircle className="w-5 h-5" />

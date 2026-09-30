@@ -7,7 +7,6 @@ import {
 	buildWhatsAppUrl,
 	business,
 	getFaqPageJsonLd,
-	getLocalBusinessJsonLd,
 	getServiceJsonLd,
 } from '@/lib/data/business'
 import {
@@ -82,10 +81,6 @@ const breadcrumbs = [
 export function IphoneRearGlassHubPage () {
 	return (
 		<>
-			<script
-				type="application/ld+json"
-				dangerouslySetInnerHTML={{ __html: JSON.stringify(getLocalBusinessJsonLd()) }}
-			/>
 			<script
 				type="application/ld+json"
 				dangerouslySetInnerHTML={{
@@ -225,6 +220,7 @@ export function IphoneRearGlassHubPage () {
 									href={buildWhatsAppUrl(whatsappMessage)}
 									target="_blank"
 									rel="noopener noreferrer"
+									data-placement="cta-final"
 									className="inline-flex items-center justify-center gap-2 bg-[hsl(142,70%,45%)] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[hsl(142,70%,40%)] transition-colors"
 								>
 									<MessageCircle className="w-5 h-5" />
@@ -252,6 +248,7 @@ export function IphoneRearGlassHubPage () {
 										href={buildWhatsAppUrl(whatsappMessage)}
 										target="_blank"
 										rel="noopener noreferrer"
+										data-placement="aside"
 										className="flex items-center justify-center gap-2 bg-[hsl(142,70%,45%)] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[hsl(142,70%,40%)] transition-colors"
 									>
 										<MessageCircle className="w-5 h-5" />
