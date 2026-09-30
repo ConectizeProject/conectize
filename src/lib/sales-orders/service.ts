@@ -76,6 +76,38 @@ export function salesOrderItemStockExternalReference (orderId: string, itemId: s
   return `sales_order:${orderId}:item:${itemId}`
 }
 
+/**
+ * Após estorno (entrada compensatória), a saída base do item ainda existe.
+ * Re-lançamento precisa de ref de ciclo fora do unique index da saída base.
+ */
+export function salesOrderItemStockExitCycleExternalReference (
+  orderId: string,
+  itemId: string,
+  cycleToken: string | number = Date.now(),
+) {
+  return `${salesOrderItemStockExternalReference(orderId, itemId)}:cycle:${cycleToken}`
+}
+
+/**
+ * Consome crédito de saída líquida já existente para o produto.
+ * Se o crédito cobre a qty do item, o item é idempotente (retry/finalize).
+ * Se não cobre (ex.: após estorno manual), o item precisa de nova saída.
+ */
+export function consumeSalesOrderStockExitCredit (
+  itemQuantity: number,
+  remainingCredit: number,
+): { skip: true, nextCredit: number } | { skip: false, nextCredit: number } {
+  const qty = Number.isFinite(itemQuantity) && itemQuantity > 0
+    ? Math.round(itemQuantity)
+    : 0
+  const credit = Number.isFinite(remainingCredit) && remainingCredit > 0
+    ? Math.round(remainingCredit)
+    : 0
+  if (qty <= 0) return { skip: true, nextCredit: credit }
+  if (credit >= qty) return { skip: true, nextCredit: credit - qty }
+  return { skip: false, nextCredit: credit }
+}
+
 type SalesOrderStockNetRow = {
   product_id: string
   net_exit: number
@@ -128,10 +160,13 @@ async function insertSalesOrderStockMovement (
   return { ok: true as const }
 }
 
-async function loadSalesOrderStockNets (
+async function loadSalesOrderStockNetByProduct (
   auth: AuthCtx,
   orderId: string,
-): Promise<{ ok: true, rows: SalesOrderStockNetRow[] } | { ok: false, error: 'db_error' }> {
+): Promise<
+  | { ok: true, byProduct: Map<string, SalesOrderStockNetRow> }
+  | { ok: false, error: 'db_error' }
+> {
   const { data, error } = await auth.supabase
     .from('product_stock_movements')
     .select('product_id, type, quantity, unit_value_cents')
@@ -160,9 +195,19 @@ async function loadSalesOrderStockNets (
     byProduct.set(productId, current)
   }
 
+  return { ok: true as const, byProduct }
+}
+
+async function loadSalesOrderStockNets (
+  auth: AuthCtx,
+  orderId: string,
+): Promise<{ ok: true, rows: SalesOrderStockNetRow[] } | { ok: false, error: 'db_error' }> {
+  const loaded = await loadSalesOrderStockNetByProduct(auth, orderId)
+  if (!loaded.ok) return loaded
+
   return {
     ok: true as const,
-    rows: [...byProduct.values()].filter((row) => row.net_exit > 0),
+    rows: [...loaded.byProduct.values()].filter((row) => row.net_exit > 0),
   }
 }
 
@@ -367,30 +412,46 @@ async function applySalesOrderStockExits (
   )
   if (!fifoState.ok) return { ok: false as const, error: 'db_error' as const }
 
+  // Crédito = saída líquida já efetiva. Retry de finalize consome crédito e pula.
+  // Após estorno manual (net 0), crédito zera e cada item gera saída de ciclo.
+  const nets = await loadSalesOrderStockNetByProduct(auth, orderId)
+  if (!nets.ok) return { ok: false as const, error: 'db_error' as const }
+  const creditByProduct = new Map<string, number>()
+  for (const [productId, row] of nets.byProduct) {
+    creditByProduct.set(productId, Math.max(0, row.net_exit))
+  }
+
   for (const item of items) {
     if (stockless.stocklessIds.has(item.product_id)) continue
     const itemId = String(item.id || '')
     if (!itemId) return { ok: false as const, error: 'db_error' as const }
     const quantity = toInt(item.quantity, 1)
-    const ref = salesOrderItemStockExternalReference(orderId, itemId)
+    const productId = item.product_id
+    const credit = creditByProduct.get(productId) ?? 0
+    const decision = consumeSalesOrderStockExitCredit(quantity, credit)
+    creditByProduct.set(productId, decision.nextCredit)
+    if (decision.skip) continue
 
-    // Idempotência: retry de finalize após falha parcial não duplica a saída.
-    // Em edição de pedido pago, replaceSalesOrderItems gera novos IDs → refs novas.
+    const baseRef = salesOrderItemStockExternalReference(orderId, itemId)
     const { data: existingExit, error: existingError } = await auth.supabase
       .from('product_stock_movements')
       .select('id')
       .eq('organization_id', auth.organizationId)
       .eq('source', 'sales_order')
       .eq('type', 'exit')
-      .eq('external_reference', ref)
+      .eq('external_reference', baseRef)
       .maybeSingle()
     if (existingError) return { ok: false as const, error: 'stock_apply_failed' as const }
-    if (existingExit?.id) continue
 
-    const layers = fifoState.layersByProduct.get(item.product_id) ?? []
-    const productCostCents = fifoState.fallbackCostByProduct.get(item.product_id) ?? 0
+    // Saída base ainda no histórico após estorno: usa ciclo (fora do unique da base).
+    const ref = existingExit?.id
+      ? salesOrderItemStockExitCycleExternalReference(orderId, itemId)
+      : baseRef
+
+    const layers = fifoState.layersByProduct.get(productId) ?? []
+    const productCostCents = fifoState.fallbackCostByProduct.get(productId) ?? 0
     const consumed = consumeFifoCost(layers, quantity, productCostCents)
-    fifoState.layersByProduct.set(item.product_id, consumed.layers)
+    fifoState.layersByProduct.set(productId, consumed.layers)
     const unitCost = consumed.unitCostCents
 
     const { error: costUpdError } = await auth.supabase
@@ -403,7 +464,7 @@ async function applySalesOrderStockExits (
 
     const inserted = await insertSalesOrderStockMovement(auth, {
       orderId,
-      productId: item.product_id,
+      productId,
       type: 'exit',
       quantity,
       unitValueCents: unitCost,
