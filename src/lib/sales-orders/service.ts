@@ -203,7 +203,7 @@ async function loadSalesOrderStockNets (
   orderId: string,
 ): Promise<{ ok: true, rows: SalesOrderStockNetRow[] } | { ok: false, error: 'db_error' }> {
   const loaded = await loadSalesOrderStockNetByProduct(auth, orderId)
-  if (!loaded.ok) return loaded
+  if (loaded.ok === false) return loaded
 
   return {
     ok: true as const,
