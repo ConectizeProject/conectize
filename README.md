@@ -111,11 +111,12 @@ Para conectar com o Mercado Livre via OAuth 2.0 (Authorization Code + Refresh To
 - `MELI_CLIENT_ID` - App ID no [developers.mercadolivre.com.br](https://developers.mercadolivre.com.br)
 - `MELI_CLIENT_SECRET` - Secret Key do aplicativo
 - `MELI_REDIRECT_URI` (opcional) - se omitido, usa `{origem}/api/portal/hub/oauth/mercado-livre/callback`
+- `MELI_WEBHOOK_SECRET` - token da URL de notificações (`?token=`). Sem isso o POST do webhook é recusado.
 
 **Importante:** no aplicativo ML, cadastre **exatamente** estas URLs (host canônico de produção):
 
 - Redirect URI: `https://www.conectize.com.br/api/portal/hub/oauth/mercado-livre/callback`
-- Notificações: `https://www.conectize.com.br/api/portal/mercado-livre/webhook`
+- Notificações: `https://www.conectize.com.br/api/portal/mercado-livre/webhook?token=<MELI_WEBHOOK_SECRET>`
 
 O access token vale ~6 horas. O **refresh token é de uso único** (~6 meses): cada renovação persiste o novo valor em `hub_connections`.
 

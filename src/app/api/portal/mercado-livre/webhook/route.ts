@@ -1,5 +1,6 @@
 import { after, NextResponse } from 'next/server'
 import { MELI_PLATFORM_ID } from '@/lib/integrations/mercado-livre/constants'
+import { verifyMeliWebhookAuth } from '@/lib/integrations/mercado-livre/webhook-auth'
 import { resolveMeliWebhookOrganizationId } from '@/lib/integrations/mercado-livre/resolve-meli-webhook-org'
 import {
 	isMeliOrdersTopic,
@@ -43,24 +44,6 @@ function enrichPayloadWithIngressDebug(
 	}
 }
 
-async function resolveAuditOrganizationId(
-	supabase: ServiceClient,
-	userId: string | null,
-): Promise<string | null> {
-	const strict = await resolveMeliWebhookOrganizationId(supabase, userId)
-	if (strict) return strict
-
-	const { data: hostOrg } = await supabase
-		.from('organizations')
-		.select('id')
-		.eq('is_host', true)
-		.order('created_at', { ascending: true })
-		.limit(1)
-		.maybeSingle()
-
-	return hostOrg?.id ? String(hostOrg.id) : null
-}
-
 async function persistErrorWebhook(
 	supabase: ServiceClient,
 	input: {
@@ -99,7 +82,7 @@ async function recordRejectedWebhook(input: {
 }): Promise<void> {
 	try {
 		const supabase = createSupabaseServiceClient()
-		const organizationId = await resolveAuditOrganizationId(
+		const organizationId = await resolveMeliWebhookOrganizationId(
 			supabase,
 			input.userId,
 		)
@@ -153,6 +136,13 @@ export async function POST(request: Request) {
 
 	if (isConnectivityPing(rawBody)) {
 		return NextResponse.json({ ok: true, ping: true }, { status: 200 })
+	}
+
+	const auth = verifyMeliWebhookAuth(request)
+	if (auth.ok === false) {
+		const status = auth.reason === 'secret_not_configured' ? 503 : 401
+		console.warn('[meli webhook] rejected_auth', { reason: auth.reason })
+		return NextResponse.json({ error: auth.reason }, { status })
 	}
 
 	let payload: unknown

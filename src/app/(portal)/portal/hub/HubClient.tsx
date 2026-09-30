@@ -2369,11 +2369,12 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
             <div className="rounded-md border border-dashed bg-muted/20 p-2.5 text-xs text-muted-foreground space-y-1">
               <p className="font-medium text-foreground">URL de notificações (cadastre no app Mercado Livre)</p>
               <code className="block break-all text-[11px] text-foreground">
-                https://www.conectize.com.br/api/portal/mercado-livre/webhook
+                https://www.conectize.com.br/api/portal/mercado-livre/webhook?token=MELI_WEBHOOK_SECRET
               </code>
               <p>
-                Use a mesma URL no painel de desenvolvedores. Pedidos pagos são finalizados no portal;
-                pendentes ficam em rascunho até o pagamento.
+                Cadastre essa URL no app Mercado Livre, com o mesmo valor de MELI_WEBHOOK_SECRET
+                do servidor. Pedidos pagos são finalizados no portal; pendentes ficam em rascunho
+                até o pagamento.
               </p>
             </div>
             {isAdmin && meliConnections.length > 0 ? (
