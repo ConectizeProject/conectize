@@ -6,6 +6,9 @@ import {
   mergeBlingCompanyProfileMetadata,
 } from '@/lib/integrations/bling/company-profile'
 import { hubConnectionCompanyId } from '@/lib/integrations/bling/hub-company-id'
+import { resolveBlingAppCredentials } from '@/lib/integrations/bling/app-credentials'
+
+export const BLING_HUB_CONNECTION_SELECT = 'id, platform_id, access_token, refresh_token, token_expires_at, metadata, created_by, api_key'
 
 const BLING_API_BASE_URL = BLING_API_V3_BASE_URL
 const BLING_PLATFORM_ID = 'bling'
@@ -18,6 +21,7 @@ export type HubConnection = {
   token_expires_at: string | null
   metadata: Record<string, unknown> | null
   created_by: string | null
+  api_key?: string | null
 }
 
 type BlingTokenResponse = {
@@ -209,7 +213,7 @@ export async function getBlingConnectionForCurrentUser (): Promise<BlingConnecti
 
   const { data, error } = await supabase
     .from('hub_connections')
-    .select('id, platform_id, access_token, refresh_token, token_expires_at, metadata, created_by')
+    .select(BLING_HUB_CONNECTION_SELECT)
     .eq('platform_id', BLING_PLATFORM_ID)
     .maybeSingle()
 
@@ -239,7 +243,7 @@ export async function getBlingConnectionById (id: string): Promise<BlingConnecti
   const supabase = await createSupabaseServerClient()
   const { data, error } = await supabase
     .from('hub_connections')
-    .select('id, platform_id, access_token, refresh_token, token_expires_at, metadata, created_by')
+    .select(BLING_HUB_CONNECTION_SELECT)
     .eq('platform_id', BLING_PLATFORM_ID)
     .eq('id', id)
     .maybeSingle()
@@ -305,14 +309,13 @@ async function setBlingReconnectRequired (
     .eq('id', connection.id)
 }
 
-async function requestBlingTokenRefresh (refreshToken: string) {
-  const clientId = process.env.BLING_CLIENT_ID
-  const clientSecret = process.env.BLING_CLIENT_SECRET
-  if (!clientId || !clientSecret) {
+async function requestBlingTokenRefresh (connection: HubConnection, refreshToken: string) {
+  const appCredentials = resolveBlingAppCredentials(connection)
+  if (!appCredentials) {
     return { ok: false as const, error: 'bling_oauth_not_configured' }
   }
 
-  const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
+  const credentials = Buffer.from(`${appCredentials.clientId}:${appCredentials.clientSecret}`).toString('base64')
 
   const res = await fetch(`${BLING_API_BASE_URL}/oauth/token`, {
     method: 'POST',
@@ -349,7 +352,7 @@ export async function performBlingTokenRefresh (
   }
 
   const supabase = options?.supabase ?? await createSupabaseServerClient()
-  const firstAttempt = await requestBlingTokenRefresh(connection.refresh_token)
+  const firstAttempt = await requestBlingTokenRefresh(connection, connection.refresh_token)
 
   let sourceConnection = connection
   let tokenData: BlingTokenResponse | null = null
@@ -366,7 +369,7 @@ export async function performBlingTokenRefresh (
     // Se outro fluxo já rotacionou o refresh_token, tentamos 1x com o token mais novo salvo.
     const { data: latest, error: latestError } = await supabase
       .from('hub_connections')
-      .select('id, platform_id, access_token, refresh_token, token_expires_at, metadata, created_by')
+      .select(BLING_HUB_CONNECTION_SELECT)
       .eq('id', connection.id)
       .maybeSingle()
 
@@ -384,7 +387,7 @@ export async function performBlingTokenRefresh (
       return { ok: false, error: firstAttempt.error }
     }
 
-    const retryAttempt = await requestBlingTokenRefresh(latestConnection.refresh_token)
+    const retryAttempt = await requestBlingTokenRefresh(latestConnection, latestConnection.refresh_token)
     if (!retryAttempt.ok) {
       if (isInvalidGrantRefreshError(retryAttempt.error)) {
         await setBlingReconnectRequired(supabase, latestConnection, retryAttempt.error)
@@ -435,7 +438,7 @@ export async function performBlingTokenRefresh (
     })
     .eq('id', connection.id)
     .eq('refresh_token', sourceConnection.refresh_token)
-    .select('id, platform_id, access_token, refresh_token, token_expires_at, metadata, created_by')
+    .select(BLING_HUB_CONNECTION_SELECT)
     .maybeSingle()
 
   if (updateError) {
@@ -445,7 +448,7 @@ export async function performBlingTokenRefresh (
   if (!updated) {
     const { data: latest } = await supabase
       .from('hub_connections')
-      .select('id, platform_id, access_token, refresh_token, token_expires_at, metadata, created_by')
+      .select(BLING_HUB_CONNECTION_SELECT)
       .eq('id', connection.id)
       .maybeSingle()
 

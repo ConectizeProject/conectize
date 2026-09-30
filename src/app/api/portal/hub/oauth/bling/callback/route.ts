@@ -11,35 +11,14 @@ import {
   fetchBlingCompanyProfile,
   mergeBlingCompanyProfileMetadata,
 } from '@/lib/integrations/bling/company-profile'
+import { resolveBlingAppCredentials } from '@/lib/integrations/bling/app-credentials'
+import { blingOAuthRedirectUri, blingRequestOrigin } from '@/lib/integrations/bling/oauth-redirect'
 
 const BLING_TOKEN_URL = `${BLING_API_V3_BASE_URL}/oauth/token`
 const PLATFORM_ID = 'bling'
 
-function normalizeUrl (value: string) {
-  return value.trim().replace(/\/$/, '')
-}
-
-function getRequestOrigin (request: NextRequest) {
-  const forwardedHost = request.headers.get('x-forwarded-host')
-  if (forwardedHost) {
-    const forwardedProto = request.headers.get('x-forwarded-proto') || 'https'
-    return `${forwardedProto}://${forwardedHost}`.replace(/\/$/, '')
-  }
-
-  return request.nextUrl.origin.replace(/\/$/, '')
-}
-
 function getAppBaseUrl (request: NextRequest) {
-  return getRequestOrigin(request)
-}
-
-function getBlingRedirectUri (request: NextRequest) {
-  const configuredRedirectUri = process.env.BLING_REDIRECT_URI
-  if (configuredRedirectUri) {
-    return normalizeUrl(configuredRedirectUri)
-  }
-
-  return `${getRequestOrigin(request)}/api/portal/hub/oauth/bling/callback`
+  return blingRequestOrigin(request)
 }
 
 export async function GET(request: NextRequest) {
@@ -97,14 +76,20 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL('/portal/hub?toast=bling_error&message=invalid_state', getAppBaseUrl(request)))
   }
 
-  const clientId = process.env.BLING_CLIENT_ID
-  const clientSecret = process.env.BLING_CLIENT_SECRET
-  if (!clientId || !clientSecret) {
+  const { data: existing } = await supabase
+    .from('hub_connections')
+    .select('id, metadata, api_key')
+    .eq('platform_id', PLATFORM_ID)
+    .eq('organization_id', auth.organizationId)
+    .maybeSingle()
+
+  const appCredentials = resolveBlingAppCredentials(existing)
+  if (!appCredentials) {
     return NextResponse.redirect(new URL('/portal/hub?toast=bling_error&message=config_missing', getAppBaseUrl(request)))
   }
 
-  const redirectUri = getBlingRedirectUri(request)
-  const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
+  const redirectUri = blingOAuthRedirectUri(getAppBaseUrl(request))
+  const credentials = Buffer.from(`${appCredentials.clientId}:${appCredentials.clientSecret}`).toString('base64')
 
   const tokenRes = await fetch(BLING_TOKEN_URL, {
     method: 'POST',
@@ -165,13 +150,6 @@ export async function GET(request: NextRequest) {
   const companyProfile = await fetchBlingCompanyProfile(String(tokenData.access_token))
   const now = new Date().toISOString()
 
-  const { data: existing } = await supabase
-    .from('hub_connections')
-    .select('id, metadata')
-    .eq('platform_id', PLATFORM_ID)
-    .eq('organization_id', auth.organizationId)
-    .maybeSingle()
-
   const previousMetadata =
     existing?.metadata && typeof existing.metadata === 'object'
       ? (existing.metadata as Record<string, unknown>)
@@ -183,7 +161,6 @@ export async function GET(request: NextRequest) {
     access_token: tokenData.access_token,
     refresh_token: tokenData.refresh_token || null,
     token_expires_at: tokenExpiresAt,
-    api_key: null,
     metadata: mergeBlingCompanyProfileMetadata(
       {
         ...previousMetadata,

@@ -1,7 +1,7 @@
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { parseBlingWebhook, mapWebhookToLocalEffect } from '@/lib/integrations/bling/webhooks'
 import { mapBlingProductToLocal } from '@/lib/integrations/bling/mappers'
-import { blingProdutoApiPath, createBlingClientFromConnection } from '@/lib/integrations/bling/api'
+import { BLING_HUB_CONNECTION_SELECT, blingProdutoApiPath, createBlingClientFromConnection } from '@/lib/integrations/bling/api'
 import { createProductSyncSnapshot } from '@/lib/products/bling-sync'
 import { allocateCatalogSortKeyForInsert } from '@/lib/products/catalog-sort-key'
 import { fetchProductIsStockless } from '@/lib/products/parent-has-variations'
@@ -42,6 +42,7 @@ type HubConnectionRow = {
   token_expires_at: string | null
   metadata: Record<string, unknown> | null
   created_by: string | null
+  api_key?: string | null
 }
 
 function applyFiscalFieldsToPayload (
@@ -211,7 +212,7 @@ async function fetchBlingProductLatest (
 ): Promise<Record<string, unknown> | null> {
   const { data: conn } = await supabase
     .from('hub_connections')
-    .select('id, platform_id, access_token, refresh_token, token_expires_at, metadata, created_by')
+    .select(BLING_HUB_CONNECTION_SELECT)
     .eq('platform_id', PLATFORM_ID)
     .eq('organization_id', organizationId)
     .order('updated_at', { ascending: false })
