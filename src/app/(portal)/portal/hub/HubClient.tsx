@@ -44,6 +44,7 @@ import { appConfirm } from '@/lib/ui/app-dialogs'
 import { cn } from '@/lib/utils'
 import { DEFAULT_EVOLUTION_AUTO_MESSAGE_TEMPLATES } from '@/lib/whatsapp/evolution-auto-messages'
 import { EvolutionAutoMessagesFields } from './EvolutionAutoMessagesFields'
+import { BlingAppSetup } from './BlingAppSetup'
 import {
   HubInboxViewersPicker,
   type InboxAccessState,
@@ -278,6 +279,9 @@ type Props = {
   meliConnections?: MeliConnection[]
   isAdmin?: boolean
   chatgptModel?: string
+  blingRedirectUri?: string
+  blingClientId?: string
+  blingHasClientSecret?: boolean
 }
 
 function formatConnectionLabel(connection: BlingConnection, index: number) {
@@ -694,7 +698,7 @@ function IntegrationCard({
   )
 }
 
-export function HubClient({ initialConnections, blingConnections: initialBlingConnections = [], meliConnections: initialMeliConnections = [], isAdmin = false, chatgptModel = 'gpt-5-mini' }: Props) {
+export function HubClient({ initialConnections, blingConnections: initialBlingConnections = [], meliConnections: initialMeliConnections = [], isAdmin = false, chatgptModel = 'gpt-5-mini', blingRedirectUri = '', blingClientId = '', blingHasClientSecret = false }: Props) {
   const organizationName = usePortalOrganizationName()
   const brandLabel = String(organizationName || '').trim()
   const router = useRouter()
@@ -2135,6 +2139,13 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-5 py-2">
+            {isAdmin ? (
+              <BlingAppSetup
+                redirectUri={blingRedirectUri}
+                initialClientId={blingClientId}
+                hasClientSecret={blingHasClientSecret}
+              />
+            ) : null}
             <BlingConnectionsPanel
               blingConnections={blingConnections}
               onDisconnectBlingConnection={handleDisconnectBlingConnection}

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth/portal-api'
-import { forceRefreshBlingToken, type HubConnection } from '@/lib/integrations/bling/api'
+import { BLING_HUB_CONNECTION_SELECT, forceRefreshBlingToken, type HubConnection } from '@/lib/integrations/bling/api'
 import {
   blingRefreshTokenErrorCode,
   blingRefreshTokenErrorToMessage,
@@ -36,7 +36,7 @@ export async function POST (
 
   const { data: row, error } = await auth.supabase
     .from('hub_connections')
-    .select('id, platform_id, access_token, refresh_token, token_expires_at, metadata, created_by')
+    .select(BLING_HUB_CONNECTION_SELECT)
     .eq('id', connectionId)
     .eq('platform_id', 'bling')
     .eq('organization_id', auth.organizationId)

@@ -8,8 +8,9 @@ const ERROR_MESSAGES: Record<string, string> = {
   missing_params: 'Parâmetros ausentes na resposta da integração.',
   invalid_state: 'Sessão inválida. Tente conectar novamente.',
   client_id_missing:
-    'Defina o Client ID no servidor (variáveis de ambiente) para iniciar o OAuth.',
-  config_missing: 'OAuth não configurado. Configure Client ID e Client Secret.',
+    'Informe o Client ID e o Client Secret do aplicativo Bling na modal do HUB.',
+  config_missing:
+    'Informe o Client ID e o Client Secret do aplicativo Bling na modal do HUB.',
   db_error: 'Erro ao salvar a conexão. Tente novamente.',
   token_failed: 'Falha ao obter token. Tente autorizar novamente.',
   forbidden: 'Sem permissão para conectar integrações.',
@@ -32,7 +33,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   bling_invalid_grant:
     'Código de autorização inválido ou expirado. Clique em Conectar e autorize de novo.',
   bling_invalid_client:
-    'Client ID ou Client Secret incorretos nas variáveis de ambiente.',
+    'Client ID ou Client Secret do aplicativo Bling estão incorretos. Confira os dados na modal do HUB.',
   bling_unsupported_grant_type: 'Grant type não suportado na troca de token.',
   bling_token_unknown: 'O Bling recusou a troca do código por token.',
   meli_access_denied:
