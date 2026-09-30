@@ -8,6 +8,7 @@ import {
   type WhatsappEvolutionHubMetadata,
   WHATSAPP_EVOLUTION_PLATFORM_ID,
 } from '@/lib/whatsapp/evolution-hub-config'
+import { sanitizeEvolutionApiBaseUrl } from '@/lib/whatsapp/evolution-api-url'
 import {
   fetchEvolutionConnectQr,
   fetchEvolutionConnectionState,
@@ -57,7 +58,7 @@ async function resolveCredentials (
       instanceName = String(meta.instance_name || '').trim()
     }
   } else if (instanceFromBody) {
-    meta = baseOverride ? { api_base_url_override: baseOverride } : {}
+    meta = {}
   }
 
   if (!instanceName) {
@@ -70,13 +71,22 @@ async function resolveCredentials (
   }
 
   if (baseOverride) {
-    meta = { ...meta, api_base_url_override: baseOverride }
+    const sanitized = sanitizeEvolutionApiBaseUrl(baseOverride)
+    if (!sanitized) {
+      return {
+        ok: false,
+        error: 'invalid_evolution_url',
+        status: 400,
+        hint: 'Use https público (sem IP privado) ou a mesma WHATSAPP_EVOLUTION_API_URL do servidor.',
+      }
+    }
+    meta = { ...meta, api_base_url_override: sanitized }
   }
 
   const baseUrl = resolveEvolutionApiBaseUrl(meta)
   const apiKey = apiKeyFromBody && isLikelyEvolutionApiKey(apiKeyFromBody)
     ? apiKeyFromBody
-    : resolveEvolutionApiKey(accessToken)
+    : resolveEvolutionApiKey(accessToken, baseUrl)
 
   if (!baseUrl) {
     return {

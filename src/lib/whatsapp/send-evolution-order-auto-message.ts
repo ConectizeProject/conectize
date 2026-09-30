@@ -147,8 +147,8 @@ function pickEvolutionHubForSend(
 ): EvolutionHubRow | null {
 	const ready = hubs.filter((h) => {
 		const instanceName = String(h.metadata.instance_name || '').trim()
-		const apiKey = resolveEvolutionApiKey(h.access_token)
 		const baseUrl = resolveEvolutionApiBaseUrl(h.metadata)
+		const apiKey = resolveEvolutionApiKey(h.access_token, baseUrl)
 		return Boolean(instanceName && apiKey && baseUrl)
 	})
 	if (ready.length === 0) return null
@@ -303,8 +303,8 @@ export async function sendViaEvolutionHub(
 	hub: EvolutionHubRow,
 	opts: { toTarget: string; body: string },
 ): Promise<{ ok: true; messageId?: string } | { ok: false; error: string }> {
-	const apiKey = resolveEvolutionApiKey(hub.access_token)
 	const baseUrl = resolveEvolutionApiBaseUrl(hub.metadata)
+	const apiKey = resolveEvolutionApiKey(hub.access_token, baseUrl)
 	const instanceName = String(hub.metadata.instance_name || '').trim()
 	if (!apiKey || !baseUrl || !instanceName) {
 		return { ok: false, error: 'evolution_not_ready' }

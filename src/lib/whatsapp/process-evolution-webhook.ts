@@ -111,7 +111,7 @@ async function processOneEvolutionInbound (
 
 	const meta = conn.metadata
 	const baseUrl = resolveEvolutionApiBaseUrl(meta)
-	const apiKey = resolveEvolutionApiKey(conn.access_token)
+	const apiKey = resolveEvolutionApiKey(conn.access_token, baseUrl)
 	const instanceName = String(meta.instance_name || '').trim()
 	const canSend = !!(apiKey && baseUrl && instanceName)
 

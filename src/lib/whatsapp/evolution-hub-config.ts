@@ -1,4 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import {
+  isTrustedEvolutionEnvBaseUrl,
+  sanitizeEvolutionApiBaseUrl,
+} from '@/lib/whatsapp/evolution-api-url'
 
 export const WHATSAPP_EVOLUTION_PLATFORM_ID = 'whatsapp_evolution'
 
@@ -99,9 +103,10 @@ export function evolutionHubDisplayLabel (meta: WhatsappEvolutionHubMetadata): s
 export function resolveEvolutionApiBaseUrl (
   meta: WhatsappEvolutionHubMetadata,
 ): string {
-  const o = meta.api_base_url_override?.trim()
-  if (o) return o.replace(/\/$/, '')
-  return (process.env.WHATSAPP_EVOLUTION_API_URL || '').trim().replace(/\/$/, '')
+  const override = sanitizeEvolutionApiBaseUrl(meta.api_base_url_override || '')
+  if (override) return override
+  return sanitizeEvolutionApiBaseUrl(process.env.WHATSAPP_EVOLUTION_API_URL || '')
+    || (process.env.WHATSAPP_EVOLUTION_API_URL || '').trim().replace(/\/$/, '')
 }
 
 /** Chave Evolution costuma ser string curta (ex.: hex 32–128 chars), sem espaços/markdown. */
@@ -113,9 +118,25 @@ export function isLikelyEvolutionApiKey (token: string): boolean {
   return true
 }
 
-export function resolveEvolutionApiKey (accessToken: string | null): string | null {
+export function resolveEvolutionApiKey (
+  accessToken: string | null,
+  baseUrl?: string | null,
+): string | null {
   const t = accessToken?.trim()
   if (t && isLikelyEvolutionApiKey(t)) return t
-  const e = process.env.WHATSAPP_EVOLUTION_API_KEY?.trim()
-  return e || null
+  const envKey = process.env.WHATSAPP_EVOLUTION_API_KEY?.trim() || null
+  if (!envKey || !baseUrl) return null
+  if (!isTrustedEvolutionEnvBaseUrl(baseUrl)) return null
+  return envKey
+}
+
+export function resolveEvolutionApiAccess (
+  meta: WhatsappEvolutionHubMetadata,
+  accessToken: string | null,
+): { baseUrl: string, apiKey: string } | null {
+  const baseUrl = resolveEvolutionApiBaseUrl(meta)
+  if (!baseUrl) return null
+  const apiKey = resolveEvolutionApiKey(accessToken, baseUrl)
+  if (!apiKey) return null
+  return { baseUrl, apiKey }
 }

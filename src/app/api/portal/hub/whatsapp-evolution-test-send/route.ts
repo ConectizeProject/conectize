@@ -36,8 +36,8 @@ export async function POST (request: Request) {
 
   const meta = hub.metadata
   const instanceName = String(meta.instance_name || '').trim()
-  const apiKey = resolveEvolutionApiKey(hub.access_token)
   const baseUrl = resolveEvolutionApiBaseUrl(meta)
+  const apiKey = resolveEvolutionApiKey(hub.access_token, baseUrl)
 
   const { data: orgRow } = await auth.supabase
     .from('organizations')

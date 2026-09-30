@@ -7,6 +7,7 @@ import {
   type WhatsappEvolutionHubMetadata,
   WHATSAPP_EVOLUTION_PLATFORM_ID,
 } from '@/lib/whatsapp/evolution-hub-config'
+import { sanitizeEvolutionApiBaseUrl } from '@/lib/whatsapp/evolution-api-url'
 import { getSupabaseHubWriter } from '@/lib/supabase/hub-writes'
 import {
   loadHubInboxAccessMeta,
@@ -183,8 +184,22 @@ export async function POST (request: Request) {
   if (label) metadata.label = label
   else delete (metadata as { label?: unknown }).label
 
-  if (apiBaseOverride) metadata.api_base_url_override = apiBaseOverride
-  else delete (metadata as { api_base_url_override?: unknown }).api_base_url_override
+  if (apiBaseOverride) {
+    const sanitizedOverride = sanitizeEvolutionApiBaseUrl(apiBaseOverride)
+    if (!sanitizedOverride) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'invalid_evolution_url',
+          hint: 'Use https público (sem IP privado) ou a mesma WHATSAPP_EVOLUTION_API_URL do servidor.',
+        },
+        { status: 400 },
+      )
+    }
+    metadata.api_base_url_override = sanitizedOverride
+  } else {
+    delete (metadata as { api_base_url_override?: unknown }).api_base_url_override
+  }
 
   const hubWriter = await getSupabaseHubWriter(auth.supabase)
 

@@ -52,8 +52,8 @@ export async function enrichWhatsappConversationsWithContactNames (opts: {
 		if (!hub) continue
 
 		const instanceName = String(hub.metadata.instance_name || '').trim()
-		const apiKey = resolveEvolutionApiKey(hub.access_token)
 		const baseUrl = resolveEvolutionApiBaseUrl(hub.metadata)
+		const apiKey = resolveEvolutionApiKey(hub.access_token, baseUrl)
 		if (!instanceName || !apiKey || !baseUrl) continue
 
 		const fetched = await fetchEvolutionContacts({
