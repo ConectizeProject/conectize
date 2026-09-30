@@ -50,6 +50,28 @@ export function serviceOrderStockReturnExternalReference (orderId: string, produ
   return `service_order:${orderId}:item:${productId}:return`
 }
 
+/**
+ * Quantidade ainda a baixar para chegar em `desiredQty`, dado o líquido já saído.
+ * Evita debitar de novo o que já saiu (ex.: qty aumentada após aprovação).
+ */
+export function remainingStockExitQuantity (desiredQty: number, netExitQty: number) {
+  const desired = Math.max(0, Math.trunc(Number(desiredQty) || 0))
+  const net = Math.max(0, Math.trunc(Number(netExitQty) || 0))
+  if (desired <= 0 || net >= desired) return 0
+  return desired - net
+}
+
+/**
+ * Quantidade a devolver quando a saída líquida excede o desejado
+ * (ex.: qty reduzida ou produto removido após aprovação).
+ */
+export function excessStockExitQuantity (desiredQty: number, netExitQty: number) {
+  const desired = Math.max(0, Math.trunc(Number(desiredQty) || 0))
+  const net = Math.max(0, Math.trunc(Number(netExitQty) || 0))
+  if (net <= 0 || net <= desired) return 0
+  return net - desired
+}
+
 function getProductLines (services: unknown) {
   const items = normalizeServices(services)
   const lines = new Map<string, { quantity: number, unitCostCents: number, description: string }>()
@@ -81,17 +103,6 @@ function getProductLines (services: unknown) {
   }))
 }
 
-/**
- * Quantidade ainda a baixar para chegar em `desiredQty`, dado o líquido já saído.
- * Evita debitar de novo o que já saiu (ex.: qty aumentada após aprovação, na finalização).
- */
-export function remainingStockExitQuantity (desiredQty: number, netExitQty: number) {
-  const desired = Math.max(0, Math.trunc(Number(desiredQty) || 0))
-  const net = Math.max(0, Math.trunc(Number(netExitQty) || 0))
-  if (desired <= 0 || net >= desired) return 0
-  return desired - net
-}
-
 async function loadServiceOrderProductNetExit (
   supabase: SupabaseClient,
   orderId: string,
@@ -114,6 +125,32 @@ async function loadServiceOrderProductNetExit (
     else if (row.type === 'entry') net -= quantity
   }
   return net
+}
+
+/** Líquido de saída por produto já movimentado nesta OS. */
+async function loadServiceOrderProductNetExits (
+  supabase: SupabaseClient,
+  orderId: string,
+): Promise<Map<string, number>> {
+  const { data, error } = await supabase
+    .from('product_stock_movements')
+    .select('product_id, type, quantity')
+    .eq('source', 'service_order')
+    .ilike('external_reference', `service_order:${orderId}:item:%`)
+
+  if (error) throw error
+
+  const nets = new Map<string, number>()
+  for (const row of data ?? []) {
+    const productId = String((row as { product_id?: string }).product_id || '').trim()
+    if (!productId) continue
+    const quantity = Math.abs(Number((row as { quantity?: number }).quantity) || 0)
+    if (!Number.isFinite(quantity) || quantity <= 0) continue
+    const current = nets.get(productId) ?? 0
+    if (row.type === 'exit') nets.set(productId, current + quantity)
+    else if (row.type === 'entry') nets.set(productId, current - quantity)
+  }
+  return nets
 }
 
 async function insertServiceOrderStockMovement (input: {
@@ -176,6 +213,47 @@ async function insertServiceOrderStockMovement (input: {
   }
 }
 
+async function resolveExitExternalReference (
+  supabase: SupabaseClient,
+  orderId: string,
+  productId: string,
+) {
+  const baseRef = serviceOrderStockExitExternalReference(orderId, productId)
+  const { data: baseExit } = await supabase
+    .from('product_stock_movements')
+    .select('id')
+    .eq('product_id', productId)
+    .eq('type', 'exit')
+    .eq('source', 'service_order')
+    .eq('external_reference', baseRef)
+    .maybeSingle()
+
+  // Reconsumo após devolução: a saída base já existe — usa ciclo novo.
+  return baseExit?.id
+    ? `${baseRef}:cycle:${Date.now()}`
+    : baseRef
+}
+
+async function resolveReturnExternalReference (
+  supabase: SupabaseClient,
+  orderId: string,
+  productId: string,
+) {
+  const baseReturn = serviceOrderStockReturnExternalReference(orderId, productId)
+  const { data: existingReturn } = await supabase
+    .from('product_stock_movements')
+    .select('id')
+    .eq('product_id', productId)
+    .eq('type', 'entry')
+    .eq('source', 'service_order')
+    .eq('external_reference', baseReturn)
+    .maybeSingle()
+
+  return existingReturn?.id
+    ? `${baseReturn}:${Date.now()}`
+    : baseReturn
+}
+
 type ApplyOrderStatusStockTransitionInput = {
   supabase: SupabaseClient
   orderId: string
@@ -189,22 +267,34 @@ export async function applyOrderStatusStockTransition (input: ApplyOrderStatusSt
   const previousStatus = String(input.previousStatus || '').trim()
   const nextStatus = String(input.nextStatus || '').trim()
 
-  // Baixa acontece quando entra na fase consumidora (ex.: aprovado),
-  // e ao finalizar garantimos a baixa caso tenha faltado em uma etapa anterior.
+  // Baixa ao entrar na fase consumidora; reconciliamos qty enquanto permanece nela
+  // (save sem mudança de status, aprovação → finalização, etc.).
   const enterConsuming = !hasConsumedPhase(previousStatus) && hasConsumedPhase(nextStatus)
-  const ensureConsumeOnFinalize = nextStatus === 'finalizada'
+  const reconcileWhileConsuming =
+    hasConsumedPhase(previousStatus) && hasConsumedPhase(nextStatus)
   const returnOnFinalNoRepair = shouldReturnOnStatusTransition(previousStatus, nextStatus)
-  if (!enterConsuming && !returnOnFinalNoRepair && !ensureConsumeOnFinalize) return
+  if (!enterConsuming && !reconcileWhileConsuming && !returnOnFinalNoRepair) return
 
   const lines = getProductLines(input.services)
-  if (lines.length === 0) return
+  const desiredByProduct = new Map(
+    lines.map((line) => [line.productId, line] as const),
+  )
 
-  const type = (enterConsuming || ensureConsumeOnFinalize) ? 'exit' : 'entry'
-  const productIds = lines.map((line) => line.productId)
+  const existingNets = await loadServiceOrderProductNetExits(
+    input.supabase,
+    input.orderId,
+  )
+
+  const productIds = new Set<string>([
+    ...desiredByProduct.keys(),
+    ...existingNets.keys(),
+  ])
+  if (productIds.size === 0) return
+
   const { data: productRows } = await input.supabase
     .from('products')
     .select('id, bling_id')
-    .in('id', productIds)
+    .in('id', [...productIds])
 
   type ProductIdRow = { id: string; bling_id: string | null }
   const blingByProductId = new Map<string, string>()
@@ -215,72 +305,87 @@ export async function applyOrderStatusStockTransition (input: ApplyOrderStatusSt
     blingByProductId.set(productId, blingId)
   }
 
-  for (const line of lines) {
-    const quantity = Math.abs(Number(line.quantity) || 0)
-    if (!Number.isFinite(quantity) || quantity <= 0) continue
-
-    const unit = Math.max(0, Number(line.unitCostCents) || 0)
-    const net = await loadServiceOrderProductNetExit(
-      input.supabase,
-      input.orderId,
-      line.productId,
-    )
-
-    let ref: string
-    let moveQty = quantity
-
-    if (type === 'exit') {
-      // Só a diferença ainda não baixada (retry / finalize após qty aumentada).
-      moveQty = remainingStockExitQuantity(quantity, net)
-      if (moveQty <= 0) continue
-
-      const baseRef = serviceOrderStockExitExternalReference(input.orderId, line.productId)
-      const { data: baseExit } = await input.supabase
-        .from('product_stock_movements')
-        .select('id')
-        .eq('product_id', line.productId)
-        .eq('type', 'exit')
-        .eq('source', 'service_order')
-        .eq('external_reference', baseRef)
-        .maybeSingle()
-
-      // Reconsumo após devolução: a saída base já existe — usa ciclo novo.
-      ref = baseExit?.id
-        ? `${baseRef}:cycle:${Date.now()}`
-        : baseRef
-    } else {
+  // Cancelamento / final sem conserto: devolve todo o líquido saído.
+  if (returnOnFinalNoRepair) {
+    for (const productId of productIds) {
+      const net = existingNets.get(productId)
+        ?? await loadServiceOrderProductNetExit(input.supabase, input.orderId, productId)
       if (net <= 0) continue
-      moveQty = Math.min(quantity, net)
-      const baseReturn = serviceOrderStockReturnExternalReference(
+      const line = desiredByProduct.get(productId)
+      const unit = Math.max(0, Number(line?.unitCostCents) || 0)
+      const ref = await resolveReturnExternalReference(
+        input.supabase,
         input.orderId,
-        line.productId,
+        productId,
       )
-      const { data: existingReturn } = await input.supabase
-        .from('product_stock_movements')
-        .select('id')
-        .eq('product_id', line.productId)
-        .eq('type', 'entry')
-        .eq('source', 'service_order')
-        .eq('external_reference', baseReturn)
-        .maybeSingle()
+      await insertServiceOrderStockMovement({
+        supabase: input.supabase,
+        orderId: input.orderId,
+        previousStatus,
+        nextStatus,
+        productId,
+        type: 'entry',
+        quantity: net,
+        unitValueCents: unit,
+        externalReference: ref,
+        actorUserId: input.actorUserId,
+        productBlingId: blingByProductId.get(productId),
+      })
+    }
+    return
+  }
 
-      ref = existingReturn?.id
-        ? `${baseReturn}:${Date.now()}`
-        : baseReturn
+  // Entrada na fase consumidora ou reconciliação (qty↑/qty↓/remoção).
+  for (const productId of productIds) {
+    const line = desiredByProduct.get(productId)
+    const desired = Math.abs(Number(line?.quantity) || 0)
+    const unit = Math.max(0, Number(line?.unitCostCents) || 0)
+    const net = existingNets.get(productId)
+      ?? await loadServiceOrderProductNetExit(input.supabase, input.orderId, productId)
+
+    const exitQty = remainingStockExitQuantity(desired, net)
+    if (exitQty > 0) {
+      const ref = await resolveExitExternalReference(
+        input.supabase,
+        input.orderId,
+        productId,
+      )
+      await insertServiceOrderStockMovement({
+        supabase: input.supabase,
+        orderId: input.orderId,
+        previousStatus,
+        nextStatus,
+        productId,
+        type: 'exit',
+        quantity: exitQty,
+        unitValueCents: unit,
+        externalReference: ref,
+        actorUserId: input.actorUserId,
+        productBlingId: blingByProductId.get(productId),
+      })
+      continue
     }
 
+    const returnQty = excessStockExitQuantity(desired, net)
+    if (returnQty <= 0) continue
+
+    const ref = await resolveReturnExternalReference(
+      input.supabase,
+      input.orderId,
+      productId,
+    )
     await insertServiceOrderStockMovement({
       supabase: input.supabase,
       orderId: input.orderId,
       previousStatus,
       nextStatus,
-      productId: line.productId,
-      type,
-      quantity: moveQty,
+      productId,
+      type: 'entry',
+      quantity: returnQty,
       unitValueCents: unit,
       externalReference: ref,
       actorUserId: input.actorUserId,
-      productBlingId: blingByProductId.get(line.productId),
+      productBlingId: blingByProductId.get(productId),
     })
   }
 }
