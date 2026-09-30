@@ -9,6 +9,7 @@ import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 import {
   extractOsSoldProductLines,
   parseSoldOsItemId,
+  recomputeServiceOrderCostTotalCents,
 } from '@/lib/vendas/sold-os-product-lines'
 
 type Params = Promise<{ itemId: string }>
@@ -134,11 +135,13 @@ export async function PATCH (
       noCost: false,
     }
     services[osRef.lineIndex] = nextLine
+    const servicesCostTotalCents = recomputeServiceOrderCostTotalCents(services)
 
     const { error: updOsErr } = await auth.supabase
       .from('service_orders')
       .update({
         services,
+        services_cost_total_cents: servicesCostTotalCents,
         updated_at: new Date().toISOString(),
       })
       .eq('organization_id', auth.organizationId)

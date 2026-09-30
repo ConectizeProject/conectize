@@ -9,18 +9,27 @@ export {
 	normalizeWaConversationKey,
 } from '@/lib/whatsapp/wa-conversation-key'
 
-async function getChatgptForWhatsapp(
+export async function getChatgptForWhatsapp(
 	supabase: SupabaseClient,
+	organizationId: string,
 ): Promise<{ apiKey: string; model: string } | null> {
-	const { data } = await supabase
-		.from('hub_connections')
-		.select('api_key, metadata')
-		.eq('platform_id', 'chatgpt')
-		.not('api_key', 'is', null)
-		.maybeSingle()
-	if (!data?.api_key) return null
-	const meta = (data.metadata as { model?: string } | null) || {}
-	return { apiKey: data.api_key as string, model: meta.model || 'gpt-5-mini' }
+	const orgId = String(organizationId || '').trim()
+	if (orgId) {
+		const { data } = await supabase
+			.from('hub_connections')
+			.select('api_key, metadata')
+			.eq('platform_id', 'chatgpt')
+			.eq('organization_id', orgId)
+			.not('api_key', 'is', null)
+			.maybeSingle()
+		if (data?.api_key) {
+			const meta = (data.metadata as { model?: string } | null) || {}
+			return { apiKey: data.api_key as string, model: meta.model || 'gpt-5-mini' }
+		}
+	}
+	const envKey = String(process.env.OPENAI_API_KEY || '').trim()
+	if (!envKey) return null
+	return { apiKey: envKey, model: 'gpt-5-mini' }
 }
 
 async function loadRecentHistory(
@@ -155,17 +164,15 @@ export async function processWhatsappInboundTurn(opts: {
 		needs_human: false,
 	})
 
+	const gpt = await getChatgptForWhatsapp(supabase, organizationId)
 	const allowAi =
 		automationGloballyEnabled &&
 		automationOverride !== false &&
-		(await getChatgptForWhatsapp(supabase)) != null
+		gpt != null
 
-	if (!allowAi) {
+	if (!allowAi || !gpt) {
 		return
 	}
-
-	const gpt = await getChatgptForWhatsapp(supabase)
-	if (!gpt) return
 
 	const { data: orgRow } = await supabase
 		.from('organizations')
@@ -180,6 +187,7 @@ export async function processWhatsappInboundTurn(opts: {
 		userMessage: inboundText,
 		history: historyBefore,
 		organizationName: orgRow?.name ?? null,
+		organizationId,
 	})
 	if ('error' in ai) {
 		console.error('[whatsapp][ai]', ai.error)

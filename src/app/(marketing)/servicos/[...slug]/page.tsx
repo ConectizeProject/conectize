@@ -25,7 +25,10 @@ import {
 	IPHONE_SCREEN_HUB_SLUG,
 } from '../iphone-screen-hub-page'
 import { PocoX6ProScreenPage, POCO_X6_PRO_GLASS_SLUG, pocoX6ProScreenSeo } from '../poco-x6-pro-screen-page'
-import { ASSISTENCIA_IPHONE_PATH } from '@/lib/marketing/iphone-pillars'
+import {
+  ASSISTENCIA_IPHONE_PATH,
+  CONSERTO_IPHONE_PATH,
+} from '@/lib/marketing/iphone-pillars'
 
 import { FreteCalculatorLazy } from '@/components/FreteCalculatorLazy'
 
@@ -343,6 +346,17 @@ export default async function ServiceProductPage({ params }: PageProps) {
                   <p className="text-lg text-muted-foreground">
                     {content.sections.intro}
                   </p>
+                  {iphoneBatteryHub ? (
+                    <p className="mt-4 text-muted-foreground">
+                      <Link href={ASSISTENCIA_IPHONE_PATH} className="font-medium text-primary hover:underline">
+                        Assistência técnica iPhone em BH
+                      </Link>
+                      {' · '}
+                      <Link href={CONSERTO_IPHONE_PATH} className="font-medium text-primary hover:underline">
+                        Outros consertos de iPhone em BH
+                      </Link>
+                    </p>
+                  ) : null}
                 </header>
 
                 <ServiceFocusContent
@@ -437,6 +451,7 @@ export default async function ServiceProductPage({ params }: PageProps) {
                         href={buildWhatsAppUrl(`Olá! Gostaria de um orçamento para ${service.name.toLowerCase()} do meu ${deviceType.displayName}.`)}
                         target="_blank"
                         rel="noopener noreferrer"
+                        data-placement="aside"
                         className="flex items-center justify-center gap-2 bg-[hsl(142,70%,45%)] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[hsl(142,70%,40%)] transition-colors"
                       >
                         <MessageCircle className="w-5 h-5" />
@@ -561,6 +576,10 @@ export default async function ServiceProductPage({ params }: PageProps) {
                     {' · '}
                     <Link href={ASSISTENCIA_IPHONE_PATH} className="font-medium text-primary hover:underline">
                       Assistência técnica iPhone em BH
+                    </Link>
+                    {' · '}
+                    <Link href={CONSERTO_IPHONE_PATH} className="font-medium text-primary hover:underline">
+                      Outros consertos de iPhone em BH
                     </Link>
                   </p>
                 ) : null}
@@ -720,6 +739,7 @@ export default async function ServiceProductPage({ params }: PageProps) {
                       href={buildWhatsAppUrl(`Olá! Gostaria de um orçamento para ${service.name.toLowerCase()} do ${model.displayName}.`)}
                       target="_blank"
                       rel="noopener noreferrer"
+                      data-placement="aside"
                       className="flex items-center justify-center gap-2 bg-[hsl(142,70%,45%)] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[hsl(142,70%,40%)] transition-colors"
                     >
                       <MessageCircle className="w-5 h-5" />

@@ -82,6 +82,14 @@ export function extractOsSoldProductLines (services: unknown): SoldOsProductLine
   return lines
 }
 
+/**
+ * Custo total da OS alinhado ao persistido em `services_cost_total_cents`
+ * (mesma regra de `parseServicesJson` usada no save da ordem).
+ */
+export function recomputeServiceOrderCostTotalCents (services: unknown): number {
+  return parseOsServicesPayload(services).totalCostCents
+}
+
 export function soldOsItemId (orderId: string, lineIndex: number) {
   return `os:${orderId}:${lineIndex}`
 }

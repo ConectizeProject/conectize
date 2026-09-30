@@ -13,7 +13,7 @@ const KNOWN_MESSAGES: Record<string, string> = {
     'Não há refresh token salvo. Desconecte e conecte o Bling novamente.',
   no_organization_context: 'Organização ativa não encontrada. Selecione uma organização e tente de novo.',
   bling_oauth_not_configured:
-    'OAuth do Bling não configurado no servidor (BLING_CLIENT_ID / BLING_CLIENT_SECRET).',
+    'Credenciais do aplicativo Bling ausentes. Informe o Client ID e o Client Secret na modal do HUB.',
   refresh_failed_no_access_token:
     'O Bling não retornou um access token. Tente novamente em instantes.',
   db_update_failed: 'Token renovado no Bling, mas falhou ao salvar no banco. Tente de novo.',
@@ -22,11 +22,11 @@ const KNOWN_MESSAGES: Record<string, string> = {
   invalid_token:
     'O token de acesso do Bling expirou. Tente de novo; se persistir, desconecte e conecte o Bling de novo no HUB.',
   invalid_client:
-    'Client ID ou Client Secret incorretos nas variáveis de ambiente.',
+    'Client ID ou Client Secret do aplicativo Bling estão incorretos. Confira os dados na modal do HUB.',
   bling_invalid_grant:
     'O refresh token expirou ou foi revogado. Desconecte e conecte o Bling de novo no HUB.',
   bling_invalid_client:
-    'Client ID ou Client Secret incorretos nas variáveis de ambiente.',
+    'Client ID ou Client Secret do aplicativo Bling estão incorretos. Confira os dados na modal do HUB.',
 }
 
 function looksLikeInvalidGrant (raw: string) {

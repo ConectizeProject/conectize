@@ -14,17 +14,21 @@ Preencha apenas os campos que o cliente já informou; use string vazia para os d
 }
 
 function formatMoneyBr(cents: number | null): string {
-	if (cents == null || !Number.isFinite(cents)) return '—'
+	if (cents == null || !Number.isFinite(cents)) return '-'
 	return new Intl.NumberFormat('pt-BR', {
 		style: 'currency',
 		currency: 'BRL',
 	}).format(cents / 100)
 }
 
-async function loadProductContext(
+export async function loadProductContext(
 	supabase: SupabaseClient,
 	userMessage: string,
+	organizationId: string,
 ): Promise<string> {
+	const orgId = String(organizationId || '').trim()
+	if (!orgId) return ''
+
 	const words = userMessage
 		.split(/[\s,.;:!?]+/)
 		.map((w) => w.replace(/%/g, '').trim())
@@ -40,6 +44,7 @@ async function loadProductContext(
 	let q = supabase
 		.from('products')
 		.select('name, kind, sale_price_cents')
+		.eq('organization_id', orgId)
 		.order('name')
 		.limit(40)
 	if (words.length > 0) {
@@ -58,6 +63,7 @@ async function loadProductContext(
 	const { data: fallback } = await supabase
 		.from('products')
 		.select('name, kind, sale_price_cents')
+		.eq('organization_id', orgId)
 		.order('name')
 		.limit(25)
 	const fb = (fallback || []) as typeof list
@@ -107,6 +113,7 @@ export async function runWhatsappAiReply(opts: {
 	history: ChatTurn[]
 	/** Nome da empresa (`organizations.name`) para o prompt do assistente. */
 	organizationName?: string | null
+	organizationId: string
 }): Promise<OrchestratorResult | { error: string }> {
 	const {
 		supabase,
@@ -115,9 +122,10 @@ export async function runWhatsappAiReply(opts: {
 		userMessage,
 		history,
 		organizationName,
+		organizationId,
 	} = opts
 	const orgLabel = String(organizationName || '').trim() || 'a empresa'
-	const productBlock = await loadProductContext(supabase, userMessage)
+	const productBlock = await loadProductContext(supabase, userMessage, organizationId)
 	const ctx = `Produtos e serviços cadastrados (referência de preços):\n${productBlock || '(nenhum cadastrado)'}`
 	const messages: { role: 'system' | 'user' | 'assistant'; content: string }[] =
 		[
