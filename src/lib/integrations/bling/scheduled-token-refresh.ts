@@ -1,5 +1,6 @@
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import {
+  BLING_HUB_CONNECTION_SELECT,
   performBlingTokenRefresh,
   shouldRefreshBlingAccessToken,
   type HubConnection,
@@ -26,7 +27,7 @@ export async function runBlingTokenRefreshForAllConnections (): Promise<BlingSch
 
   const { data: rows, error } = await supabase
     .from('hub_connections')
-    .select('id, platform_id, access_token, refresh_token, token_expires_at, metadata, created_by')
+    .select(BLING_HUB_CONNECTION_SELECT)
     .eq('platform_id', 'bling')
     .not('refresh_token', 'is', null)
 

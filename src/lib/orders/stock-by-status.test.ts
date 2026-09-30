@@ -13,7 +13,7 @@ describe('remainingStockExitQuantity', () => {
     expect(remainingStockExitQuantity(0, 0)).toBe(0)
   })
 
-  it('retorna só a diferença ao aumentar qty após baixa parcial', () => {
+  it('retorna só a diferença ao aumentar qty após baixa parcial (ex.: aprovação → finalização)', () => {
     // Aprovado com qty 1 (net=1); na finalização qty virou 3 → baixa mais 2, não 3.
     expect(remainingStockExitQuantity(3, 1)).toBe(2)
     expect(remainingStockExitQuantity(5, 0)).toBe(5)

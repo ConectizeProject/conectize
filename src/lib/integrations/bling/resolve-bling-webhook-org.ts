@@ -1,113 +1,71 @@
 import type { createSupabaseServiceClient } from '@/lib/supabase/service'
+import { normalizeBlingCompanyId } from '@/lib/integrations/bling/hub-company-id'
 import {
-  fetchBlingCompanyProfile,
-  mergeBlingCompanyProfileMetadata,
-} from '@/lib/integrations/bling/company-profile'
-import {
-  blingCompanyIdsMatch,
-  hubConnectionCompanyId,
-  normalizeBlingCompanyId,
-  withBlingCompanyIdMetadata,
-} from '@/lib/integrations/bling/hub-company-id'
+  matchBlingWebhookConnection,
+  type BlingWebhookCandidate,
+  type BlingWebhookMatchResult,
+} from '@/lib/integrations/bling/webhook-routing'
 
 const PLATFORM_ID = 'bling'
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceClient>
 
-type HubConnectionRow = {
-  id: string
-  organization_id: string
-  access_token: string | null
-  metadata: unknown
-}
+export { normalizeBlingCompanyId as normalizeBlingWebhookCompanyId }
 
-async function listBlingConnections (supabase: ServiceClient): Promise<HubConnectionRow[]> {
-  const { data } = await supabase
-    .from('hub_connections')
-    .select('id, organization_id, access_token, metadata')
-    .eq('platform_id', PLATFORM_ID)
-    .order('updated_at', { ascending: false })
-    .limit(50)
-
-  return (data || []) as HubConnectionRow[]
-}
-
-async function persistConnectionCompanyId (
-  supabase: ServiceClient,
-  connection: HubConnectionRow,
-  companyId: string,
-): Promise<void> {
-  const previous = connection.metadata && typeof connection.metadata === 'object'
-    ? (connection.metadata as Record<string, unknown>)
-    : {}
-
-  await supabase
-    .from('hub_connections')
-    .update({
-      metadata: withBlingCompanyIdMetadata(previous, companyId),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', connection.id)
+function companyIdFilterValue (companyId: string): string | null {
+  if (!/^[A-Za-z0-9_-]+$/.test(companyId)) return null
+  return companyId
 }
 
 /**
- * Resolve org pelo companyId do webhook, com backfill seguro quando metadata está incompleta.
- * Só chamar após assinatura HMAC válida (ou dev sem secret).
+ * Localiza a conexão Bling já vinculada ao companyId do evento e confere a assinatura
+ * com o Client Secret dessa conexão. Não grava empresaId a partir do webhook.
  */
-export async function resolveBlingWebhookOrganizationId (
+export async function resolveBlingWebhookConnection (
   supabase: ServiceClient,
-  companyIdRaw: string | null,
-): Promise<string | null> {
-  const companyId = normalizeBlingCompanyId(companyIdRaw)
-  if (!companyId) return null
-
-  const connections = await listBlingConnections(supabase)
-
-  for (const row of connections) {
-    const stored = hubConnectionCompanyId(row.metadata)
-    if (stored && blingCompanyIdsMatch(stored, companyId) && row.organization_id) {
-      return String(row.organization_id)
-    }
+  input: {
+    companyId: string | null
+    rawBody: string
+    signatureHeader: string | null
+  },
+): Promise<BlingWebhookMatchResult> {
+  const companyId = normalizeBlingCompanyId(input.companyId)
+  if (!companyId) return { ok: false, reason: 'missing_company_id' }
+  if (!String(input.signatureHeader || '').trim()) {
+    return { ok: false, reason: 'missing_signature' }
   }
 
-  for (const row of connections) {
-    if (hubConnectionCompanyId(row.metadata)) continue
-    const token = String(row.access_token || '').trim()
-    if (!token) continue
+  const filterValue = companyIdFilterValue(companyId)
+  if (!filterValue) return { ok: false, reason: 'organization_unresolved' }
 
-    const profile = await fetchBlingCompanyProfile(token)
-    const profileId = normalizeBlingCompanyId(profile?.empresaId)
-    if (!profileId) continue
-
-    const previous = row.metadata && typeof row.metadata === 'object'
-      ? (row.metadata as Record<string, unknown>)
-      : {}
-
-    await supabase
+  const select = 'id, organization_id, api_key, metadata'
+  const [byEmpresa, byCompany] = await Promise.all([
+    supabase
       .from('hub_connections')
-      .update({
-        metadata: mergeBlingCompanyProfileMetadata(previous, {
-          empresaId: profileId,
-          nome: profile?.nome ?? null,
-          email: profile?.email ?? null,
-          cnpj: profile?.cnpj ?? null,
-          logoUrl: profile?.logoUrl ?? null,
-        }),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', row.id)
+      .select(select)
+      .eq('platform_id', PLATFORM_ID)
+      .filter('metadata->>empresaId', 'eq', filterValue),
+    supabase
+      .from('hub_connections')
+      .select(select)
+      .eq('platform_id', PLATFORM_ID)
+      .filter('metadata->>companyId', 'eq', filterValue),
+  ])
 
-    if (blingCompanyIdsMatch(profileId, companyId) && row.organization_id) {
-      return String(row.organization_id)
-    }
+  if (byEmpresa.error || byCompany.error) {
+    return { ok: false, reason: 'organization_unresolved' }
   }
 
-  if (connections.length === 1 && connections[0].organization_id) {
-    await persistConnectionCompanyId(supabase, connections[0], companyId)
-    return String(connections[0].organization_id)
+  const merged = new Map<string, BlingWebhookCandidate>()
+  for (const row of [...(byEmpresa.data || []), ...(byCompany.data || [])]) {
+    const candidate = row as BlingWebhookCandidate
+    if (candidate.id) merged.set(candidate.id, candidate)
   }
 
-  return null
+  return matchBlingWebhookConnection([...merged.values()], {
+    companyId,
+    rawBody: input.rawBody,
+    signatureHeader: input.signatureHeader,
+    envClientSecret: process.env.BLING_CLIENT_SECRET,
+  })
 }
-
-export { normalizeBlingCompanyId as normalizeBlingWebhookCompanyId }

@@ -8,7 +8,6 @@ import {
 	lojaWhatsAppHref,
 } from '@/lib/data/hotsite-loja'
 import styles from './loja.module.css'
-import { LojaWhatsAppClickEvent } from './LojaWhatsAppClickEvent'
 import { LojaWhatsAppLink } from './LojaWhatsAppLink'
 import { WhatsAppIcon } from './WhatsAppIcon'
 
@@ -25,7 +24,6 @@ export function LojaShell({
 }) {
 	return (
 		<div className={styles.page}>
-			<LojaWhatsAppClickEvent />
 			<a className={styles.skip} href="#conteudo-principal">
 				Pular para o conteúdo principal
 			</a>
