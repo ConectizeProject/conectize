@@ -67,3 +67,15 @@ export function formatDateBr(value: string | Date | null | undefined): string {
   if (Number.isNaN(d.getTime())) return String(value)
   return d.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
 }
+
+/**
+ * Formata coluna `date` do Postgres (`YYYY-MM-DD`) em pt-BR sem shifting de fuso.
+ * Evita `new Date('2026-09-26')` (UTC meia-noite → dia anterior em SP).
+ * Ex: 26/09/2026
+ */
+export function formatDateOnlyBr(value: string | null | undefined): string {
+  if (value == null) return '-'
+  const s = String(value).trim().slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return String(value)
+  return formatDateBr(`${s}T12:00:00-03:00`)
+}

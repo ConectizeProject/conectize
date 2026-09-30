@@ -5,6 +5,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from '@/components/ui/button'
 import { portalFetch } from '@/lib/portal/portal-fetch'
 import { getSalePaymentListFromDevice } from '@/lib/resale/sale-payment-methods'
+import { addBrazilCalendarDays } from '@/lib/dashboard/brazil-day'
+import { formatDateOnlyBr } from '@/lib/utils/format-date'
 
 type CreditInstallmentFee = { installments: number; fee_percent: number }
 
@@ -56,25 +58,21 @@ function formatCentsBr(cents: number | null | undefined): string {
   return `R$ ${value}`
 }
 
+/** Data civil YYYY-MM-DD (Postgres date) → dd/mm/aaaa em Brasília, sem shifting de fuso. */
 function formatDateBrFromIso(date: string | null | undefined): string {
   if (!date) return 'Não informado'
-  const d = new Date(date)
-  if (Number.isNaN(d.getTime())) return 'Não informado'
-  const day = String(d.getDate()).padStart(2, '0')
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const year = d.getFullYear()
-  return `${day}/${month}/${year}`
+  const formatted = formatDateOnlyBr(date)
+  return formatted === '-' || formatted === String(date).trim()
+    ? 'Não informado'
+    : formatted
 }
 
 function addDays(date: string | null | undefined, days: number): string | null {
   if (!date) return null
-  const d = new Date(date)
-  if (Number.isNaN(d.getTime())) return null
-  d.setDate(d.getDate() + days)
-  const day = String(d.getDate()).padStart(2, '0')
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const year = d.getFullYear()
-  return `${day}/${month}/${year}`
+  const s = String(date).trim().slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null
+  const end = formatDateOnlyBr(addBrazilCalendarDays(s, days))
+  return end === '-' ? null : end
 }
 
 function escapeHtml (raw: string): string {
