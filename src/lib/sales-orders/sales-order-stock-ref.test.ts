@@ -46,21 +46,25 @@ describe('consumeSalesOrderStockExitCredit', () => {
     expect(consumeSalesOrderStockExitCredit(3, 3)).toEqual({
       skip: true,
       nextCredit: 0,
+      exitQuantity: 0,
     })
     expect(consumeSalesOrderStockExitCredit(2, 5)).toEqual({
       skip: true,
       nextCredit: 3,
+      exitQuantity: 0,
     })
   })
 
-  it('exige nova saída quando o crédito é insuficiente (após estorno)', () => {
+  it('sai só o shortfall quando o crédito é parcial (evita super-baixa)', () => {
     expect(consumeSalesOrderStockExitCredit(3, 0)).toEqual({
       skip: false,
       nextCredit: 0,
+      exitQuantity: 3,
     })
     expect(consumeSalesOrderStockExitCredit(5, 2)).toEqual({
       skip: false,
-      nextCredit: 2,
+      nextCredit: 0,
+      exitQuantity: 3,
     })
   })
 
@@ -73,6 +77,7 @@ describe('consumeSalesOrderStockExitCredit', () => {
       return decision
     })
     expect(decisions.every((d) => d.skip === false)).toBe(true)
+    expect(decisions.map((d) => d.exitQuantity)).toEqual([2, 3])
   })
 
   it('em finalize parcial, cobre o item já baixado e exige saída só do restante', () => {
@@ -81,18 +86,38 @@ describe('consumeSalesOrderStockExitCredit', () => {
     const first = consumeSalesOrderStockExitCredit(2, credit)
     credit = first.nextCredit
     const second = consumeSalesOrderStockExitCredit(3, credit)
-    expect(first).toEqual({ skip: true, nextCredit: 0 })
-    expect(second).toEqual({ skip: false, nextCredit: 0 })
+    expect(first).toEqual({ skip: true, nextCredit: 0, exitQuantity: 0 })
+    expect(second).toEqual({ skip: false, nextCredit: 0, exitQuantity: 3 })
+  })
+
+  it('após orphan + aumento de qty, shortfall + crédito zero mantém net = qty vendida', () => {
+    // Saídas órfãs de qty 2; rascunho editado para qty 5
+    let credit = 2
+    const decision = consumeSalesOrderStockExitCredit(5, credit)
+    credit = decision.nextCredit
+    expect(decision).toEqual({ skip: false, nextCredit: 0, exitQuantity: 3 })
+    expect(credit).toBe(0)
+    // net final = 2 (órfão) + 3 (shortfall) = 5
+  })
+
+  it('após orphan + redução de qty, crédito sobrando indica excesso a devolver', () => {
+    let credit = 5
+    const decision = consumeSalesOrderStockExitCredit(2, credit)
+    credit = decision.nextCredit
+    expect(decision).toEqual({ skip: true, nextCredit: 3, exitQuantity: 0 })
+    expect(credit).toBe(3)
   })
 
   it('ignora qty inválida', () => {
     expect(consumeSalesOrderStockExitCredit(0, 4)).toEqual({
       skip: true,
       nextCredit: 4,
+      exitQuantity: 0,
     })
     expect(consumeSalesOrderStockExitCredit(Number.NaN, 4)).toEqual({
       skip: true,
       nextCredit: 4,
+      exitQuantity: 0,
     })
   })
 })

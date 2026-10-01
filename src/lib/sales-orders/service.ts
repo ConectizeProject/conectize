@@ -91,21 +91,25 @@ export function salesOrderItemStockExitCycleExternalReference (
 /**
  * Consome crédito de saída líquida já existente para o produto.
  * Se o crédito cobre a qty do item, o item é idempotente (retry/finalize).
- * Se não cobre (ex.: após estorno manual), o item precisa de nova saída.
+ * Se não cobre, sai só o shortfall (qty - credit) e zera o crédito.
+ * Manter crédito parcial e sair a qty cheia super-baixaria o estoque.
  */
 export function consumeSalesOrderStockExitCredit (
   itemQuantity: number,
   remainingCredit: number,
-): { skip: true, nextCredit: number } | { skip: false, nextCredit: number } {
+): { skip: true, nextCredit: number, exitQuantity: 0 }
+  | { skip: false, nextCredit: 0, exitQuantity: number } {
   const qty = Number.isFinite(itemQuantity) && itemQuantity > 0
     ? Math.round(itemQuantity)
     : 0
   const credit = Number.isFinite(remainingCredit) && remainingCredit > 0
     ? Math.round(remainingCredit)
     : 0
-  if (qty <= 0) return { skip: true, nextCredit: credit }
-  if (credit >= qty) return { skip: true, nextCredit: credit - qty }
-  return { skip: false, nextCredit: credit }
+  if (qty <= 0) return { skip: true, nextCredit: credit, exitQuantity: 0 }
+  if (credit >= qty) {
+    return { skip: true, nextCredit: credit - qty, exitQuantity: 0 }
+  }
+  return { skip: false, nextCredit: 0, exitQuantity: qty - credit }
 }
 
 type SalesOrderStockNetRow = {
@@ -432,6 +436,7 @@ async function applySalesOrderStockExits (
     creditByProduct.set(productId, decision.nextCredit)
     if (decision.skip) continue
 
+    const exitQuantity = decision.exitQuantity
     const baseRef = salesOrderItemStockExternalReference(orderId, itemId)
     const { data: existingExit, error: existingError } = await auth.supabase
       .from('product_stock_movements')
@@ -444,13 +449,14 @@ async function applySalesOrderStockExits (
     if (existingError) return { ok: false as const, error: 'stock_apply_failed' as const }
 
     // Saída base ainda no histórico após estorno: usa ciclo (fora do unique da base).
+    // Shortfall parcial (crédito < qty) também usa ciclo se a base já existe.
     const ref = existingExit?.id
       ? salesOrderItemStockExitCycleExternalReference(orderId, itemId)
       : baseRef
 
     const layers = fifoState.layersByProduct.get(productId) ?? []
     const productCostCents = fifoState.fallbackCostByProduct.get(productId) ?? 0
-    const consumed = consumeFifoCost(layers, quantity, productCostCents)
+    const consumed = consumeFifoCost(layers, exitQuantity, productCostCents)
     fifoState.layersByProduct.set(productId, consumed.layers)
     const unitCost = consumed.unitCostCents
 
@@ -466,12 +472,31 @@ async function applySalesOrderStockExits (
       orderId,
       productId,
       type: 'exit',
-      quantity,
+      quantity: exitQuantity,
       unitValueCents: unitCost,
       externalReference: ref,
     })
     if (!inserted.ok) return { ok: false as const, error: 'stock_apply_failed' as const }
   }
+
+  // Crédito sobrando = net de saída maior que a qty atual (ex.: rascunho reduziu qty
+  // após finalize parcial). Devolve o excesso para o líquido bater com os itens.
+  const adjustToken = Date.now()
+  for (const [productId, leftover] of creditByProduct) {
+    if (leftover <= 0) continue
+    if (stockless.stocklessIds.has(productId)) continue
+    const unitValueCents = nets.byProduct.get(productId)?.unit_value_cents ?? 0
+    const inserted = await insertSalesOrderStockMovement(auth, {
+      orderId,
+      productId,
+      type: 'entry',
+      quantity: leftover,
+      unitValueCents,
+      externalReference: `sales_order_credit_adjust:${orderId}:product:${productId}:${adjustToken}`,
+    })
+    if (!inserted.ok) return { ok: false as const, error: 'stock_apply_failed' as const }
+  }
+
   return { ok: true as const }
 }
 
@@ -1258,14 +1283,13 @@ export async function cancelSalesOrder (
 
   let hadStockReversal = false
 
-  if (wasPaid) {
-    const reversed = await reverseSalesOrderStockNets(auth, orderId, 'cancel')
-    if (!reversed.ok) {
-      console.error('[cancelSalesOrder] stock reverse failed', reversed.error)
-      return { ok: false as const, error: 'stock_reverse_failed' as const }
-    }
-    hadStockReversal = reversed.hadReversal
+  // Também reverte saídas órfãs de finalize parcial (pedido ainda in_progress com net > 0).
+  const reversed = await reverseSalesOrderStockNets(auth, orderId, 'cancel')
+  if (!reversed.ok) {
+    console.error('[cancelSalesOrder] stock reverse failed', reversed.error)
+    return { ok: false as const, error: 'stock_reverse_failed' as const }
   }
+  hadStockReversal = reversed.hadReversal
 
   const { error } = await auth.supabase
     .from('sales_orders')
