@@ -28,11 +28,11 @@ async function pickHostOrFirstOrganizationId (supabase: SupabaseClient): Promise
 
 /**
  * Garante `user_portal_context.active_organization_id` coerente com RLS:
- * - platform_admin ou admin **sem** nenhuma linha em `organization_members`: escopo global
- *   no portal (mantém org ativa ou usa org host / primeira org).
+ * - platform_admin: escopo global no portal (mantém org ativa ou usa org host / primeira org).
  * - staff/admin com membership: só orgs em que `role_in_org` é `admin` ou `staff` na org ativa.
  * - accountant: membership com `role_in_org = accountant`.
  * - retailer: alinha ao `customers.organization_id` do vínculo em `customer_portal_members`.
+ * Admin de tenant sem membership não herda escopo global (evita breakout cross-tenant).
  */
 export async function ensurePortalOrganizationContext (
   supabase: SupabaseClient,
@@ -56,17 +56,7 @@ export async function ensurePortalOrganizationContext (
 
   const activeId = ctx?.active_organization_id ? String(ctx.active_organization_id) : null
 
-  const { data: anyMembershipRow } = await supabase
-    .from('organization_members')
-    .select('organization_id')
-    .eq('user_id', userId)
-    .limit(1)
-    .maybeSingle()
-
-  const hasAnyOrgMembership = Boolean(anyMembershipRow?.organization_id)
-
-  const globalPortalScope =
-    isPlatformAdmin || (normalized === 'admin' && !hasAnyOrgMembership)
+  const globalPortalScope = isPlatformAdmin
 
   const { data: staffMemberships } = await supabase
     .from('organization_members')
