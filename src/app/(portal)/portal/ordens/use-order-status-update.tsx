@@ -82,7 +82,13 @@ export function useOrderStatusUpdate () {
           })
           return 'blocked'
         }
-        toast({ title: 'Erro ao atualizar status', variant: 'destructive' })
+        toast({
+          title: 'Erro ao atualizar status',
+          description: result.error === 'stock_sync_failed'
+            ? 'O estoque não pôde ser sincronizado. O status não foi alterado.'
+            : undefined,
+          variant: 'destructive',
+        })
         return 'error'
       }
       setBlockerDialog(null)

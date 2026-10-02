@@ -22,7 +22,7 @@ export type ApplyOrderStatusChangeResult =
     }
   | {
       ok: false
-      error: 'invalid_status' | 'not_found' | 'db_error'
+      error: 'invalid_status' | 'not_found' | 'db_error' | 'stock_sync_failed'
     }
 
 /**
@@ -180,6 +180,25 @@ export async function applyOrderStatusChange (
     })
   } catch (err) {
     console.error('[applyOrderStatusChange stock]', err)
+    // Status sem estoque consistente é pior que falhar a operação: reverte o status
+    // para o anterior e sinaliza erro (retry reconcilia o líquido parcial).
+    const rollbackPayload: Record<string, unknown> = { status: previousStatus }
+    if (Object.prototype.hasOwnProperty.call(updatePayload, 'closed_at')) {
+      rollbackPayload.closed_at = existing.closed_at ?? null
+    }
+    const { error: rollbackErr } = await supabase
+      .from('service_orders')
+      .update(rollbackPayload)
+      .eq('id', orderId)
+    if (rollbackErr) {
+      console.error('[applyOrderStatusChange stock-rollback]', {
+        orderId,
+        previousStatus,
+        nextStatus,
+        rollbackErr,
+      })
+    }
+    return { ok: false, error: 'stock_sync_failed' }
   }
 
   const organizationId = String(

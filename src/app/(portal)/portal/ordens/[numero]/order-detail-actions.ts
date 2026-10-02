@@ -354,6 +354,7 @@ export async function updateOrderAction(
 		})
 	} catch (err) {
 		console.error('[order-save stock]', err)
+		return { ok: false, error: 'estoque_nao_sincronizado' }
 	}
 
 	try {
@@ -392,6 +393,7 @@ export type UpdateOrderStatusActionResult =
 				| 'not_found'
 				| 'db_error'
 				| 'finalize_blockers'
+				| 'stock_sync_failed'
 			exitIncomplete?: boolean
 			warrantyMissing?: boolean
 	  }
@@ -459,6 +461,9 @@ export async function updateOrderStatusAction(
 		}
 		if (applied.error === 'invalid_status') {
 			return { ok: false, error: 'invalid_status' }
+		}
+		if (applied.error === 'stock_sync_failed') {
+			return { ok: false, error: 'stock_sync_failed' }
 		}
 	}
 	return { ok: false, error: 'db_error' }

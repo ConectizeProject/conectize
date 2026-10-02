@@ -68,6 +68,9 @@ export async function PATCH (
         { status: 409 },
       )
     }
+    if (err === 'stock_sync_failed') {
+      return NextResponse.json({ ok: false, error: 'stock_sync_failed' }, { status: 500 })
+    }
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
   }
 
