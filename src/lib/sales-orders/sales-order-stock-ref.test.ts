@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
+  applyPaidSalesOrderStockOrRestore,
   consumeSalesOrderStockExitCredit,
   salesOrderItemStockExitCycleExternalReference,
   salesOrderItemStockExternalReference,
@@ -119,5 +120,35 @@ describe('consumeSalesOrderStockExitCredit', () => {
       nextCredit: 4,
       exitQuantity: 0,
     })
+  })
+})
+
+describe('applyPaidSalesOrderStockOrRestore', () => {
+  it('retorna ok quando o apply dos novos itens funciona', async () => {
+    const restore = vi.fn(async () => ({ ok: true }))
+    const result = await applyPaidSalesOrderStockOrRestore({
+      apply: async () => ({ ok: true }),
+      restore,
+    })
+    expect(result).toEqual({ ok: true })
+    expect(restore).not.toHaveBeenCalled()
+  })
+
+  it('restaura snapshot anterior quando o apply falha (evita net 0 em pedido pago)', async () => {
+    const restore = vi.fn(async () => ({ ok: true }))
+    const result = await applyPaidSalesOrderStockOrRestore({
+      apply: async () => ({ ok: false }),
+      restore,
+    })
+    expect(restore).toHaveBeenCalledTimes(1)
+    expect(result).toEqual({ ok: false, error: 'stock_apply_failed' })
+  })
+
+  it('propaga stock_restore_failed se a compensação também falhar', async () => {
+    const result = await applyPaidSalesOrderStockOrRestore({
+      apply: async () => ({ ok: false }),
+      restore: async () => ({ ok: false }),
+    })
+    expect(result).toEqual({ ok: false, error: 'stock_restore_failed' })
   })
 })
