@@ -65,6 +65,7 @@ export async function PATCH (request: NextRequest, { params }: { params: Params 
         || result.error === 'payment_insufficient'
         || result.error === 'stock_reverse_failed'
         || result.error === 'stock_apply_failed'
+        || result.error === 'stock_restore_failed'
         || result.error === 'finance_sync_failed'
         ? 400
         : 500
@@ -75,9 +76,13 @@ export async function PATCH (request: NextRequest, { params }: { params: Params 
         ? 'O total ficou maior que o valor pago. Ajuste desconto/itens ou as formas de pagamento.'
         : result.error === 'order_not_editable'
           ? 'Este pedido não pode ser editado.'
-          : result.error === 'finance_sync_failed'
-            ? 'Pedido salvo, mas falhou ao atualizar o lançamento no financeiro. Verifique as carteiras das formas de pagamento.'
-            : undefined,
+          : result.error === 'stock_apply_failed'
+            ? 'Não foi possível baixar o estoque dos novos itens. A edição foi desfeita para manter o inventário consistente.'
+            : result.error === 'stock_restore_failed'
+              ? 'Falha ao sincronizar estoque na edição. Verifique o inventário deste pedido antes de tentar de novo.'
+              : result.error === 'finance_sync_failed'
+                ? 'Pedido salvo, mas falhou ao atualizar o lançamento no financeiro. Verifique as carteiras das formas de pagamento.'
+                : undefined,
     }, { status })
   }
 

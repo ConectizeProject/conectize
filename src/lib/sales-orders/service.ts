@@ -538,6 +538,88 @@ async function reverseSalesOrderStockNets (
   return { ok: true as const, hadReversal }
 }
 
+/**
+ * Após reverse+replace de pedido pago, se o re-apply falhar (ou o replace
+ * falhar com estoque já revertido), restaura itens anteriores e re-baixa.
+ * Sem isso o pedido fica pago com net de estoque 0 (inventário inflado).
+ */
+async function restorePaidSalesOrderItemsAndStock (
+  auth: AuthCtx,
+  orderId: string,
+  previousItemInputs: SalesOrderItemInput[],
+  previousDiscountTotalCents: number,
+  previousSurchargeCents: number,
+) {
+  const cleared = await reverseSalesOrderStockNets(auth, orderId, 'edit')
+  if (!cleared.ok) {
+    return { ok: false as const, error: 'stock_restore_failed' as const }
+  }
+
+  const restoredItems = await replaceSalesOrderItems(auth, orderId, previousItemInputs)
+  if (!restoredItems.ok) {
+    return { ok: false as const, error: 'stock_restore_failed' as const }
+  }
+
+  const totals = await updateOrderTotals(
+    auth,
+    orderId,
+    previousItemInputs,
+    previousDiscountTotalCents,
+    previousSurchargeCents,
+  )
+  if (!totals.ok) {
+    return { ok: false as const, error: 'stock_restore_failed' as const }
+  }
+
+  const listed = await listSalesOrderItems(auth, orderId)
+  if (!listed.ok) {
+    return { ok: false as const, error: 'stock_restore_failed' as const }
+  }
+
+  const applied = await applySalesOrderStockExits(auth, orderId, listed.items)
+  if (!applied.ok) {
+    return { ok: false as const, error: 'stock_restore_failed' as const }
+  }
+
+  return { ok: true as const }
+}
+
+/**
+ * Contrato da edição paga: apply dos novos itens; se falhar, restore obrigatório.
+ * Evita pedido pago com itens novos e net de estoque 0.
+ */
+export async function applyPaidSalesOrderStockOrRestore (ops: {
+  apply: () => Promise<{ ok: boolean }>
+  restore: () => Promise<{ ok: boolean }>
+}): Promise<
+  | { ok: true }
+  | { ok: false, error: 'stock_apply_failed' | 'stock_restore_failed' }
+> {
+  const applied = await ops.apply()
+  if (applied.ok) return { ok: true as const }
+  const restored = await ops.restore()
+  if (!restored.ok) return { ok: false as const, error: 'stock_restore_failed' as const }
+  return { ok: false as const, error: 'stock_apply_failed' as const }
+}
+
+function toSalesOrderItemInputs (
+  rows: Array<{
+    product_id: string
+    quantity: number
+    unit_price_cents: number
+    unit_cost_cents?: number | null
+    discount_cents?: number | null
+  }>,
+): SalesOrderItemInput[] {
+  return rows.map((row) => ({
+    product_id: String(row.product_id),
+    quantity: toInt(row.quantity, 1),
+    unit_price_cents: toInt(row.unit_price_cents, 0),
+    unit_cost_cents: toInt(row.unit_cost_cents ?? 0, 0),
+    discount_cents: toInt(row.discount_cents ?? 0, 0),
+  }))
+}
+
 export function calcItemSubtotal (item: SalesOrderItemInput) {
   const quantity = toInt(item.quantity, 0)
   const unitPrice = toInt(item.unit_price_cents, 0)
@@ -739,32 +821,24 @@ export async function updateSalesOrderDraft (
   }
 
   const wasPaid = existing.status === 'paid'
-  let previousItems: Array<{
-    id: string
-    product_id: string
-    quantity: number
-    unit_cost_cents: number | null
-  }> = []
+  const previousDiscountTotalCents = toInt(existing.discount_total_cents, 0)
+  const previousSurchargeCents = toInt(existing.surcharge_cents, 0)
+  let previousItemInputs: SalesOrderItemInput[] = []
+  let paidItemsStockReversed = false
 
   const discountTotalCents = draft.discount_total_cents !== undefined
     ? toInt(draft.discount_total_cents, 0)
-    : toInt(existing.discount_total_cents, 0)
+    : previousDiscountTotalCents
 
   const surchargeCents = draft.surcharge_cents !== undefined
     ? toInt(draft.surcharge_cents, 0)
-    : toInt(existing.surcharge_cents, 0)
+    : previousSurchargeCents
 
   let nextItemInputs: SalesOrderItemInput[] | null = items ?? null
   if (!nextItemInputs && (wasPaid || payments)) {
     const currentItemsRes = await listSalesOrderItems(auth, orderId)
     if (!currentItemsRes.ok) return currentItemsRes
-    nextItemInputs = currentItemsRes.items.map((row) => ({
-      product_id: String(row.product_id),
-      quantity: toInt(row.quantity, 1),
-      unit_price_cents: toInt(row.unit_price_cents, 0),
-      unit_cost_cents: toInt(row.unit_cost_cents ?? 0, 0),
-      discount_cents: toInt(row.discount_cents ?? 0, 0),
-    }))
+    nextItemInputs = toSalesOrderItemInputs(currentItemsRes.items)
   }
 
   const prospectivePaidAmount = payments
@@ -781,12 +855,27 @@ export async function updateSalesOrderDraft (
   if (wasPaid && items) {
     const previousRes = await listSalesOrderItems(auth, orderId)
     if (!previousRes.ok) return previousRes
-    previousItems = previousRes.items.map((row) => ({
-      id: String(row.id),
-      product_id: String(row.product_id),
-      quantity: toInt(row.quantity, 1),
-      unit_cost_cents: row.unit_cost_cents == null ? null : toInt(row.unit_cost_cents, 0),
-    }))
+    previousItemInputs = toSalesOrderItemInputs(previousRes.items)
+
+    // Reverse antes de trocar itens: se o apply falhar, dá para restaurar o snapshot.
+    if (previousItemInputs.length > 0) {
+      const editToken = Date.now()
+      const reversed = await reverseSalesOrderStockNets(auth, orderId, 'edit', editToken)
+      if (!reversed.ok) {
+        console.error('[updateSalesOrderDraft] stock reverse failed', reversed.error)
+        if (reversed.hadReversal) {
+          const listed = await listSalesOrderItems(auth, orderId)
+          if (listed.ok) {
+            const repaired = await applySalesOrderStockExits(auth, orderId, listed.items)
+            if (!repaired.ok) {
+              console.error('[updateSalesOrderDraft] stock repair after partial reverse failed', repaired.error)
+            }
+          }
+        }
+        return { ok: false as const, error: 'stock_reverse_failed' as const }
+      }
+      paidItemsStockReversed = true
+    }
   }
 
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
@@ -809,7 +898,18 @@ export async function updateSalesOrderDraft (
     .eq('organization_id', auth.organizationId)
     .eq('id', orderId)
 
-  if (updError) return { ok: false as const, error: 'db_error' as const }
+  if (updError) {
+    if (paidItemsStockReversed && previousItemInputs.length > 0) {
+      const listed = await listSalesOrderItems(auth, orderId)
+      if (listed.ok) {
+        const repaired = await applySalesOrderStockExits(auth, orderId, listed.items)
+        if (!repaired.ok) {
+          console.error('[updateSalesOrderDraft] stock re-apply after header update failure', repaired.error)
+        }
+      }
+    }
+    return { ok: false as const, error: 'db_error' as const }
+  }
 
   const shouldRecalcTotals = Boolean(items)
     || draft.discount_total_cents !== undefined
@@ -817,49 +917,101 @@ export async function updateSalesOrderDraft (
 
   if (items) {
     const replace = await replaceSalesOrderItems(auth, orderId, items)
-    if (!replace.ok) return replace
+    if (!replace.ok) {
+      if (paidItemsStockReversed && previousItemInputs.length > 0) {
+        const restored = await restorePaidSalesOrderItemsAndStock(
+          auth,
+          orderId,
+          previousItemInputs,
+          previousDiscountTotalCents,
+          previousSurchargeCents,
+        )
+        if (!restored.ok) {
+          console.error('[updateSalesOrderDraft] stock restore after replace failure', restored.error)
+        }
+      }
+      return replace
+    }
     const totals = await updateOrderTotals(auth, orderId, items, discountTotalCents, surchargeCents)
-    if (!totals.ok) return totals
+    if (!totals.ok) {
+      if (paidItemsStockReversed && previousItemInputs.length > 0) {
+        const restored = await restorePaidSalesOrderItemsAndStock(
+          auth,
+          orderId,
+          previousItemInputs,
+          previousDiscountTotalCents,
+          previousSurchargeCents,
+        )
+        if (!restored.ok) {
+          console.error('[updateSalesOrderDraft] stock restore after totals failure', restored.error)
+        }
+      }
+      return totals
+    }
   } else if (shouldRecalcTotals) {
     const itemsRes = await listSalesOrderItems(auth, orderId)
     if (!itemsRes.ok) return itemsRes
-    const itemInputs: SalesOrderItemInput[] = itemsRes.items.map((row) => ({
-      product_id: String(row.product_id),
-      quantity: toInt(row.quantity, 1),
-      unit_price_cents: toInt(row.unit_price_cents, 0),
-      unit_cost_cents: toInt(row.unit_cost_cents ?? 0, 0),
-      discount_cents: toInt(row.discount_cents ?? 0, 0),
-    }))
+    const itemInputs = toSalesOrderItemInputs(itemsRes.items)
     const totals = await updateOrderTotals(auth, orderId, itemInputs, discountTotalCents, surchargeCents)
     if (!totals.ok) return totals
   }
 
   if (payments) {
     const replacePayments = await replaceSalesOrderPayments(auth, orderId, payments)
-    if (!replacePayments.ok) return replacePayments
+    if (!replacePayments.ok) {
+      if (paidItemsStockReversed && previousItemInputs.length > 0 && items) {
+        const restored = await restorePaidSalesOrderItemsAndStock(
+          auth,
+          orderId,
+          previousItemInputs,
+          previousDiscountTotalCents,
+          previousSurchargeCents,
+        )
+        if (!restored.ok) {
+          console.error('[updateSalesOrderDraft] stock restore after payments failure', restored.error)
+        }
+      }
+      return replacePayments
+    }
   }
 
   if (wasPaid || payments) {
     const loaded = await loadSalesOrder(auth, orderId)
-    if (!loaded.ok) return loaded
+    if (!loaded.ok) {
+      if (paidItemsStockReversed && previousItemInputs.length > 0) {
+        const restored = await restorePaidSalesOrderItemsAndStock(
+          auth,
+          orderId,
+          previousItemInputs,
+          previousDiscountTotalCents,
+          previousSurchargeCents,
+        )
+        if (!restored.ok) {
+          console.error('[updateSalesOrderDraft] stock restore after load failure', restored.error)
+        }
+      }
+      return loaded
+    }
 
     const paidAmount = payments
       ? prospectivePaidAmount
       : toInt(loaded.order.paid_amount_cents, 0)
     const total = toInt(loaded.order.total_cents, 0)
 
-    if (wasPaid && items && previousItems.length > 0) {
-      const editToken = Date.now()
-      const reversed = await reverseSalesOrderStockNets(auth, orderId, 'edit', editToken)
-      if (!reversed.ok) {
-        console.error('[updateSalesOrderDraft] stock reverse failed', reversed.error)
-        return { ok: false as const, error: 'stock_reverse_failed' as const }
-      }
-
-      const applied = await applySalesOrderStockExits(auth, orderId, loaded.items)
-      if (!applied.ok) {
-        console.error('[updateSalesOrderDraft] stock apply failed', applied.error)
-        return { ok: false as const, error: 'stock_apply_failed' as const }
+    if (wasPaid && items && previousItemInputs.length > 0) {
+      const stockResult = await applyPaidSalesOrderStockOrRestore({
+        apply: () => applySalesOrderStockExits(auth, orderId, loaded.items),
+        restore: () => restorePaidSalesOrderItemsAndStock(
+          auth,
+          orderId,
+          previousItemInputs,
+          previousDiscountTotalCents,
+          previousSurchargeCents,
+        ),
+      })
+      if (stockResult.ok === false) {
+        console.error('[updateSalesOrderDraft] stock apply/restore failed', stockResult.error)
+        return { ok: false as const, error: stockResult.error }
       }
     }
 
