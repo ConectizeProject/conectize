@@ -7,6 +7,7 @@ import { expandStoragePathsWithThumbs } from '@/lib/image/storage-paths'
 import { normalizeSalePaymentMethodsForPersistence } from '@/lib/resale/sale-payment-methods'
 import { stripSaleDerivedCosts } from '@/lib/resale/resale-sale-costs'
 import {
+  deleteStockExitsForResaleAddons,
   insertStockExitsForResaleAddons,
   parseAddonInventoryLines,
   validateAddonStockAvailable,
@@ -281,6 +282,36 @@ async function rewriteResaleCostsKeepingBaseOnly (
   }
 }
 
+/** Desfaz campos de venda após falha de estoque/troca, para retry seguro. */
+async function rollbackResaleMarkSold (
+  supabase: PortalSupabase,
+  deviceId: string,
+  organizationId: string,
+) {
+  await supabase
+    .from('resale_devices')
+    .update({
+      sold: false,
+      sold_for_cents: null,
+      sale_date: null,
+      sale_payment_methods: [],
+      payment_method_id: null,
+      payment_installments: null,
+      buyer_name: null,
+      buyer_cpf: null,
+      sale_details: null,
+      sale_commission_user_id: null,
+      actual_profit_cents: null,
+    })
+    .eq('id', deviceId)
+  await rewriteResaleCostsKeepingBaseOnly(supabase, deviceId, organizationId)
+  await deleteStockExitsForResaleAddons({
+    supabase,
+    organizationId,
+    deviceId,
+  })
+}
+
 export async function GET (
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -455,6 +486,17 @@ export async function PATCH (
     if (costsDiff) historyDiffs.push(costsDiff)
   }
 
+  if (b.sold === false) {
+    const stockRev = await deleteStockExitsForResaleAddons({
+      supabase: auth.supabase,
+      organizationId: auth.organizationId,
+      deviceId,
+    })
+    if (stockRev.ok === false) {
+      return NextResponse.json({ ok: false, error: 'stock_movement_failed' }, { status: 500 })
+    }
+  }
+
   if (Array.isArray(b.costs)) {
     await auth.supabase.from('resale_device_costs').delete().eq('resale_device_id', deviceId)
     for (const c of b.costs) {
@@ -509,7 +551,8 @@ export async function PATCH (
       deviceId,
       lines: addonStockLines,
     })
-    if (!ins.ok) {
+    if (ins.ok === false) {
+      await rollbackResaleMarkSold(auth.supabase, deviceId, auth.organizationId)
       return NextResponse.json({ ok: false, error: 'stock_movement_failed' }, { status: 500 })
     }
   }
@@ -535,23 +578,7 @@ export async function PATCH (
       lines: tradeInLines,
     })
     if (tradeResult.ok === false) {
-      await auth.supabase
-        .from('resale_devices')
-        .update({
-          sold: false,
-          sold_for_cents: null,
-          sale_date: null,
-          sale_payment_methods: [],
-          payment_method_id: null,
-          payment_installments: null,
-          buyer_name: null,
-          buyer_cpf: null,
-          sale_details: null,
-          sale_commission_user_id: null,
-          actual_profit_cents: null,
-        })
-        .eq('id', deviceId)
-      await rewriteResaleCostsKeepingBaseOnly(auth.supabase, deviceId, auth.organizationId)
+      await rollbackResaleMarkSold(auth.supabase, deviceId, auth.organizationId)
       const tradeError =
         tradeResult.error === 'trade_in_table_missing'
           ? 'trade_in_table_missing'
