@@ -33,6 +33,11 @@ export function mergeAddonInventoryLines (
   return [...m.entries()].map(([product_id, quantity]) => ({ product_id, quantity }))
 }
 
+/** Prefixo estável de `external_reference` das baixas de addon da venda. */
+export function resaleAddonStockRefPrefix (deviceId: string) {
+  return `resale_device_sale:${deviceId}:`
+}
+
 export async function validateAddonStockAvailable (
   supabase: SupabaseClient,
   lines: AddonInventoryLineInput[],
@@ -76,6 +81,31 @@ export async function validateAddonStockAvailable (
   return { ok: true }
 }
 
+/**
+ * Remove saídas de estoque de addon vinculadas à venda do aparelho.
+ * Usado no rollback de mark-sold e ao estornar venda (sold=false).
+ */
+export async function deleteStockExitsForResaleAddons (params: {
+  supabase: SupabaseClient
+  organizationId: string
+  deviceId: string
+}): Promise<{ ok: true } | { ok: false; error: 'db_error' }> {
+  const { supabase, organizationId, deviceId } = params
+  const prefix = resaleAddonStockRefPrefix(deviceId)
+  const { error } = await supabase
+    .from('product_stock_movements')
+    .delete()
+    .eq('organization_id', organizationId)
+    .eq('source', 'resale_device_sale')
+    .ilike('external_reference', `${prefix}%`)
+
+  if (error) {
+    console.error('[resale-addon-stock] delete', error)
+    return { ok: false, error: 'db_error' }
+  }
+  return { ok: true }
+}
+
 export async function insertStockExitsForResaleAddons (params: {
   supabase: SupabaseClient
   organizationId: string
@@ -108,7 +138,7 @@ export async function insertStockExitsForResaleAddons (params: {
       typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
         ? crypto.randomUUID()
         : `${Date.now()}-${Math.random().toString(36).slice(2)}`
-    const ref = `resale_device_sale:${deviceId}:${line.product_id}:${uniq}`
+    const ref = `${resaleAddonStockRefPrefix(deviceId)}${line.product_id}:${uniq}`
     const { error: movError } = await supabase.from('product_stock_movements').insert({
       organization_id: organizationId,
       product_id: line.product_id,
@@ -122,6 +152,12 @@ export async function insertStockExitsForResaleAddons (params: {
     })
     if (movError) {
       console.error('[resale-addon-stock]', movError)
+      // Evita baixas parciais órfãs se o loop falhar no meio.
+      await deleteStockExitsForResaleAddons({
+        supabase,
+        organizationId,
+        deviceId,
+      })
       return { ok: false, error: 'db_error' }
     }
   }
