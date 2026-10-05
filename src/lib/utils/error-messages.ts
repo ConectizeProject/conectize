@@ -98,6 +98,8 @@ export const ORDEM_ERROR_MESSAGES: Record<string, string> = {
   previsao_invalida: 'A previsão deve ser igual ou posterior à data de abertura.',
   nao_foi_possivel_registrar_financeiro:
     'A ordem foi salva, mas o lançamento financeiro não pôde ser atualizado.',
+  estoque_nao_sincronizado:
+    'A ordem foi salva, mas o estoque não pôde ser sincronizado. Tente salvar de novo.',
 }
 
 /** Códigos PostgreSQL / PostgREST comuns ao salvar OS → mensagem em português */
