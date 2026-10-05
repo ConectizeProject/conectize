@@ -10,23 +10,36 @@ export async function POST (request: Request) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 
-  const body = await request.json().catch(() => null)
+  const body = await request.json().catch(() => null) as {
+    clientId?: string
+    client_id?: string
+    clientSecret?: string
+    client_secret?: string
+    connectionId?: string
+  } | null
   const clientId = String(body?.clientId || body?.client_id || '').trim()
   const clientSecret = String(body?.clientSecret || body?.client_secret || '').trim()
+  const connectionId = String(body?.connectionId || '').trim()
 
   if (!clientId) {
     return NextResponse.json({ ok: false, error: 'client_id_required' }, { status: 400 })
   }
 
-  const { data: existing, error: existingError } = await auth.supabase
+  const existingQuery = auth.supabase
     .from('hub_connections')
     .select('id, api_key, metadata')
     .eq('platform_id', PLATFORM_ID)
     .eq('organization_id', auth.organizationId)
-    .maybeSingle()
+
+  const { data: existing, error: existingError } = connectionId
+    ? await existingQuery.eq('id', connectionId).maybeSingle()
+    : { data: null, error: null }
 
   if (existingError) {
     return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+  }
+  if (connectionId && !existing?.id) {
+    return NextResponse.json({ ok: false, error: 'connection_not_found' }, { status: 404 })
   }
 
   const previousMetadata = existing?.metadata && typeof existing.metadata === 'object'
@@ -68,27 +81,36 @@ export async function POST (request: Request) {
     payload.token_expires_at = null
   }
 
-  const dbError = existing?.id
-    ? (await auth.supabase
+  let savedId = existing?.id || ''
+  if (existing?.id) {
+    const { error: updateError } = await auth.supabase
       .from('hub_connections')
       .update(payload)
       .eq('id', existing.id)
-      .eq('organization_id', auth.organizationId)).error
-    : (await auth.supabase
+      .eq('organization_id', auth.organizationId)
+    if (updateError) {
+      return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+    }
+  } else {
+    const { data: inserted, error: insertError } = await auth.supabase
       .from('hub_connections')
       .insert({
         ...payload,
         created_by: auth.userId,
-      })).error
-
-  if (dbError) {
-    return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+      })
+      .select('id')
+      .single()
+    if (insertError || !inserted?.id) {
+      return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+    }
+    savedId = String(inserted.id)
   }
 
   return NextResponse.json({
     ok: true,
+    connectionId: savedId,
     clientId,
     hasClientSecret: true,
-    credentialsChanged,
+    credentialsChanged: credentialsChanged || !existing?.id,
   })
 }

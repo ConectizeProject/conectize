@@ -204,6 +204,61 @@ function valuesAlignedToKeys (
 }
 
 /**
+ * Infere chaves a partir dos objetos `variation_attribute_values` dos filhos.
+ */
+export function inferVariationAttributeKeysFromChildValues (
+  childrenValues: Array<Record<string, string>>,
+): string[] {
+  const keyRank = new Map<string, { label: string, count: number }>()
+  for (const raw of childrenValues) {
+    const vals = parseVariationAttributeValues(raw)
+    for (const k of Object.keys(vals)) {
+      const low = k.toLowerCase()
+      const prev = keyRank.get(low)
+      if (!prev) {
+        keyRank.set(low, { label: normalizeVariationAttributeKeyLabel(k), count: 1 })
+      } else {
+        prev.count += 1
+        prev.label = preferAttrKeyLabel(prev.label, normalizeVariationAttributeKeyLabel(k))
+      }
+    }
+  }
+  return [...keyRank.values()]
+    .sort((a, b) => b.count - a.count)
+    .slice(0, MAX_KEYS)
+    .map((x) => x.label)
+}
+
+/** Mantém só os valores cuja chave ainda existe no pai (case-insensitive). */
+export function pickVariationAttributeValuesForKeys (
+  keys: string[],
+  values: Record<string, string>,
+): Record<string, string> {
+  const safeKeys = parseVariationAttributeKeys(keys)
+  const parsed = parseVariationAttributeValues(values)
+  const out: Record<string, string> = {}
+  for (const key of safeKeys) {
+    if (parsed[key]) {
+      out[key] = parsed[key]
+      continue
+    }
+    const loose = Object.keys(parsed).find((k) => k.toLowerCase() === key.toLowerCase())
+    if (loose) out[key] = parsed[loose]
+  }
+  return out
+}
+
+function childHasStructuredVariationAttrs (
+  parentName: string,
+  childName: string,
+  values: Record<string, string>,
+): boolean {
+  if (Object.keys(parseVariationAttributeValues(values)).length > 0) return true
+  const segs = parseVariationNameAgainstParent(parentName, childName)
+  return segs.some((s) => String(s.key || '').trim() && String(s.value || '').trim())
+}
+
+/**
  * Infere chaves de atributo a partir dos nomes das variações (quando o pai ainda não tem keys).
  */
 export function inferVariationAttributeKeysFromChildNames (
@@ -282,9 +337,13 @@ export function variationAttributesNeedRepair (input: {
 }): boolean {
   const keys = parseVariationAttributeKeys(input.parentKeys)
   if (input.children.length === 0) return false
-  if (keys.length === 0) return true
-
   const parentName = String(input.parentName || '').trim()
+  if (keys.length === 0) {
+    return input.children.some((child) =>
+      childHasStructuredVariationAttrs(parentName, child.name, child.values),
+    )
+  }
+
   for (const child of input.children) {
     const vals = parseVariationAttributeValues(child.values)
     for (const k of keys) {

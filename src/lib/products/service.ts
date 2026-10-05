@@ -7,8 +7,10 @@ import {
 	composePortalVariationDisplayName,
 	DEFAULT_VARIATION_ATTRIBUTE_KEY,
 	inferVariationAttributeKeysFromChildNames,
+	inferVariationAttributeKeysFromChildValues,
 	parseVariationAttributeKeys,
 	parseVariationAttributeValues,
+	pickVariationAttributeValuesForKeys,
 	resolveVariationAttributesFromName,
 	variationAttributesNeedRepair,
 } from "@/lib/products/variation-display-name";
@@ -561,13 +563,15 @@ export async function repairVariationAttributesForParent(
 
 	let keys = parseVariationAttributeKeys(parent.variationAttributeKeys);
 	if (keys.length === 0) {
+		keys = inferVariationAttributeKeysFromChildValues(
+			children.map((c) => c.variationAttributeValues),
+		);
+	}
+	if (keys.length === 0) {
 		keys = inferVariationAttributeKeysFromChildNames(
 			parent.name,
 			children.map((c) => c.name),
 		);
-	}
-	if (keys.length === 0) {
-		keys = [DEFAULT_VARIATION_ATTRIBUTE_KEY];
 	}
 
 	const parentKeysChanged =
@@ -713,6 +717,7 @@ export async function repairAllVariationAttributesForOrganization(): Promise<
 
 export async function getProductByIdWithVariations(
 	id: string,
+	options?: { skipRepair?: boolean },
 ): Promise<GetProductWithVariationsResult> {
 	const auth = await requireAuth();
 	if (!auth.ok) return { ok: false, error: "not_authenticated" };
@@ -755,6 +760,7 @@ export async function getProductByIdWithVariations(
 	let variations = await loadActiveVariations();
 
 	if (
+		!options?.skipRepair &&
 		variations.length > 0 &&
 		variationAttributesNeedRepair({
 			parentName: product.name,
@@ -1264,23 +1270,37 @@ export async function recomputeVariationDisplayNamesForParent(
 	const auth = await requireAuth();
 	if (!auth.ok) return { ok: false, error: "not_authenticated" };
 
-	const withVars = await getProductByIdWithVariations(parentProductId);
+	const withVars = await getProductByIdWithVariations(parentProductId, {
+		skipRepair: true,
+	});
 	if (!withVars.ok) return { ok: false, error: "not_found" };
 
 	const parent = withVars.product;
-	const keys = parent.variationAttributeKeys;
-	if (keys.length === 0) return { ok: true, updated: 0 };
-
+	const keys = parseVariationAttributeKeys(parent.variationAttributeKeys);
 	const parentName = parent.name.trim();
 	let updated = 0;
 
 	for (const v of withVars.variations) {
-		const newName = composePortalVariationDisplayName(
-			parentName,
+		const nextValues = pickVariationAttributeValuesForKeys(
 			keys,
 			v.variationAttributeValues,
 		);
-		if (!newName || newName === v.name) continue;
+		const newName = composePortalVariationDisplayName(
+			parentName,
+			keys,
+			nextValues,
+		);
+		const prevVals = parseVariationAttributeValues(v.variationAttributeValues);
+		const valuesEqual =
+			Object.keys(nextValues).length === Object.keys(prevVals).length &&
+			Object.keys(nextValues).every((k) => {
+				const loose = Object.keys(prevVals).find(
+					(pk) => pk.toLowerCase() === k.toLowerCase(),
+				);
+				return loose != null && prevVals[loose] === nextValues[k];
+			});
+		const sameName = String(v.name || "").trim() === newName;
+		if (valuesEqual && sameName) continue;
 
 		const snapshot = createProductSyncSnapshot({
 			name: newName,
@@ -1297,6 +1317,7 @@ export async function recomputeVariationDisplayNamesForParent(
 			.from("products")
 			.update({
 				name: newName,
+				variation_attribute_values: nextValues,
 				bling_sync_snapshot: snapshot,
 				updated_at: new Date().toISOString(),
 			})

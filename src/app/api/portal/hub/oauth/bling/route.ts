@@ -18,12 +18,17 @@ export async function GET (request: NextRequest) {
     return NextResponse.redirect(new URL('/portal/minhas-ordens', origin))
   }
 
-  const { data: connection } = await auth.supabase
+  const requestedId = request.nextUrl.searchParams.get('connectionId')?.trim() || ''
+  let connectionQuery = auth.supabase
     .from('hub_connections')
-    .select('metadata, api_key')
+    .select('id, metadata, api_key')
     .eq('platform_id', PLATFORM_ID)
     .eq('organization_id', auth.organizationId)
-    .maybeSingle()
+  connectionQuery = requestedId
+    ? connectionQuery.eq('id', requestedId)
+    : connectionQuery.order('updated_at', { ascending: false }).limit(1)
+
+  const { data: connection } = await connectionQuery.maybeSingle()
 
   const credentials = resolveBlingAppCredentials(connection)
   if (!credentials) {
@@ -64,6 +69,15 @@ export async function GET (request: NextRequest) {
     maxAge: 600,
     path: '/',
   })
+  if (connection?.id) {
+    cookieStore.set('hub_oauth_bling_connection', String(connection.id), {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 600,
+      path: '/',
+    })
+  }
 
   return NextResponse.redirect(authorizeUrl)
 }

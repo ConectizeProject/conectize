@@ -133,7 +133,7 @@ export function buildConectizeStockWhatsAppTexts (
 ${devicesBlockAtacado}
 
 🔒 Seminovos revisados
-✅ Garantia 90 dias
+✅ Garantia 180 dias
 ⚠️ Reservas mediante pagamento integral do aparelho
 
 🚨 PROMOÇÃO ESPECIAL
@@ -149,7 +149,7 @@ Comprando 3 iPhones
 ${devicesBlockCliente}
 
 🔒 Seminovos testados e com garantia
-✅ Garantia 90 dias
+✅ Garantia 180 dias
 ⚠️ Reservas mediante pagamento integral do aparelho
 
 📲 Chame no privado e garanta o seu`

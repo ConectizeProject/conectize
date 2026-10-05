@@ -147,17 +147,23 @@ export function ProductFormDialog ({
   const [createParentAttrKeys, setCreateParentAttrKeys] = useState<string[]>([])
   const [createParentName, setCreateParentName] = useState<string | null>(null)
   const [parentVariationKeysPortalEl, setParentVariationKeysPortalEl] = useState<HTMLDivElement | null>(null)
+  const keysPersistSeqRef = useRef(0)
 
-  const loadEdit = useCallback(async () => {
+  const loadEdit = useCallback(async (opts?: { silent?: boolean, seq?: number }) => {
     if (!productId || mode !== 'edit') return
-    setLoading(true)
-    setLoadError(null)
+    const silent = opts?.silent === true
+    if (!silent) {
+      setLoading(true)
+      setLoadError(null)
+    }
     try {
       const res = await fetch(`/api/portal/produtos/${productId}`)
       const data = await res.json().catch(() => null)
       if (!res.ok || !data?.ok || !data?.product) {
+        if (silent) return
         throw new Error(data?.message || data?.error || 'Não foi possível carregar o item.')
       }
+      if (opts?.seq != null && opts.seq !== keysPersistSeqRef.current) return
       const raw = data.product as Product
       setLoadedProduct(raw)
       setFormProduct(mapProductToForm(raw))
@@ -168,13 +174,14 @@ export function ProductFormDialog ({
       )
       setVariations(Array.isArray(data.variations) ? (data.variations as Product[]) : [])
     } catch (err) {
+      if (silent) return
       setLoadError(err instanceof Error ? err.message : 'Erro ao carregar.')
       setFormProduct(null)
       setLoadedProduct(null)
       setCompatibleModels([])
       setVariations([])
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [productId, mode])
 
@@ -203,6 +210,7 @@ export function ProductFormDialog ({
 
   useEffect(() => {
     if (open) return
+    keysPersistSeqRef.current = 0
     setFormProduct(null)
     setLoadedProduct(null)
     setCompatibleModels([])
@@ -640,6 +648,38 @@ export function ProductFormDialog ({
     }
   }, [productId, toast])
 
+  const persistVariationAttributeKeys = useCallback(async (keys: string[]) => {
+    if (!productId || mode !== 'edit') return false
+    const seq = ++keysPersistSeqRef.current
+    try {
+      const res = await fetch(`/api/portal/produtos/${productId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ variationAttributeKeys: keys }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        toast({
+          title: 'Não foi possível atualizar os atributos',
+          description: typeof data?.message === 'string'
+            ? data.message
+            : 'Tente novamente.',
+          variant: 'destructive',
+        })
+        return false
+      }
+      await loadEdit({ silent: true, seq })
+      return seq === keysPersistSeqRef.current
+    } catch {
+      toast({
+        title: 'Não foi possível atualizar os atributos',
+        description: 'Tente novamente.',
+        variant: 'destructive',
+      })
+      return false
+    }
+  }, [productId, mode, loadEdit, toast])
+
   return (
     <Dialog
       open={open}
@@ -920,6 +960,7 @@ export function ProductFormDialog ({
                       }
                       onCancel={() => onOpenChange(false)}
                       onSubmit={handleSubmit}
+                      onPersistVariationAttributeKeys={persistVariationAttributeKeys}
                     />
                   </TabsContent>
 

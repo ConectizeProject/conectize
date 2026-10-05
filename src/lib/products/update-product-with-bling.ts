@@ -7,6 +7,10 @@ import {
   type PortalFieldForBling,
 } from '@/lib/products/bling-sync'
 import {
+  parseVariationAttributeKeys,
+  parseVariationAttributeValues,
+} from '@/lib/products/variation-display-name'
+import {
   getProductById,
   updateProduct,
   type Product,
@@ -185,6 +189,12 @@ function normalizePatch (input: UpdateProductInput): NormalizePatchResult {
   if (input.icmsCst !== undefined) patch.icmsCst = input.icmsCst
   if (input.pisCst !== undefined) patch.pisCst = input.pisCst
   if (input.cofinsCst !== undefined) patch.cofinsCst = input.cofinsCst
+  if (input.variationAttributeKeys !== undefined) {
+    patch.variationAttributeKeys = parseVariationAttributeKeys(input.variationAttributeKeys)
+  }
+  if (input.variationAttributeValues !== undefined) {
+    patch.variationAttributeValues = parseVariationAttributeValues(input.variationAttributeValues)
+  }
 
   if (Object.keys(patch).length === 0) {
     return { ok: false as const, error: 'nothing_to_update' }

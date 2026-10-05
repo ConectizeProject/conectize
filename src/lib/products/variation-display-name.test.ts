@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   composePortalVariationDisplayName,
   inferVariationAttributeKeysFromChildNames,
+  inferVariationAttributeKeysFromChildValues,
   parseVariationNameAgainstParent,
+  pickVariationAttributeValuesForKeys,
   resolveVariationAttributesFromName,
   splitPortalVariationDisplayName,
   variationAttributesNeedRepair,
@@ -42,7 +44,7 @@ describe('variation-display-name', () => {
     expect(r.displayName).toBe('Display iPhone Modelo:16 Pro Max')
   })
 
-  it('detecta necessidade de reparo quando keys vazias', () => {
+  it('detecta necessidade de reparo quando keys vazias e o nome ainda tem atributo', () => {
     expect(
       variationAttributesNeedRepair({
         parentName: 'Display iPhone',
@@ -50,6 +52,45 @@ describe('variation-display-name', () => {
         children: [{ name: 'Display iPhone Modelo:8G Black', values: {} }],
       }),
     ).toBe(true)
+  })
+
+  it('não repara keys vazias depois que o atributo foi removido de verdade', () => {
+    expect(
+      variationAttributesNeedRepair({
+        parentName: 'Display iPhone',
+        parentKeys: [],
+        children: [{ name: 'Display iPhone', values: {} }],
+      }),
+    ).toBe(false)
+  })
+
+  it('repara keys vazias quando o filho ainda guarda valores estruturados', () => {
+    expect(
+      variationAttributesNeedRepair({
+        parentName: 'Display iPhone',
+        parentKeys: [],
+        children: [{ name: 'Display iPhone', values: { Modelo: '8G Black' } }],
+      }),
+    ).toBe(true)
+  })
+
+  it('infere chaves a partir dos valores dos filhos', () => {
+    expect(
+      inferVariationAttributeKeysFromChildValues([
+        { Cor: 'Azul', Tamanho: 'M' },
+        { cor: 'Preto' },
+      ]),
+    ).toEqual(['Cor', 'Tamanho'])
+  })
+
+  it('remove do filho a chave que o pai excluiu', () => {
+    expect(
+      pickVariationAttributeValuesForKeys(['Cor'], {
+        Cor: 'Azul',
+        Tamanho: 'M',
+      }),
+    ).toEqual({ Cor: 'Azul' })
+    expect(pickVariationAttributeValuesForKeys([], { Modelo: '8G' })).toEqual({})
   })
 
   it('separa prefixo do pai para exibição', () => {

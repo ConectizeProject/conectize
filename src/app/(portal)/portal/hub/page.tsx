@@ -40,23 +40,22 @@ export default async function HubPage() {
   const blingRows = connectionRows.filter(
     (c: { platform_id: string }) => c.platform_id === 'bling'
   )
-  const blingHasClientSecret = blingRows.some((c: { api_key?: string | null }) => Boolean(String(c.api_key || '').trim()))
   const blingConnections = blingRows.map((c: {
     id: string
     platform_id: string
     metadata?: Record<string, unknown> | null
     created_at?: string
     token_expires_at?: string | null
+    api_key?: string | null
   }) => ({
     id: c.id,
     platform_id: c.platform_id,
     metadata: c.metadata,
     created_at: c.created_at,
     token_expires_at: c.token_expires_at,
+    clientId: typeof c.metadata?.blingClientId === 'string' ? c.metadata.blingClientId : '',
+    hasClientSecret: Boolean(String(c.api_key || '').trim()),
   }))
-  const blingClientId = typeof blingConnections[0]?.metadata?.blingClientId === 'string'
-    ? blingConnections[0].metadata.blingClientId
-    : ''
   const meliConnections = connectionRows.filter(
     (c: { platform_id: string }) => c.platform_id === 'mercado_livre'
   ).map((c: {
@@ -90,8 +89,6 @@ export default async function HubPage() {
         isAdmin={me?.role === 'admin' || me?.role === 'platform_admin'}
         chatgptModel={chatgptModel}
         blingRedirectUri={blingRedirectUri}
-        blingClientId={blingClientId}
-        blingHasClientSecret={blingHasClientSecret}
       />
     </div>
   )
