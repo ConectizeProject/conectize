@@ -237,7 +237,7 @@ export function ResaleDeviceTermsDialog({ open, onOpenChange, device }: Props) {
   const tradeIns = effectiveDevice?.trade_ins ?? []
 
   const saleDateBr = formatDateBrFromIso(effectiveDevice?.sale_date ?? null)
-  const warrantyEndBr = addDays(effectiveDevice?.sale_date ?? null, 90) || 'Não informado'
+  const warrantyEndBr = addDays(effectiveDevice?.sale_date ?? null, 180) || 'Não informado'
 
   if (!device || !effectiveDevice) return null
 
@@ -316,7 +316,7 @@ export function ResaleDeviceTermsDialog({ open, onOpenChange, device }: Props) {
       tendo sido informado sobre seu estado de conservação, características e eventuais marcas de uso.
     </p>
     <p>
-      A <span class="label">garantia contra vícios ocultos</span> é de <span class="label">90 (noventa) dias</span>, contados a partir da data da compra (${saleDateBr}),
+      A <span class="label">garantia contra vícios ocultos</span> é de <span class="label">180 (cento e oitenta) dias</span>, contados a partir da data da compra (${saleDateBr}),
       com término em ${warrantyEndBr}, limitada a defeitos de funcionamento não aparentes no momento da venda.
     </p>
     <p>
@@ -431,7 +431,7 @@ export function ResaleDeviceTermsDialog({ open, onOpenChange, device }: Props) {
             </p>
             <p>
               A <span className="font-semibold">garantia contra vícios ocultos</span> é de{' '}
-              <span className="font-semibold">90 (noventa) dias</span>, contados a partir da data da compra ({saleDateBr}),
+              <span className="font-semibold">180 (cento e oitenta) dias</span>, contados a partir da data da compra ({saleDateBr}),
               com término em {warrantyEndBr}, limitada a defeitos de funcionamento não aparentes no momento da venda.
             </p>
             <p>

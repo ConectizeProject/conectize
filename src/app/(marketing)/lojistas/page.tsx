@@ -161,7 +161,7 @@ export default function LojistasPage () {
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent font-bold">•</span>
-                    <span>Garantia de 3 meses em todos os aparelhos</span>
+                    <span>Garantia de 180 dias em todos os aparelhos</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent font-bold">•</span>

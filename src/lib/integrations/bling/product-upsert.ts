@@ -5,6 +5,7 @@ import {
 	mapBlingProductToLocal,
 	type LocalProduct,
 } from '@/lib/integrations/bling/mappers'
+import { hasStoredBlingDetail } from '@/lib/integrations/bling/catalog-sync-rules'
 import { createProductSyncSnapshot } from '@/lib/products/bling-sync'
 import { allocateCatalogSortKeyForInsert } from '@/lib/products/catalog-sort-key'
 
@@ -28,6 +29,14 @@ export type BlingProductUpsertResult = {
 	productId?: string
 	productName?: string
 	blingId?: string
+	skippedExistingDetail?: boolean
+}
+
+type ExistingBlingProductRow = {
+	id: string
+	barcode?: string | null
+	ncm?: string | null
+	bling_detail_synced_at?: string | null
 }
 
 function getCurrentStock (
@@ -109,14 +118,30 @@ export async function enrichListItemsWithDetails (
 	return enriched
 }
 
+/** Mapeia a página de GET /produtos sem buscar o detalhe de cada id. */
+export function mapBlingCatalogListItems (
+	items: Array<{ produto?: Record<string, unknown> } | Record<string, unknown>>,
+): MappedLocal[] {
+	const parentNames = buildParentNameByBlingIdFromPageItems(items)
+	const mapCtx = { parentNameByBlingId: parentNames }
+	return items.map((raw) => {
+		const listDto = extractListDto(raw)
+		const blingId = listDto.id != null ? String(listDto.id).trim() : ''
+		return mapBlingProductToLocal(listDto, blingId || null, mapCtx)
+	})
+}
+
 export async function upsertBlingProductForOrganization (params: {
 	supabase: SupabaseClient
 	organizationId: string
 	userId: string
 	local: MappedLocal
 	externalReference: string
+	/** `list` grava nome, preço e estoque e preserva GTIN/fiscal já salvos. */
+	mode?: 'list' | 'full'
 }): Promise<BlingProductUpsertResult> {
 	const { supabase, organizationId, userId, local, externalReference } = params
+	const mode = params.mode === 'list' ? 'list' : 'full'
 	const blingId = String(local.blingId || '').trim()
 	if (!blingId || !String(local.name || '').trim()) {
 		return { action: 'invalid', blingId: blingId || undefined }
@@ -190,12 +215,13 @@ export async function upsertBlingProductForOrganization (params: {
 			.eq('id', parent.id)
 	}
 
-	const { data: existing } = await supabase
+	const { data: existingRow } = await supabase
 		.from('products')
-		.select('id')
+		.select('id, barcode, ncm, bling_detail_synced_at')
 		.eq('organization_id', organizationId)
 		.eq('bling_id', blingId)
 		.maybeSingle()
+	const existing = existingRow as ExistingBlingProductRow | null
 
 	if (existing?.id) {
 		const updatePayload: Record<string, unknown> = {
@@ -213,11 +239,29 @@ export async function upsertBlingProductForOrganization (params: {
 			bling_sync_snapshot: payload.bling_sync_snapshot,
 			updated_at: new Date().toISOString(),
 		}
-		if (isVariation && local.variationAttributeValues) {
+		let skippedExistingDetail = false
+		if (mode === 'list') {
+			if (!String(local.barcode || '').trim()) delete updatePayload.barcode
+			if (!String(local.description || '').trim()) delete updatePayload.description
+			if (!local.imageUrl) delete updatePayload.image_url
+			delete updatePayload.bling_sync_snapshot
+			if (!existing.bling_detail_synced_at && hasStoredBlingDetail(existing)) {
+				updatePayload.bling_detail_synced_at = new Date().toISOString()
+				updatePayload.bling_detail_error = null
+				skippedExistingDetail = true
+			}
+		} else {
+			updatePayload.bling_detail_synced_at = new Date().toISOString()
+			updatePayload.bling_detail_error = null
+		}
+		if (mode !== 'list' && isVariation && local.variationAttributeValues) {
 			updatePayload.variation_attribute_values = local.variationAttributeValues
 			updatePayload.variation_attribute_keys = []
 		}
-		applyFiscalFieldsToPayload(updatePayload, local)
+		if (mode === 'list' && !local.parentBlingId) {
+			delete updatePayload.parent_bling_id
+		}
+		if (mode !== 'list') applyFiscalFieldsToPayload(updatePayload, local)
 
 		const { error: updateErr } = await supabase
 			.from('products')
@@ -256,7 +300,13 @@ export async function upsertBlingProductForOrganization (params: {
 			productId: existing.id,
 			productName: local.name,
 			blingId,
+			skippedExistingDetail,
 		}
+	}
+
+	if (mode === 'full') {
+		payload.bling_detail_synced_at = new Date().toISOString()
+		payload.bling_detail_error = null
 	}
 
 	const catalogSortKey = await allocateCatalogSortKeyForInsert(supabase, {

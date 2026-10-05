@@ -293,6 +293,10 @@ async function upsertProductFromBlingWebhook (
     kind: local.kind ?? null,
   }
   applyFiscalFieldsToPayload(syncBase, local)
+  if (latest) {
+    syncBase.bling_detail_synced_at = new Date().toISOString()
+    syncBase.bling_detail_error = null
+  }
 
   const { data: existingRow } = await supabase
     .from('products')

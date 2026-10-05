@@ -69,19 +69,26 @@ export async function GET(request: NextRequest) {
   const savedState = cookieStore.get('hub_oauth_state')?.value
   const redirectTo = cookieStore.get('hub_oauth_redirect')?.value || '/portal/hub'
 
+  const blingConnectionId = cookieStore.get('hub_oauth_bling_connection')?.value || ''
+
   cookieStore.delete('hub_oauth_state')
   cookieStore.delete('hub_oauth_redirect')
+  cookieStore.delete('hub_oauth_bling_connection')
 
   if (!savedState || savedState !== state) {
     return NextResponse.redirect(new URL('/portal/hub?toast=bling_error&message=invalid_state', getAppBaseUrl(request)))
   }
 
-  const { data: existing } = await supabase
+  let existingQuery = supabase
     .from('hub_connections')
     .select('id, metadata, api_key')
     .eq('platform_id', PLATFORM_ID)
     .eq('organization_id', auth.organizationId)
-    .maybeSingle()
+  existingQuery = blingConnectionId
+    ? existingQuery.eq('id', blingConnectionId)
+    : existingQuery.order('updated_at', { ascending: false }).limit(1)
+
+  const { data: existing } = await existingQuery.maybeSingle()
 
   const appCredentials = resolveBlingAppCredentials(existing)
   if (!appCredentials) {
@@ -165,6 +172,10 @@ export async function GET(request: NextRequest) {
       {
         ...previousMetadata,
         scope: tokenData.scope || previousMetadata.scope || null,
+        blingReconnectRequired: false,
+        blingReconnectReason: null,
+        blingReconnectAt: null,
+        blingLastRefreshError: null,
       },
       companyProfile ?? {
         empresaId: null,

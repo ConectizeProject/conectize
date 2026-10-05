@@ -27,9 +27,11 @@ import {
   Loader2,
   MessageCircle,
   Package,
+  Pencil,
   Play,
   QrCode,
   RefreshCw,
+  Unplug,
   ShoppingCart,
   Smartphone,
   Store,
@@ -37,6 +39,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
+import { runBlingCatalogSync } from '@/lib/integrations/bling/catalog-sync-client'
 import { blingRefreshTokenErrorToMessage } from '@/lib/integrations/bling/refresh-token-errors'
 import { meliSyncFailureMessage } from '@/lib/integrations/mercado-livre/refresh-token-errors'
 import { usePortalOrganizationName } from '@/lib/portal/portal-branding-context'
@@ -45,6 +48,7 @@ import { cn } from '@/lib/utils'
 import { DEFAULT_EVOLUTION_AUTO_MESSAGE_TEMPLATES } from '@/lib/whatsapp/evolution-auto-messages'
 import { EvolutionAutoMessagesFields } from './EvolutionAutoMessagesFields'
 import { BlingAppSetup } from './BlingAppSetup'
+import { BlingCatalogSyncPanel } from './BlingCatalogSyncPanel'
 import {
   HubInboxViewersPicker,
   type InboxAccessState,
@@ -270,7 +274,10 @@ type HubOAuthConnection = {
   token_expires_at?: string | null
 }
 
-type BlingConnection = HubOAuthConnection
+type BlingConnection = HubOAuthConnection & {
+  clientId?: string
+  hasClientSecret?: boolean
+}
 type MeliConnection = HubOAuthConnection
 
 type Props = {
@@ -280,8 +287,6 @@ type Props = {
   isAdmin?: boolean
   chatgptModel?: string
   blingRedirectUri?: string
-  blingClientId?: string
-  blingHasClientSecret?: boolean
 }
 
 function formatConnectionLabel(connection: BlingConnection, index: number) {
@@ -411,126 +416,174 @@ function LojistasRoutinePanel ({
   )
 }
 
+function blingReconnectHref (connectionId: string) {
+  return `/api/portal/hub/oauth/bling?connectionId=${encodeURIComponent(connectionId)}`
+}
+
+function blingAccountStatus (connection: BlingConnection) {
+  const reconnect = getBlingReconnectStatus(connection)
+  if (reconnect) {
+    return {
+      label: 'Reconexão necessária',
+      detail: 'O acesso expirou ou foi revogado.',
+      tone: 'danger' as const,
+      lastError: reconnect.lastError,
+    }
+  }
+  if (isBlingTokenExpired(connection.token_expires_at)) {
+    return {
+      label: 'Token expirando',
+      detail: 'O token está perto de expirar.',
+      tone: 'warning' as const,
+      lastError: null,
+    }
+  }
+  return {
+    label: 'Conectado',
+    detail: formatTokenExpiry(connection.token_expires_at),
+    tone: 'ok' as const,
+    lastError: null,
+  }
+}
+
 function BlingConnectionsPanel ({
   blingConnections,
   onDisconnectBlingConnection,
   onRefreshBlingToken,
+  onEditConnection,
+  onConnectAnother,
   refreshingBlingId,
-  oauthUrl,
+  canManage,
 }: {
   blingConnections: BlingConnection[]
   onDisconnectBlingConnection?: (connectionId: string) => void
   onRefreshBlingToken?: (connectionId: string) => void
+  onEditConnection?: (connectionId: string) => void
+  onConnectAnother?: () => void
   refreshingBlingId?: string | null
-  oauthUrl?: string
+  canManage?: boolean
 }) {
-  return (
-    <div className="space-y-3">
-      {blingConnections.length > 0 ? (
-        <div className="rounded-md border bg-muted/30 p-3 space-y-2">
-          <p className="text-xs font-medium text-muted-foreground">Contas conectadas</p>
-          <ul className="space-y-3">
-            {blingConnections.map((conn, index) => {
-              const reconnectStatus = getBlingReconnectStatus(conn)
-              const account = getBlingAccountPresentation(conn, index)
+  if (blingConnections.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Nenhuma conta Bling conectada ainda.
+      </p>
+    )
+  }
 
-              return (
-                <li
-                  key={conn.id}
-                  className="flex flex-col gap-2 rounded-md border border-border/60 bg-background/50 p-2 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="flex min-w-0 flex-1 items-start gap-3">
-                    {account.logoUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={account.logoUrl}
-                        alt=""
-                        className="h-10 w-10 shrink-0 rounded-md border bg-background object-contain"
-                        loading="lazy"
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : (
-                      <div
-                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border bg-blue-500/10 text-xs font-semibold text-blue-700 dark:text-blue-300"
-                        aria-hidden="true"
-                      >
-                        {account.initials}
-                      </div>
-                    )}
-                    <div className="min-w-0 flex-1 space-y-0.5">
-                      <span className="block truncate font-medium">{account.nome}</span>
-                      {account.email ? (
-                        <span className="block truncate text-xs text-muted-foreground">{account.email}</span>
-                      ) : null}
-                      <span className="text-xs text-muted-foreground">{formatTokenExpiry(conn.token_expires_at)}</span>
-                      {reconnectStatus ? (
-                        <div className="mt-1 space-y-1">
-                          <Badge variant="destructive" className="text-[10px]">
-                            {reconnectStatus.title}
-                          </Badge>
-                          <p className="text-xs text-destructive">
-                            {reconnectStatus.description}
-                          </p>
-                          {reconnectStatus.lastError ? (
-                            <p className="text-[11px] text-muted-foreground break-words">
-                              Erro: {reconnectStatus.lastError}
-                            </p>
-                          ) : null}
-                        </div>
-                      ) : null}
-                      {isBlingTokenExpired(conn.token_expires_at) && (
-                        <Badge variant="destructive" className="text-[10px]">
-                          Token expirado ou próximo de expirar — use &quot;Renovar token&quot;
-                        </Badge>
+  return (
+    <section className="space-y-3">
+      <h3 className="text-sm font-medium">Contas conectadas</h3>
+      <ul className="space-y-3">
+        {blingConnections.map((conn, index) => {
+          const account = getBlingAccountPresentation(conn, index)
+          const status = blingAccountStatus(conn)
+          const needsReconnect = status.tone !== 'ok'
+
+          return (
+            <li
+              key={conn.id}
+              className="flex flex-col gap-3 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div className="flex min-w-0 flex-1 items-start gap-3">
+                {account.logoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={account.logoUrl}
+                    alt=""
+                    className="h-10 w-10 shrink-0 rounded-md border bg-background object-contain"
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border bg-blue-500/10 text-xs font-semibold text-blue-700 dark:text-blue-300"
+                    aria-hidden="true"
+                  >
+                    {account.initials}
+                  </div>
+                )}
+                <div className="min-w-0 flex-1 space-y-1">
+                  <span className="block truncate font-medium">{account.nome}</span>
+                  {account.email ? (
+                    <span className="block truncate text-xs text-muted-foreground">{account.email}</span>
+                  ) : null}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge
+                      variant={status.tone === 'danger' ? 'destructive' : 'secondary'}
+                      className="text-[10px]"
+                    >
+                      {status.label}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">{status.detail}</span>
+                  </div>
+                  {status.lastError ? (
+                    <p className="text-[11px] text-muted-foreground break-words">
+                      Erro: {status.lastError}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+              {canManage ? (
+                <div className="flex shrink-0 flex-wrap items-center gap-1 sm:justify-end">
+                  {needsReconnect && conn.hasClientSecret ? (
+                    <Button size="sm" className="h-7" asChild>
+                      <a href={blingReconnectHref(conn.id)}>Conectar novamente</a>
+                    </Button>
+                  ) : null}
+                  {onRefreshBlingToken ? (
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className="h-7 w-7"
+                      aria-label="Renovar token"
+                      disabled={refreshingBlingId === conn.id}
+                      onClick={() => onRefreshBlingToken(conn.id)}
+                    >
+                      {refreshingBlingId === conn.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-3.5 w-3.5" />
                       )}
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 flex-wrap items-center gap-1 sm:justify-end">
-                    {onRefreshBlingToken ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7"
-                        disabled={refreshingBlingId === conn.id}
-                        onClick={() => onRefreshBlingToken(conn.id)}
-                      >
-                        {refreshingBlingId === conn.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <RefreshCw className="h-3.5 w-3.5" />
-                        )}
-                        <span className="ml-1">Renovar token</span>
-                      </Button>
-                    ) : null}
-                    {onDisconnectBlingConnection ? (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 text-destructive hover:text-destructive hover:bg-destructive/10"
-                        onClick={() => onDisconnectBlingConnection(conn.id)}
-                      >
-                        Desconectar
-                      </Button>
-                    ) : null}
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
-        </div>
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          Nenhuma conta Bling conectada ainda.
-        </p>
-      )}
-      {oauthUrl ? (
-        <Button size="sm" asChild>
-          <a href={oauthUrl}>
-            {blingConnections.length > 0 ? 'Conectar outra conta' : 'Conectar conta Bling'}
-          </a>
+                    </Button>
+                  ) : null}
+                  {onEditConnection ? (
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className="h-7 w-7"
+                      aria-label="Editar"
+                      onClick={() => onEditConnection(conn.id)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                  ) : null}
+                  {onDisconnectBlingConnection ? (
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                      aria-label="Desconectar"
+                      onClick={() => onDisconnectBlingConnection(conn.id)}
+                    >
+                      <Unplug className="h-3.5 w-3.5" />
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
+            </li>
+          )
+        })}
+      </ul>
+      {canManage && onConnectAnother ? (
+        <Button type="button" size="sm" variant="outline" onClick={onConnectAnother}>
+          Conectar outra conta
         </Button>
       ) : null}
-    </div>
+    </section>
   )
 }
 
@@ -698,7 +751,7 @@ function IntegrationCard({
   )
 }
 
-export function HubClient({ initialConnections, blingConnections: initialBlingConnections = [], meliConnections: initialMeliConnections = [], isAdmin = false, chatgptModel = 'gpt-5-mini', blingRedirectUri = '', blingClientId = '', blingHasClientSecret = false }: Props) {
+export function HubClient({ initialConnections, blingConnections: initialBlingConnections = [], meliConnections: initialMeliConnections = [], isAdmin = false, chatgptModel = 'gpt-5-mini', blingRedirectUri = '' }: Props) {
   const organizationName = usePortalOrganizationName()
   const brandLabel = String(organizationName || '').trim()
   const router = useRouter()
@@ -713,6 +766,8 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
   }, [initialMeliConnections])
   const [connectDialog, setConnectDialog] = useState<Integration | null>(null)
   const [blingDialogOpen, setBlingDialogOpen] = useState(false)
+  const [blingAccountFlow, setBlingAccountFlow] = useState<'list' | 'new' | 'edit'>('list')
+  const [blingEditingId, setBlingEditingId] = useState<string | null>(null)
   const [meliDialogOpen, setMeliDialogOpen] = useState(false)
   const [meliSyncing, setMeliSyncing] = useState(false)
   const [infoDialog, setInfoDialog] = useState<Integration | null>(null)
@@ -966,7 +1021,6 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
   const [blingLookupGtins, setBlingLookupGtins] = useState<string[]>([])
   const [blingLookupGtinDraft, setBlingLookupGtinDraft] = useState('')
   const [blingLookupLoading, setBlingLookupLoading] = useState(false)
-  const [blingCatalogSyncing, setBlingCatalogSyncing] = useState(false)
 
   async function loadWhatsappConfig () {
     setWhatsappLoading(true)
@@ -1200,19 +1254,13 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
       let blingWarning: string | null = null
 
       if (blingConnections.length > 0) {
-        const blingRes = await fetch('/api/portal/bling/sync-catalog', {
-          method: 'POST',
-          credentials: 'include',
-        })
-        const blingData = await blingRes.json().catch(() => null)
-        if (!blingRes.ok || !blingData?.ok) {
-          blingWarning = blingRefreshTokenErrorToMessage(
-            String(blingData?.error || blingData?.message || ''),
-          )
+        const blingView = await runBlingCatalogSync({ phase: 'census' })
+        const censusStopped = !blingView.ok
+          || ((blingView.status === 'paused' || blingView.status === 'error') && !blingView.censusDone)
+        if (censusStopped) {
+          blingWarning = blingView.message || 'Catálogo Bling incompleto'
         } else {
-          const blingCreated = Number(blingData.created || 0)
-          const blingUpdated = Number(blingData.updated || 0)
-          blingSummary = `Bling: ${blingCreated} criado(s) · ${blingUpdated} atualizado(s)`
+          blingSummary = `Bling: ${blingView.totalListed} listado(s) · ${blingView.created} criado(s) · ${blingView.updated} atualizado(s)`
         }
       }
 
@@ -1248,51 +1296,6 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
       })
     } finally {
       setMeliSyncing(false)
-    }
-  }
-
-  async function handleBlingSyncCatalog () {
-    if (!isAdmin || blingCatalogSyncing) return
-    if (!(await appConfirm({
-      title: 'Sincronizar catálogo do Bling?',
-      description: 'Importa todos os produtos do Bling para o catálogo desta empresa. Recomendado antes de sincronizar anúncios do Mercado Livre.',
-      confirmLabel: 'Sincronizar',
-    }))) return
-
-    setBlingCatalogSyncing(true)
-    try {
-      const res = await fetch('/api/portal/bling/sync-catalog', {
-        method: 'POST',
-        credentials: 'include',
-      })
-      const data = await res.json().catch(() => null)
-      if (!res.ok || !data?.ok) {
-        toast({
-          title: 'Falha ao sincronizar catálogo',
-          description: blingRefreshTokenErrorToMessage(
-            String(data?.message || data?.error || data?.error_message || 'Tente novamente.'),
-          ),
-          variant: 'destructive',
-        })
-        return
-      }
-      const created = Number(data.created || 0)
-      const updated = Number(data.updated || 0)
-      const fetched = Number(data.fetched || 0)
-      const truncated = Boolean(data.truncated)
-      toast({
-        variant: 'success',
-        title: 'Catálogo sincronizado',
-        description: [
-          `${fetched} produto(s) processado(s)`,
-          `${created} criado(s)`,
-          `${updated} atualizado(s)`,
-          truncated ? 'limite de páginas atingido' : null,
-        ].filter(Boolean).join(' · '),
-      })
-      router.refresh()
-    } finally {
-      setBlingCatalogSyncing(false)
     }
   }
 
@@ -1908,6 +1911,8 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
                     return
                   }
                   if (integration.id === 'bling') {
+                    setBlingAccountFlow('list')
+                    setBlingEditingId(null)
                     setBlingDialogOpen(true)
                     return
                   }
@@ -2129,58 +2134,84 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
 
       <Dialog
         open={blingDialogOpen}
-        onOpenChange={setBlingDialogOpen}
+        onOpenChange={(open) => {
+          setBlingDialogOpen(open)
+          if (!open) {
+            setBlingAccountFlow('list')
+            setBlingEditingId(null)
+          }
+        }}
       >
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Configurar Bling</DialogTitle>
             <DialogDescription>
-              ERP Bling: contas conectadas, sincronização de produtos e status do token.
+              {blingAccountFlow === 'edit'
+                ? 'Atualize as credenciais desta conta.'
+                : blingAccountFlow === 'new'
+                  ? 'Cadastre o aplicativo no Bling e informe o Client ID e o Client Secret da nova conta.'
+                  : blingConnections.length > 0
+                    ? 'Contas conectadas e sincronização do catálogo.'
+                    : 'Cadastre o aplicativo no Bling e informe o Client ID e o Client Secret desta conta.'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-5 py-2">
-            {isAdmin ? (
-              <BlingAppSetup
-                redirectUri={blingRedirectUri}
-                initialClientId={blingClientId}
-                hasClientSecret={blingHasClientSecret}
-              />
-            ) : null}
-            <BlingConnectionsPanel
-              blingConnections={blingConnections}
-              onDisconnectBlingConnection={handleDisconnectBlingConnection}
-              onRefreshBlingToken={isAdmin ? handleRefreshBlingToken : undefined}
-              refreshingBlingId={refreshingBlingId}
-              oauthUrl={isAdmin ? '/api/portal/hub/oauth/bling' : undefined}
-            />
+            {(() => {
+              const editingBling = blingConnections.find((conn) => conn.id === blingEditingId) || null
+              const showBlingSetup = isAdmin && (blingConnections.length === 0 || blingAccountFlow !== 'list')
+              if (!showBlingSetup) {
+                return (
+                  <BlingConnectionsPanel
+                    blingConnections={blingConnections}
+                    onDisconnectBlingConnection={handleDisconnectBlingConnection}
+                    onRefreshBlingToken={isAdmin ? handleRefreshBlingToken : undefined}
+                    onEditConnection={isAdmin ? (connectionId) => {
+                      setBlingEditingId(connectionId)
+                      setBlingAccountFlow('edit')
+                    } : undefined}
+                    onConnectAnother={isAdmin ? () => {
+                      setBlingEditingId(null)
+                      setBlingAccountFlow('new')
+                    } : undefined}
+                    refreshingBlingId={refreshingBlingId}
+                    canManage={isAdmin}
+                  />
+                )
+              }
+              const editingNeedsReconnect = editingBling
+                ? blingAccountStatus(editingBling).tone !== 'ok'
+                : false
+              return (
+                <BlingAppSetup
+                  redirectUri={blingRedirectUri}
+                  initialClientId={blingAccountFlow === 'edit' ? (editingBling?.clientId || '') : ''}
+                  hasClientSecret={blingAccountFlow === 'edit' ? Boolean(editingBling?.hasClientSecret) : false}
+                  connectionId={blingAccountFlow === 'edit' ? blingEditingId : null}
+                  showRegistration={blingAccountFlow !== 'edit'}
+                  reconnectAfterSave={blingAccountFlow === 'edit' && editingNeedsReconnect}
+                  onCancel={blingConnections.length > 0 ? () => {
+                    setBlingAccountFlow('list')
+                    setBlingEditingId(null)
+                  } : undefined}
+                  onSaved={(saved) => {
+                    setBlingConnections((prev) => prev.map((conn) => (
+                      conn.id === saved.connectionId
+                        ? { ...conn, clientId: saved.clientId, hasClientSecret: true }
+                        : conn
+                    )))
+                    setBlingAccountFlow('list')
+                    setBlingEditingId(null)
+                    toast({ variant: 'success', title: 'Credenciais salvas' })
+                    router.refresh()
+                  }}
+                />
+              )
+            })()}
 
-            {isAdmin && blingConnections.length > 0 ? (
-              <>
-              <div className="rounded-md border p-3 space-y-2">
-                <p className="text-sm font-medium">Sincronizar catálogo</p>
-                <p className="text-xs text-muted-foreground">
-                  Importa todos os produtos do Bling para o catálogo. Recomendado antes de sincronizar anúncios do Mercado Livre.
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={blingCatalogSyncing || blingLookupLoading}
-                    onClick={() => void handleBlingSyncCatalog()}
-                    className="gap-1.5"
-                  >
-                    {blingCatalogSyncing
-                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      : <RefreshCw className="h-3.5 w-3.5" />}
-                    {blingCatalogSyncing ? 'Sincronizando…' : 'Sincronizar catálogo'}
-                  </Button>
-                  <Button type="button" size="sm" variant="outline" asChild>
-                    <Link href="/portal/produtos" prefetch={false}>
-                      Ver produtos
-                    </Link>
-                  </Button>
-                </div>
-              </div>
+            {isAdmin && blingConnections.length > 0 && blingAccountFlow === 'list' ? (
+              <section className="space-y-3 border-t border-border/80 pt-5">
+              <h3 className="text-sm font-medium">Sincronização</h3>
+              <BlingCatalogSyncPanel onFinished={() => router.refresh()} />
               <div className="rounded-md border p-3 space-y-3">
                 <div>
                   <p className="text-sm font-medium">Buscar produto e sincronizar</p>
@@ -2333,7 +2364,7 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
                   </div>
                 </div>
               </div>
-              </>
+              </section>
             ) : null}
           </div>
           <DialogFooter className="flex-wrap gap-2 sm:justify-between">

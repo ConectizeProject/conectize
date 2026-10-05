@@ -1,5 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import {
+  BLING_TOO_MANY_REQUESTS,
+  blingRetryDelayMs,
+  holdBlingAccount,
+  isBlingTooManyRequests,
+  paceBlingAccount,
+} from '@/lib/integrations/bling/bling-rate-limit'
 import { BLING_API_V3_BASE_URL } from '@/lib/integrations/bling/constants'
 import {
   fetchBlingCompanyProfile,
@@ -215,6 +222,8 @@ export async function getBlingConnectionForCurrentUser (): Promise<BlingConnecti
     .from('hub_connections')
     .select(BLING_HUB_CONNECTION_SELECT)
     .eq('platform_id', BLING_PLATFORM_ID)
+    .order('updated_at', { ascending: false })
+    .limit(1)
     .maybeSingle()
 
   if (error || !data) {
@@ -529,35 +538,59 @@ export async function createBlingClientFromConnection (
   }
 
   async function request<T> (requestOptions: BlingRequestOptions): Promise<T> {
-    let res = await send(accessToken, requestOptions)
-    let data = await res.json().catch(() => null)
+    const paceKey = connection.id
+    let authRetried = false
+    let attempt = 0
 
-    if (isBlingUnauthorizedResponse(res.status, data) && connection.refresh_token) {
-      const forced = await performBlingTokenRefresh(connection, options)
-      if (forced.ok === true && forced.connection.access_token) {
-        connection = forced.connection
-        accessToken = forced.connection.access_token
-        res = await send(accessToken, requestOptions)
-        data = await res.json().catch(() => null)
-      } else if (forced.ok === false) {
-        throw new Error(forced.error)
+    while (attempt <= 4) {
+      await paceBlingAccount(paceKey)
+      let res = await send(accessToken, requestOptions)
+      let data = await res.json().catch(() => null)
+
+      if (isBlingUnauthorizedResponse(res.status, data) && connection.refresh_token && !authRetried) {
+        authRetried = true
+        const forced = await performBlingTokenRefresh(connection, options)
+        if (forced.ok === true && forced.connection.access_token) {
+          connection = forced.connection
+          accessToken = forced.connection.access_token
+          await paceBlingAccount(paceKey)
+          res = await send(accessToken, requestOptions)
+          data = await res.json().catch(() => null)
+        } else if (forced.ok === false) {
+          throw new Error(forced.error)
+        }
       }
-    }
 
-    if (!res.ok) {
       const rawMsg = getBlingErrorMessage(data, res.status) || `Erro HTTP ${res.status}`
-      const notFoundText = rawMsg.toLowerCase().includes('não encontrad') || rawMsg.toLowerCase().includes('nao encontrad')
-      if (res.status === 404 || (res.status === 400 && notFoundText)) {
-        const isProduto = requestOptions.path.startsWith('/produtos/')
-        const hint = isProduto
-          ? ' Verifique no portal se o campo "ID Bling" é o mesmo do cadastro no Bling (produto ou variação), se o item não foi excluído e se o HUB está conectado à empresa correta.'
-          : ''
-        throw new Error(`${rawMsg}${hint}`)
+      if (isBlingTooManyRequests(res.status, rawMsg) && attempt < 4) {
+        attempt += 1
+        const waitMs = blingRetryDelayMs(res.headers.get('retry-after'), attempt)
+        holdBlingAccount(paceKey, waitMs)
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, waitMs)
+        })
+        continue
       }
-      throw new Error(rawMsg)
+
+      if (!res.ok) {
+        if (isBlingTooManyRequests(res.status, rawMsg)) {
+          throw new Error(BLING_TOO_MANY_REQUESTS)
+        }
+        const notFoundText = rawMsg.toLowerCase().includes('não encontrad') || rawMsg.toLowerCase().includes('nao encontrad')
+        if (res.status === 404 || (res.status === 400 && notFoundText)) {
+          const isProduto = requestOptions.path.startsWith('/produtos/')
+          const hint = isProduto
+            ? ' Verifique no portal se o campo "ID Bling" é o mesmo do cadastro no Bling (produto ou variação), se o item não foi excluído e se o HUB está conectado à empresa correta.'
+            : ''
+          throw new Error(`${rawMsg}${hint}`)
+        }
+        throw new Error(rawMsg)
+      }
+
+      return data as T
     }
 
-    return data as T
+    throw new Error(BLING_TOO_MANY_REQUESTS)
   }
 
   return { request }

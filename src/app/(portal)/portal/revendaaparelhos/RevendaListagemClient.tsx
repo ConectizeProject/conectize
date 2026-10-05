@@ -1,6 +1,6 @@
 'use client'
 
-import { Plus, Smartphone } from 'lucide-react'
+import { Eye, Plus, Smartphone } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useCallback, useMemo, useState } from 'react'
@@ -103,6 +103,11 @@ function sumCostsCents(device: CatalogDeviceRow) {
 	)
 }
 
+function moneyOrEmpty (cents: number | null | undefined) {
+	if (cents == null || cents <= 0) return '-'
+	return `R$ ${maskedFromCents(cents)}`
+}
+
 export function RevendaListagemClient({
 	devices,
 	paymentMethods,
@@ -114,6 +119,7 @@ export function RevendaListagemClient({
 }: Props) {
 	const router = useRouter()
 	const [priceMode, setPriceMode] = useState<'varejo' | 'atacado'>('varejo')
+	const [showAdminFigures, setShowAdminFigures] = useState(false)
 	const [simulateDevice, setSimulateDevice] = useState<CatalogDeviceRow | null>(
 		null,
 	)
@@ -330,6 +336,28 @@ export function RevendaListagemClient({
 					Atacado
 				</button>
 			</div>
+			{isAdmin ? (
+				<Button
+					type="button"
+					variant={showAdminFigures ? 'default' : 'outline'}
+					size="icon"
+					className="h-10 w-10 shrink-0 touch-manipulation"
+					aria-pressed={showAdminFigures}
+					aria-label={
+						showAdminFigures
+							? 'Ocultar custo e venda'
+							: 'Exibir custo e venda'
+					}
+					title={
+						showAdminFigures
+							? 'Ocultar custo e venda'
+							: 'Exibir custo e venda'
+					}
+					onClick={() => setShowAdminFigures((current) => !current)}
+				>
+					<Eye className="h-4 w-4" aria-hidden />
+				</Button>
+			) : null}
 			{!isBulkEdit ? (
 				<>
 					{isAdmin ? (
@@ -467,9 +495,8 @@ export function RevendaListagemClient({
 						const title =
 							(d.device_name || d.model || 'Aparelho').trim() || 'Aparelho'
 						const storageLabel = formatStorageLabel(d.storage_gb)
-						const displayUrl = d.display_image_url
-						const displayFullUrl = d.display_image_full_url || displayUrl
-						const imgOk = Boolean(displayUrl)
+						const displayFullUrl = d.display_image_full_url || d.display_image_url
+						const imgOk = Boolean(displayFullUrl)
 						const isNovo = d.stock_type === 'lacrado'
 						const saleCents =
 							priceMode === 'varejo'
@@ -507,7 +534,7 @@ export function RevendaListagemClient({
 										) : null}
 										{imgOk ? (
 											<ResaleCoverPhotoPreview
-												thumbUrl={displayUrl}
+												thumbUrl={displayFullUrl}
 												fullUrl={displayFullUrl}
 												alt=""
 											/>
@@ -559,53 +586,48 @@ export function RevendaListagemClient({
 													className="self-start"
 												/>
 											) : null}
-											<ResaleDevicePriceDisplay
-												saleCents={saleCents}
-												row12={row12}
-												className="space-y-2 border-t border-border/80 pt-3"
-											/>
-											{isAdmin ? (
-												<div className="mt-3 space-y-1 rounded-md border border-border/70 bg-muted/40 px-2.5 py-2 text-xs text-muted-foreground">
-													<p>
-														Compra:{' '}
-														<span className="font-medium tabular-nums text-foreground">
-															{d.purchase_value_cents != null &&
-															d.purchase_value_cents > 0
-																? `R$ ${maskedFromCents(d.purchase_value_cents)}`
-																: '—'}
-														</span>
-													</p>
-													<p>
-														Custos:{' '}
-														<span className="font-medium tabular-nums text-foreground">
-															{(() => {
-																const costsSum = sumCostsCents(d)
-																return costsSum > 0
-																	? `R$ ${maskedFromCents(costsSum)}`
-																	: '—'
-															})()}
-														</span>
-													</p>
-													<p>
-														Data da compra:{' '}
-														<span className="font-medium text-foreground">
+											{showAdminFigures ? (
+												<dl className="space-y-1 border-t border-border/80 pt-3 text-xs text-muted-foreground">
+													<div className="flex items-baseline justify-between gap-3">
+														<dt>Compra</dt>
+														<dd className="font-medium tabular-nums text-foreground">
+															{moneyOrEmpty(d.purchase_value_cents)}
+														</dd>
+													</div>
+													<div className="flex items-baseline justify-between gap-3">
+														<dt>Custos</dt>
+														<dd className="font-medium tabular-nums text-foreground">
+															{moneyOrEmpty(sumCostsCents(d))}
+														</dd>
+													</div>
+													<div className="flex items-baseline justify-between gap-3">
+														<dt>Data da compra</dt>
+														<dd className="font-medium text-foreground">
 															{d.purchase_date
 																? formatDateBr(`${d.purchase_date}T12:00:00`)
-																: '—'}
-														</span>
-													</p>
-													{d.sold ? (
-														<p>
-															Data da venda:{' '}
-															<span className="font-medium text-foreground">
-																{d.sale_date
-																	? formatDateBr(`${d.sale_date}T12:00:00`)
-																	: '—'}
-															</span>
-														</p>
-													) : null}
-												</div>
-											) : null}
+																: '-'}
+														</dd>
+													</div>
+													<div className="flex items-baseline justify-between gap-3 border-t border-border/70 pt-1">
+														<dt>Venda lojista</dt>
+														<dd className="font-medium tabular-nums text-foreground">
+															{moneyOrEmpty(d.wholesale_value_cents)}
+														</dd>
+													</div>
+													<div className="flex items-baseline justify-between gap-3">
+														<dt>Cliente final</dt>
+														<dd className="font-medium tabular-nums text-foreground">
+															{moneyOrEmpty(d.sale_value_cents)}
+														</dd>
+													</div>
+												</dl>
+											) : (
+												<ResaleDevicePriceDisplay
+													saleCents={saleCents}
+													row12={row12}
+													className="space-y-2 border-t border-border/80 pt-3"
+												/>
+											)}
 										</CardContent>
 									</Link>
 								</Card>

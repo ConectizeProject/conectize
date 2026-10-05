@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Barcode, Check, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -234,6 +234,25 @@ function normalizeFiscalOriginSelectValue (value: unknown) {
   return String(safe)
 }
 
+function normalizeVariationKeyDrafts (drafts: string[]) {
+  const seen = new Set<string>()
+  const keys: string[] = []
+  for (const raw of drafts) {
+    const k = raw.trim().replace(/\s+/g, ' ')
+    if (!k || k.length > 48) continue
+    const low = k.toLowerCase()
+    if (seen.has(low)) continue
+    seen.add(low)
+    keys.push(k)
+    if (keys.length >= 8) break
+  }
+  return keys
+}
+
+function sameVariationKeys (a: string[], b: string[]) {
+  return a.length === b.length && a.every((k, i) => k === b[i])
+}
+
 type Props = {
   mode: 'create' | 'edit'
   product?: ProductFormProduct
@@ -266,6 +285,11 @@ type Props = {
    * Edição de produto pai com abas: o editor de chaves só aparece na aba Variações (aguarda o alvo do portal).
    */
   embedVariationKeysInVariationsTab?: boolean
+  /**
+   * Edição do pai: guarda as chaves no servidor ao remover ou ao sair do campo,
+   * sem depender do Salvar da aba Dados.
+   */
+  onPersistVariationAttributeKeys?: (keys: string[]) => Promise<boolean>
 }
 
 export function ProductForm ({
@@ -286,6 +310,7 @@ export function ProductForm ({
   variationAttributesPortalEl = null,
   variationAttributeKeysPortalEl = null,
   embedVariationKeysInVariationsTab = false,
+  onPersistVariationAttributeKeys,
 }: Props) {
   const nameInputRef = useRef<HTMLInputElement>(null)
   const [submitErrors, setSubmitErrors] = useState<{
@@ -399,14 +424,45 @@ export function ProductForm ({
       ? [...product.variationAttributeKeys]
       : [],
   )
+  const persistedVariationKeys = Array.isArray(product?.variationAttributeKeys)
+    ? product.variationAttributeKeys
+    : []
+  const [keysPersistPending, setKeysPersistPending] = useState(false)
+  const keysPersistSeqRef = useRef(0)
+
   useEffect(() => {
     if (!product?.id) return
+    if (keysPersistPending) return
     setVariationKeyDrafts(
       Array.isArray(product.variationAttributeKeys) && product.variationAttributeKeys.length > 0
         ? [...product.variationAttributeKeys]
         : [],
     )
-  }, [product?.id, product?.variationAttributeKeys])
+  }, [product?.id, product?.variationAttributeKeys, keysPersistPending])
+
+  const persistVariationKeysFromDrafts = useCallback(async (drafts: string[]) => {
+    if (!onPersistVariationAttributeKeys || mode !== 'edit' || isVariation) return
+    const keys = normalizeVariationKeyDrafts(drafts)
+    if (sameVariationKeys(keys, persistedVariationKeys)) return
+    const seq = ++keysPersistSeqRef.current
+    setKeysPersistPending(true)
+    try {
+      const ok = await onPersistVariationAttributeKeys(keys)
+      if (seq !== keysPersistSeqRef.current) return
+      if (!ok) {
+        setVariationKeyDrafts(
+          persistedVariationKeys.length > 0 ? [...persistedVariationKeys] : [],
+        )
+      }
+    } finally {
+      if (seq === keysPersistSeqRef.current) setKeysPersistPending(false)
+    }
+  }, [
+    isVariation,
+    mode,
+    onPersistVariationAttributeKeys,
+    persistedVariationKeys,
+  ])
 
   const [tagSuggestOpen, setTagSuggestOpen] = useState(false)
   const [tagSuggestDraft, setTagSuggestDraft] = useState('')
@@ -795,18 +851,7 @@ export function ProductForm ({
     }
 
     if (showVariationKeyEditor) {
-      const seen = new Set<string>()
-      const keys: string[] = []
-      for (const raw of variationKeyDrafts) {
-        const k = raw.trim().replace(/\s+/g, ' ')
-        if (!k || k.length > 48) continue
-        const low = k.toLowerCase()
-        if (seen.has(low)) continue
-        seen.add(low)
-        keys.push(k)
-        if (keys.length >= 8) break
-      }
-      payload.variationAttributeKeys = keys
+      payload.variationAttributeKeys = normalizeVariationKeyDrafts(variationKeyDrafts)
     }
 
     if (useAttrMode) {
@@ -829,7 +874,11 @@ export function ProductForm ({
     return (
       <FormSection
         title="Atributos das variações"
-        description="Ex.: Tamanho, Cor, Modelo. Em cada variação você informa o valor; o nome no catálogo fica «Nome do produto atributo:valor»."
+        description={
+          mode === 'edit'
+            ? 'Ex.: Tamanho, Cor, Modelo. Remover um atributo já guarda a alteração nas variações.'
+            : 'Ex.: Tamanho, Cor, Modelo. Em cada variação você informa o valor; o nome no catálogo fica «Nome do produto atributo:valor».'
+        }
       >
         <div className="space-y-2">
           {variationKeyDrafts.map((draft, idx) => (
@@ -840,8 +889,11 @@ export function ProductForm ({
                   const v = e.target.value
                   setVariationKeyDrafts((prev) => prev.map((x, i) => (i === idx ? v : x)))
                 }}
+                onBlur={() => {
+                  void persistVariationKeysFromDrafts(variationKeyDrafts)
+                }}
                 placeholder="Ex.: Tamanho"
-                disabled={pending}
+                disabled={pending || keysPersistPending}
                 aria-label={`Nome do atributo ${idx + 1}`}
               />
               <Button
@@ -849,8 +901,12 @@ export function ProductForm ({
                 variant="outline"
                 size="icon"
                 className="h-10 shrink-0"
-                disabled={pending}
-                onClick={() => setVariationKeyDrafts((prev) => prev.filter((_, i) => i !== idx))}
+                disabled={pending || keysPersistPending}
+                onClick={() => {
+                  const next = variationKeyDrafts.filter((_, i) => i !== idx)
+                  setVariationKeyDrafts(next)
+                  void persistVariationKeysFromDrafts(next)
+                }}
                 aria-label={`Remover atributo ${idx + 1}`}
               >
                 <X className="h-4 w-4" />
@@ -863,7 +919,7 @@ export function ProductForm ({
           variant="secondary"
           size="sm"
           className="h-9"
-          disabled={pending || variationKeyDrafts.length >= 8}
+          disabled={pending || keysPersistPending || variationKeyDrafts.length >= 8}
           onClick={() => setVariationKeyDrafts((prev) => [...prev, ''])}
         >
           <Plus className="mr-1 h-4 w-4" aria-hidden />
@@ -1500,8 +1556,8 @@ export function ProductForm ({
               <div className="rounded-lg border border-border/70 bg-muted/20 px-4 py-3">
                 <p className="text-sm text-muted-foreground">
                   O cartão <span className="font-medium text-foreground">Atributos das variações</span> está na aba{' '}
-                  <span className="font-medium text-foreground">Variações</span>. Defina ou altere os atributos lá
-                  antes de guardar.
+                  <span className="font-medium text-foreground">Variações</span>. Remover um atributo já guarda a
+                  alteração.
                 </p>
               </div>
             </>
