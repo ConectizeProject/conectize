@@ -1423,7 +1423,47 @@ export async function cancelSalesOrder (
 
   if (loadError) return { ok: false as const, error: 'db_error' as const }
   if (!existing) return { ok: false as const, error: 'not_found' as const }
-  if (existing.status === 'canceled') return { ok: false as const, error: 'already_canceled' as const }
+
+  const blingWarning = existing.bling_pedido_id
+    ? 'Pedido vinculado ao Bling. Estorne/cancele a nota ou o pedido no Bling manualmente, se necessário.'
+    : null
+
+  // Recuperação: cancel parcial (status canceled + financeiro órfão). Retry limpa o financeiro.
+  if (existing.status === 'canceled') {
+    const financePosted = await mapSalesOrdersWithFinancePosted(
+      auth.supabase,
+      auth.organizationId,
+      [orderId],
+    )
+    if (!financePosted.has(orderId)) {
+      return { ok: false as const, error: 'already_canceled' as const }
+    }
+    try {
+      await syncSalesOrderFinancialTransactions({
+        supabase: auth.supabase,
+        organizationId: auth.organizationId,
+        orderId,
+        orderRow: {
+          id: existing.id,
+          organization_id: auth.organizationId,
+          order_number: existing.order_number ?? null,
+          status: 'canceled',
+          updated_at: new Date().toISOString(),
+          change_cents: 0,
+          total_cents: 0,
+        },
+      })
+    } catch (err) {
+      console.error('[cancelSalesOrder] finance sync failed (recovery)', err)
+      return { ok: false as const, error: 'finance_sync_failed' as const }
+    }
+    return {
+      ok: true as const,
+      blingWarning,
+      hadStockReversal: false,
+    }
+  }
+
   if (existing.status !== 'in_progress' && existing.status !== 'paid') {
     return { ok: false as const, error: 'order_not_cancellable' as const }
   }
@@ -1443,20 +1483,8 @@ export async function cancelSalesOrder (
   }
   hadStockReversal = reversed.hadReversal
 
-  const { error } = await auth.supabase
-    .from('sales_orders')
-    .update({
-      status: 'canceled',
-      canceled_at: new Date().toISOString(),
-      canceled_by: auth.userId,
-      cancel_reason: reason ?? null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('organization_id', auth.organizationId)
-    .eq('id', orderId)
-
-  if (error) return { ok: false as const, error: 'db_error' as const }
-
+  // Financeiro ANTES do status=canceled: se falhar, o pedido permanece paid e o retry funciona.
+  // (Antes: status canceled + finance_sync_failed deixava receita fantasma irrecuperável.)
   if (wasPaid) {
     try {
       await syncSalesOrderFinancialTransactions({
@@ -1479,9 +1507,19 @@ export async function cancelSalesOrder (
     }
   }
 
-  const blingWarning = existing.bling_pedido_id
-    ? 'Pedido vinculado ao Bling. Estorne/cancele a nota ou o pedido no Bling manualmente, se necessário.'
-    : null
+  const { error } = await auth.supabase
+    .from('sales_orders')
+    .update({
+      status: 'canceled',
+      canceled_at: new Date().toISOString(),
+      canceled_by: auth.userId,
+      cancel_reason: reason ?? null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('organization_id', auth.organizationId)
+    .eq('id', orderId)
+
+  if (error) return { ok: false as const, error: 'db_error' as const }
 
   return {
     ok: true as const,

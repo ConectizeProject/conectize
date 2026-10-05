@@ -34,7 +34,7 @@ export async function POST (request: NextRequest, { params }: { params: Params }
           : result.error === 'stock_reverse_failed'
             ? 'Não foi possível estornar o estoque.'
             : result.error === 'finance_sync_failed'
-              ? 'Estoque revertido, mas falhou ao estornar o financeiro.'
+              ? 'Estoque revertido, mas falhou ao estornar o financeiro. O pedido permanece ativo; tente novamente.'
               : result.error
 
     return NextResponse.json({ ok: false, error: result.error, message }, { status })
