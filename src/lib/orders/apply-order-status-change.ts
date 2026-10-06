@@ -10,6 +10,7 @@ import {
   FINALIZED_ORDER_STATUS_SET,
   ORDER_STATUS_SET,
 } from '@/lib/orders/order-status'
+import { rollbackOrderStatusAfterStockFailure } from '@/lib/orders/rollback-order-status-after-stock-failure'
 import { applyOrderStatusStockTransition } from '@/lib/orders/stock-by-status'
 
 export type ApplyOrderStatusChangeResult =
@@ -182,22 +183,14 @@ export async function applyOrderStatusChange (
     console.error('[applyOrderStatusChange stock]', err)
     // Status sem estoque consistente é pior que falhar a operação: reverte o status
     // para o anterior e sinaliza erro (retry reconcilia o líquido parcial).
-    const rollbackPayload: Record<string, unknown> = { status: previousStatus }
-    if (Object.prototype.hasOwnProperty.call(updatePayload, 'closed_at')) {
-      rollbackPayload.closed_at = existing.closed_at ?? null
-    }
-    const { error: rollbackErr } = await supabase
-      .from('service_orders')
-      .update(rollbackPayload)
-      .eq('id', orderId)
-    if (rollbackErr) {
-      console.error('[applyOrderStatusChange stock-rollback]', {
-        orderId,
-        previousStatus,
-        nextStatus,
-        rollbackErr,
-      })
-    }
+    await rollbackOrderStatusAfterStockFailure(supabase, {
+      orderId,
+      previousStatus,
+      previousClosedAt: existing.closed_at ?? null,
+      updatePayload,
+      logLabel: 'applyOrderStatusChange',
+      nextStatus,
+    })
     return { ok: false, error: 'stock_sync_failed' }
   }
 

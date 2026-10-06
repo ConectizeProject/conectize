@@ -22,6 +22,7 @@ import {
 	isFinalizedOrderStatus,
 	isValidOrderStatus,
 } from '@/lib/orders/order-status'
+import { rollbackOrderStatusAfterStockFailure } from '@/lib/orders/rollback-order-status-after-stock-failure'
 import { applyOrderStatusStockTransition } from '@/lib/orders/stock-by-status'
 import {
 	createSupabaseServerClient,
@@ -339,9 +340,9 @@ export async function updateOrderAction(
 		}
 	}
 
+	const previousStatus = String(existing?.status || '').trim()
+	const nextStatus = status
 	try {
-		const previousStatus = String(existing?.status || '').trim()
-		const nextStatus = status
 		const servicesForStock =
 			nextStatus === 'cancelada' ? (existing?.services ?? []) : services.items
 		await applyOrderStatusStockTransition({
@@ -354,6 +355,16 @@ export async function updateOrderAction(
 		})
 	} catch (err) {
 		console.error('[order-save stock]', err)
+		// Mesma regra de `applyOrderStatusChange`: status sem estoque consistente
+		// trava o retry (ex.: cancelada sem devolução). Reverte status/closed_at.
+		await rollbackOrderStatusAfterStockFailure(supabase, {
+			orderId: formOrderId,
+			previousStatus,
+			previousClosedAt: (existing.closed_at as string | null | undefined) ?? null,
+			updatePayload,
+			logLabel: 'order-save',
+			nextStatus,
+		})
 		return { ok: false, error: 'estoque_nao_sincronizado' }
 	}
 
