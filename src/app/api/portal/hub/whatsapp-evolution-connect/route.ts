@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth/portal-api'
 import {
   findEvolutionHubByConnectionId,
+  isAllowedEvolutionApiBaseUrl,
   isLikelyEvolutionApiKey,
   resolveEvolutionApiBaseUrl,
   resolveEvolutionApiKey,
@@ -70,13 +71,22 @@ async function resolveCredentials (
   }
 
   if (baseOverride) {
-    meta = { ...meta, api_base_url_override: baseOverride }
+    const cleaned = baseOverride.replace(/\/$/, '')
+    if (!isAllowedEvolutionApiBaseUrl(cleaned)) {
+      return {
+        ok: false,
+        error: 'invalid_evolution_url',
+        status: 400,
+        hint: 'Use uma URL https pública da Evolution. Hosts locais e IPs privados não são permitidos.',
+      }
+    }
+    meta = { ...meta, api_base_url_override: cleaned }
   }
 
   const baseUrl = resolveEvolutionApiBaseUrl(meta)
   const apiKey = apiKeyFromBody && isLikelyEvolutionApiKey(apiKeyFromBody)
     ? apiKeyFromBody
-    : resolveEvolutionApiKey(accessToken)
+    : resolveEvolutionApiKey(accessToken, meta)
 
   if (!baseUrl) {
     return {
@@ -92,7 +102,9 @@ async function resolveCredentials (
       ok: false,
       error: 'api_key_required',
       status: 400,
-      hint: 'Informe a API key da Evolution ou defina WHATSAPP_EVOLUTION_API_KEY no .env.',
+      hint: meta.api_base_url_override
+        ? 'Informe a API key da instância Evolution. A chave do servidor não é usada com URL personalizada.'
+        : 'Informe a API key da Evolution ou defina WHATSAPP_EVOLUTION_API_KEY no .env.',
     }
   }
 

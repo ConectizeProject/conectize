@@ -57,7 +57,7 @@ export async function POST (
       const waId = String(lastMsg?.wa_message_id || '').trim()
       const meta = outbound.automationMeta as WhatsappEvolutionHubMetadata
       const baseUrl = resolveEvolutionApiBaseUrl(meta)
-      let apiKey = resolveEvolutionApiKey(null)
+      let accessToken: string | null = null
 
       if (conv.hub_connection_id) {
         const { data: hub } = await auth.supabase
@@ -65,8 +65,10 @@ export async function POST (
           .select('access_token')
           .eq('id', conv.hub_connection_id)
           .maybeSingle()
-        apiKey = resolveEvolutionApiKey(hub?.access_token as string | null)
+        accessToken = hub?.access_token as string | null
       }
+
+      const apiKey = resolveEvolutionApiKey(accessToken, meta)
 
       if (waId && baseUrl && apiKey) {
         const archived = await archiveEvolutionChat({

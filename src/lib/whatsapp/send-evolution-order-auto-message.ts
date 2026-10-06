@@ -147,7 +147,7 @@ function pickEvolutionHubForSend(
 ): EvolutionHubRow | null {
 	const ready = hubs.filter((h) => {
 		const instanceName = String(h.metadata.instance_name || '').trim()
-		const apiKey = resolveEvolutionApiKey(h.access_token)
+		const apiKey = resolveEvolutionApiKey(h.access_token, h.metadata)
 		const baseUrl = resolveEvolutionApiBaseUrl(h.metadata)
 		return Boolean(instanceName && apiKey && baseUrl)
 	})
@@ -303,7 +303,7 @@ export async function sendViaEvolutionHub(
 	hub: EvolutionHubRow,
 	opts: { toTarget: string; body: string },
 ): Promise<{ ok: true; messageId?: string } | { ok: false; error: string }> {
-	const apiKey = resolveEvolutionApiKey(hub.access_token)
+	const apiKey = resolveEvolutionApiKey(hub.access_token, hub.metadata)
 	const baseUrl = resolveEvolutionApiBaseUrl(hub.metadata)
 	const instanceName = String(hub.metadata.instance_name || '').trim()
 	if (!apiKey || !baseUrl || !instanceName) {

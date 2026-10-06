@@ -19,6 +19,7 @@ export async function fetchEvolutionContacts (opts: {
 	try {
 		const res = await fetch(url, {
 			method: 'POST',
+			redirect: 'error',
 			headers: {
 				'Content-Type': 'application/json',
 				apikey: apiKey,

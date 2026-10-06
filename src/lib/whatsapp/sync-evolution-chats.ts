@@ -40,7 +40,7 @@ export async function syncEvolutionChatsForOrganization(opts: {
 	limit?: number
 }): Promise<SyncEvolutionChatsResult> {
 	const instanceName = String(opts.metadata.instance_name || '').trim()
-	const apiKey = resolveEvolutionApiKey(opts.accessToken)
+	const apiKey = resolveEvolutionApiKey(opts.accessToken, opts.metadata)
 	const baseUrl = resolveEvolutionApiBaseUrl(opts.metadata)
 	if (!instanceName || !apiKey || !baseUrl) {
 		return { ok: false, error: 'whatsapp_evolution_not_configured' }

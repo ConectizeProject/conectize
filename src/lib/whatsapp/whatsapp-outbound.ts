@@ -34,7 +34,7 @@ function evolutionOutboundFromHub (
   accessToken: string | null,
 ): ResolvedWhatsappOutbound | null {
   const evoInstance = String(meta.instance_name || '').trim()
-  const evoKey = resolveEvolutionApiKey(accessToken)
+  const evoKey = resolveEvolutionApiKey(accessToken, meta)
   const evoBase = resolveEvolutionApiBaseUrl(meta)
   if (!evoInstance || !evoKey || !evoBase) return null
   return {

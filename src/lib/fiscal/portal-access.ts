@@ -1,5 +1,6 @@
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { userNeedsMfaChallenge } from '@/lib/auth/mfa'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 import {
   ensurePortalOrganizationContext,
@@ -24,6 +25,10 @@ export async function requireFiscalAdmin (): Promise<FiscalAdminAccess> {
   const { user } = await getAuthUser()
   if (!user) {
     return { ok: false, status: 401, error: 'not_authenticated' }
+  }
+
+  if (await userNeedsMfaChallenge(supabase)) {
+    return { ok: false, status: 403, error: 'mfa_required' }
   }
 
   const { data: appUser } = await supabase

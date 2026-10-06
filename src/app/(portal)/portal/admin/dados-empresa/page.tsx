@@ -22,6 +22,7 @@ import {
 	removeOrganizationLogoFolder,
 	uploadOrganizationLogo,
 } from '@/lib/organizations/organization-logo-storage'
+import { isAllowedOrganizationLogoUrl } from '@/lib/organizations/organization-logo-url'
 
 async function canEditOrganizationData(
 	supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
@@ -102,6 +103,16 @@ async function updateCompanyAction(formData: FormData) {
 			redirect('/portal/admin/dados-empresa?error=logo')
 		}
 		nextLogoUrl = upload.publicUrl
+	} else if (nextLogoUrl) {
+		const { data: currentOrg } = await supabase
+			.from('organizations')
+			.select('logo_url')
+			.eq('id', organizationId)
+			.maybeSingle()
+		const currentLogo = String(currentOrg?.logo_url || '').trim()
+		if (nextLogoUrl !== currentLogo && !isAllowedOrganizationLogoUrl(nextLogoUrl)) {
+			redirect('/portal/admin/dados-empresa?error=logo')
+		}
 	}
 
 	await supabase
