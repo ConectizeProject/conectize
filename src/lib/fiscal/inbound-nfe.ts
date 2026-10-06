@@ -392,7 +392,14 @@ export async function importInboundNfeXml (auth: AuthCtx, xmlContent: string) {
       }
     }
     console.error('[inbound-nfe] insert document', error)
-    return { ok: false as const, error: 'db_error' as const, message: 'Não foi possível salvar a NF-e importada.' }
+    const detail = String(error?.message || '').trim()
+    return {
+      ok: false as const,
+      error: 'db_error' as const,
+      message: detail
+        ? `Não foi possível salvar a NF-e importada. ${detail}`
+        : 'Não foi possível salvar a NF-e importada.',
+    }
   }
 
   const itemRows = doc.items.map((item, index) => ({
@@ -418,12 +425,19 @@ export async function importInboundNfeXml (auth: AuthCtx, xmlContent: string) {
 
   if (itemsError) {
     console.error('[inbound-nfe] insert items', itemsError)
+    const detail = String(itemsError.message || '').trim()
     await auth.supabase
       .from('inbound_nfe_documents')
       .delete()
       .eq('id', inserted.id)
       .eq('organization_id', auth.organizationId)
-    return { ok: false as const, error: 'db_error' as const, message: 'Não foi possível salvar os itens da NF-e.' }
+    return {
+      ok: false as const,
+      error: 'db_error' as const,
+      message: detail
+        ? `Não foi possível salvar os itens da NF-e. ${detail}`
+        : 'Não foi possível salvar os itens da NF-e.',
+    }
   }
 
   return getInboundNfeDocument(auth, inserted.id)

@@ -27,7 +27,6 @@ import {
   upsertDefaultFiscalOperationNature,
   type FiscalOperationType,
 } from '@/lib/fiscal/operation-nature'
-import { validateCfopCsosnPair } from '@/lib/fiscal/cfop-csosn'
 import {
   IBSCBS_CSTS,
   IBSCBS_CST_LABELS,
@@ -114,10 +113,10 @@ async function updateFiscalAction (formData: FormData) {
     isBilled: formData.get('nfceIsBilled') === 'on',
     isFinalConsumer: formData.get('nfceIsFinalConsumer') === 'on',
     isReturn: formData.get('nfceIsReturn') === 'on',
-    defaultCfop: String(formData.get('defaultCfop') || ''),
+    defaultCfop: '5102',
     defaultOrigin: Number(formData.get('defaultOrigin') || 0),
     defaultUnit: String(formData.get('defaultUnit') || 'UN'),
-    icmsCsosn: String(formData.get('defaultCsosn') || '102'),
+    icmsCsosn: '102',
     icmsCst: String(formData.get('defaultIcmsCst') || ''),
     pisCst: String(formData.get('defaultPisCst') || '49'),
     cofinsCst: String(formData.get('defaultCofinsCst') || '49'),
@@ -125,14 +124,6 @@ async function updateFiscalAction (formData: FormData) {
     ibscbsCst: String(formData.get('ibscbsCst') || '000'),
     ibscbsCclassTrib: String(formData.get('ibscbsCclassTrib') || '000001'),
   })
-
-  const cfopCsosn = validateCfopCsosnPair(
-    operationNature.defaultCfop,
-    operationNature.icmsCsosn || '102',
-  )
-  if (cfopCsosn.ok === false) {
-    redirect(`/portal/admin/dados-empresa/fiscal?error=${encodeURIComponent(cfopCsosn.error)}`)
-  }
 
   const profile = normalizeFiscalProfileInput({
     legalName: String(formData.get('legalName') || ''),
@@ -598,17 +589,12 @@ export default async function FiscalSettingsPage ({
 
               <div>
                 <h4 className='text-sm font-medium'>Regras de tributação</h4>
-                <p className='mt-1 text-xs text-muted-foreground'>Versão simples: destino e produto “Qualquer”.</p>
-              </div>
-
-              <div className='grid gap-4 md:grid-cols-7'>
-              <div className='space-y-2'>
-                <Label htmlFor='defaultCfop'>CFOP padrão NFC-e/NF-e</Label>
-                <Input id='defaultCfop' name='defaultCfop' defaultValue={nfceNature.defaultCfop} maxLength={4} />
-                <p className='text-xs text-muted-foreground'>
-                  Venda sem ST: 5102. Venda com ST: 5405.
+                <p className='mt-1 text-xs text-muted-foreground'>
+                  CFOP e CSOSN saem do produto e do estado do cliente. Sem CEST: 5102 e CSOSN 102, ou 6102 fora do estado. Com CEST: 5405 e CSOSN 500, ou 6404 fora do estado.
                 </p>
               </div>
+
+              <div className='grid gap-4 md:grid-cols-5'>
               <div className='space-y-2'>
                 <Label htmlFor='defaultOrigin'>Origem</Label>
                 <Input id='defaultOrigin' name='defaultOrigin' type='number' min={0} max={8} defaultValue={nfceNature.defaultOrigin} />
@@ -616,13 +602,6 @@ export default async function FiscalSettingsPage ({
               <div className='space-y-2'>
                 <Label htmlFor='defaultUnit'>Unidade</Label>
                 <Input id='defaultUnit' name='defaultUnit' defaultValue={nfceNature.defaultUnit} maxLength={6} />
-              </div>
-              <div className='space-y-2'>
-                <Label htmlFor='defaultCsosn'>CSOSN</Label>
-                <Input id='defaultCsosn' name='defaultCsosn' defaultValue={nfceNature.icmsCsosn || '102'} maxLength={3} />
-                <p className='text-xs text-muted-foreground'>
-                  Sem ST: 102. Com ST: 500. CFOP e CSOSN precisam combinar.
-                </p>
               </div>
               <div className='space-y-2'>
                 <Label htmlFor='defaultIcmsCst'>ICMS CST</Label>

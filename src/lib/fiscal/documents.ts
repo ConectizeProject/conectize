@@ -13,6 +13,7 @@ import {
 } from '@/lib/fiscal/document-status'
 import { nfceNumberRestorePatch, nfeNumberRestorePatch } from '@/lib/fiscal/numbering'
 import { validateCestNcmPair } from '@/lib/fiscal/cest-lookup'
+import { resolveSaleItemTaxes } from '@/lib/fiscal/cfop-csosn'
 import { normalizeOptionalFci, originRequiresFci } from '@/lib/fiscal/fci'
 import { normalizeOptionalCest, normalizeOptionalNcm } from '@/lib/fiscal/ncm'
 import { isProductFiscalCorrectionError } from '@/lib/fiscal/product-fiscal-errors'
@@ -192,7 +193,7 @@ export async function loadFiscalDocumentDetail (auth: AuthCtx, fiscalDocumentId:
         .maybeSingle(),
       auth.supabase
         .from('sales_order_items')
-        .select('id, product_id, quantity, unit_price_cents, discount_cents, subtotal_cents, products(id, name, sku, ncm, cest, fiscal_origin, fci, fiscal_unit)')
+        .select('id, product_id, quantity, unit_price_cents, discount_cents, subtotal_cents, products(id, name, sku, ncm, cest, cfop, icms_csosn, fiscal_origin, fci, fiscal_unit)')
         .eq('organization_id', auth.organizationId)
         .eq('sales_order_id', data.sales_order_id)
         .order('created_at', { ascending: true }),
@@ -246,6 +247,8 @@ export async function loadFiscalDocumentDetail (auth: AuthCtx, fiscalDocumentId:
         subtotal_cents: Number(item.subtotal_cents) || 0,
         ncm: product?.ncm ? String(product.ncm) : null,
         cest: product?.cest ? String(product.cest) : null,
+        cfop: product?.cfop ? String(product.cfop) : null,
+        icms_csosn: product?.icms_csosn ? String(product.icms_csosn) : null,
         fiscal_origin: product?.fiscal_origin == null ? null : Number(product.fiscal_origin),
         fci: product?.fci ? String(product.fci) : null,
         fiscal_unit: product?.fiscal_unit ? String(product.fiscal_unit) : null,
@@ -320,7 +323,7 @@ export async function loadFiscalDocumentDetail (auth: AuthCtx, fiscalDocumentId:
       const { data: productRows } = productIds.length > 0
         ? await auth.supabase
           .from('products')
-          .select('id, name, sku, ncm, cest, fiscal_origin, fci, fiscal_unit')
+          .select('id, name, sku, ncm, cest, cfop, icms_csosn, fiscal_origin, fci, fiscal_unit')
           .eq('organization_id', auth.organizationId)
           .in('id', productIds)
         : { data: [] as Array<Record<string, unknown>> }
@@ -343,6 +346,8 @@ export async function loadFiscalDocumentDetail (auth: AuthCtx, fiscalDocumentId:
           subtotal_cents: line.subtotalCents,
           ncm: product?.ncm ? String(product.ncm) : null,
           cest: product?.cest ? String(product.cest) : null,
+          cfop: product?.cfop ? String(product.cfop) : null,
+          icms_csosn: product?.icms_csosn ? String(product.icms_csosn) : null,
           fiscal_origin: product?.fiscal_origin == null ? null : Number(product.fiscal_origin),
           fci: product?.fci ? String(product.fci) : null,
           fiscal_unit: product?.fiscal_unit ? String(product.fiscal_unit) : null,
@@ -385,6 +390,8 @@ export type FiscalDocumentDraftInput = {
     productId: string
     ncm?: string | null
     cest?: string | null
+    cfop?: string | null
+    icmsCsosn?: string | null
     fiscalOrigin?: number | null
     fci?: string | null
     fiscalUnit?: string | null
@@ -511,20 +518,33 @@ export async function updateFiscalDocumentDraft (
     const currentItem = doc.items.find((row) => row.product_id === productId)
     const ncmForPair = ncm !== undefined ? ncm : (currentItem?.ncm ?? null)
     const cestForPair = cest !== undefined ? cest : (currentItem?.cest ?? null)
-    const cestPair = await validateCestNcmPair(ncmForPair, cestForPair, currentItem?.name)
-    if (cestPair.ok === false) {
-      return { ok: false as const, error: cestPair.error, message: cestPair.message }
+    const saleTaxes = resolveSaleItemTaxes({
+      hasSubstitution: Boolean(cestForPair),
+      emitUf: '',
+      destUf: null,
+    })
+    if (cestForPair) {
+      const cestPair = await validateCestNcmPair(ncmForPair, cestForPair, currentItem?.name)
+      if (cestPair.ok === false) {
+        return { ok: false as const, error: cestPair.error, message: cestPair.message }
+      }
     }
 
     const productPatch: {
       ncm?: string | null
       cest?: string | null
+      cfop?: string | null
+      icmsCsosn?: string | null
       fiscalOrigin?: number | null
       fci?: string | null
       fiscalUnit?: string | null
     } = {}
     if (ncm !== undefined) productPatch.ncm = ncm
-    if (cest !== undefined) productPatch.cest = cest
+    if (cest !== undefined) {
+      productPatch.cest = cest
+      productPatch.cfop = saleTaxes.cfop
+      productPatch.icmsCsosn = saleTaxes.csosn
+    }
     if (item.fiscalOrigin !== undefined) {
       const origin = Number(item.fiscalOrigin)
       if (!Number.isFinite(origin) || origin < 0 || origin > 8) {

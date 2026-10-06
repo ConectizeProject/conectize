@@ -74,6 +74,55 @@ function extractAccessKey (xml: string): string | null {
   return null
 }
 
+function looksLikeNfeXml (xml: string) {
+  return /<(?:[\w.-]+:)?NFe\b/i.test(xml) || /<(?:[\w.-]+:)?nfeProc\b/i.test(xml)
+}
+
+function unescapeXmlDocument (xml: string) {
+  if (looksLikeNfeXml(xml)) return xml
+  if (!xml.includes('&lt;')) return xml
+  const decoded = xml
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&')
+  return looksLikeNfeXml(decoded) ? decoded : xml
+}
+
+export function readInboundXmlUpload (bytes: Uint8Array):
+  | { ok: true, xml: string }
+  | { ok: false, error: string, message: string } {
+  if (
+    bytes.length >= 4
+    && bytes[0] === 0x50
+    && bytes[1] === 0x4b
+    && (bytes[2] === 0x03 || bytes[2] === 0x05 || bytes[2] === 0x07)
+    && (bytes[3] === 0x04 || bytes[3] === 0x06 || bytes[3] === 0x08)
+  ) {
+    return {
+      ok: false,
+      error: 'zip_xml',
+      message: 'O arquivo é um ZIP. Extraia o XML da NF-e e envie o arquivo .xml.',
+    }
+  }
+
+  let xml = ''
+  if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
+    xml = new TextDecoder('utf-16le').decode(bytes)
+  } else if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
+    xml = new TextDecoder('utf-16be').decode(bytes)
+  } else {
+    xml = new TextDecoder('utf-8').decode(bytes)
+  }
+
+  xml = unescapeXmlDocument(xml.replace(/^\uFEFF/, '').trim())
+  if (!xml) {
+    return { ok: false, error: 'empty_xml', message: 'Arquivo XML vazio.' }
+  }
+  return { ok: true, xml }
+}
+
 function parseIssuedAt (raw: string | null): string | null {
   if (!raw) return null
   const date = new Date(raw)
@@ -88,12 +137,12 @@ function parseIssuedAt (raw: string | null): string | null {
 export function parseInboundNfeXml (xmlRaw: string):
   | { ok: true, document: ParsedInboundNfe }
   | { ok: false, error: string, message: string } {
-  const xml = String(xmlRaw || '').trim()
+  const xml = unescapeXmlDocument(String(xmlRaw || '').replace(/^\uFEFF/, '').trim())
   if (!xml) {
     return { ok: false, error: 'empty_xml', message: 'Arquivo XML vazio.' }
   }
-  if (!/<(?:\w+:)?NFe\b/i.test(xml) && !/<(?:\w+:)?nfeProc\b/i.test(xml)) {
-    return { ok: false, error: 'invalid_xml', message: 'O arquivo não parece ser uma NF-e válida.' }
+  if (!looksLikeNfeXml(xml)) {
+    return { ok: false, error: 'invalid_xml', message: 'O arquivo não parece ser uma NF-e válida. Envie o XML da nota (nfeProc), não o DANFE nem um ZIP.' }
   }
 
   const accessKey = extractAccessKey(xml)

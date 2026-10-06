@@ -12,8 +12,19 @@ const htmlInTable = `
 `
 
 const htmlOutTable = `
+  <p>Se o NCM do produto não consta na tabela do Convênio ICMS 142/2018, em regra o produto não tem CEST.</p>
   <p>1006.30.21 ver produtos deste NCM</p>
-  <p>✓ Este NCM não consta na tabela do Convênio ICMS 142/2018 — em regra, o produto não é sujeito à Substituição Tributária e não possui CEST.</p>
+  <div>✓ Este NCM <strong>não consta</strong> na tabela do Convênio ICMS 142/2018 — em regra, o produto não é sujeito à Substituição Tributária e não possui CEST.</div>
+  <p>NCM que não consta na tabela indica mercadoria fora do regime de ST.</p>
+`
+
+const htmlInTableWithFaq = `
+  <p>Se o NCM não constar na tabela, o produto em regra não é sujeito à ST.</p>
+  <p>Este NCM está na tabela de Substituição Tributária com 2 CESTs possíveis:</p>
+  <span>21.053.00</span> Copiar produtos Telefones inteligentes
+  <span>21.053.01</span> Copiar produtos Telefones portáteis
+  <p>NCM que não consta na tabela indica mercadoria fora do regime de ST. Nesse caso a NF-e é emitida sem CEST.</p>
+  <p>Se o NCM do produto não consta na tabela do Convênio ICMS 142/2018, em regra o produto não tem CEST.</p>
 `
 
 describe('parseCestLookupHtml', () => {
@@ -27,6 +38,12 @@ describe('parseCestLookupHtml', () => {
     const parsed = parseCestLookupHtml(htmlOutTable)
     expect(parsed.status).toBe('out')
     expect(parsed.suggestions).toEqual([])
+  })
+
+  it('keeps CEST when the page FAQ also says some NCMs are outside the table', () => {
+    const parsed = parseCestLookupHtml(htmlInTableWithFaq)
+    expect(parsed.status).toBe('in')
+    expect(parsed.suggestions.map((item) => item.code)).toEqual(['2105300', '2105301'])
   })
 
   it('returns unknown when the page has no CEST signal', () => {

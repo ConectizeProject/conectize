@@ -61,11 +61,13 @@ function parseCestSuggestions (plain: string): CestSuggestion[] {
 export function parseCestLookupHtml (html: string): CestLookupParse {
   const plain = stripHtml(html)
   const suggestions = parseCestSuggestions(plain)
-  if (/não consta na tabela/i.test(plain)) {
-    return { status: 'out', suggestions: [] }
-  }
-  if (suggestions.length > 0 || /está na tabela de Substituição Tributária/i.test(plain)) {
+  // A frase do resultado é "Este NCM está/não consta na tabela".
+  // O FAQ e a introdução repetem "não consta na tabela" em toda página, inclusive quando o NCM tem CEST.
+  if (suggestions.length > 0 || /este ncm está na tabela de substituição tributária/i.test(plain)) {
     return { status: 'in', suggestions }
+  }
+  if (/este ncm não consta na tabela/i.test(plain)) {
+    return { status: 'out', suggestions: [] }
   }
   return { status: 'unknown', suggestions: [] }
 }
