@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   cestPairingMessage,
   evaluateCestForNcm,
+  ncmListedCodeCoversProduct,
+  parseCestLinkedNcms,
   parseCestLookupHtml,
 } from '@/lib/fiscal/cest'
 
@@ -78,6 +80,23 @@ describe('evaluateCestForNcm', () => {
   it('skips pairing when the lookup is unknown', () => {
     expect(evaluateCestForNcm({ status: 'unknown', allowedCests: [], cest: null }).ok).toBe(true)
     expect(evaluateCestForNcm({ status: 'unknown', allowedCests: [], cest: '2105400' }).ok).toBe(true)
+  })
+})
+
+describe('ncmListedCodeCoversProduct', () => {
+  it('aceita CEST 12.007.00 no NCM 85444200 porque a tabela lista a posição 8544', () => {
+    const html = `
+      <p>NCM(s) vinculado(s) a este CEST:</p>
+      <span>7605.00.00</span>
+      <span>7614.00.00</span>
+      <span>8544.00.00</span>
+      <p>As informações fiscais são exibidas para consulta</p>
+    `
+    const linked = parseCestLinkedNcms(html)
+    expect(linked).toEqual(['76050000', '76140000', '85440000'])
+    expect(ncmListedCodeCoversProduct('85440000', '85444200')).toBe(true)
+    expect(linked.some((code) => ncmListedCodeCoversProduct(code, '85444200'))).toBe(true)
+    expect(ncmListedCodeCoversProduct('76050000', '85444200')).toBe(false)
   })
 })
 

@@ -58,6 +58,30 @@ function parseCestSuggestions (plain: string): CestSuggestion[] {
   return suggestions
 }
 
+export function parseCestLinkedNcms (html: string): string[] {
+  const section = String(html || '').split(/NCM\(s\) vinculado/i)[1]?.split(/As informa/i)[0] || ''
+  const codes = new Set<string>()
+  for (const match of section.matchAll(/(\d{4})\.(\d{2})\.(\d{2})/g)) {
+    codes.add(`${match[1]}${match[2]}${match[3]}`)
+  }
+  return [...codes]
+}
+
+/**
+ * A tabela do Convênio publica posição (8544.00.00) ou subposição (8544.42.00).
+ * 8544.00.00 cobre 8544.42.00. Código idêntico também cobre.
+ */
+export function ncmListedCodeCoversProduct (listedNcm: string, productNcm: string) {
+  const listed = onlyDigits(listedNcm).slice(0, 8)
+  const product = onlyDigits(productNcm).slice(0, 8)
+  if (listed.length < 4 || product.length !== 8) return false
+  const padded = listed.padEnd(8, '0')
+  if (padded === product) return true
+  if (padded.endsWith('0000')) return product.startsWith(padded.slice(0, 4))
+  if (padded.endsWith('00')) return product.startsWith(padded.slice(0, 6))
+  return false
+}
+
 export function parseCestLookupHtml (html: string): CestLookupParse {
   const plain = stripHtml(html)
   const suggestions = parseCestSuggestions(plain)
