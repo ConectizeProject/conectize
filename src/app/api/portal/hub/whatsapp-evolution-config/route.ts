@@ -3,6 +3,7 @@ import { requireAdmin } from '@/lib/auth/portal-api'
 import { parseEvolutionAutoMessageTemplates } from '@/lib/whatsapp/evolution-auto-messages'
 import {
   evolutionHubDisplayLabel,
+  isAllowedEvolutionApiBaseUrl,
   isLikelyEvolutionApiKey,
   type WhatsappEvolutionHubMetadata,
   WHATSAPP_EVOLUTION_PLATFORM_ID,
@@ -112,6 +113,7 @@ export async function POST (request: Request) {
   )
   const apiKey = String(body.api_key || body.apiKey || '').trim()
   const apiBaseOverride = String(body.api_base_url_override || body.apiBaseUrlOverride || '').trim()
+  const cleanedApiBaseOverride = apiBaseOverride.replace(/\/$/, '')
   const inboxAccess = body.inbox_access as {
     unrestricted?: unknown
     viewer_user_ids?: unknown
@@ -127,6 +129,17 @@ export async function POST (request: Request) {
         ok: false,
         error: 'invalid_api_key',
         hint: 'Use a mesma AUTHENTICATION_API_KEY da Evolution (string curta, sem espaços).',
+      },
+      { status: 400 },
+    )
+  }
+
+  if (apiBaseOverride && !isAllowedEvolutionApiBaseUrl(cleanedApiBaseOverride)) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: 'invalid_evolution_url',
+        hint: 'Use uma URL https pública da Evolution. Hosts locais e IPs privados não são permitidos.',
       },
       { status: 400 },
     )
@@ -151,14 +164,18 @@ export async function POST (request: Request) {
     ? String(existing.access_token).trim()
     : ''
   const hasExistingApiKey = Boolean(existingToken && isLikelyEvolutionApiKey(existingToken))
+  const usesOverride = Boolean(apiBaseOverride)
 
   // Atualização: manter chave já salva se o formulário vier vazio (GET só devolve máscara).
-  if (!apiKey && !envKey && !hasExistingApiKey) {
+  // Override de URL nunca usa WHATSAPP_EVOLUTION_API_KEY do servidor.
+  if (!apiKey && !hasExistingApiKey && (usesOverride || !envKey)) {
     return NextResponse.json(
       {
         ok: false,
         error: 'api_key_required',
-        hint: 'Defina WHATSAPP_EVOLUTION_API_KEY no servidor ou informe api_key ao salvar.',
+        hint: usesOverride
+          ? 'Informe a API key da instância Evolution. A chave do servidor não é usada com URL personalizada.'
+          : 'Defina WHATSAPP_EVOLUTION_API_KEY no servidor ou informe api_key ao salvar.',
       },
       { status: 400 },
     )
@@ -183,7 +200,7 @@ export async function POST (request: Request) {
   if (label) metadata.label = label
   else delete (metadata as { label?: unknown }).label
 
-  if (apiBaseOverride) metadata.api_base_url_override = apiBaseOverride
+  if (apiBaseOverride) metadata.api_base_url_override = cleanedApiBaseOverride
   else delete (metadata as { api_base_url_override?: unknown }).api_base_url_override
 
   const hubWriter = await getSupabaseHubWriter(auth.supabase)

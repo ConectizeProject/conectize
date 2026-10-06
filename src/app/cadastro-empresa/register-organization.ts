@@ -2,6 +2,7 @@ import 'server-only'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { CONECTIZE_HOST_ORGANIZATION_ID } from '@/lib/organizations/constants'
 import { uploadOrganizationLogo, ORGANIZATION_LOGOS_BUCKET, removeOrganizationLogoFolder } from '@/lib/organizations/organization-logo-storage'
+import { isAllowedOrganizationLogoUrl } from '@/lib/organizations/organization-logo-url'
 import { stripAutoHostOrganizationMembership } from '@/lib/organizations/strip-auto-host-membership'
 import { onlyDigits } from '@/lib/utils/strings'
 
@@ -77,12 +78,7 @@ function hasInvalidPayload (payload: ReturnType<typeof normalizePayload>) {
 
   // Arquivo de logo tem prioridade; URL só é validada se não houver arquivo.
   if (!payload.logoFile && payload.logoUrl) {
-    try {
-      const parsed = new URL(payload.logoUrl)
-      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return true
-    } catch {
-      return true
-    }
+    if (!isAllowedOrganizationLogoUrl(payload.logoUrl)) return true
   }
 
   return false

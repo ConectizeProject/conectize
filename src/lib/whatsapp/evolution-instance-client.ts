@@ -34,6 +34,7 @@ async function evolutionFetch (
   try {
     const res = await fetch(url, {
       ...init,
+      redirect: 'error',
       headers: {
         'Content-Type': 'application/json',
         apikey: apiKey,

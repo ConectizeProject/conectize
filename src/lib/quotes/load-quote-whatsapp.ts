@@ -58,7 +58,7 @@ function pickEvolutionHubForSend (
 ): EvolutionHubRow | null {
   const ready = hubs.filter((h) => {
     const instanceName = String(h.metadata.instance_name || '').trim()
-    const apiKey = resolveEvolutionApiKey(h.access_token)
+    const apiKey = resolveEvolutionApiKey(h.access_token, h.metadata)
     const baseUrl = resolveEvolutionApiBaseUrl(h.metadata)
     return Boolean(instanceName && apiKey && baseUrl)
   })

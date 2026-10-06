@@ -5,7 +5,7 @@ import { GerarDanfeUseCase } from '@brasil-fiscal/nfe'
 import { parseNFeXml } from '@brasil-fiscal/nfe/dist/infra/danfe/xml-parser'
 import type { PortalAuthStaffSuccess } from '@/lib/auth/portal-api'
 import { asDownloadableNfceXml } from '@/lib/fiscal/sefaz-consulta'
-import { getSiteUrl } from '@/lib/utils/site-url'
+import { resolveAllowedOrganizationLogoFetchUrl } from '@/lib/organizations/organization-logo-url'
 
 export function nfeDanfePdfFilename (
   accessKey: string | null | undefined,
@@ -21,12 +21,7 @@ export function nfeDanfePdfFilename (
 }
 
 function resolveLogoFetchUrl (logoUrl: string) {
-  const trimmed = logoUrl.trim()
-  if (!trimmed) return ''
-  if (/^https?:\/\//i.test(trimmed)) return trimmed
-  if (trimmed.startsWith('//')) return `https:${trimmed}`
-  if (trimmed.startsWith('/')) return `${getSiteUrl()}${trimmed}`
-  return `${getSiteUrl()}/${trimmed}`
+  return resolveAllowedOrganizationLogoFetchUrl(logoUrl)
 }
 
 function fmtCep (cep: string) {
@@ -80,6 +75,7 @@ async function loadOrganizationLogoPng (
 
   try {
     const res = await fetch(fetchUrl, {
+      redirect: 'error',
       signal: AbortSignal.timeout(8_000),
     })
     if (!res.ok) return null

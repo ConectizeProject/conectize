@@ -36,7 +36,7 @@ export async function POST (request: Request) {
 
   const meta = hub.metadata
   const instanceName = String(meta.instance_name || '').trim()
-  const apiKey = resolveEvolutionApiKey(hub.access_token)
+  const apiKey = resolveEvolutionApiKey(hub.access_token, meta)
   const baseUrl = resolveEvolutionApiBaseUrl(meta)
 
   const { data: orgRow } = await auth.supabase
@@ -47,7 +47,7 @@ export async function POST (request: Request) {
 
   const brand = String(orgRow?.name || '').trim()
   const defaultTestText = brand
-    ? `Teste ${brand} — Evolution API OK.`
+    ? `Teste ${brand}: Evolution API OK.`
     : 'Teste Evolution API OK.'
 
   const text = String(body?.text || defaultTestText).trim()
