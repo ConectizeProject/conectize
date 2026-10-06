@@ -31,6 +31,8 @@ export type FiscalDocumentItemRow = {
   subtotal_cents: number
   ncm: string | null
   cest: string | null
+  cfop: string | null
+  icms_csosn: string | null
   fiscal_origin: number | null
   fci: string | null
   fiscal_unit: string | null

@@ -494,12 +494,14 @@ export function ProductForm ({
       return
     }
 
+    const cestDigits = fiscalDigits(cest, 7)
+    const cestQuery = cestDigits.length === 7 ? `&cest=${encodeURIComponent(cestDigits)}` : ''
     const controller = new AbortController()
     setIsLoadingCestSuggestions(true)
 
     void (async () => {
       try {
-        const res = await fetch(`/api/portal/fiscal/cest-suggestions?ncm=${encodeURIComponent(ncmDigits)}`, {
+        const res = await fetch(`/api/portal/fiscal/cest-suggestions?ncm=${encodeURIComponent(ncmDigits)}${cestQuery}`, {
           signal: controller.signal,
         })
         const json = await res.json().catch(() => null) as {
@@ -514,6 +516,14 @@ export function ProductForm ({
           : 'unknown'
         setCestSuggestions(suggestions)
         setCestTableStatus(status)
+        if (status === 'in') {
+          const pairing = evaluateCestForNcm({
+            status,
+            allowedCests: suggestions.map((item) => item.code),
+            cest: cestDigits,
+          })
+          if (pairing.ok) setSubmitErrors((current) => ({ ...current, cest: undefined }))
+        }
       } catch (err) {
         if (!controller.signal.aborted) {
           console.warn('[product form] cest suggestions failed', err)
@@ -528,7 +538,7 @@ export function ProductForm ({
     return () => {
       controller.abort()
     }
-  }, [kind, ncmDigits])
+  }, [cest, kind, ncmDigits])
 
   useEffect(() => {
     let cancelled = false
@@ -1378,7 +1388,7 @@ export function ProductForm ({
       {kind === 'product' ? (
         <FormSection
           title="Fiscal"
-          description="Dados do item na NFC-e. CFOP, CSOSN, ICMS CST, PIS e COFINS vêm da natureza de operação. Itens sem NCM são bloqueados na emissão."
+          description="Na emissão, o sistema lê o cliente e este cadastro. Com CEST, a nota usa CFOP 5405 e CSOSN 500 no mesmo estado, ou 6404 fora do estado. Sem CEST, usa CFOP 5102 e CSOSN 102, ou 6102 fora do estado. Itens sem NCM são bloqueados."
         >
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <div className="space-y-2 sm:col-span-2 lg:col-span-2">
@@ -1509,7 +1519,7 @@ export function ProductForm ({
                 <p className="text-xs text-muted-foreground">Buscando CESTs para o NCM...</p>
               ) : null}
               {!isLoadingCestSuggestions && ncmDigits.length === 8 && cestTableStatus === 'out' ? (
-                <p className="text-xs text-muted-foreground">Este NCM não exige CEST. Deixe o campo em branco.</p>
+                <p className="text-xs text-muted-foreground">Este NCM de 8 dígitos não está na tabela. Se a nota de entrada trouxe CEST, informe o mesmo código: a posição da tabela, como 8544, cobre esse NCM.</p>
               ) : null}
               {!isLoadingCestSuggestions && ncmDigits.length === 8 && cestTableStatus === 'in' && cestSuggestions.length === 0 ? (
                 <p className="text-xs text-muted-foreground">Este NCM exige CEST. Preencha o código de 7 dígitos.</p>

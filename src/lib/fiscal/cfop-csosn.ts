@@ -12,6 +12,7 @@ const ST_CFOP = new Set([
   '5402',
   '5403',
   '5405',
+  '6404',
   '5408',
   '5409',
   '5410',
@@ -57,12 +58,115 @@ function interstateVariant (cfop: string) {
   return cfop
 }
 
-function isStCfop (cfop: string) {
-  return ST_CFOP.has(cfop) || ST_CFOP.has(interstateVariant(cfop))
+export function normalizeOptionalCfop (value: unknown): string | null | 'invalid' {
+  const raw = String(value ?? '').trim()
+  if (!raw) return null
+  const digits = onlyDigits(raw)
+  if (digits.length !== 4) return 'invalid'
+  return digits
+}
+
+export function normalizeOptionalCsosn (value: unknown): string | null | 'invalid' {
+  const raw = String(value ?? '').trim()
+  if (!raw) return null
+  const digits = onlyDigits(raw)
+  if (digits.length !== 3) return 'invalid'
+  return digits
+}
+
+export function cfopForDestination (cfop: string, emitUf: string, destUf: string | null) {
+  const digits = onlyDigits(cfop).slice(0, 4)
+  if (!digits) return '5102'
+  if (!destUf || destUf.toUpperCase() === emitUf.toUpperCase()) return digits
+  if (digits.startsWith('5')) return `6${digits.slice(1)}`
+  if (digits.startsWith('1')) return `2${digits.slice(1)}`
+  return digits
+}
+
+/**
+ * Venda de mercadoria: o cadastro diz se o produto tem ST (CEST preenchido).
+ * Mesmo estado: 5102 + CSOSN 102, ou 5405 + CSOSN 500.
+ * Outro estado: 6102, ou 6404 (par interestadual do 5405).
+ */
+export function resolveSaleItemTaxes (input: {
+  hasSubstitution: boolean
+  emitUf: string
+  destUf?: string | null
+}) {
+  const emit = String(input.emitUf || '').trim().toUpperCase()
+  const dest = String(input.destUf || '').trim().toUpperCase()
+  const interstate = Boolean(dest) && dest !== emit
+  if (input.hasSubstitution) {
+    return {
+      cfop: interstate ? '6404' : '5405',
+      csosn: '500',
+      operationIsSt: true,
+    }
+  }
+  return {
+    cfop: interstate ? '6102' : '5102',
+    csosn: '102',
+    operationIsSt: false,
+  }
+}
+
+export function resolveItemCfop (input: {
+  productCfop?: string | null
+  natureCfop?: string | null
+  profileCfop?: string | null
+  emitUf: string
+  destUf?: string | null
+}) {
+  const base = onlyDigits(input.productCfop || '')
+    || onlyDigits(input.natureCfop || '')
+    || onlyDigits(input.profileCfop || '')
+    || '5102'
+  return cfopForDestination(base.slice(0, 4), input.emitUf, input.destUf ?? null)
+}
+
+export function resolveItemCsosn (input: {
+  productCsosn?: string | null
+  natureCsosn?: string | null
+  profileCsosn?: string | null
+}) {
+  return onlyDigits(input.productCsosn || '').slice(0, 3)
+    || onlyDigits(input.natureCsosn || '').slice(0, 3)
+    || onlyDigits(input.profileCsosn || '').slice(0, 3)
+    || '102'
+}
+
+const ST_ICMS_CST = new Set(['10', '30', '60', '70'])
+
+export function isStCfop (cfop: string) {
+  const digits = onlyDigits(cfop).slice(0, 4)
+  return ST_CFOP.has(digits) || ST_CFOP.has(interstateVariant(digits))
 }
 
 function isNonStCfop (cfop: string) {
-  return NON_ST_CFOP.has(cfop) || NON_ST_CFOP.has(interstateVariant(cfop))
+  const digits = onlyDigits(cfop).slice(0, 4)
+  return NON_ST_CFOP.has(digits) || NON_ST_CFOP.has(interstateVariant(digits))
+}
+
+/**
+ * CFOP sem ST (5102/6102) não pode sair com CSOSN ou CST de substituição tributária.
+ * A SEFAZ trata CSOSN 500 e CST 60 como operação com ST e rejeita se faltar CEST.
+ */
+export function alignItemTaxesToCfop (input: {
+  cfop: string
+  csosn: string
+  icmsCst?: string | null
+}) {
+  const cfop = onlyDigits(input.cfop).slice(0, 4)
+  let csosn = onlyDigits(input.csosn).slice(0, 3) || '102'
+  let icmsCst = onlyDigits(input.icmsCst || '').slice(0, 3) || null
+  const operationIsSt = isStCfop(cfop)
+  const operationWithoutSt = isNonStCfop(cfop)
+
+  if (operationWithoutSt && ST_CSOSN.has(csosn)) csosn = '102'
+  if (operationIsSt && NON_ST_CSOSN.has(csosn)) csosn = '500'
+  if (operationWithoutSt && icmsCst && ST_ICMS_CST.has(icmsCst)) icmsCst = '00'
+
+  return { cfop, csosn, icmsCst, operationIsSt }
 }
 
 /**

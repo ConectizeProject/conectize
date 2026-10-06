@@ -34,7 +34,7 @@ export function fiscalRejectionGuidance (
     return {
       summary: 'A SEFAZ recusou o CEST em relação ao NCM do item.',
       hint: code === '806'
-        ? 'Esta operação de ST exige CEST. Preencha um CEST válido para o NCM do produto.'
+        ? 'A SEFAZ viu substituição tributária sem CEST. Sem ST, deixe o CEST em branco: a nota sai com CFOP 5102 e CSOSN 102. Com ST, preencha o CEST: a nota sai com CFOP 5405 e CSOSN 500.'
         : 'Use um CEST da tabela do NCM ou deixe em branco se o NCM não estiver na tabela de Substituição Tributária.',
     }
   }

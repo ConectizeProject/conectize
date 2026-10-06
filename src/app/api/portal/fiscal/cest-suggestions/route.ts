@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getPortalAuth } from '@/lib/supabase/server'
-import { lookupCestForNcm } from '@/lib/fiscal/cest-lookup'
-import { fiscalNcmOrNull } from '@/lib/fiscal/ncm'
+import { resolveCestLookup } from '@/lib/fiscal/cest-lookup'
+import { fiscalCestOrNull, fiscalNcmOrNull } from '@/lib/fiscal/ncm'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,7 +17,7 @@ export async function GET (request: Request) {
     return NextResponse.json({ ok: true, status: 'unknown', suggestions: [] })
   }
 
-  const lookup = await lookupCestForNcm(ncm)
+  const lookup = await resolveCestLookup(ncm, fiscalCestOrNull(url.searchParams.get('cest')))
   return NextResponse.json({
     ok: true,
     status: lookup.status,

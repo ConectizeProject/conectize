@@ -218,6 +218,12 @@ export function InboundNfeCreateClient () {
       }
       toast({ title: 'XML importado', description: 'Revise os itens e lance no estoque.' })
       router.push(`/portal/vendas/nfe/entradas/${encodeURIComponent(String(data.document.id))}`)
+    } catch (err) {
+      toast({
+        title: 'Falha ao importar XML',
+        description: err instanceof Error ? err.message : 'Não foi possível enviar o arquivo.',
+        variant: 'destructive',
+      })
     } finally {
       setIsImporting(false)
       if (fileRef.current) fileRef.current.value = ''

@@ -59,6 +59,12 @@ export async function PATCH (
       productId: String(item.productId || item.product_id || ''),
       ncm: item.ncm == null ? null : String(item.ncm),
       cest: item.cest == null ? null : String(item.cest),
+      cfop: 'cfop' in item ? (item.cfop == null ? null : String(item.cfop)) : undefined,
+      icmsCsosn: 'icmsCsosn' in item || 'icms_csosn' in item
+        ? ((item.icmsCsosn ?? item.icms_csosn) == null
+          ? null
+          : String(item.icmsCsosn ?? item.icms_csosn))
+        : undefined,
       fiscalOrigin: item.fiscalOrigin == null && item.fiscal_origin == null
         ? null
         : Number(item.fiscalOrigin ?? item.fiscal_origin),

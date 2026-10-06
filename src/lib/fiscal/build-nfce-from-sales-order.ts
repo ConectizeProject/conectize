@@ -8,7 +8,7 @@ import { validateCestNcmPair } from '@/lib/fiscal/cest-lookup'
 import { isNfceServiceItem } from '@/lib/fiscal/certificate-validity'
 import { fiscalCestOrNull, fiscalNcmOrNull } from '@/lib/fiscal/ncm'
 import { buildNfcePagamentoLine, resolveNfcePaymentAmountsWithChange } from '@/lib/fiscal/nfce-payment'
-import { validateCfopCsosnPair } from '@/lib/fiscal/cfop-csosn'
+import { alignItemTaxesToCfop, resolveSaleItemTaxes, validateCfopCsosnPair } from '@/lib/fiscal/cfop-csosn'
 import { lookupIbgeCityCodeFromCep } from '@/lib/fiscal/viacep'
 import { fiscalDocumentKind } from '@/lib/fiscal/document-status'
 import {
@@ -158,13 +158,6 @@ function toPresenceIndicator (value: unknown): 0 | 1 | 2 | 3 | 4 | 5 | 9 {
 }
 
 const HOMOLOGACAO_DEST_NAME = 'NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL'
-
-function cfopForDestination (cfop: string, emitUf: string, destUf: string | null) {
-  if (!destUf || destUf === emitUf) return cfop
-  if (cfop.startsWith('5')) return `6${cfop.slice(1)}`
-  if (cfop.startsWith('1')) return `2${cfop.slice(1)}`
-  return cfop
-}
 
 function buildDestinatario (
   order: { customer_name?: string | null, customer_document?: string | null },
@@ -417,32 +410,23 @@ export async function buildNfceFromPreparedOrder (input: BuildNfcePreparedInput)
         message: `Informe o NCM com 8 dígitos de "${productName}".`,
       }
     }
-    const cest = product.cest ? fiscalCestOrNull(product.cest) : null
-    if (product.cest && !cest) {
-      return {
-        ok: false,
-        error: 'product_invalid_cest',
-        message: `Informe o CEST com 7 dígitos de "${productName}" ou deixe em branco.`,
-      }
-    }
-    const cestPair = await validateCestNcmPair(ncm, cest, productName)
-    if (cestPair.ok === false) {
-      return {
-        ok: false,
-        error: cestPair.error,
-        message: cestPair.message,
-      }
-    }
-
-    const cfop = cfopForDestination(
-      onlyDigits(operationNature?.default_cfop || profile.default_cfop || '') || '5102',
-      uf,
+    const hasSubstitution = Boolean(String(product.cest || '').trim())
+    const saleTaxes = resolveSaleItemTaxes({
+      hasSubstitution,
+      emitUf: uf,
       destUf,
-    )
+    })
     const quantity = Math.max(1, Number(item.quantity) || 1)
     const valorTotal = centsToValue(fiscalItemCents[index])
     const valorUnitario = quantity > 0 ? valorTotal / quantity : valorTotal
-    const csosn = onlyDigits(operationNature?.icms_csosn || profile.default_csosn || '') || '102'
+    const alignedTaxes = alignItemTaxesToCfop({
+      cfop: saleTaxes.cfop,
+      csosn: saleTaxes.csosn,
+      icmsCst: onlyDigits(String(product.icms_cst || operationNature?.icms_cst || '')) || null,
+    })
+    const csosn = alignedTaxes.csosn
+    const icmsCst = alignedTaxes.icmsCst
+    const cfop = alignedTaxes.cfop
     const cfopCsosn = validateCfopCsosnPair(cfop, csosn)
     if (cfopCsosn.ok === false) {
       return {
@@ -451,7 +435,24 @@ export async function buildNfceFromPreparedOrder (input: BuildNfcePreparedInput)
         message: `Item ${index + 1} (${productName}): ${cfopCsosn.message}`,
       }
     }
-    const icmsCst = onlyDigits(operationNature?.icms_cst || '') || null
+    const cest = alignedTaxes.operationIsSt && product.cest ? fiscalCestOrNull(product.cest) : null
+    if (alignedTaxes.operationIsSt && product.cest && !cest) {
+      return {
+        ok: false,
+        error: 'product_invalid_cest',
+        message: `Informe o CEST com 7 dígitos de "${productName}" ou deixe em branco.`,
+      }
+    }
+    if (alignedTaxes.operationIsSt) {
+      const cestPair = await validateCestNcmPair(ncm, cest, productName)
+      if (cestPair.ok === false) {
+        return {
+          ok: false,
+          error: cestPair.error,
+          message: cestPair.message,
+        }
+      }
+    }
     const gtin = fiscalGtinOrNull(product.barcode)
     const origem = toIcmsOrigin(product.fiscal_origin ?? operationNature?.default_origin ?? profile.default_origin)
     const fci = fiscalFciOrNull(product.fci)

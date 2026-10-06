@@ -6,6 +6,7 @@ import {
   importInboundNfeXml,
   listInboundNfeDocuments,
 } from '@/lib/fiscal/inbound-nfe'
+import { readInboundXmlUpload } from '@/lib/fiscal/parse-inbound-nfe-xml'
 
 export async function GET () {
   const auth = await requireStaffOrAdmin()
@@ -32,8 +33,17 @@ export async function POST (request: Request) {
     const form = await request.formData()
     const file = form.get('file')
     let xmlContent = ''
-    if (file instanceof File) {
-      xmlContent = await file.text()
+    if (file && typeof file === 'object' && typeof (file as Blob).arrayBuffer === 'function') {
+      const bytes = new Uint8Array(await (file as Blob).arrayBuffer())
+      const read = readInboundXmlUpload(bytes)
+      if (read.ok === false) {
+        return NextResponse.json({
+          ok: false,
+          error: read.error,
+          message: read.message,
+        }, { status: 400 })
+      }
+      xmlContent = read.xml
     } else if (typeof form.get('xml') === 'string') {
       xmlContent = String(form.get('xml') || '')
     }
