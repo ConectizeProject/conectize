@@ -26,6 +26,13 @@ export function shouldPromptMfaSetup (
 	return isMfaSetupPromptRole(realRole) && !hasVerifiedMfa
 }
 
+export function isMfaStepUpPending (
+	currentLevel: string | null | undefined,
+	nextLevel: string | null | undefined,
+): boolean {
+	return currentLevel === 'aal1' && nextLevel === 'aal2'
+}
+
 /**
  * Sessão AAL1 com fator verificado pendente de desafio.
  * O access token é validado no Auth server antes de decidir o desafio.
@@ -41,7 +48,7 @@ export async function userNeedsMfaChallenge (
 		accessToken,
 	)
 	if (error || !data) return false
-	return data.currentLevel === 'aal1' && data.nextLevel === 'aal2'
+	return isMfaStepUpPending(data.currentLevel, data.nextLevel)
 }
 
 export async function userHasVerifiedTotp (

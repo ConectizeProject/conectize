@@ -1,4 +1,6 @@
 import { redirect } from 'next/navigation'
+import { cookies } from 'next/headers'
+import { userNeedsMfaChallenge } from '@/lib/auth/mfa'
 import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 import {
@@ -9,7 +11,6 @@ import {
   PORTAL_SIMULATED_ROLE_COOKIE,
   resolveEffectivePortalRole,
 } from '@/lib/auth/portal-role-simulation'
-import { cookies } from 'next/headers'
 
 export type PortalStaffRole = 'staff' | 'admin'
 
@@ -62,6 +63,15 @@ export function normalizePortalRole (role: string | null | undefined): string {
   return r === 'customer' ? 'user' : r
 }
 
+async function rejectPendingMfa (
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+): Promise<PortalAuthFailure | null> {
+  if (await userNeedsMfaChallenge(supabase)) {
+    return { ok: false as const, status: 403, error: 'mfa_required' }
+  }
+  return null
+}
+
 /**
  * API routes: leitura de notas fiscais (staff/admin/platform_admin/accountant).
  * Mutações continuam em `requireStaffOrAdmin`.
@@ -74,6 +84,9 @@ export async function requireFiscalDocumentsReader (): Promise<
   if (!user) {
     return { ok: false as const, status: 401, error: 'not_authenticated' }
   }
+
+  const mfa = await rejectPendingMfa(supabase)
+  if (mfa) return mfa
 
   const { data: appUser } = await supabase
     .from('users')
@@ -159,6 +172,9 @@ export async function requireStaffOrAdmin (): Promise<PortalAuthFailure | Portal
     return { ok: false as const, status: 401, error: 'not_authenticated' }
   }
 
+  const mfa = await rejectPendingMfa(supabase)
+  if (mfa) return mfa
+
   const { data: appUser } = await supabase
     .from('users')
     .select('role, full_name, email')
@@ -214,6 +230,9 @@ export async function requireRetailer (): Promise<PortalAuthFailure | PortalAuth
     return { ok: false as const, status: 401, error: 'not_authenticated' }
   }
 
+  const mfa = await rejectPendingMfa(supabase)
+  if (mfa) return mfa
+
   const { data: appUser } = await supabase
     .from('users')
     .select('role')
@@ -245,6 +264,9 @@ export async function requireStaffAdminOrRetailer (): Promise<
   if (!user) {
     return { ok: false as const, status: 401, error: 'not_authenticated' }
   }
+
+  const mfa = await rejectPendingMfa(supabase)
+  if (mfa) return mfa
 
   const { data: appUser } = await supabase
     .from('users')
@@ -311,6 +333,9 @@ export async function requireAdmin (): Promise<PortalAuthFailure | PortalAuthAdm
     return { ok: false as const, status: 401, error: 'not_authenticated' }
   }
 
+  const mfa = await rejectPendingMfa(supabase)
+  if (mfa) return mfa
+
   const { data: appUser } = await supabase
     .from('users')
     .select('role')
@@ -361,6 +386,9 @@ export async function requireRealAdmin (): Promise<PortalAuthFailure | PortalAut
   if (!user) {
     return { ok: false as const, status: 401, error: 'not_authenticated' }
   }
+
+  const mfa = await rejectPendingMfa(supabase)
+  if (mfa) return mfa
 
   const { data: appUser } = await supabase
     .from('users')
