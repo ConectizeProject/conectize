@@ -749,7 +749,7 @@ export async function syncResaleDevicePurchaseFinancialTransactions ({
         type: 'saida',
         occurred_at: occurredAt,
         resale_device_id: device.id,
-        description: `Compra usado — ${resaleLabel} - ${paymentMethodLabel}`,
+        description: `Compra usado: ${resaleLabel} - ${paymentMethodLabel}`,
       }
     })
     .filter(Boolean) as Record<string, unknown>[]
