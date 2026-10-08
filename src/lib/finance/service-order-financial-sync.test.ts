@@ -96,49 +96,72 @@ function createSupabaseMock ({
       }
 
       if (table === 'financial_transactions') {
+        const mappedInserted = () => insertedRows.map((row, index) => ({
+          id: `tx-${index}`,
+          organization_id: String(row.organization_id || ''),
+          conta_id: String(row.conta_id || ''),
+          amount_cents: Number(row.amount_cents || 0),
+          type: String(row.type || ''),
+          occurred_at: String(row.occurred_at || ''),
+          description: (row.description as string | null) ?? null,
+          sales_order_id: (row.sales_order_id as string | null) ?? null,
+          sales_order_payment_id: (row.sales_order_payment_id as string | null) ?? null,
+          service_order_id: (row.service_order_id as string | null) ?? null,
+          source_key: (row.source_key as string | null) ?? null,
+          resale_device_id: (row.resale_device_id as string | null) ?? null,
+          transfer_id: (row.transfer_id as string | null) ?? null,
+          created_at: `2026-05-06T12:00:0${index}.000Z`,
+        }))
+
+        function selectChain () {
+          const rows = mappedInserted()
+          const api = {
+            eq () {
+              return api
+            },
+            order () {
+              const result = {
+                data: rows,
+                error: null,
+                limit () {
+                  return {
+                    maybeSingle () {
+                      return Promise.resolve({
+                        data: rows[0] ?? null,
+                        error: null,
+                      })
+                    },
+                  }
+                },
+                then (
+                  onFulfilled: (value: { data: typeof rows; error: null }) => unknown,
+                  onRejected?: (reason: unknown) => unknown,
+                ) {
+                  return Promise.resolve({ data: rows, error: null }).then(
+                    onFulfilled,
+                    onRejected,
+                  )
+                },
+              }
+              return result
+            },
+            then (
+              onFulfilled: (value: { data: typeof rows; error: null }) => unknown,
+              onRejected?: (reason: unknown) => unknown,
+            ) {
+              // Snapshot antes do delete: lista atual (pode estar vazia no 1º sync).
+              return Promise.resolve({ data: rows, error: null }).then(
+                onFulfilled,
+                onRejected,
+              )
+            },
+          }
+          return api
+        }
+
         return {
           select () {
-            return {
-              eq () {
-                return {
-                  order () {
-                    const rows = insertedRows.map((row, index) => ({
-                      id: `tx-${index}`,
-                      conta_id: String(row.conta_id || ''),
-                      amount_cents: Number(row.amount_cents || 0),
-                      type: String(row.type || ''),
-                      occurred_at: String(row.occurred_at || ''),
-                      description: (row.description as string | null) ?? null,
-                      created_at: `2026-05-06T12:00:0${index}.000Z`,
-                    }))
-                    const result = {
-                      data: rows,
-                      error: null,
-                      limit () {
-                        return {
-                          maybeSingle () {
-                            return Promise.resolve({
-                              data: rows[0] ?? null,
-                              error: null,
-                            })
-                          },
-                        }
-                      },
-                      then (
-                        onFulfilled: (value: { data: typeof rows; error: null }) => unknown,
-                        onRejected?: (reason: unknown) => unknown,
-                      ) {
-                        return Promise.resolve({ data: rows, error: null }).then(
-                          onFulfilled,
-                          onRejected,
-                        )
-                      },
-                    }
-                    return result
-                  },
-                }
-              },
-            }
+            return selectChain()
           },
           delete () {
             return {
@@ -151,6 +174,12 @@ function createSupabaseMock ({
                   eq (field2: string, value2: unknown) {
                     deletedFilters[field2] = value2
                     return Promise.resolve({ error: null })
+                  },
+                  then (
+                    onFulfilled: (value: { error: null }) => unknown,
+                    onRejected?: (reason: unknown) => unknown,
+                  ) {
+                    return Promise.resolve({ error: null }).then(onFulfilled, onRejected)
                   },
                 }
               },
@@ -561,5 +590,173 @@ describe('netSalesOrderPaymentAmounts', () => {
     expect(net).toEqual([
       expect.objectContaining({ amount_cents: 10000 }),
     ])
+  })
+})
+
+describe('replaceFinancialTransactionsWithRestore', () => {
+  const { replaceFinancialTransactionsWithRestore } = __private__
+
+  function createReplaceMock (opts: {
+    snapshot: Array<Record<string, unknown>>
+    failFirstInsert?: boolean
+  }) {
+    const inserts: Array<Record<string, unknown>[]> = []
+    let insertAttempts = 0
+    const deleted: Record<string, unknown> = {}
+
+    function filterChain (onDone: () => Promise<{ data?: unknown, error: unknown }>) {
+      const api = {
+        eq () {
+          return api
+        },
+        then (
+          resolve: (value: { data?: unknown, error: unknown }) => unknown,
+          reject?: (reason: unknown) => unknown,
+        ) {
+          return onDone().then(resolve, reject)
+        },
+      }
+      return api
+    }
+
+    const supabase = {
+      from (table: string) {
+        if (table !== 'financial_transactions') {
+          throw new Error(`Tabela não mockada: ${table}`)
+        }
+        return {
+          select () {
+            return filterChain(async () => ({ data: opts.snapshot, error: null }))
+          },
+          delete () {
+            return {
+              eq (field: string, value: unknown) {
+                deleted[field] = value
+                return {
+                  eq (field2: string, value2: unknown) {
+                    deleted[field2] = value2
+                    return Promise.resolve({ error: null })
+                  },
+                  then (
+                    resolve: (value: { error: null }) => unknown,
+                    reject?: (reason: unknown) => unknown,
+                  ) {
+                    return Promise.resolve({ error: null }).then(resolve, reject)
+                  },
+                }
+              },
+            }
+          },
+          insert (rows: Record<string, unknown>[]) {
+            insertAttempts += 1
+            inserts.push(rows)
+            if (opts.failFirstInsert && insertAttempts === 1) {
+              return Promise.resolve({ error: { message: 'insert_failed', code: 'XX000' } })
+            }
+            return Promise.resolve({ error: null })
+          },
+        }
+      },
+    }
+
+    return { supabase, inserts, deleted }
+  }
+
+  it('restaura snapshot quando insert após delete falha', async () => {
+    const snapshot = [{
+      organization_id: 'org-1',
+      conta_id: 'conta-1',
+      amount_cents: 5000,
+      type: 'entrada',
+      occurred_at: '2026-10-08',
+      description: 'Pedido #1 - Pix',
+      sales_order_id: 'order-1',
+      sales_order_payment_id: 'pay-1',
+    }]
+    const { supabase, inserts, deleted } = createReplaceMock({
+      snapshot,
+      failFirstInsert: true,
+    })
+
+    await expect(replaceFinancialTransactionsWithRestore({
+      supabase: supabase as never,
+      filter: { column: 'sales_order_id', value: 'order-1' },
+      rows: [{
+        organization_id: 'org-1',
+        conta_id: 'conta-1',
+        amount_cents: 7000,
+        type: 'entrada',
+        occurred_at: '2026-10-08',
+        sales_order_id: 'order-1',
+        sales_order_payment_id: 'pay-2',
+        description: 'Pedido #1 - Dinheiro',
+      }],
+      label: 'test-restore',
+      treatUniqueAsConcurrentOk: true,
+    })).rejects.toThrow(/insert_failed/)
+
+    expect(deleted).toEqual({ sales_order_id: 'order-1' })
+    expect(inserts).toHaveLength(2)
+    expect(inserts[0]).toEqual([expect.objectContaining({ amount_cents: 7000 })])
+    expect(inserts[1]).toEqual([expect.objectContaining({
+      amount_cents: 5000,
+      sales_order_payment_id: 'pay-1',
+      description: 'Pedido #1 - Pix',
+    })])
+  })
+
+  it('não restaura em corrida 23505 (outro sync já reinseriu)', async () => {
+    const snapshot = [{
+      organization_id: 'org-1',
+      conta_id: 'conta-1',
+      amount_cents: 5000,
+      type: 'entrada',
+      occurred_at: '2026-10-08',
+      description: 'old',
+      sales_order_id: 'order-1',
+      sales_order_payment_id: 'pay-1',
+    }]
+    const inserts: Array<Record<string, unknown>[]> = []
+    const supabase = {
+      from () {
+        return {
+          select () {
+            const api = {
+              eq () {
+                return api
+              },
+              then (
+                resolve: (value: { data: typeof snapshot, error: null }) => unknown,
+                reject?: (reason: unknown) => unknown,
+              ) {
+                return Promise.resolve({ data: snapshot, error: null }).then(resolve, reject)
+              },
+            }
+            return api
+          },
+          delete () {
+            return {
+              eq () {
+                return Promise.resolve({ error: null })
+              },
+            }
+          },
+          insert (rows: Record<string, unknown>[]) {
+            inserts.push(rows)
+            return Promise.resolve({ error: { message: 'duplicate', code: '23505' } })
+          },
+        }
+      },
+    }
+
+    await replaceFinancialTransactionsWithRestore({
+      supabase: supabase as never,
+      filter: { column: 'sales_order_id', value: 'order-1' },
+      rows: [{ amount_cents: 7000 }],
+      label: 'test-unique',
+      treatUniqueAsConcurrentOk: true,
+    })
+
+    expect(inserts).toHaveLength(1)
   })
 })
