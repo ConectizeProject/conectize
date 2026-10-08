@@ -1435,7 +1435,8 @@ async function replaceFinancialTransactionsWithRestore (opts: {
       `Erro ao snapshot de lançamentos financeiros (${opts.label}): ${snapshotError.message}`,
     )
   }
-  const snapshot = (snapshotData ?? []) as FinancialTransactionSnapshotRow[]
+  // select dinâmico: o client tipa como GenericStringError; validamos via shape própria.
+  const snapshot = (snapshotData ?? []) as unknown as FinancialTransactionSnapshotRow[]
 
   let deleteQuery = opts.supabase
     .from('financial_transactions')
