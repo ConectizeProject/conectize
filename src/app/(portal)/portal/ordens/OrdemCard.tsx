@@ -75,6 +75,7 @@ export function OrdemCard({ order, canDelete, layout = 'carousel', onLinkClick }
 		? ''
 		: [cpfCnpjFmt || null, celularFmt].filter(Boolean).join(' • ') || '—'
 	const datesLine = formatOrdemCardDatesLine(order)
+	const pendingAppointment = order.origin === 'agendamento' && !order.appointment_reviewed_at
 
 	const shellClass =
 		layout === 'list'
@@ -85,7 +86,10 @@ export function OrdemCard({ order, canDelete, layout = 'carousel', onLinkClick }
 
 	return (
 		<div className={shellClass}>
-			<Card className="h-full cursor-pointer transition-colors hover:bg-muted/50" draggable={false}>
+			<Card
+				className={`h-full cursor-pointer transition-colors hover:bg-muted/50 ${pendingAppointment ? 'ring-2 ring-sky-400' : ''}`}
+				draggable={false}
+			>
 				<CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 bg-muted/30 p-0 px-4 pt-2 pb-2">
 					<Link
 						href={ordemHref}

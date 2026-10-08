@@ -38,6 +38,10 @@ export type ServiceOrderDetail = {
   seller_user_id: string | null
   device_entry_checks: unknown
   device_exit_checks?: unknown
+  origin?: string | null
+  appointment_starts_at?: string | null
+  appointment_reviewed_at?: string | null
+  appointment_model_label?: string | null
   /** Join Supabase (objeto ou array) — também acessível via helpers. */
   customers?: unknown
   device_models?: unknown

@@ -16,7 +16,28 @@ declare global {
 		gtag?: GtagFn
 		dataLayer?: unknown[]
 		__conectizeAdsWhatsappSendTo?: string
+		__conectizeAdsBookingSendTo?: string
 	}
+}
+
+export type BookingFunnelStep =
+	| 'view_offer'
+	| 'start_booking'
+	| 'select_slot'
+	| 'submit_booking'
+	| 'account_created'
+
+export function trackBookingFunnel (step: BookingFunnelStep) {
+	if (typeof window.gtag !== 'function') return
+	window.gtag('event', step, {
+		event_category: 'agendamento',
+		event_label: 'troca-de-bateria',
+		page_path: window.location.pathname,
+	})
+	if (step !== 'submit_booking') return
+	const sendTo = String(window.__conectizeAdsBookingSendTo || '').trim()
+	if (!sendTo) return
+	window.gtag('event', 'conversion', { send_to: sendTo })
 }
 
 /**

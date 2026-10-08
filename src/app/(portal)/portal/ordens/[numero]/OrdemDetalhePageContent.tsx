@@ -27,6 +27,7 @@ import {
 	orderFormActionBarFlowSpacerClassName,
 } from '../OrderFormActionBar'
 import { OrdemActionsMenu } from './OrdemActionsMenu'
+import { AppointmentReviewBanner } from '../AppointmentReviewBanner'
 import { OrdemDetalheToastClient } from './OrdemDetalheToastClient'
 import { OrdemLabelPrintButton } from './OrdemLabelPrintButton'
 import { OrderAssistanceChat } from './OrderAssistanceChat'
@@ -119,6 +120,15 @@ export function OrdemDetalhePageContent(props: Props) {
 				orderId={order.id}
 				displayNumber={order.display_number ?? order.id}
 			/>
+
+			{order.origin === 'agendamento' && order.appointment_starts_at ? (
+				<AppointmentReviewBanner
+					orderId={order.id}
+					startsAt={order.appointment_starts_at}
+					modelLabel={order.appointment_model_label ?? null}
+					reviewedAt={order.appointment_reviewed_at ?? null}
+				/>
+			) : null}
 
 			<div className="space-y-1.5">
 				<div>

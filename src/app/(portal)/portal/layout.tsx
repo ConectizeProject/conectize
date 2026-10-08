@@ -14,6 +14,7 @@ import {
   getPortalAuth,
 } from '@/lib/supabase/server'
 import { RouteProviders } from '@/providers/route-providers'
+import { AppointmentAlerts } from './AppointmentAlerts'
 import { PortalShell } from './PortalShell'
 
 export const dynamic = 'force-dynamic'
@@ -100,6 +101,9 @@ export default async function PortalLayout({
       >
         {children}
       </PortalShell>
+      {role === 'staff' || role === 'admin' || role === 'platform_admin' ? (
+        <AppointmentAlerts />
+      ) : null}
     </RouteProviders>
   )
 }
