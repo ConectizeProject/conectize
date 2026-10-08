@@ -1073,12 +1073,69 @@ export async function listSalesOrderItems (auth: AuthCtx, orderId: string) {
   return { ok: true as const, items: data ?? [] }
 }
 
+type SalesOrderItemSnapshotRow = {
+  organization_id: string
+  sales_order_id: string
+  product_id: string
+  quantity: number
+  unit_price_cents: number
+  unit_cost_cents: number
+  discount_cents: number
+  subtotal_cents: number
+}
+
+type SalesOrderPaymentSnapshotRow = {
+  organization_id: string
+  sales_order_id: string
+  payment_method_id: string | null
+  payment_method_type: string
+  amount_cents: number
+  status: string
+  metadata: Record<string, unknown> | null
+}
+
+/**
+ * Delete-then-insert sem restore deixava o pedido sem itens/pagamentos se o
+ * insert falhasse (ex.: edição de rascunho ou só pagamentos em pedido pago).
+ */
+async function restoreSalesOrderChildRows<T extends object> (
+  auth: AuthCtx,
+  table: 'sales_order_items' | 'sales_order_payments',
+  snapshot: T[],
+  label: string,
+) {
+  if (snapshot.length === 0) return
+  const { error } = await auth.supabase.from(table).insert(snapshot)
+  if (error) {
+    console.error(`[${label}] restore after insert failure`, error)
+  }
+}
+
 export async function replaceSalesOrderItems (auth: AuthCtx, orderId: string, items: SalesOrderItemInput[]) {
   const ownership = await assertProductsBelongToOrganization(
     auth,
     items.map((item) => item.product_id),
   )
   if (!ownership.ok) return ownership
+
+  const { data: previousData, error: snapError } = await auth.supabase
+    .from('sales_order_items')
+    .select('product_id, quantity, unit_price_cents, unit_cost_cents, discount_cents, subtotal_cents')
+    .eq('organization_id', auth.organizationId)
+    .eq('sales_order_id', orderId)
+
+  if (snapError) return { ok: false as const, error: 'db_error' as const }
+
+  const previousRows: SalesOrderItemSnapshotRow[] = (previousData ?? []).map((row) => ({
+    organization_id: auth.organizationId,
+    sales_order_id: orderId,
+    product_id: String(row.product_id),
+    quantity: toInt(row.quantity, 1),
+    unit_price_cents: toInt(row.unit_price_cents, 0),
+    unit_cost_cents: toInt(row.unit_cost_cents ?? 0, 0),
+    discount_cents: toInt(row.discount_cents ?? 0, 0),
+    subtotal_cents: toInt(row.subtotal_cents, 0),
+  }))
 
   const { error: delError } = await auth.supabase
     .from('sales_order_items')
@@ -1100,13 +1157,41 @@ export async function replaceSalesOrderItems (auth: AuthCtx, orderId: string, it
       subtotal_cents: calcItemSubtotal(item),
     }))
     const { error: insError } = await auth.supabase.from('sales_order_items').insert(rows)
-    if (insError) return { ok: false as const, error: 'db_error' as const }
+    if (insError) {
+      await restoreSalesOrderChildRows(
+        auth,
+        'sales_order_items',
+        previousRows,
+        'replaceSalesOrderItems',
+      )
+      return { ok: false as const, error: 'db_error' as const }
+    }
   }
 
   return { ok: true as const }
 }
 
 export async function replaceSalesOrderPayments (auth: AuthCtx, orderId: string, payments: SalesOrderPaymentInput[]) {
+  const { data: previousData, error: snapError } = await auth.supabase
+    .from('sales_order_payments')
+    .select('payment_method_id, payment_method_type, amount_cents, status, metadata')
+    .eq('organization_id', auth.organizationId)
+    .eq('sales_order_id', orderId)
+
+  if (snapError) return { ok: false as const, error: 'db_error' as const }
+
+  const previousRows: SalesOrderPaymentSnapshotRow[] = (previousData ?? []).map((row) => ({
+    organization_id: auth.organizationId,
+    sales_order_id: orderId,
+    payment_method_id: row.payment_method_id == null ? null : String(row.payment_method_id),
+    payment_method_type: String(row.payment_method_type),
+    amount_cents: toInt(row.amount_cents, 1),
+    status: String(row.status || 'paid'),
+    metadata: row.metadata && typeof row.metadata === 'object'
+      ? (row.metadata as Record<string, unknown>)
+      : null,
+  }))
+
   const { error: delError } = await auth.supabase
     .from('sales_order_payments')
     .delete()
@@ -1135,7 +1220,15 @@ export async function replaceSalesOrderPayments (auth: AuthCtx, orderId: string,
       }
     })
     const { error: insError } = await auth.supabase.from('sales_order_payments').insert(rows)
-    if (insError) return { ok: false as const, error: 'db_error' as const }
+    if (insError) {
+      await restoreSalesOrderChildRows(
+        auth,
+        'sales_order_payments',
+        previousRows,
+        'replaceSalesOrderPayments',
+      )
+      return { ok: false as const, error: 'db_error' as const }
+    }
   }
 
   return { ok: true as const }
