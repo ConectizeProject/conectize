@@ -13,6 +13,7 @@ const ST_CFOP = new Set([
   '5403',
   '5405',
   '6404',
+  '6405',
   '5408',
   '5409',
   '5410',
@@ -86,7 +87,8 @@ export function cfopForDestination (cfop: string, emitUf: string, destUf: string
 /**
  * Venda de mercadoria: o cadastro diz se o produto tem ST (CEST preenchido).
  * Mesmo estado: 5102 + CSOSN 102, ou 5405 + CSOSN 500.
- * Outro estado: 6102, ou 6404 (par interestadual do 5405).
+ * Outro estado: 6102, ou 6405 (par interestadual do 5405, contribuinte substituído).
+ * Não usar 6404 aqui: 6404 é de contribuinte substituto, incompatível com CSOSN 500.
  */
 export function resolveSaleItemTaxes (input: {
   hasSubstitution: boolean
@@ -98,7 +100,7 @@ export function resolveSaleItemTaxes (input: {
   const interstate = Boolean(dest) && dest !== emit
   if (input.hasSubstitution) {
     return {
-      cfop: interstate ? '6404' : '5405',
+      cfop: interstate ? '6405' : '5405',
       csosn: '500',
       operationIsSt: true,
     }
