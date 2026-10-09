@@ -1388,7 +1388,7 @@ export function ProductForm ({
       {kind === 'product' ? (
         <FormSection
           title="Fiscal"
-          description="Na emissão, o sistema lê o cliente e este cadastro. Com CEST, a nota usa CFOP 5405 e CSOSN 500 no mesmo estado, ou 6404 fora do estado. Sem CEST, usa CFOP 5102 e CSOSN 102, ou 6102 fora do estado. Itens sem NCM são bloqueados."
+          description="Na emissão, o sistema lê o cliente e este cadastro. Com CEST, a nota usa CFOP 5405 e CSOSN 500 no mesmo estado, ou 6405 fora do estado. Sem CEST, usa CFOP 5102 e CSOSN 102, ou 6102 fora do estado. Itens sem NCM são bloqueados."
         >
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <div className="space-y-2 sm:col-span-2 lg:col-span-2">

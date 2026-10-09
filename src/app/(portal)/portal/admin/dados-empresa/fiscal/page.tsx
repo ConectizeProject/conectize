@@ -590,7 +590,7 @@ export default async function FiscalSettingsPage ({
               <div>
                 <h4 className='text-sm font-medium'>Regras de tributação</h4>
                 <p className='mt-1 text-xs text-muted-foreground'>
-                  CFOP e CSOSN saem do produto e do estado do cliente. Sem CEST: 5102 e CSOSN 102, ou 6102 fora do estado. Com CEST: 5405 e CSOSN 500, ou 6404 fora do estado.
+                  CFOP e CSOSN saem do produto e do estado do cliente. Sem CEST: 5102 e CSOSN 102, ou 6102 fora do estado. Com CEST: 5405 e CSOSN 500, ou 6405 fora do estado.
                 </p>
               </div>
 
