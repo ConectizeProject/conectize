@@ -1,4 +1,5 @@
 import type { Service, Brand, DeviceType, Model } from '@/lib/types/seo'
+import { serviceWarranty, warrantyAfterLead } from '@/lib/data/site-facts'
 import { batteryClickDescription, serviceClickDescription } from '@/lib/utils/click-description'
 
 type FaqItem = { q: string; a: string }
@@ -207,7 +208,7 @@ function getFaq(service: Service, brand: Brand, deviceType: DeviceType, model?: 
                 },
                 {
                     q: 'Qual é o prazo e a garantia?',
-                    a: 'Em geral até 24–48h úteis, variando por disponibilidade e complexidade. Garantia de 6 meses para o serviço e peça instalada.'
+                    a: warrantyAfterLead('Em geral até 24–48h úteis, variando por disponibilidade e complexidade.')
                 }
             ]
         }
@@ -228,7 +229,7 @@ function getFaq(service: Service, brand: Brand, deviceType: DeviceType, model?: 
                 },
                 {
                     q: 'Qual é o prazo e a garantia?',
-                    a: 'Em geral até 24–48h úteis, variando por complexidade. Garantia de 6 meses para o serviço e peça instalada.'
+                    a: warrantyAfterLead('Em geral até 24–48h úteis, variando por complexidade.')
                 }
             ]
         }
@@ -249,7 +250,7 @@ function getFaq(service: Service, brand: Brand, deviceType: DeviceType, model?: 
                 },
                 {
                     q: 'Qual é o prazo e a garantia?',
-                    a: 'Em geral até 24–48h úteis. Garantia de 6 meses para o serviço e peça instalada.'
+                    a: warrantyAfterLead('Em geral até 24–48h úteis.')
                 }
             ]
         }
@@ -271,7 +272,7 @@ function getFaq(service: Service, brand: Brand, deviceType: DeviceType, model?: 
             },
             {
                 q: 'Qual é o prazo e a garantia?',
-                a: 'Em geral até 24–48h úteis, variando por modelo. Garantia de 6 meses para o serviço.'
+                a: warrantyAfterLead('Em geral até 24–48h úteis, variando por modelo.')
             }
         ]
     }
@@ -292,7 +293,7 @@ function getFaq(service: Service, brand: Brand, deviceType: DeviceType, model?: 
             },
             {
                 q: 'Qual é o prazo e a garantia?',
-                a: 'Em geral até 24-48h úteis, variando por modelo e disponibilidade da tampa. Garantia de 6 meses para o serviço e peça instalada.'
+                a: warrantyAfterLead('Em geral até 24-48h úteis, variando por modelo e disponibilidade da tampa.')
             }
         ]
     }
@@ -313,7 +314,7 @@ function getFaq(service: Service, brand: Brand, deviceType: DeviceType, model?: 
             },
             {
                 q: 'Qual é o prazo e a garantia?',
-                a: 'Em geral até 24h úteis. Garantia de 12 meses para o serviço e a peça instalada.'
+                a: warrantyAfterLead('Em geral até 24h úteis.')
             }
         ]
     }
@@ -334,7 +335,7 @@ function getFaq(service: Service, brand: Brand, deviceType: DeviceType, model?: 
             },
             {
                 q: 'Qual é o prazo e a garantia?',
-                a: 'Em geral até 24h úteis. Garantia de 6 meses para o serviço.'
+                a: warrantyAfterLead('Em geral até 24h úteis.')
             }
         ]
     }
@@ -355,7 +356,7 @@ function getFaq(service: Service, brand: Brand, deviceType: DeviceType, model?: 
             },
             {
                 q: 'A garantia vale para qualquer caso?',
-                a: 'A garantia depende do tipo de reparo e do estado geral da placa. Explicamos claramente o que foi corrigido e o que fica fora de cobertura.'
+                a: `${serviceWarranty.serviceAndPart} Ela cobre o reparo realizado. Mau uso, nova queda ou líquido depois do serviço ficam fora da cobertura.`
             }
         ]
     }
@@ -406,7 +407,7 @@ function getFaq(service: Service, brand: Brand, deviceType: DeviceType, model?: 
             },
             {
                 q: 'Qual é o prazo e a garantia?',
-                a: 'Em geral até 24–48h úteis. Garantia de 6 meses quando há troca de componente.'
+                a: warrantyAfterLead('Em geral até 24–48h úteis.')
             }
         ]
     }
@@ -440,7 +441,7 @@ function getFaq(service: Service, brand: Brand, deviceType: DeviceType, model?: 
         },
         {
             q: 'Vocês oferecem garantia?',
-            a: 'Sim. Em geral a garantia é de 6 meses, variando conforme o tipo de serviço e peça instalada.'
+            a: serviceWarranty.faqAnswer
         }
     ]
 }
@@ -1061,7 +1062,7 @@ function getIntro(service: Service, brand: Brand, deviceType: DeviceType, model?
 
         return normalizeSpaces(
             `Trocamos a bateria do iPhone em ${city}. ` +
-            `Se a autonomia caiu, o aparelho desliga sozinho ou esquenta na carga, avaliamos o seu modelo e passamos o orçamento, com garantia de 12 meses na peça instalada.`
+            `Se a autonomia caiu, o aparelho desliga sozinho ou esquenta na carga, avaliamos o seu modelo e passamos o orçamento, com ${serviceWarranty.phrase}.`
         )
     }
 
@@ -1144,6 +1145,17 @@ function buildDescription(service: Service, brand: Brand, deviceType: DeviceType
     return serviceClickDescription(descriptionPhrase(service), device)
 }
 
+function ensureWarrantyMention (items: FaqItem[]): FaqItem[] {
+    if (items.some((item) => item.a.includes(serviceWarranty.duration))) return items
+    return [
+        ...items,
+        {
+            q: 'Vocês oferecem garantia?',
+            a: serviceWarranty.faqAnswer,
+        },
+    ]
+}
+
 export function generateProgrammaticContent(input: Input): ProgrammaticContent {
     const { service, brand, deviceType, model } = input
     const deviceLabel = getDeviceLabel(brand, deviceType, model)
@@ -1163,7 +1175,7 @@ export function generateProgrammaticContent(input: Input): ProgrammaticContent {
             technical: getTechnicalSection(service, brand, deviceType, model),
             problems: getServiceProblems(service, brand, deviceType),
             process: getServiceProcess(service, brand, deviceType, model),
-            faq: getFaq(service, brand, deviceType, model)
+            faq: ensureWarrantyMention(getFaq(service, brand, deviceType, model))
         }
     }
 }

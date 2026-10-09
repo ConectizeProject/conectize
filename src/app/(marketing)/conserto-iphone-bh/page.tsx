@@ -9,6 +9,7 @@ import {
 	getFaqPageJsonLd,
 	getServiceJsonLd,
 } from '@/lib/data/business'
+import { serviceWarranty } from '@/lib/data/site-facts'
 import {
 	ASSISTENCIA_IPHONE_PATH,
 	CONSERTO_IPHONE_PATH,
@@ -125,6 +126,10 @@ const faq = [
 	{
 		q: 'Qual a diferença desta página para a de assistência técnica?',
 		a: 'Aqui o foco é problema → solução. A página de assistência cobre o panorama da oficina e o posicionamento independente.',
+	},
+	{
+		q: 'Os serviços têm garantia?',
+		a: serviceWarranty.faqAnswer,
 	},
 	{
 		q: 'Atendem XR e modelos novos?',

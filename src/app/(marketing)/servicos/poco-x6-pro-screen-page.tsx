@@ -9,6 +9,7 @@ import {
 	getFaqPageJsonLd,
 	getServiceJsonLd,
 } from '@/lib/data/business'
+import { serviceWarranty } from '@/lib/data/site-facts'
 import { getServiceBySlug } from '@/lib/data/services'
 import { buildServiceProductSlug } from '@/lib/utils/service-product-slug'
 import { getSiteUrl } from '@/lib/utils/site-url'
@@ -106,7 +107,7 @@ export const pocoX6ProScreenFaq = [
 	},
 	{
 		q: 'O serviço possui garantia?',
-		a: 'Sim. A garantia é de 6 meses e cobre defeito de fabricação da peça e problema relacionado à instalação.',
+		a: serviceWarranty.faqAnswer,
 	},
 	{
 		q: 'O reparo preserva os dados do aparelho?',
@@ -341,8 +342,7 @@ export function PocoX6ProScreenPage() {
 									O serviço possui garantia?
 								</h2>
 								<p className="text-muted-foreground">
-									Sim. A garantia é de 6 meses e cobre defeito de fabricação da
-									peça e problema relacionado à instalação.
+									{serviceWarranty.coverageSentence}
 								</p>
 							</section>
 

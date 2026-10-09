@@ -1,4 +1,5 @@
 import { business, buildWhatsAppUrl, getFaqPageJsonLd, type FaqItem } from '@/lib/data/business'
+import { serviceWarranty } from '@/lib/data/site-facts'
 
 const localFaqItems: FaqItem[] = [
   {
@@ -19,7 +20,7 @@ const localFaqItems: FaqItem[] = [
   },
   {
     q: 'Os serviços têm garantia?',
-    a: 'Sim. Os serviços realizados pela Conectize têm garantia de 6 meses, conforme o tipo de reparo e peça instalada.'
+    a: serviceWarranty.faqAnswer
   },
   {
     q: 'Como pedir orçamento?',

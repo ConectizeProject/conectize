@@ -1,4 +1,5 @@
 import { services } from './services'
+import { googleAggregateRatingJsonLd, serviceWarranty } from '@/lib/data/site-facts'
 import { getSiteUrl } from '@/lib/utils/site-url'
 
 export type FaqItem = {
@@ -11,7 +12,7 @@ export const business = {
   name: 'Conectize',
   legalName: 'Conectize',
   label: 'Conectize - Assistência Técnica de Celular e Apple',
-  description: 'Assistência técnica especializada em conserto de celulares e produtos Apple em Belo Horizonte, com coleta em domicílio, garantia e atendimento por WhatsApp.',
+  description: `Assistência técnica especializada em conserto de celulares e produtos Apple em Belo Horizonte, com coleta em domicílio, ${serviceWarranty.phrase} e atendimento por WhatsApp.`,
   phone: '+5531986140889',
   phoneDisplay: '(31) 9 8614-0889',
   whatsappUrl: 'https://wa.me/5531986140889',
@@ -140,6 +141,7 @@ export function getLocalBusinessJsonLd() {
       contactType: 'customer service',
       availableLanguage: 'Portuguese'
     },
+    aggregateRating: googleAggregateRatingJsonLd(),
     areaServed: [
       {
         '@type': 'City',

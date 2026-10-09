@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
-import { buildWhatsAppUrl } from '@/lib/data/business'
+import { buildWhatsAppUrl, business } from '@/lib/data/business'
+import { googleReviews, serviceWarranty } from '@/lib/data/site-facts'
 import { Smartphone, Shield, Clock, ArrowRight } from 'lucide-react'
 
 const Hero = () => {
@@ -69,8 +70,16 @@ const Hero = () => {
               </div>
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Shield className="w-5 h-5 text-primary-accessible" />
-                <span className="text-sm font-medium">Garantia em Todos Serviços</span>
+                <span className="text-sm font-medium">Garantia de {serviceWarranty.duration}</span>
               </div>
+              <a
+                href={business.hasMap}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm font-semibold text-foreground hover:underline"
+              >
+                {googleReviews.homeLine}
+              </a>
             </div>
           </div>
 

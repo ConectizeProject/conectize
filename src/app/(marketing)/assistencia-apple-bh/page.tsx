@@ -9,6 +9,7 @@ import {
 	getFaqPageJsonLd,
 	getServiceJsonLd,
 } from '@/lib/data/business'
+import { serviceWarranty } from '@/lib/data/site-facts'
 import {
 	ASSISTENCIA_IPHONE_PATH,
 	CONSERTO_IPHONE_PATH,
@@ -60,8 +61,7 @@ const faq = [
 	},
 	{
 		q: 'Tem garantia?',
-		a: 'Sim. A cobertura acompanha o tipo de reparo e é informada antes de você autorizar.',
-		// TODO: detalhar meses por serviço (ex.: bateria 12 meses)
+		a: serviceWarranty.faqAnswer,
 	},
 	{
 		q: 'Qual a diferença entre autorizada e independente?',
@@ -244,10 +244,8 @@ export default function AssistenciaAppleBhPage () {
 									peça pelo WhatsApp.
 								</p>
 								<p className="text-muted-foreground leading-relaxed">
-									Garantia cobre defeito de fabricação da peça e problemas da
-									instalação, no prazo do serviço contratado.
+									{serviceWarranty.coverageSentence}
 								</p>
-								{/* TODO: listar meses de garantia por tipo de reparo */}
 								{/* TODO_PRECO_A_PARTIR_DE por serviço */}
 							</section>
 

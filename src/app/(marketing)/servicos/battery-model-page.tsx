@@ -9,6 +9,7 @@ import {
 	getFaqPageJsonLd,
 	getServiceJsonLd,
 } from '@/lib/data/business'
+import { serviceWarranty } from '@/lib/data/site-facts'
 import {
 	getBrandBySlug,
 	getModelBySlugAnyType,
@@ -117,7 +118,7 @@ function faqFor(name: string): BatteryModelFaq[] {
 		},
 		{
 			q: 'A bateria possui garantia?',
-			a: 'Sim. A troca de bateria tem garantia de 12 meses, para defeito de fabricação da peça e problema relacionado à instalação.',
+			a: serviceWarranty.faqAnswer,
 		},
 		{
 			q: `Onde trocar a bateria do ${name} em Belo Horizonte?`,
@@ -379,8 +380,7 @@ export function BatteryModelPage({
 									A troca da bateria possui garantia?
 								</h2>
 								<p className="text-muted-foreground">
-									Sim. A garantia é de 12 meses e cobre defeito de fabricação da
-									peça e problema relacionado à instalação.
+									{serviceWarranty.coverageSentence}
 								</p>
 							</section>
 
