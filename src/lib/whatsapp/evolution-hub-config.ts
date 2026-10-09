@@ -24,6 +24,10 @@ export type EvolutionHubRow = {
   organization_id: string
 }
 
+export function normalizeEvolutionInstanceName (raw: string): string {
+  return raw.trim().toLowerCase()
+}
+
 function rowToEvolutionHub (r: {
   id: string
   access_token: string | null
@@ -35,6 +39,46 @@ function rowToEvolutionHub (r: {
     access_token: r.access_token,
     metadata: (r.metadata as WhatsappEvolutionHubMetadata) || {},
     organization_id: String(r.organization_id),
+  }
+}
+
+export type EvolutionHubInstanceMatch =
+  | { ok: true, hub: EvolutionHubRow }
+  | { ok: false, reason: 'not_found' | 'collision' }
+
+/** Escolhe o hub pelo nome da instância. Colisão global falha fechado. */
+export function pickEvolutionHubByInstanceName (
+  rows: Array<{
+    id: string
+    access_token: string | null
+    metadata: unknown
+    organization_id: string | null
+  }>,
+  instanceName: string,
+): EvolutionHubInstanceMatch {
+  const name = normalizeEvolutionInstanceName(instanceName)
+  if (!name) return { ok: false, reason: 'not_found' }
+
+  const matches = rows.filter((r) => {
+    if (!r.organization_id) return false
+    const meta = (r.metadata as WhatsappEvolutionHubMetadata) || {}
+    return normalizeEvolutionInstanceName(String(meta.instance_name || '')) === name
+  })
+
+  if (matches.length === 0) return { ok: false, reason: 'not_found' }
+  if (matches.length > 1) return { ok: false, reason: 'collision' }
+
+  const row = matches[0]
+  if (!row?.organization_id) return { ok: false, reason: 'not_found' }
+
+  return {
+    ok: true,
+    hub: rowToEvolutionHub({
+      id: row.id,
+      access_token: row.access_token,
+      metadata: row.metadata,
+      organization_id: row.organization_id,
+    }),
   }
 }
 
@@ -58,20 +102,20 @@ export async function findEvolutionHubByInstance (
   supabase: SupabaseClient,
   instanceName: string,
 ): Promise<EvolutionHubRow | null> {
-  const name = instanceName.trim().toLowerCase()
+  const name = normalizeEvolutionInstanceName(instanceName)
   if (!name) return null
   const { data: rows } = await supabase
     .from('hub_connections')
     .select('id, access_token, metadata, organization_id')
     .eq('platform_id', WHATSAPP_EVOLUTION_PLATFORM_ID)
-  const list = rows || []
-  for (const r of list) {
-    const meta = (r.metadata as WhatsappEvolutionHubMetadata) || {}
-    if (String(meta.instance_name || '').trim().toLowerCase() !== name) continue
-    if (!r.organization_id) continue
-    return rowToEvolutionHub(r as Parameters<typeof rowToEvolutionHub>[0])
+  const picked = pickEvolutionHubByInstanceName(rows || [], name)
+  if (picked.ok === false) {
+    if (picked.reason === 'collision') {
+      console.error('[whatsapp-evolution] instance_name collision', name)
+    }
+    return null
   }
-  return null
+  return picked.hub
 }
 
 export async function findEvolutionHubByConnectionId (
