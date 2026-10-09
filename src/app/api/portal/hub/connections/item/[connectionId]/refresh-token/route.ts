@@ -5,6 +5,7 @@ import {
   blingRefreshTokenErrorCode,
   blingRefreshTokenErrorToMessage,
 } from '@/lib/integrations/bling/refresh-token-errors'
+import { resolveHubSecretsReader } from '@/lib/supabase/hub-secrets'
 
 export async function POST (
   _request: Request,
@@ -34,7 +35,8 @@ export async function POST (
     )
   }
 
-  const { data: row, error } = await auth.supabase
+  const secrets = resolveHubSecretsReader(auth.supabase)
+  const { data: row, error } = await secrets
     .from('hub_connections')
     .select(BLING_HUB_CONNECTION_SELECT)
     .eq('id', connectionId)
@@ -54,7 +56,7 @@ export async function POST (
   }
 
   const result = await forceRefreshBlingToken(row as HubConnection, {
-    supabase: auth.supabase,
+    supabase: secrets,
   })
 
   if (result.ok === false) {

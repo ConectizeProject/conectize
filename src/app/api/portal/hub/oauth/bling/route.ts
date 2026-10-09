@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { requireAdmin } from '@/lib/auth/portal-api'
-import { BLING_API_V3_BASE_URL } from '@/lib/integrations/bling/constants'
 import { resolveBlingAppCredentials } from '@/lib/integrations/bling/app-credentials'
+import { BLING_API_V3_BASE_URL } from '@/lib/integrations/bling/constants'
 import { blingOAuthRedirectUri, blingRequestOrigin } from '@/lib/integrations/bling/oauth-redirect'
+import { resolveHubSecretsReader } from '@/lib/supabase/hub-secrets'
 
 const BLING_AUTHORIZE_URL = `${BLING_API_V3_BASE_URL}/oauth/authorize`
 const PLATFORM_ID = 'bling'
@@ -19,7 +20,7 @@ export async function GET (request: NextRequest) {
   }
 
   const requestedId = request.nextUrl.searchParams.get('connectionId')?.trim() || ''
-  let connectionQuery = auth.supabase
+  let connectionQuery = resolveHubSecretsReader(auth.supabase)
     .from('hub_connections')
     .select('id, metadata, api_key')
     .eq('platform_id', PLATFORM_ID)

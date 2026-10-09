@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { resolveHubSecretsReader } from '@/lib/supabase/hub-secrets'
 
 export const WHATSAPP_EVOLUTION_PLATFORM_ID = 'whatsapp_evolution'
 
@@ -42,11 +43,13 @@ export async function listEvolutionHubsForOrganization (
   supabase: SupabaseClient,
   organizationId: string,
 ): Promise<EvolutionHubRow[]> {
-  const { data: rows } = await supabase
+  const orgId = String(organizationId || '').trim()
+  if (!orgId) return []
+  const { data: rows } = await resolveHubSecretsReader(supabase)
     .from('hub_connections')
     .select('id, access_token, metadata, organization_id')
     .eq('platform_id', WHATSAPP_EVOLUTION_PLATFORM_ID)
-    .eq('organization_id', organizationId)
+    .eq('organization_id', orgId)
     .order('created_at', { ascending: true })
 
   return (rows || [])
@@ -57,13 +60,18 @@ export async function listEvolutionHubsForOrganization (
 export async function findEvolutionHubByInstance (
   supabase: SupabaseClient,
   instanceName: string,
+  organizationId?: string,
 ): Promise<EvolutionHubRow | null> {
   const name = instanceName.trim().toLowerCase()
   if (!name) return null
-  const { data: rows } = await supabase
+  const orgId = String(organizationId || '').trim()
+  const db = orgId ? resolveHubSecretsReader(supabase) : supabase
+  let query = db
     .from('hub_connections')
     .select('id, access_token, metadata, organization_id')
     .eq('platform_id', WHATSAPP_EVOLUTION_PLATFORM_ID)
+  if (orgId) query = query.eq('organization_id', orgId)
+  const { data: rows } = await query
   const list = rows || []
   for (const r of list) {
     const meta = (r.metadata as WhatsappEvolutionHubMetadata) || {}
@@ -79,12 +87,14 @@ export async function findEvolutionHubByConnectionId (
   connectionId: string,
   organizationId?: string,
 ): Promise<EvolutionHubRow | null> {
-  let q = supabase
+  const orgId = String(organizationId || '').trim()
+  const db = orgId ? resolveHubSecretsReader(supabase) : supabase
+  let q = db
     .from('hub_connections')
     .select('id, access_token, metadata, organization_id')
     .eq('platform_id', WHATSAPP_EVOLUTION_PLATFORM_ID)
     .eq('id', connectionId)
-  if (organizationId) q = q.eq('organization_id', organizationId)
+  if (orgId) q = q.eq('organization_id', orgId)
   const { data: r } = await q.maybeSingle()
   if (!r?.organization_id) return null
   return rowToEvolutionHub(r as Parameters<typeof rowToEvolutionHub>[0])

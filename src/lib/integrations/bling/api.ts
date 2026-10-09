@@ -1,4 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { getPortalOrganizationId } from '@/lib/organizations/portal-organization-context'
+import { resolveHubSecretsReader } from '@/lib/supabase/hub-secrets'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import {
   BLING_TOO_MANY_REQUESTS,
@@ -218,10 +220,16 @@ export async function getBlingConnectionForCurrentUser (): Promise<BlingConnecti
     return { ok: false as const, error: 'not_authenticated' as const }
   }
 
-  const { data, error } = await supabase
+  const organizationId = await getPortalOrganizationId(supabase, userId)
+  if (!organizationId) {
+    return { ok: false as const, error: 'bling_not_connected' as const }
+  }
+
+  const { data, error } = await resolveHubSecretsReader(supabase)
     .from('hub_connections')
     .select(BLING_HUB_CONNECTION_SELECT)
     .eq('platform_id', BLING_PLATFORM_ID)
+    .eq('organization_id', organizationId)
     .order('updated_at', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -250,11 +258,22 @@ export async function hasBlingHubConnection (
 
 export async function getBlingConnectionById (id: string): Promise<BlingConnectionByIdResult> {
   const supabase = await createSupabaseServerClient()
-  const { data, error } = await supabase
+  const { data: authClaims } = await supabase.auth.getUser()
+  const userId = authClaims.user?.id
+  if (!userId) {
+    return { ok: false as const, error: 'bling_connection_not_found' as const }
+  }
+  const organizationId = await getPortalOrganizationId(supabase, userId)
+  if (!organizationId) {
+    return { ok: false as const, error: 'bling_connection_not_found' as const }
+  }
+
+  const { data, error } = await resolveHubSecretsReader(supabase)
     .from('hub_connections')
     .select(BLING_HUB_CONNECTION_SELECT)
     .eq('platform_id', BLING_PLATFORM_ID)
     .eq('id', id)
+    .eq('organization_id', organizationId)
     .maybeSingle()
 
   if (error || !data) {
@@ -360,7 +379,9 @@ export async function performBlingTokenRefresh (
     return { ok: false, error: 'no_refresh_token' }
   }
 
-  const supabase = options?.supabase ?? await createSupabaseServerClient()
+  const supabase = resolveHubSecretsReader(
+    options?.supabase ?? await createSupabaseServerClient(),
+  )
   const firstAttempt = await requestBlingTokenRefresh(connection, connection.refresh_token)
 
   let sourceConnection = connection

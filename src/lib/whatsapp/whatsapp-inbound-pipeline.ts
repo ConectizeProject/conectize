@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { resolveHubSecretsReader } from '@/lib/supabase/hub-secrets'
 import { runWhatsappAiReply } from '@/lib/whatsapp/whatsapp-ai-orchestrator'
 import type { SendTextMessageResult } from '@/lib/whatsapp/whatsapp-cloud-client'
 import { normalizeWaConversationKey } from '@/lib/whatsapp/wa-conversation-key'
@@ -15,7 +16,7 @@ export async function getChatgptForWhatsapp(
 ): Promise<{ apiKey: string; model: string } | null> {
 	const orgId = String(organizationId || '').trim()
 	if (orgId) {
-		const { data } = await supabase
+		const { data } = await resolveHubSecretsReader(supabase)
 			.from('hub_connections')
 			.select('api_key, metadata')
 			.eq('platform_id', 'chatgpt')

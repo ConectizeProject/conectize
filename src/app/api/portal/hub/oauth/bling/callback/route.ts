@@ -7,6 +7,7 @@ import {
   truncateBlingHubQueryDetail,
 } from '@/lib/integrations/bling/hub-oauth-query'
 import { requireAdmin } from '@/lib/auth/portal-api'
+import { resolveHubSecretsReader } from '@/lib/supabase/hub-secrets'
 import {
   fetchBlingCompanyProfile,
   mergeBlingCompanyProfileMetadata,
@@ -29,7 +30,7 @@ export async function GET(request: NextRequest) {
     }
     return NextResponse.redirect(new URL('/portal/minhas-ordens', getAppBaseUrl(request)))
   }
-  const supabase = auth.supabase
+  const supabase = resolveHubSecretsReader(auth.supabase)
 
   const searchParams = request.nextUrl.searchParams
   const code = searchParams.get('code')
@@ -192,7 +193,8 @@ export async function GET(request: NextRequest) {
     ? (await supabase
       .from('hub_connections')
       .update(connectionPayload)
-      .eq('id', existing.id)).error
+      .eq('id', existing.id)
+      .eq('organization_id', auth.organizationId)).error
     : (await supabase
       .from('hub_connections')
       .insert({
