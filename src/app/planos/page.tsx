@@ -37,7 +37,7 @@ import {
 import { Separator } from '@/components/ui/separator'
 import { publicPageSeo } from '@/lib/utils/site-url'
 
-const title = 'Planos — Conectize'
+const title = 'Planos do sistema para assistência técnica | Conectize'
 const description = 'Sistema completo para assistências técnicas: ordens de serviço, clientes, estoque, revenda, financeiro, WhatsApp e integrações. Tudo isolado por empresa.'
 
 export const metadata = {

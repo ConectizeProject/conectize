@@ -1,9 +1,12 @@
+import { closestCanonicalServicePath } from '@/lib/utils/canonical-service-path'
 import { normalizeHostname } from '@/lib/utils/canonical-host'
 import { resolveLegacyServiceDestination } from '@/lib/utils/legacy-service-redirect'
 import { SERVICES_HUB_PATH } from '@/lib/utils/services-hub'
 import { APEX_HOST } from '@/lib/utils/site-url'
 
 const JUNK_QUERY = /^(attributes?|attribute_id|variation|quantity)$/i
+const STORE_ACCESSORIES_PATH = '/loja/acessorios'
+const CATALOG_FILTER_KEYS = ['servico', 'marca', 'dispositivo', 'modelo', 'page'] as const
 
 export type CrawlRedirect = {
   pathname: string
@@ -46,6 +49,32 @@ function serviceDestination (pathname: string): string | null {
   return resolveLegacyServiceDestination(segments)
 }
 
+function isStorefrontPath (pathname: string): boolean {
+  if (pathname.startsWith('/portal')) return false
+  if (pathname.startsWith('/api')) return false
+  if (pathname.startsWith('/os')) return false
+  if (pathname.startsWith('/orcamento')) return false
+  if (pathname.startsWith('/cadastro')) return false
+  return true
+}
+
+function catalogFilterDestination (pathname: string, params: URLSearchParams): string | null {
+  if (!isStorefrontPath(pathname)) return null
+  const hasFilter = CATALOG_FILTER_KEYS.some((key) => params.has(key))
+  if (!hasFilter) return null
+
+  if (pathname === SERVICES_HUB_PATH || pathname === '/servicos') {
+    return closestCanonicalServicePath({
+      serviceSlug: params.get('servico') || undefined,
+      brandSlug: params.get('marca') || undefined,
+      deviceSlug: params.get('dispositivo') || undefined,
+      modelSlug: params.get('modelo') || undefined,
+    })
+  }
+
+  return pathname
+}
+
 /**
  * Um único destino para URLs antigas, barra final, lixo de query do Mercado Livre
  * e host apex. Null quando a requisição já está na URL final.
@@ -63,8 +92,13 @@ export function resolvePublicCrawlRedirect (input: {
     return { pathname: '/', search: '' }
   }
 
-  if (isMercadoLivreCrawlPath(normalized)) {
-    return { pathname: '/acessorios', search: '' }
+  if (isMercadoLivreCrawlPath(normalized) || normalized === '/acessorios') {
+    return { pathname: STORE_ACCESSORIES_PATH, search: '' }
+  }
+
+  const filtered = catalogFilterDestination(normalized, input.searchParams)
+  if (filtered) {
+    return { pathname: filtered, search: '' }
   }
 
   const legacy = serviceDestination(normalized)

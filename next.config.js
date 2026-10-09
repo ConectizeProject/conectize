@@ -51,6 +51,8 @@ const nextConfig = {
 		],
 	},
 	images: {
+		// O src de fallback do next/image é o maior deviceSize. Sem este teto, o hero da loja saía em w=3840.
+		deviceSizes: [640, 750, 828, 1080, 1200, 1920],
 		formats: ['image/avif', 'image/webp'],
 		remotePatterns: [
 			{

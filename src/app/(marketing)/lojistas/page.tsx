@@ -3,8 +3,8 @@ import { Building2, Wrench, Smartphone, TrendingUp, Users, Award } from 'lucide-
 import { Button } from '@/components/ui/button'
 import { publicPageSeo } from '@/lib/utils/site-url'
 
-const title = 'Atendimento para Lojistas - Condições Especiais | Conectize'
-const description = 'Condições diferenciadas para lojistas: manutenção de aparelhos, venda de celulares seminovos e suporte técnico especializado. Parcerias e descontos para revendedores.'
+const title = 'Peças e conserto para lojistas em BH | Conectize'
+const description = 'Condições para lojistas em Belo Horizonte: manutenção de aparelhos, seminovos para revenda e suporte técnico. Peça a proposta da Conectize pelo WhatsApp.'
 
 export const metadata: Metadata = {
   title,
@@ -45,11 +45,11 @@ export default function LojistasPage () {
             Para Lojistas
           </span>
           <h1 className="text-4xl md:text-5xl font-bold text-foreground mb-6">
-            Condições <span className="text-gradient">Diferenciadas</span>
+            Peças e assistência para <span className="text-gradient">lojistas em BH</span>
           </h1>
           <p className="text-lg text-muted-foreground">
-            Oferecemos condições especiais para lojistas e revendedores. Manutenção profissional,
-            venda de aparelhos seminovos e suporte técnico especializado para o seu negócio.
+            Página para lojistas e revendedores em Belo Horizonte. Manutenção com prioridade,
+            seminovos para revenda e suporte técnico. O atendimento ao consumidor final continua na assistência e na loja.
           </p>
         </div>
 

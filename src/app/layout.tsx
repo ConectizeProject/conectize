@@ -4,6 +4,7 @@ import Script from 'next/script'
 import { WhatsAppClickTracker } from '@/components/analytics/WhatsAppClickTracker'
 import { GoogleAnalyticsSafe } from '@/components/GoogleAnalyticsSafe'
 import { business } from '@/lib/data/business'
+import { socialImage } from '@/lib/utils/site-url'
 import { THEME_BOOT_SCRIPT } from '@/lib/theme-boot-script'
 import './globals.css'
 
@@ -14,11 +15,14 @@ const outfit = Outfit({
 	variable: '--font-outfit',
 })
 
+const homeTitle = 'Conserto de iPhone e celular em BH | Conectize'
+const homeDescription =
+	'Conserto de iPhone, iPad e celular em BH, com garantia e coleta em domicílio. Troca de tela, bateria e placa. Orçamento rápido pelo WhatsApp.'
+
 export const metadata: Metadata = {
 	metadataBase: new URL(business.siteUrl),
-	title: 'Assistência Técnica de Celular e Apple em Belo Horizonte | Conectize',
-	description:
-		'Conserto de celulares e produtos Apple (iPhone, iPad, MacBook) em Belo Horizonte com coleta em domicílio. Especialistas Apple. Troca de tela, bateria, reparo de placa. Atendimento rápido e garantia!',
+	title: homeTitle,
+	description: homeDescription,
 	keywords:
 		'assistência técnica de celular em belo horizonte, conserto de celulares belo horizonte, conserto de celular bh, assistência técnica iPhone bh, conserto iPhone belo horizonte, assistência apple bh, conserto macbook bh, troca de tela celular bh, troca de bateria bh, coleta em domicilio celular',
 	authors: [{ name: 'Conectize' }],
@@ -49,13 +53,18 @@ export const metadata: Metadata = {
 	},
 	openGraph: {
 		type: 'website',
-		title:
-			'Assistência Técnica de Celular e Apple em Belo Horizonte | Conectize',
-		description:
-			'Conserto de celulares e produtos Apple em Belo Horizonte com coleta em domicílio. Especialistas Apple. Atendimento rápido e garantia!',
+		title: homeTitle,
+		description: homeDescription,
 		url: business.siteUrl,
 		siteName: 'Conectize',
 		locale: 'pt_BR',
+		images: [socialImage()],
+	},
+	twitter: {
+		card: 'summary_large_image',
+		title: homeTitle,
+		description: homeDescription,
+		images: [socialImage().url],
 	},
 	other: {
 		'geo.region': 'BR-MG',

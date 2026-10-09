@@ -34,10 +34,7 @@ import {
 import { formatModelName } from '@/lib/utils/format-model-name'
 import { listServiceHubs } from '@/lib/utils/service-hubs'
 import { buildServiceProductSlug } from '@/lib/utils/service-product-slug'
-import {
-	buildServicesHubHref,
-	SERVICES_HUB_PATH,
-} from '@/lib/utils/services-hub'
+import { SERVICES_HUB_PATH } from '@/lib/utils/services-hub'
 import { getSiteUrl, publicPageSeo } from '@/lib/utils/site-url'
 import { IPHONE_PILLAR_LINKS } from '@/lib/marketing/iphone-pillars'
 
@@ -54,9 +51,9 @@ const pageHref = SERVICES_HUB_PATH
 const canonical = `${getSiteUrl()}${pageHref}`
 
 const landingSeo = {
-	title: 'Conserto de Celular em Belo Horizonte | Conectize',
+	title: 'Conserto de celular em BH com garantia | Conectize',
 	description:
-		'Conserto de celular em Belo Horizonte: troca de tela, bateria, vidro e reparos em placa. Assistência técnica especializada da Conectize em BH.',
+		'Conserto de celular em Belo Horizonte: tela, bateria, vidro e placa, com garantia e coleta em domicílio. Peça o orçamento da Conectize no WhatsApp.',
 	h1: 'Conserto de Celular em Belo Horizonte',
 }
 
@@ -225,11 +222,6 @@ export async function generateMetadata({
 			? { index: false, follow: true }
 			: { index: true, follow: true },
 		...publicPageSeo(pageHref, { title, description }),
-		twitter: {
-			card: 'summary',
-			title,
-			description,
-		},
 	}
 }
 
@@ -416,15 +408,12 @@ export default async function ConsertoCelularBeloHorizontePage({
 		url: canonical,
 	})
 
-	function paginationHref(nextPage: number) {
-		return buildServicesHubHref({
-			marca,
-			servico,
-			dispositivo,
-			modelo: selectedBrand && selectedService ? modelo : undefined,
-			page: nextPage,
-		})
-	}
+	const resultsHref = closestCanonicalServicePath({
+		serviceSlug: servico,
+		brandSlug: marca,
+		deviceSlug: dispositivo,
+		modelSlug: selectedBrand && selectedService ? modelo : undefined,
+	})
 
 	return (
 		<>
@@ -813,10 +802,7 @@ export default async function ConsertoCelularBeloHorizontePage({
 														) : (
 															<Button asChild variant="outline" size="sm">
 																<Link
-																	href={paginationHref(
-																		Math.max(1, results.currentPage - 1),
-																	)}
-																	rel="nofollow"
+																	href={resultsHref}
 																	aria-label="Página anterior"
 																>
 																	<span className="sr-only">Anterior</span>
@@ -838,13 +824,7 @@ export default async function ConsertoCelularBeloHorizontePage({
 														) : (
 															<Button asChild variant="outline" size="sm">
 																<Link
-																	href={paginationHref(
-																		Math.min(
-																			results.totalPages,
-																			results.currentPage + 1,
-																		),
-																	)}
-																	rel="nofollow"
+																	href={resultsHref}
 																	aria-label="Próxima página"
 																>
 																	<span className="sr-only">Próxima</span>

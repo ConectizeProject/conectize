@@ -14,6 +14,7 @@ import {
 	getModelBySlugAnyType,
 	getServiceBySlug,
 } from '@/lib/data/services'
+import { batteryClickDescription } from '@/lib/utils/click-description'
 import { formatModelName } from '@/lib/utils/format-model-name'
 import {
 	buildServiceProductSlug,
@@ -199,7 +200,7 @@ export function resolveBatteryModelLanding(
 		pageHref: `/servicos/${slug}`,
 		seo: {
 			title: `Troca de Bateria ${name} em BH | Conectize`,
-			description: `Troca de bateria do ${name} em Belo Horizonte. Faça o diagnóstico do aparelho e solicite um orçamento para substituição da bateria na Conectize.`,
+			description: batteryClickDescription(name),
 			h1: `Troca de Bateria do ${name} em Belo Horizonte`,
 		},
 		intro: `Trocamos a bateria do ${name} na Conectize, em Belo Horizonte. Se a carga acaba rápido, o aparelho desliga sozinho ou esquenta ao carregar, avaliamos o seu ${name} e passamos o orçamento pelo WhatsApp antes da troca.`,

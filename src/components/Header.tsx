@@ -38,7 +38,7 @@ const Header = () => {
             <Link href="/sobre" className="text-foreground hover:text-primary-accessible transition-colors font-medium">
               Sobre
             </Link>
-            <Link href="/acessorios" className="text-foreground hover:text-primary-accessible transition-colors font-medium">
+            <Link href="/loja/acessorios" className="text-foreground hover:text-primary-accessible transition-colors font-medium">
               Acessórios
             </Link>
             <Link href="/lojistas" className="text-foreground hover:text-primary-accessible transition-colors font-medium">
@@ -95,7 +95,7 @@ const Header = () => {
                 Sobre
               </Link>
               <Link
-                href="/acessorios"
+                href="/loja/acessorios"
                 onClick={() => setIsMenuOpen(false)}
                 className="text-foreground hover:text-primary-accessible transition-colors font-medium text-left py-2"
               >

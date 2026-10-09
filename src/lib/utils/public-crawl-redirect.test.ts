@@ -65,33 +65,51 @@ describe('resolvePublicCrawlRedirect', () => {
       pathname: '/MLB-1234567890',
       searchParams: new URLSearchParams('attributes=COLOR'),
       host: 'www.conectize.com.br',
-    })).toEqual({ pathname: '/acessorios', search: '' })
+    })).toEqual({ pathname: '/loja/acessorios', search: '' })
     expect(resolvePublicCrawlRedirect({
       pathname: '/iphone-11/p/MLB123456',
       searchParams: new URLSearchParams('attributes=1'),
       host: 'www.conectize.com.br',
-    })).toEqual({ pathname: '/acessorios', search: '' })
+    })).toEqual({ pathname: '/loja/acessorios', search: '' })
     expect(resolvePublicCrawlRedirect({
       pathname: '/MLB998877',
       searchParams: new URLSearchParams(),
       host: 'www.conectize.com.br',
-    })).toEqual({ pathname: '/acessorios', search: '' })
+    })).toEqual({ pathname: '/loja/acessorios', search: '' })
     expect(resolvePublicCrawlRedirect({
       pathname: '/acessorios',
       searchParams: new URLSearchParams('attributes=BRAND'),
       host: 'www.conectize.com.br',
-    })).toEqual({ pathname: '/acessorios', search: '' })
+    })).toEqual({ pathname: '/loja/acessorios', search: '' })
   })
 
-  it('strips junk query without removing catalog filters', () => {
+  it('sends catalog filters to the final canonical path', () => {
     expect(resolvePublicCrawlRedirect({
       pathname: '/conserto-de-celular-belo-horizonte',
       searchParams: new URLSearchParams('servico=troca-de-bateria&attributes=1'),
       host: 'www.conectize.com.br',
     })).toEqual({
-      pathname: '/conserto-de-celular-belo-horizonte',
-      search: '?servico=troca-de-bateria',
+      pathname: '/servicos/troca-de-bateria-apple-iphone',
+      search: '',
     })
+    expect(resolvePublicCrawlRedirect({
+      pathname: '/conserto-de-celular-belo-horizonte',
+      searchParams: new URLSearchParams('servico=troca-de-tela&marca=apple&modelo=iphone-17-pro-max&page=2'),
+      host: 'www.conectize.com.br',
+    })).toEqual({
+      pathname: '/servicos/troca-de-tela-apple-iphone-17-pro-max',
+      search: '',
+    })
+    expect(resolvePublicCrawlRedirect({
+      pathname: '/contato',
+      searchParams: new URLSearchParams('page=2'),
+      host: 'www.conectize.com.br',
+    })).toEqual({ pathname: '/contato', search: '' })
+    expect(resolvePublicCrawlRedirect({
+      pathname: '/portal/vendas',
+      searchParams: new URLSearchParams('page=2'),
+      host: 'www.conectize.com.br',
+    })).toBeNull()
   })
 
   it('does not chain: the destination is not another legacy service path', () => {
@@ -100,6 +118,8 @@ describe('resolvePublicCrawlRedirect', () => {
       '/servicos/reparo-de-agua-motorola-smartphone-Smartphone',
       '/servicos/apple/reparo-de-placa',
       '/servicos/troca-de-bateria/samsung/galaxy-a54',
+      '/acessorios',
+      '/MLB-1234567890',
     ]
     for (const pathname of samples) {
       const target = resolvePublicCrawlRedirect({
