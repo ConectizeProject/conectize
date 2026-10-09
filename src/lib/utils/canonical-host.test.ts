@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   canonicalRedirectStatus,
+  publicHostnameFromHeaders,
   resolveCanonicalRedirect,
 } from '@/lib/utils/canonical-host'
 import { CANONICAL_SITE_ORIGIN } from '@/lib/utils/site-url'
@@ -76,6 +77,16 @@ describe('resolveCanonicalRedirect', () => {
       pathname: '/',
       search: '',
     })).toBeNull()
+  })
+})
+
+describe('publicHostnameFromHeaders', () => {
+  it('prefere x-forwarded-host e ignora o hostname interno', () => {
+    const headers = new Headers({
+      'x-forwarded-host': 'conectize.com.br:3460',
+      host: 'localhost:3460',
+    })
+    expect(publicHostnameFromHeaders(headers, 'localhost')).toBe('conectize.com.br:3460')
   })
 })
 

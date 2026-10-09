@@ -1,5 +1,16 @@
 import { APEX_HOST, CANONICAL_HOST, CANONICAL_SITE_ORIGIN } from './site-url'
 
+/**
+ * Host público da requisição.
+ * No dev o `nextUrl.hostname` vira localhost mesmo com o domínio real no header.
+ */
+export function publicHostnameFromHeaders (
+  headers: { get (name: string): string | null },
+  fallback = '',
+): string {
+  return headers.get('x-forwarded-host') || headers.get('host') || fallback
+}
+
 /** Host do header, sem porta e sem ponto final de FQDN. */
 export function normalizeHostname (host: string): string {
   const first = host.split(',')[0]?.trim() ?? ''

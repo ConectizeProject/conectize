@@ -2,22 +2,23 @@ import { createServerClient } from '@supabase/ssr'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
-import { isSupabaseInfraError } from './src/lib/auth/auth-session-resilience'
-import { PORTAL_INTENDED_PATH_HEADER } from './src/lib/auth/portal-intended-path'
+import { isSupabaseInfraError } from './lib/auth/auth-session-resilience'
+import { PORTAL_INTENDED_PATH_HEADER } from './lib/auth/portal-intended-path'
 import {
 	isValidPortalRoleHint,
 	PORTAL_ROLE_HINT_COOKIE,
-} from './src/lib/auth/portal-role-hint'
+} from './lib/auth/portal-role-hint'
 import {
 	PORTAL_SIMULATED_ROLE_COOKIE,
 	resolveEffectivePortalRole,
-} from './src/lib/auth/portal-role-simulation'
+} from './lib/auth/portal-role-simulation'
 import {
 	canonicalRedirectStatus,
+	publicHostnameFromHeaders,
 	resolveCanonicalRedirect,
-} from './src/lib/utils/canonical-host'
-import { goneCrawlResponse, isGoneCrawlPath } from './src/lib/utils/gone-crawl-paths'
-import { resolveLegacyServiceDestination } from './src/lib/utils/legacy-service-redirect'
+} from './lib/utils/canonical-host'
+import { goneCrawlResponse, isGoneCrawlPath } from './lib/utils/gone-crawl-paths'
+import { resolveLegacyServiceDestination } from './lib/utils/legacy-service-redirect'
 
 function getSupabaseEnv() {
 	const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -91,6 +92,8 @@ async function refreshPortalApiSession(request: NextRequest) {
  *
  * Nota: mantemos `middleware.ts` (não `proxy.ts`) por bug do Turbopack no Next 16.2.4
  * que faz rotas do matcher retornarem 404 em `next dev` com proxy.ts.
+ * O arquivo fica em `src/`, no mesmo nível de `app`, para o build de produção
+ * incluí-lo. Na raiz, com `src/app`, o Next 16 ignora o middleware.
  * Ver: https://github.com/vercel/next.js/issues/92921
  */
 async function getUserRole(supabase: SupabaseClient, request: NextRequest) {
@@ -121,7 +124,7 @@ async function getUserRole(supabase: SupabaseClient, request: NextRequest) {
 
 function redirectToCanonicalHost(request: NextRequest) {
 	const target = resolveCanonicalRedirect({
-		hostname: request.nextUrl.hostname,
+		hostname: publicHostnameFromHeaders(request.headers, request.nextUrl.hostname),
 		protocol: request.headers.get('x-forwarded-proto') || request.nextUrl.protocol,
 		pathname: request.nextUrl.pathname,
 		search: request.nextUrl.search,
