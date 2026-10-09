@@ -47,6 +47,7 @@ import { appConfirm } from '@/lib/ui/app-dialogs'
 import { cn } from '@/lib/utils'
 import { DEFAULT_EVOLUTION_AUTO_MESSAGE_TEMPLATES } from '@/lib/whatsapp/evolution-auto-messages'
 import { EvolutionAutoMessagesFields } from './EvolutionAutoMessagesFields'
+import { McpCursorCard } from './McpKeysDialog'
 import { BlingAppSetup } from './BlingAppSetup'
 import { BlingCatalogSyncPanel } from './BlingCatalogSyncPanel'
 import {
@@ -1888,6 +1889,7 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
       <div>
         <h2 className="text-lg font-semibold mb-4">Integrações disponíveis</h2>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <McpCursorCard />
           {integrations.map((integration) => {
             const isConnected =
               integration.id === 'bling'

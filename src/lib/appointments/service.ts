@@ -342,15 +342,27 @@ export async function createBatteryAppointment (
 	supabase: SupabaseClient,
 	input: CreateAppointmentInput,
 ) {
-	if (String(input.honeypot || '').trim()) {
-		return { ok: false as const, error: 'dados_invalidos' as const }
-	}
+	const honeypotFilled = Boolean(String(input.honeypot || '').trim())
 	const model = normalizeModel(input.model)
 	const fullName = input.fullName.trim().slice(0, 120)
 	const email = input.email.trim().toLowerCase().slice(0, 160)
 	const phone = onlyDigits(input.phone).slice(0, 11)
 	const cpf = onlyDigits(input.cpf).slice(0, 11)
-	if (!model || fullName.length < 3 || !isEmail(email) || (phone.length !== 10 && phone.length !== 11) || !isValidCpf(cpf)) {
+	const invalid = honeypotFilled
+		? 'honeypot'
+		: !model
+			? 'modelo'
+			: fullName.length < 3
+				? 'nome'
+				: !isEmail(email)
+					? 'email'
+					: phone.length !== 10 && phone.length !== 11
+						? 'celular'
+						: !isValidCpf(cpf)
+							? 'cpf'
+							: ''
+	if (invalid) {
+		console.error('[bateria-agendamento] dados_invalidos', invalid)
 		return { ok: false as const, error: 'dados_invalidos' as const }
 	}
 	if (!isBookableSlot(input.startsAt)) {
