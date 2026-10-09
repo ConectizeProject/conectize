@@ -276,6 +276,7 @@ export async function POST (request: Request) {
     const msg = String(error.message || '')
     if (
       msg.includes('hub_connections_org_evolution_instance_uidx')
+      || msg.includes('hub_connections_evolution_instance_global_uidx')
       || msg.includes('duplicate key') && msg.includes('instance_name')
     ) {
       return NextResponse.json(

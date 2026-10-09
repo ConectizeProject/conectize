@@ -1,11 +1,12 @@
 import { redirect } from 'next/navigation'
+import { syncMemberRoleInOrganization } from '@/lib/admin/sync-member-org-role'
 import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
-import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
-import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import {
   ensurePortalOrganizationContext,
   getPortalOrganizationId,
 } from '@/lib/organizations/portal-organization-context'
+import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
+import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { UsuariosClient } from './UsuariosClient'
 
 function isValidRole (value: string) {
@@ -77,38 +78,25 @@ async function updateRoleAction (formData: FormData) {
 
   if (error) redirect('/portal/admin/usuarios?error=nao_foi_possivel_atualizar')
 
-  // Mantém organization_members.role_in_org alinhado ao users.role.
-  // Sem isso, staff com membership "user" perde org ativa e APIs retornam 403.
+  await ensurePortalOrganizationContext(supabase, user.id)
+  const organizationId = await getPortalOrganizationId(supabase, user.id)
+  if (!organizationId) redirect('/portal/ordens')
+
+  // Mantém organization_members.role_in_org alinhado ao users.role, só na org ativa.
+  // Sem o filtro de organization_id, o service role reescrevia memberships de outros tenants.
   if (!isEditingSelf && formData.has('role')) {
     const roleInOrg = roleToOrgRole(role)
     try {
       const svc = createSupabaseServiceClient()
-      const { data: memberships } = await svc
-        .from('organization_members')
-        .select('organization_id')
-        .eq('user_id', userId)
-
-      if ((memberships ?? []).length > 0) {
-        const { error: syncErr } = await svc
-          .from('organization_members')
-          .update({ role_in_org: roleInOrg })
-          .eq('user_id', userId)
-        if (syncErr) redirect('/portal/admin/usuarios?error=nao_foi_possivel_atualizar')
-
-        if (role === 'staff' || role === 'admin' || role === 'accountant') {
-          const { data: ctx } = await svc
-            .from('user_portal_context')
-            .select('active_organization_id')
-            .eq('user_id', userId)
-            .maybeSingle()
-          if (!ctx?.active_organization_id) {
-            const fallbackOrgId = String(memberships[0].organization_id)
-            await svc.from('user_portal_context').upsert({
-              user_id: userId,
-              active_organization_id: fallbackOrgId,
-            })
-          }
-        }
+      const synced = await syncMemberRoleInOrganization(svc, {
+        userId,
+        organizationId,
+        roleInOrg,
+        ensurePortalContext:
+          role === 'staff' || role === 'admin' || role === 'accountant',
+      })
+      if (synced.ok === false) {
+        redirect('/portal/admin/usuarios?error=nao_foi_possivel_atualizar')
       }
     } catch {
       redirect('/portal/admin/usuarios?error=nao_foi_possivel_atualizar')

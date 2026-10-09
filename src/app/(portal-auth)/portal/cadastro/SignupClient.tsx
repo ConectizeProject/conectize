@@ -13,10 +13,18 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { buildPortalAuthCallbackUrl } from '@/lib/auth/callback-url'
 import { PORTAL_COMPLETE_PROFILE_PATH } from '@/lib/auth/portal-auth-paths'
+import { reserveSignupIp } from '@/lib/auth/reserve-signup-ip'
 import { AUTH_PASSWORD_MIN_LENGTH, isValidPassword } from '@/lib/auth/password-rules'
 import { getAuthSiteOrigin } from '@/lib/auth/site-origin'
 import { useSupabaseBrowserClient } from '@/lib/supabase/use-supabase-browser-client'
 import { getAuthErrorMessage } from '@/lib/utils/error-messages'
+
+function completeProfilePath() {
+  if (typeof window === 'undefined') return PORTAL_COMPLETE_PROFILE_PATH
+  const origem = new URLSearchParams(window.location.search).get('origem')
+  if (origem !== 'agendamento') return PORTAL_COMPLETE_PROFILE_PATH
+  return `${PORTAL_COMPLETE_PROFILE_PATH}?origem=agendamento`
+}
 
 export function SignupClient() {
   const router = useRouter()
@@ -46,8 +54,13 @@ export function SignupClient() {
         setErrorMessage('Configuração do Supabase ausente. Não é possível cadastrar com Google agora.')
         return
       }
+      const allowed = await reserveSignupIp()
+      if (!allowed) {
+        setErrorMessage('Este endereço já criou 3 contas hoje. Tente novamente amanhã.')
+        return
+      }
       const oauthRedirect = buildPortalAuthCallbackUrl(
-        PORTAL_COMPLETE_PROFILE_PATH,
+        completeProfilePath(),
         siteOrigin,
       )
 
@@ -118,8 +131,13 @@ export function SignupClient() {
         setErrorMessage('Configuração do Supabase ausente. Não é possível concluir o cadastro agora.')
         return
       }
+      const allowed = await reserveSignupIp()
+      if (!allowed) {
+        setErrorMessage('Este endereço já criou 3 contas hoje. Tente novamente amanhã.')
+        return
+      }
       const emailRedirectTo = buildPortalAuthCallbackUrl(
-        PORTAL_COMPLETE_PROFILE_PATH,
+        completeProfilePath(),
         siteOrigin,
       )
 
@@ -143,7 +161,7 @@ export function SignupClient() {
 
       if (data?.session) {
         router.refresh()
-        router.replace(PORTAL_COMPLETE_PROFILE_PATH)
+        router.replace(completeProfilePath())
         return
       }
 
@@ -163,7 +181,7 @@ export function SignupClient() {
         <CardHeader>
           <CardTitle>Criar conta</CardTitle>
           <CardDescription>
-            Cadastre-se para acompanhar suas ordens.
+            Cadastre-se para acompanhar suas ordens. Na tela seguinte, informe o CPF para vincular seu cadastro.
           </CardDescription>
         </CardHeader>
         <CardContent>

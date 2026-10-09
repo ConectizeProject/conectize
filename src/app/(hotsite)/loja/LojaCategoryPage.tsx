@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import {
 	Clock,
 	MapPin,
@@ -16,7 +17,8 @@ import {
 	lojaCopy,
 	whatsappLink,
 } from '@/lib/data/hotsite-loja'
-import { getSiteUrl } from '@/lib/utils/site-url'
+import { absoluteSiteUrl, canonicalAlternates } from '@/lib/utils/site-url'
+import { HeroBrokenPhone } from './HeroBrokenPhone'
 import { LojaContactCta } from './LojaContactCta'
 import { LojaReviews } from './LojaReviews'
 import { LojaShell } from './LojaShell'
@@ -63,11 +65,18 @@ export type LojaCategoryReview = {
 	quote: string
 }
 
+export type LojaHeroImage = {
+	src: string
+	width: number
+	height: number
+	alt: string
+}
+
 type LojaCategoryPageProps = {
 	path: string
 	description: string
 	heroTitle: string
-	heroSubtitle: string
+	heroSubtitle: ReactNode
 	whatsappMessage: string
 	highlights: readonly LojaCategoryHighlight[]
 	faq: readonly LojaCategoryFaq[]
@@ -77,6 +86,9 @@ type LojaCategoryPageProps = {
 	modelsAnchorLabel?: string
 	testimonials?: readonly LojaCategoryReview[]
 	nav?: readonly { href: string; label: string }[]
+	heroImage?: LojaHeroImage
+	afterHero?: ReactNode
+	heroAction?: ReactNode
 }
 
 export function lojaCategoryMetadata (input: {
@@ -85,7 +97,7 @@ export function lojaCategoryMetadata (input: {
 	path: string
 	keywords: string
 }): Metadata {
-	const url = `${getSiteUrl()}${input.path}`
+	const url = absoluteSiteUrl(input.path)
 
 	return {
 		title: input.title,
@@ -95,9 +107,7 @@ export function lojaCategoryMetadata (input: {
 			index: true,
 			follow: true,
 		},
-		alternates: {
-			canonical: url,
-		},
+		alternates: canonicalAlternates(input.path),
 		openGraph: {
 			type: 'website',
 			title: input.title,
@@ -123,6 +133,9 @@ export function LojaCategoryPage ({
 	modelsAnchorLabel = 'Ver modelos',
 	testimonials,
 	nav,
+	heroImage,
+	afterHero,
+	heroAction,
 }: LojaCategoryPageProps) {
 	const href = whatsappLink(whatsappMessage)
 	const hasModels = Boolean(models?.length)
@@ -133,6 +146,36 @@ export function LojaCategoryPage ({
 					...defaultNav,
 				]
 			: defaultNav
+	)
+
+	const heroCopy = (
+		<>
+			<p className={styles.heroIntro}>
+				Loja em Santa Efigênia, Belo Horizonte.
+			</p>
+			<h1 id="categoria-titulo" className={styles.display}>
+				<span className={styles.heroLine}>{heroTitle}</span>
+			</h1>
+			<p className={styles.lead}>{heroSubtitle}</p>
+			<div className={styles.actions}>
+				<LojaWhatsAppLink
+					className={styles.ctaWhatsapp}
+					href={href}
+					placement="hero"
+				>
+					<WhatsAppIcon className="h-5 w-5" />
+					Consultar no WhatsApp
+				</LojaWhatsAppLink>
+				{heroAction ?? (
+					<a
+						className={styles.ctaGhost}
+						href={hasModels ? '#modelos' : '#unidade'}
+					>
+						{hasModels ? modelsAnchorLabel : 'Ver a loja'}
+					</a>
+				)}
+			</div>
+		</>
 	)
 
 	return (
@@ -153,44 +196,36 @@ export function LojaCategoryPage ({
 			/>
 
 			<main id="conteudo-principal">
-				<section
-					className={`${styles.hero} ${styles.heroCentered}`}
-					aria-labelledby="categoria-titulo"
-				>
-					<div className={styles.heroStage}>
-						<div className={styles.heroScrim} aria-hidden="true" />
-					</div>
-					<div className={styles.heroCenteredInner}>
-						<p className={styles.heroIntro}>
-							Loja em Santa Efigênia, Belo Horizonte.
-						</p>
-						<h1 id="categoria-titulo" className={styles.display}>
-							<span className={styles.heroLine}>{heroTitle}</span>
-						</h1>
-						<p className={styles.lead}>{heroSubtitle}</p>
-						<div className={styles.actions}>
-							<LojaWhatsAppLink
-								className={styles.ctaWhatsapp}
-								href={href}
-								placement="hero"
-							>
-								<WhatsAppIcon className="h-5 w-5" />
-								Consultar no WhatsApp
-							</LojaWhatsAppLink>
-							<a
-								className={styles.ctaGhost}
-								href={hasModels ? '#modelos' : '#unidade'}
-							>
-								{hasModels ? modelsAnchorLabel : 'Ver a loja'}
-							</a>
+				<div className={afterHero ? styles.heroStack : undefined}>
+					<section
+						className={heroImage ? `${styles.hero} ${styles.heroFlush}` : `${styles.hero} ${styles.heroCentered}`}
+						aria-labelledby="categoria-titulo"
+					>
+						<div className={styles.heroStage}>
+							<div className={styles.heroScrim} aria-hidden="true" />
 						</div>
-					</div>
-				</section>
+						{heroImage ? (
+							<div className={`${styles.heroInner} ${styles.heroSplit}`}>
+								<div className={styles.heroCopy}>{heroCopy}</div>
+								<HeroBrokenPhone
+									src={heroImage.src}
+									width={heroImage.width}
+									height={heroImage.height}
+									alt={heroImage.alt}
+									portrait
+								/>
+							</div>
+						) : (
+							<div className={styles.heroCenteredInner}>{heroCopy}</div>
+						)}
+					</section>
+					{afterHero}
+				</div>
 
 				{hasModels ? (
 					<section
 						id="modelos"
-						className={styles.section}
+						className={heroImage && !afterHero ? `${styles.section} ${styles.sectionCover}` : heroImage ? `${styles.section} ${styles.sectionAlt}` : styles.section}
 						aria-labelledby="modelos-titulo"
 					>
 						<div className={styles.wrap}>

@@ -16,7 +16,52 @@ declare global {
 		gtag?: GtagFn
 		dataLayer?: unknown[]
 		__conectizeAdsWhatsappSendTo?: string
+		__conectizeAdsBookingSendTo?: string
 	}
+}
+
+export type BookingFunnelStep =
+	| 'view_offer'
+	| 'start_booking'
+	| 'select_model'
+	| 'select_date'
+	| 'select_slot'
+	| 'submit_attempt'
+	| 'submit_booking'
+	| 'booking_error'
+	| 'booking_extra_prompt'
+	| 'booking_blocked'
+	| 'whatsapp_request'
+	| 'whatsapp_change'
+	| 'whatsapp_existing'
+	| 'account_start'
+	| 'account_created'
+
+export type BookingFunnelDetail = {
+	model?: string
+	date?: string
+	slot?: string
+	error?: string
+}
+
+export function trackBookingFunnel (step: BookingFunnelStep, detail?: BookingFunnelDetail) {
+	if (typeof window.gtag !== 'function') return
+	const model = String(detail?.model || '').trim()
+	const date = String(detail?.date || '').trim()
+	const slot = String(detail?.slot || '').trim()
+	const error = String(detail?.error || '').trim()
+	window.gtag('event', step, {
+		event_category: 'agendamento',
+		event_label: error || model || 'troca-de-bateria',
+		page_path: window.location.pathname,
+		booking_model: model || undefined,
+		booking_date: date || undefined,
+		booking_slot: slot || undefined,
+	})
+	if (step !== 'submit_booking') return
+	const sendTo = String(window.__conectizeAdsBookingSendTo || '').trim()
+	if (!sendTo) return
+	window.gtag('event', 'conversion', { send_to: sendTo })
 }
 
 /**

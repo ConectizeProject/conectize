@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import { Button } from '@/components/ui/button'
+import { AppointmentCalendarDialog } from './AppointmentCalendarDialog'
 import { OrdensFilterCollapsible } from './OrdensFilterCollapsible'
 import { OrdensListClient } from './OrdensListClient'
 import { OrdensToastClient } from './OrdensToastClient'
@@ -125,8 +126,8 @@ export default async function OrdensPage({
 		.from('service_orders')
 		.select(
 			needsQuickFilterColumns
-				? 'id, display_number, status, title, created_at, updated_at, closed_at, estimated_ready_at, share_token, customer_id, device_model_id, services, services_total_cents, services_cost_total_cents, payment_methods'
-				: 'id, display_number, status, title, created_at, updated_at, closed_at, estimated_ready_at, share_token, customer_id, device_model_id, services, services_total_cents, services_cost_total_cents'
+				? 'id, display_number, status, title, created_at, updated_at, closed_at, estimated_ready_at, share_token, customer_id, device_model_id, services, services_total_cents, services_cost_total_cents, payment_methods, origin, appointment_starts_at, appointment_reviewed_at, appointment_model_label'
+				: 'id, display_number, status, title, created_at, updated_at, closed_at, estimated_ready_at, share_token, customer_id, device_model_id, services, services_total_cents, services_cost_total_cents, origin, appointment_starts_at, appointment_reviewed_at, appointment_model_label'
 		)
 		.in('status', [...OPEN_ORDER_STATUSES])
 		.order('created_at', { ascending: false })
@@ -251,7 +252,14 @@ export default async function OrdensPage({
 
 	const openOrdersByStatus: Record<string, PortalOrdensListRow[]> = {}
 	for (const s of OPEN_ORDER_STATUSES) {
-		openOrdersByStatus[s] = ordersWithRelations.filter((o) => o.status === s)
+		const column = ordersWithRelations.filter((o) => o.status === s)
+		openOrdersByStatus[s] = [...column].sort((a, b) => {
+			const aTime = a.appointment_starts_at ? new Date(a.appointment_starts_at).getTime() : Number.POSITIVE_INFINITY
+			const bTime = b.appointment_starts_at ? new Date(b.appointment_starts_at).getTime() : Number.POSITIVE_INFINITY
+			const aSort = Number.isFinite(aTime) ? aTime : Number.POSITIVE_INFINITY
+			const bSort = Number.isFinite(bTime) ? bTime : Number.POSITIVE_INFINITY
+			return aSort - bSort
+		})
 	}
 
 	const { data: deviceModelsRaw } = await supabase
@@ -269,9 +277,12 @@ export default async function OrdensPage({
 				<div className="min-w-0">
 					<h1 className="text-xl font-bold sm:text-2xl">Ordens de serviço</h1>
 				</div>
-				<Button asChild className="w-full shrink-0 sm:w-auto">
-					<Link href="/portal/ordens/nova" transitionTypes={['nav-forward']}>Nova ordem</Link>
-				</Button>
+				<div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:flex-row">
+					<AppointmentCalendarDialog />
+					<Button asChild className="w-full shrink-0 sm:w-auto">
+						<Link href="/portal/ordens/nova" transitionTypes={['nav-forward']}>Nova ordem</Link>
+					</Button>
+				</div>
 			</div>
 
 			<div className="shrink-0">

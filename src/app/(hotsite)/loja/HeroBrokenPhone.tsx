@@ -8,6 +8,15 @@ const PHONE_SRC = '/loja/iphone-tela.png'
 const PHONE_WIDTH = 867
 const PHONE_HEIGHT = 783
 
+type HeroBrokenPhoneProps = {
+	src?: string
+	width?: number
+	height?: number
+	alt?: string
+	sizes?: string
+	portrait?: boolean
+}
+
 function getTiltMedia() {
 	return {
 		motion: window.matchMedia('(prefers-reduced-motion: reduce)'),
@@ -24,7 +33,14 @@ function clamp(value: number) {
 	return Math.max(-1, Math.min(1, value))
 }
 
-export function HeroBrokenPhone() {
+export function HeroBrokenPhone({
+	src = PHONE_SRC,
+	width = PHONE_WIDTH,
+	height = PHONE_HEIGHT,
+	alt = '',
+	sizes = '(min-width: 900px) 28rem, 21rem',
+	portrait = false,
+}: HeroBrokenPhoneProps = {}) {
 	const stageRef = useRef<HTMLDivElement>(null)
 
 	useEffect(() => {
@@ -126,18 +142,22 @@ export function HeroBrokenPhone() {
 	}, [])
 
 	return (
-		<div ref={stageRef} className={styles.phoneStage} aria-hidden="true">
+		<div
+			ref={stageRef}
+			className={portrait ? `${styles.phoneStage} ${styles.phonePortrait}` : styles.phoneStage}
+			aria-hidden={alt ? undefined : true}
+		>
 			<div className={styles.phoneGlow} />
 			<div className={styles.phoneShadow} />
 			<div className={styles.phoneFrame}>
 				<Image
-					src={PHONE_SRC}
-					alt=""
-					width={PHONE_WIDTH}
-					height={PHONE_HEIGHT}
+					src={src}
+					alt={alt}
+					width={width}
+					height={height}
 					className={styles.phoneImage}
 					priority
-					sizes="(min-width: 900px) 28rem, 21rem"
+					sizes={portrait ? '(min-width: 900px) 24rem, 16rem' : sizes}
 				/>
 			</div>
 		</div>

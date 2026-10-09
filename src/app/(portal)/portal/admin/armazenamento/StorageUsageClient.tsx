@@ -23,6 +23,8 @@ import { formatBytes } from '@/lib/utils/format-bytes'
 import type { StorageUsageSummary } from '@/lib/admin/storage-usage'
 import { ServiceOrderPhotosCleanupCard } from '@/app/(portal)/portal/admin/presets/ServiceOrderPhotosCleanupCard'
 import { WhatsappMediaCleanupCard } from '@/app/(portal)/portal/admin/presets/WhatsappMediaCleanupCard'
+import { WhatsappMessagesCleanupCard } from '@/app/(portal)/portal/admin/presets/WhatsappMessagesCleanupCard'
+import { WebhookRecordsCleanupCard } from '@/app/(portal)/portal/admin/presets/WebhookRecordsCleanupCard'
 import { ResaleDevicePhotosBrowserDialog } from '@/app/(portal)/portal/admin/armazenamento/ResaleDevicePhotosBrowserDialog'
 
 type UsageResponse = StorageUsageSummary & {
@@ -267,9 +269,9 @@ export function StorageUsageClient () {
 
       <div className="space-y-6">
         <div>
-          <h2 className="text-lg font-semibold">Gerenciar mídias</h2>
+          <h2 className="text-lg font-semibold">Liberar espaço</h2>
           <p className="text-sm text-muted-foreground">
-            Abra cada categoria para ver arquivos ordenados por tamanho e excluir manualmente.
+            Remova mídias, mensagens do WhatsApp ou registros de webhooks para liberar armazenamento.
           </p>
         </div>
 
@@ -277,6 +279,7 @@ export function StorageUsageClient () {
           <TabsList className="flex h-auto w-full flex-wrap justify-start">
             <TabsTrigger value="service-orders">Ordens de serviço</TabsTrigger>
             <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger>
+            <TabsTrigger value="webhooks">Webhooks</TabsTrigger>
             <TabsTrigger value="resale">Seminovos</TabsTrigger>
           </TabsList>
 
@@ -284,8 +287,13 @@ export function StorageUsageClient () {
             <ServiceOrderPhotosCleanupCard onStorageChanged={loadUsage} />
           </TabsContent>
 
-          <TabsContent value="whatsapp">
+          <TabsContent value="whatsapp" className="space-y-4">
+            <WhatsappMessagesCleanupCard onStorageChanged={loadUsage} />
             <WhatsappMediaCleanupCard onStorageChanged={loadUsage} />
+          </TabsContent>
+
+          <TabsContent value="webhooks">
+            <WebhookRecordsCleanupCard />
           </TabsContent>
 
           <TabsContent value="resale">

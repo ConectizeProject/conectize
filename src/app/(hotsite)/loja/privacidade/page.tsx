@@ -2,21 +2,25 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { business } from '@/lib/data/business'
 import { lojaCopy, lojaPath } from '@/lib/data/hotsite-loja'
-import { getSiteUrl } from '@/lib/utils/site-url'
+import { publicPageSeo } from '@/lib/utils/site-url'
 import { LojaShell } from '../LojaShell'
 import styles from '../loja.module.css'
 
+const title = 'Política de privacidade | Conectize Store'
+const description = 'Como a Conectize Store trata dados de contato enviados por WhatsApp, telefone ou visita à loja em Belo Horizonte.'
+
 export const metadata: Metadata = {
-	title: 'Política de privacidade | Conectize Store',
-	description:
-		'Como a Conectize Store trata dados de contato enviados por WhatsApp, telefone ou visita à loja em Belo Horizonte.',
+	title,
+	description,
 	robots: {
 		index: true,
 		follow: true,
 	},
-	alternates: {
-		canonical: `${getSiteUrl()}${lojaPath}/privacidade`,
-	},
+	...publicPageSeo(`${lojaPath}/privacidade`, {
+		title,
+		description,
+		siteName: lojaCopy.brand,
+	}),
 }
 
 export default function LojaPrivacidadePage() {
