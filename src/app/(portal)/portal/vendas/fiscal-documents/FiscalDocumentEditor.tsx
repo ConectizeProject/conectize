@@ -798,7 +798,7 @@ export function FiscalDocumentEditor ({ documentId }: Props) {
           <CardTitle>Itens da nota</CardTitle>
           {editable ? (
             <p className='text-sm font-normal text-muted-foreground'>
-              NCM, CEST, origem, FCI e unidade são gravados no cadastro do produto. Com CEST, a nota usa CFOP 5405 e CSOSN 500. Sem CEST, usa CFOP 5102 e CSOSN 102. Se o cliente for de outro estado, a nota sai com 6404 ou 6102.
+              NCM, CEST, origem, FCI e unidade são gravados no cadastro do produto. Com CEST, a nota usa CFOP 5405 e CSOSN 500. Sem CEST, usa CFOP 5102 e CSOSN 102. Se o cliente for de outro estado, a nota sai com 6405 ou 6102.
             </p>
           ) : null}
         </CardHeader>

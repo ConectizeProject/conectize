@@ -52,12 +52,20 @@ describe('resolveSaleItemTaxes', () => {
     })).toEqual({ cfop: '5405', csosn: '500', operationIsSt: true })
   })
 
-  it('vende com ST usando 6404 fora do estado', () => {
+  it('vende com ST usando 6405 fora do estado (par do 5405, substituído)', () => {
     expect(resolveSaleItemTaxes({
       hasSubstitution: true,
       emitUf: 'SP',
       destUf: 'RJ',
-    })).toEqual({ cfop: '6404', csosn: '500', operationIsSt: true })
+    })).toEqual({ cfop: '6405', csosn: '500', operationIsSt: true })
+  })
+
+  it('não usa 6404 (substituto) com CSOSN 500 interestadual', () => {
+    expect(resolveSaleItemTaxes({
+      hasSubstitution: true,
+      emitUf: 'MG',
+      destUf: 'SP',
+    }).cfop).not.toBe('6404')
   })
 })
 
