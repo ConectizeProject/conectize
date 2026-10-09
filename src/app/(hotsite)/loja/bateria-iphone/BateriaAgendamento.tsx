@@ -794,16 +794,23 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 								</>
 							) : null}
 
-							<label className={styles.bookingHoneypot} aria-hidden="true">
-								Site
+							<div className={styles.bookingHoneypot} aria-hidden="true">
 								<input
-									name="companyWebsite"
+									name="cz_leave_blank"
 									tabIndex={-1}
 									autoComplete="off"
+									autoCorrect="off"
+									autoCapitalize="off"
+									spellCheck={false}
+									readOnly
 									value={formik.values.companyWebsite}
-									onChange={formik.handleChange}
+									onFocus={(event) => { event.currentTarget.readOnly = false }}
+									onChange={(event) => { void formik.setFieldValue('companyWebsite', event.target.value) }}
+									data-1p-ignore="true"
+									data-lpignore="true"
+									data-form-type="other"
 								/>
-							</label>
+							</div>
 							{extraGate ? (
 								<div className={styles.bookingSummary}>
 									<p className={styles.bookingNote}>
