@@ -1,6 +1,7 @@
 import type { Service, Brand, DeviceType, Model, BreadcrumbItem } from '../types/seo'
+import { closestCanonicalServicePath, preferredPublicBrandHref, preferredPublicServiceHref } from './canonical-service-path'
 import { buildServiceProductSlug } from './service-product-slug'
-import { buildServicesHubHref, SERVICES_HUB_PATH } from './services-hub'
+import { SERVICES_HUB_PATH } from './services-hub'
 import { getSiteUrl } from './site-url'
 
 export { getSiteUrl } from './site-url'
@@ -74,10 +75,17 @@ export function generateBreadcrumbs (service: Service, brand?: Brand, deviceType
   ]
 
   if (brand) {
-    breadcrumbs.push({ label: brand.displayName, href: buildServicesHubHref({ marca: brand.slug }) })
-    breadcrumbs.push({ label: service.name, href: buildServicesHubHref({ marca: brand.slug, servico: service.slug }) })
+    breadcrumbs.push({ label: brand.displayName, href: preferredPublicBrandHref(brand.slug) })
+    breadcrumbs.push({
+      label: service.name,
+      href: closestCanonicalServicePath({
+        serviceSlug: service.slug,
+        brandSlug: brand.slug,
+        deviceSlug: deviceType?.slug,
+      }),
+    })
   } else {
-    breadcrumbs.push({ label: service.name, href: buildServicesHubHref({ servico: service.slug }) })
+    breadcrumbs.push({ label: service.name, href: preferredPublicServiceHref(service.slug) })
   }
 
   if (brand && model) {
@@ -109,8 +117,12 @@ export function generateCanonicalUrl (service: Service, brand?: Brand, deviceTyp
       modelSlug: deviceType.slug
     })}`
   }
-  if (brand) return buildServicesHubHref({ marca: brand.slug, servico: service.slug })
-  return buildServicesHubHref({ servico: service.slug })
+  return closestCanonicalServicePath({
+    serviceSlug: service.slug,
+    brandSlug: brand?.slug,
+    deviceSlug: deviceType?.slug,
+    modelSlug: model?.slug,
+  })
 }
 
 export function generateStructuredData (service: Service, brand?: Brand, deviceType?: DeviceType, model?: Model) {
