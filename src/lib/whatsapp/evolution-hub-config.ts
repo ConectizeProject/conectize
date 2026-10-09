@@ -114,6 +114,8 @@ export async function findEvolutionHubByInstance (
     .from('hub_connections')
     .select('id, access_token, metadata, organization_id')
     .eq('platform_id', WHATSAPP_EVOLUTION_PLATFORM_ID)
+  if (orgId) query = query.eq('organization_id', orgId)
+  const { data: rows } = await query
   const picked = pickEvolutionHubByInstanceName(rows || [], name)
   if (picked.ok === false) {
     if (picked.reason === 'collision') {
