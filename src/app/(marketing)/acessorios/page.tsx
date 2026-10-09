@@ -1,15 +1,16 @@
 import type { Metadata } from 'next'
 import { Smartphone, Battery, Shield, Headphones, ShoppingBag } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { getSiteUrl } from '@/lib/utils/site-url'
+import { publicPageSeo } from '@/lib/utils/site-url'
+
+const title = 'Acessórios para Celular em Belo Horizonte | Conectize'
+const description = 'Acessórios de qualidade para seu celular: capinhas, carregadores, películas protetoras e fones de ouvido. Encontre tudo que você precisa na Conectize em Belo Horizonte.'
 
 export const metadata: Metadata = {
-  title: 'Acessórios para Celular em Belo Horizonte | Conectize',
-  description: 'Acessórios de qualidade para seu celular: capinhas, carregadores, películas protetoras e fones de ouvido. Encontre tudo que você precisa na Conectize em Belo Horizonte.',
+  title,
+  description,
   keywords: 'acessorios celular belo horizonte, capinha celular bh, carregador celular, pelicula celular, fone de ouvido celular',
-  alternates: {
-    canonical: `${getSiteUrl()}/acessorios`,
-  },
+  ...publicPageSeo('/acessorios', { title, description }),
 }
 
 const acessorios = [

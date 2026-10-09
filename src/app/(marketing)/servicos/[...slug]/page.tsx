@@ -10,7 +10,7 @@ import { formatModelName } from '@/lib/utils/format-model-name'
 import { generateProgrammaticContent } from '@/lib/utils/programmatic-content'
 import { buildServiceProductSlug, parseServiceProductSlug } from '@/lib/utils/service-product-slug'
 import { listServiceHubs } from '@/lib/utils/service-hubs'
-import { getSiteUrl } from '@/lib/utils/site-url'
+import { publicPageSeo } from '@/lib/utils/site-url'
 import { Breadcrumbs } from '@/components/seo/Breadcrumbs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { BatteryModelPage, resolveBatteryModelLanding } from '../battery-model-page'
@@ -128,55 +128,46 @@ function ServiceFocusContent (props: { title: string, paragraphs: string[], warr
   )
 }
 
+function servicePageMetadata (slug: string, metadata: Metadata): Metadata {
+  const title = typeof metadata.title === 'string' ? metadata.title : undefined
+  const description = typeof metadata.description === 'string' ? metadata.description : undefined
+  return {
+    ...metadata,
+    ...publicPageSeo(`/servicos/${slug}`, { title, description }),
+  }
+}
+
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug: segments } = await params
   const slug = resolveProductSlug(segments)
   const batteryLanding = resolveBatteryModelLanding(slug)
   if (batteryLanding) {
-    return {
+    return servicePageMetadata(slug, {
       title: batteryLanding.seo.title,
       description: batteryLanding.seo.description,
       robots: { index: true, follow: true },
-      alternates: { canonical: `${getSiteUrl()}/servicos/${slug}` }
-    }
+    })
   }
   if (slug === POCO_X6_PRO_GLASS_SLUG) {
-    return {
+    return servicePageMetadata(slug, {
       title: pocoX6ProScreenSeo.title,
       description: pocoX6ProScreenSeo.description,
       robots: { index: true, follow: true },
-      alternates: { canonical: `${getSiteUrl()}/servicos/${POCO_X6_PRO_GLASS_SLUG}` }
-    }
+    })
   }
   if (slug === IPHONE_SCREEN_HUB_SLUG) {
-    return {
+    return servicePageMetadata(slug, {
       title: iphoneScreenHubSeo.title,
       description: iphoneScreenHubSeo.description,
       robots: { index: true, follow: true },
-      alternates: { canonical: `${getSiteUrl()}/servicos/${IPHONE_SCREEN_HUB_SLUG}` },
-      openGraph: {
-        title: iphoneScreenHubSeo.title,
-        description: iphoneScreenHubSeo.description,
-        url: `${getSiteUrl()}/servicos/${IPHONE_SCREEN_HUB_SLUG}`,
-        locale: 'pt_BR',
-        type: 'website',
-      },
-    }
+    })
   }
   if (slug === IPHONE_REAR_GLASS_HUB_SLUG) {
-    return {
+    return servicePageMetadata(slug, {
       title: iphoneRearGlassHubSeo.title,
       description: iphoneRearGlassHubSeo.description,
       robots: { index: true, follow: true },
-      alternates: { canonical: `${getSiteUrl()}/servicos/${IPHONE_REAR_GLASS_HUB_SLUG}` },
-      openGraph: {
-        title: iphoneRearGlassHubSeo.title,
-        description: iphoneRearGlassHubSeo.description,
-        url: `${getSiteUrl()}/servicos/${IPHONE_REAR_GLASS_HUB_SLUG}`,
-        locale: 'pt_BR',
-        type: 'website',
-      },
-    }
+    })
   }
   const parsed = parseServiceProductSlug(slug)
   if (!parsed.isValid) {
@@ -215,12 +206,11 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       deviceType: deviceTypeHub
     })
 
-    return {
+    return servicePageMetadata(slug, {
       title: content.title,
       description: content.description,
       keywords: generateKeywords(service, brand, deviceTypeHub),
-      alternates: { canonical: `${getSiteUrl()}/servicos/${slug}` }
-    }
+    })
   }
 
   if (!modelData) {
@@ -254,14 +244,11 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     model
   })
 
-  return {
+  return servicePageMetadata(slug, {
     title: content.title,
     description: content.description,
     keywords: generateKeywords(service, brand, modelData.deviceType, model),
-    alternates: {
-      canonical: `${getSiteUrl()}/servicos/${slug}`
-    }
-  }
+  })
 }
 
 export default async function ServiceProductPage({ params }: PageProps) {

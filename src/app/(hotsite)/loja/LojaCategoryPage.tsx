@@ -17,7 +17,7 @@ import {
 	lojaCopy,
 	whatsappLink,
 } from '@/lib/data/hotsite-loja'
-import { getSiteUrl } from '@/lib/utils/site-url'
+import { absoluteSiteUrl, canonicalAlternates } from '@/lib/utils/site-url'
 import { HeroBrokenPhone } from './HeroBrokenPhone'
 import { LojaContactCta } from './LojaContactCta'
 import { LojaReviews } from './LojaReviews'
@@ -97,7 +97,7 @@ export function lojaCategoryMetadata (input: {
 	path: string
 	keywords: string
 }): Metadata {
-	const url = `${getSiteUrl()}${input.path}`
+	const url = absoluteSiteUrl(input.path)
 
 	return {
 		title: input.title,
@@ -107,9 +107,7 @@ export function lojaCategoryMetadata (input: {
 			index: true,
 			follow: true,
 		},
-		alternates: {
-			canonical: url,
-		},
+		alternates: canonicalAlternates(input.path),
 		openGraph: {
 			type: 'website',
 			title: input.title,
