@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import { createSupabaseServiceClient } from '@/lib/supabase/service'
 
 export async function GET () {
 	return NextResponse.json({
@@ -24,7 +25,8 @@ export async function POST (request: Request) {
 	if (!endpoint || !p256dh || !authKey) {
 		return NextResponse.json({ ok: false }, { status: 400 })
 	}
-	const { error } = await auth.supabase
+	const supabase = createSupabaseServiceClient()
+	const { error } = await supabase
 		.from('push_subscriptions')
 		.upsert({
 			user_id: auth.userId,

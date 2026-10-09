@@ -251,6 +251,13 @@ export function OrdemDetalhePageContent(props: Props) {
 								? formatDateTimeBr(order.estimated_ready_at)
 								: null
 						}
+						showAppointment={order.origin === 'agendamento'}
+						appointmentStartsAtDefault={formatDateTimeLocal(order.appointment_starts_at)}
+						appointmentDisplay={
+							order.appointment_starts_at
+								? formatDateTimeBr(order.appointment_starts_at)
+								: null
+						}
 						customerDescription={String(order.customer_description || '')}
 						receivingNotes={String(order.receiving_notes || '')}
 						deviceEntryChecks={order.device_entry_checks ?? null}

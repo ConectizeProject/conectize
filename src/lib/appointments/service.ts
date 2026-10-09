@@ -1,11 +1,27 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { iphoneModels } from '@/lib/data/hotsite-loja'
 import { CONECTIZE_HOST_ORGANIZATION_ID } from '@/lib/organizations/constants'
+import { FINALIZED_ORDER_STATUSES } from '@/lib/orders/order-status'
 import { isEmailFormat, isValidCpf, onlyDigits } from '@/lib/utils/strings'
+import { bookingIpAllowed, recordBookingIp } from './booking-ip'
+import { matchBatteryProduct } from './battery-prices'
 import { notifyStaffOfAppointment } from './notify'
 import {
+	batteryOrderServices,
+	BOOKING_CUSTOMER_DESCRIPTION,
+	BOOKING_ORDER_TITLE,
+	buildAppointmentInternalNote,
+	normalizeAppointmentVisit,
+	type AppointmentVisit,
+	type BatteryOrderProduct,
+} from './order-draft'
+import {
+	addDateKeyDays,
+	appointmentInstantKey,
 	canCustomerChangeAppointment,
+	datesWithOpenSlots,
 	formatAppointmentWhen,
+	formatDateKeySaoPaulo,
 	formatSlotLabel,
 	isBookableSlot,
 	isDateKey,
@@ -19,9 +35,27 @@ export type AppointmentPublicError =
 	| 'dados_invalidos'
 	| 'horario_indisponivel'
 	| 'limite'
+	| 'limite_ip'
+	| 'ja_agendado'
+	| 'ocupado'
 	| 'nao_encontrado'
 	| 'nao_editavel'
 	| 'config'
+
+export type ActiveAppointmentNotice = {
+	displayNumber: number | null
+	title: string
+	model: string
+	when: string
+}
+
+const SIMULTANEOUS_APPOINTMENT_LIMIT = 3
+
+export function nextAppointmentDecision (activeCount: number, confirmExtra: boolean) {
+	if (activeCount >= SIMULTANEOUS_APPOINTMENT_LIMIT) return 'limite' as const
+	if (activeCount > 0 && !confirmExtra) return 'ja_agendado' as const
+	return 'criar' as const
+}
 
 export type CreateAppointmentInput = {
 	model: string
@@ -31,6 +65,9 @@ export type CreateAppointmentInput = {
 	phone: string
 	cpf: string
 	honeypot?: string
+	confirmExtra?: boolean
+	clientIp?: string
+	visit?: Partial<AppointmentVisit> | null
 }
 
 function isEmail (value: string) {
@@ -42,6 +79,137 @@ function normalizeModel (value: string) {
 	return (iphoneModels as readonly string[]).includes(trimmed) ? trimmed : ''
 }
 
+function dayWindow (fromKey: string, toKeyExclusive: string) {
+	return {
+		start: new Date(`${fromKey}T00:00:00-03:00`).toISOString(),
+		end: new Date(`${toKeyExclusive}T00:00:00-03:00`).toISOString(),
+	}
+}
+
+function isMissingTable (error: { code?: string, message?: string } | null) {
+	if (!error) return false
+	const code = String(error.code || '')
+	return code === '42P01' || code === 'PGRST205'
+}
+
+function instantWindow (iso: string) {
+	const start = appointmentInstantKey(iso)
+	if (!start) return null
+	return {
+		start,
+		end: new Date(new Date(start).getTime() + 1000).toISOString(),
+	}
+}
+
+async function blockedInstantKeys (
+	supabase: SupabaseClient,
+	organizationId: string,
+	fromIso: string,
+	toIso: string,
+) {
+	const { data, error } = await supabase
+		.from('appointment_slot_blocks')
+		.select('starts_at')
+		.eq('organization_id', organizationId)
+		.gte('starts_at', fromIso)
+		.lt('starts_at', toIso)
+	if (error) {
+		if (!isMissingTable(error)) console.error('[agendamento-bloqueio]', error.message)
+		return [] as string[]
+	}
+	return (data ?? []).map((row) => appointmentInstantKey(String(row.starts_at))).filter(Boolean)
+}
+
+async function occupiedInstantKeys (
+	supabase: SupabaseClient,
+	organizationId: string,
+	fromIso: string,
+	toIso: string,
+) {
+	const { data, error } = await supabase
+		.from('service_orders')
+		.select('appointment_starts_at')
+		.eq('organization_id', organizationId)
+		.eq('origin', 'agendamento')
+		.neq('status', 'cancelada')
+		.gte('appointment_starts_at', fromIso)
+		.lt('appointment_starts_at', toIso)
+	if (error) return { error, keys: new Set<string>() }
+	const keys = new Set((data ?? []).map((row) => appointmentInstantKey(String(row.appointment_starts_at))).filter(Boolean))
+	const blocked = await blockedInstantKeys(supabase, organizationId, fromIso, toIso)
+	for (const key of blocked) keys.add(key)
+	return { error: null, keys }
+}
+
+async function isInstantBlocked (supabase: SupabaseClient, organizationId: string, iso: string) {
+	const window = instantWindow(iso)
+	if (!window) return false
+	const blocked = await blockedInstantKeys(supabase, organizationId, window.start, window.end)
+	return blocked.includes(window.start)
+}
+
+export async function listBlockedStarts (
+	supabase: SupabaseClient,
+	organizationId: string,
+	fromKey: string,
+	toKey: string,
+) {
+	if (!isDateKey(fromKey) || !isDateKey(toKey) || fromKey > toKey) return []
+	const range = dayWindow(fromKey, addDateKeyDays(toKey, 1))
+	return blockedInstantKeys(supabase, organizationId, range.start, range.end)
+}
+
+export async function toggleAppointmentSlotBlock (
+	supabase: SupabaseClient,
+	organizationId: string,
+	userId: string,
+	startsAt: string,
+) {
+	const window = instantWindow(startsAt)
+	if (!window) return { ok: false as const, error: 'horario_indisponivel' as const }
+	const { data: existing, error: readError } = await supabase
+		.from('appointment_slot_blocks')
+		.select('id')
+		.eq('organization_id', organizationId)
+		.gte('starts_at', window.start)
+		.lt('starts_at', window.end)
+		.limit(1)
+	if (readError) {
+		console.error('[agendamento-bloqueio]', readError.message)
+		return { ok: false as const, error: 'config' as const }
+	}
+	if (existing?.[0]?.id) {
+		const { error } = await supabase.from('appointment_slot_blocks').delete().eq('id', existing[0].id)
+		if (error) return { ok: false as const, error: 'config' as const }
+		return { ok: true as const, blocked: false as const, startsAt: window.start }
+	}
+	if (!isBookableSlot(window.start)) return { ok: false as const, error: 'horario_indisponivel' as const }
+	const { data: orders, error: orderError } = await supabase
+		.from('service_orders')
+		.select('id')
+		.eq('organization_id', organizationId)
+		.eq('origin', 'agendamento')
+		.neq('status', 'cancelada')
+		.gte('appointment_starts_at', window.start)
+		.lt('appointment_starts_at', window.end)
+		.limit(1)
+	if (orderError) return { ok: false as const, error: 'config' as const }
+	if (orders?.[0]?.id) return { ok: false as const, error: 'ocupado' as const }
+	const { error } = await supabase.from('appointment_slot_blocks').insert({
+		organization_id: organizationId,
+		starts_at: window.start,
+		created_by: userId,
+	})
+	if (error) {
+		if (String(error.code || '') === '23505') {
+			return { ok: true as const, blocked: true as const, startsAt: window.start }
+		}
+		console.error('[agendamento-bloqueio]', error.message)
+		return { ok: false as const, error: 'config' as const }
+	}
+	return { ok: true as const, blocked: true as const, startsAt: window.start }
+}
+
 export async function listOpenAppointmentStarts (
 	supabase: SupabaseClient,
 	dateKey: string,
@@ -49,58 +217,125 @@ export async function listOpenAppointmentStarts (
 	if (dateKey > lastBookableDateKey()) return []
 	const starts = listSlotStarts(dateKey)
 	if (!starts.length) return []
-	const { data, error } = await supabase
-		.from('service_orders')
-		.select('appointment_starts_at')
-		.eq('organization_id', HOST_ORG)
-		.eq('origin', 'agendamento')
-		.neq('status', 'cancelada')
-		.in('appointment_starts_at', starts)
-	if (error) {
-		if (error.code === '42703') {
-			console.error('[bateria-horarios] colunas de agendamento ainda não existem', error.message)
+	const range = dayWindow(dateKey, addDateKeyDays(dateKey, 1))
+	const occupied = await occupiedInstantKeys(supabase, HOST_ORG, range.start, range.end)
+	if (occupied.error) {
+		if (occupied.error.code === '42703') {
+			console.error('[bateria-horarios] colunas de agendamento ainda não existem', occupied.error.message)
 			const now = new Date()
 			return starts.filter((iso) => new Date(iso).getTime() > now.getTime())
 		}
-		throw error
+		throw occupied.error
 	}
-	const taken = new Set((data ?? []).map((row) => new Date(String(row.appointment_starts_at)).toISOString()))
 	const now = new Date()
-	return starts.filter((iso) => !taken.has(iso) && new Date(iso).getTime() > now.getTime())
+	return starts.filter((iso) => !occupied.keys.has(iso) && new Date(iso).getTime() > now.getTime())
 }
 
-async function findDeviceModelId (supabase: SupabaseClient, model: string) {
+export async function listDatesWithOpenSlots (supabase: SupabaseClient) {
+	const now = new Date()
+	const today = formatDateKeySaoPaulo(now)
+	const until = addDateKeyDays(lastBookableDateKey(now), 1)
+	const range = dayWindow(today, until)
+	const occupied = await occupiedInstantKeys(supabase, HOST_ORG, range.start, range.end)
+	if (occupied.error) {
+		if (occupied.error.code === '42703') return datesWithOpenSlots(new Set(), now)
+		throw occupied.error
+	}
+	return datesWithOpenSlots(occupied.keys, now)
+}
+
+type DeviceModelRow = {
+	id: string
+	model: string | null
+	device_types?: { name?: string | null, device_brands?: { name?: string | null } | Array<{ name?: string | null }> | null } | Array<{ name?: string | null, device_brands?: { name?: string | null } | Array<{ name?: string | null }> | null }> | null
+}
+
+function deviceModelLabels (model: string) {
+	const suffix = model.replace(/^iphone\s+/i, '').trim()
+	return [...new Set([model, suffix, suffix ? `iPhone ${suffix}` : ''].filter(Boolean))]
+}
+
+function isApplePhone (row: DeviceModelRow) {
+	const typeRow = Array.isArray(row.device_types) ? row.device_types[0] : row.device_types
+	const brandRow = Array.isArray(typeRow?.device_brands) ? typeRow?.device_brands[0] : typeRow?.device_brands
+	const brand = String(brandRow?.name || '').toLowerCase()
+	const type = String(typeRow?.name || '').toLowerCase()
+	return brand === 'apple' && (type === 'smartphone' || type === 'iphone' || type.includes('celular'))
+}
+
+function pickDeviceModelId (rows: DeviceModelRow[], model: string) {
+	const labels = new Set(deviceModelLabels(model).map((label) => label.toLowerCase()))
+	const matches = rows.filter((row) => labels.has(String(row.model || '').trim().toLowerCase()))
+	return matches.find((row) => isApplePhone(row))?.id ?? matches[0]?.id ?? null
+}
+
+async function findDeviceModelId (supabase: SupabaseClient, model: string, productId: string | null) {
+	if (productId) {
+		const { data } = await supabase
+			.from('product_compatible_device_models')
+			.select('device_models ( id, model, device_types ( name, device_brands ( name ) ) )')
+			.eq('product_id', productId)
+		const linked = ((data ?? []) as Array<{ device_models?: DeviceModelRow | DeviceModelRow[] | null }>)
+			.flatMap((row) => {
+				if (!row.device_models) return []
+				return Array.isArray(row.device_models) ? row.device_models : [row.device_models]
+			})
+		const fromProduct = pickDeviceModelId(linked, model)
+		if (fromProduct) return fromProduct
+	}
+	const labels = deviceModelLabels(model)
+	const filter = labels.map((label) => `model.ilike."${label.replace(/"/g, '')}"`).join(',')
 	const { data } = await supabase
 		.from('device_models')
 		.select('id, model, device_types ( name, device_brands ( name ) )')
-		.ilike('model', model)
+		.eq('organization_id', HOST_ORG)
+		.or(filter)
 		.limit(20)
-	const rows = (data ?? []) as Array<{
-		id: string
-		model: string | null
-		device_types?: { name?: string | null, device_brands?: { name?: string | null } | Array<{ name?: string | null }> | null } | Array<{ name?: string | null, device_brands?: { name?: string | null } | Array<{ name?: string | null }> | null }> | null
-	}>
-	const match = rows.find((row) => {
-		const typeRow = Array.isArray(row.device_types) ? row.device_types[0] : row.device_types
-		const brandRow = Array.isArray(typeRow?.device_brands) ? typeRow?.device_brands[0] : typeRow?.device_brands
-		const brand = String(brandRow?.name || '').toLowerCase()
-		const type = String(typeRow?.name || '').toLowerCase()
-		return brand === 'apple' && (type === 'smartphone' || type === 'iphone' || type.includes('celular'))
-			&& String(row.model || '').trim().toLowerCase() === model.toLowerCase()
-	})
-	return match?.id ?? rows.find((row) => String(row.model || '').trim().toLowerCase() === model.toLowerCase())?.id ?? null
+	return pickDeviceModelId((data ?? []) as DeviceModelRow[], model)
 }
 
-async function countRecentAppointments (supabase: SupabaseClient, customerId: string) {
-	const since = new Date(Date.now() - 60 * 60 * 1000).toISOString()
-	const { count } = await supabase
+async function findBatteryProduct (supabase: SupabaseClient, model: string): Promise<BatteryOrderProduct | null> {
+	const { data, error } = await supabase
+		.from('products')
+		.select('id, name, kind, sale_price_cents, cost_price_cents')
+		.eq('organization_id', HOST_ORG)
+		.eq('is_active', true)
+		.ilike('name', '%Bateria iPhone Modelo:%')
+	if (error) {
+		console.error('[bateria-produto]', error.message)
+		return null
+	}
+	const products = (data ?? []).map((row) => ({
+		id: String(row.id || ''),
+		name: String(row.name || ''),
+		kind: row.kind === 'service' ? 'service' as const : 'product' as const,
+		salePriceCents: Number(row.sale_price_cents) || 0,
+		costPriceCents: Number(row.cost_price_cents) || 0,
+	}))
+	const match = matchBatteryProduct(model, products)
+	return match?.id ? match : null
+}
+
+async function listActiveAppointments (supabase: SupabaseClient, customerId: string) {
+	const closed = FINALIZED_ORDER_STATUSES.join(',')
+	const { data, error } = await supabase
 		.from('service_orders')
-		.select('id', { count: 'exact', head: true })
+		.select('display_number, title, appointment_model_label, appointment_starts_at')
 		.eq('organization_id', HOST_ORG)
 		.eq('origin', 'agendamento')
 		.eq('customer_id', customerId)
-		.gte('created_at', since)
-	return count ?? 0
+		.not('status', 'in', `(${closed})`)
+		.order('appointment_starts_at', { ascending: true })
+	if (error) {
+		console.error('[appointment-create] agendamentos abertos', error.message)
+		return null
+	}
+	return (data ?? []).map((row) => ({
+		displayNumber: row.display_number ?? null,
+		title: String(row.title || BOOKING_ORDER_TITLE),
+		model: String(row.appointment_model_label || ''),
+		when: formatAppointmentWhen(String(row.appointment_starts_at || '')),
+	}))
 }
 
 export async function createBatteryAppointment (
@@ -122,10 +357,13 @@ export async function createBatteryAppointment (
 		return { ok: false as const, error: 'horario_indisponivel' as const }
 	}
 	const startsAt = new Date(input.startsAt).toISOString()
+	if (await isInstantBlocked(supabase, HOST_ORG, startsAt)) {
+		return { ok: false as const, error: 'horario_indisponivel' as const }
+	}
 
 	const { data: existing } = await supabase
 		.from('customers')
-		.select('id, full_name, email, mobile_phone')
+		.select('id, full_name, email, mobile_phone, referral_source')
 		.eq('organization_id', HOST_ORG)
 		.eq('cpf', cpf)
 		.maybeSingle()
@@ -136,9 +374,12 @@ export async function createBatteryAppointment (
 		if (String(existing?.full_name || '').trim() && String(existing?.full_name || '').trim() !== fullName) {
 			nameNote = `Nome informado no agendamento: ${fullName}. Cadastro existente mantido.`
 		}
-		const patch: Record<string, string> = {}
-		if (!String(existing?.email || '').trim()) patch.email = email
-		if (!String(existing?.mobile_phone || '').trim()) patch.mobile_phone = phone
+		const patch: Record<string, string> = {
+			email,
+			mobile_phone: phone,
+			phone,
+		}
+		if (!String(existing?.referral_source || '').trim()) patch.referral_source = 'google'
 		if (Object.keys(patch).length) {
 			await supabase.from('customers').update(patch).eq('id', customerId)
 		}
@@ -153,7 +394,7 @@ export async function createBatteryAppointment (
 				email,
 				phone,
 				mobile_phone: phone,
-				referral_source: 'site',
+				referral_source: 'google',
 			})
 			.select('id')
 			.single()
@@ -163,37 +404,47 @@ export async function createBatteryAppointment (
 		customerId = String(created.id)
 	}
 
-	if (await countRecentAppointments(supabase, customerId) >= 3) {
-		return { ok: false as const, error: 'limite' as const }
+	const active = await listActiveAppointments(supabase, customerId)
+	if (!active) return { ok: false as const, error: 'config' as const }
+	const decision = nextAppointmentDecision(active.length, Boolean(input.confirmExtra))
+	if (decision === 'limite') {
+		return { ok: false as const, error: 'limite' as const, appointments: active }
+	}
+	if (decision === 'ja_agendado') {
+		return { ok: false as const, error: 'ja_agendado' as const, appointments: active }
 	}
 
-	const deviceModelId = await findDeviceModelId(supabase, model)
+	const ipGate = await bookingIpAllowed(supabase, String(input.clientIp || ''))
+	if (!ipGate.allowed) {
+		return { ok: false as const, error: 'limite_ip' as const }
+	}
+
+	const battery = await findBatteryProduct(supabase, model)
+	const deviceModelId = await findDeviceModelId(supabase, model, battery?.id ?? null)
 	const when = formatAppointmentWhen(startsAt)
-	const description = [
-		`Agendamento online de troca de bateria. Modelo: ${model}. Horário: ${when}. Desconto de 5% do agendamento online.`,
-		nameNote,
-	].filter(Boolean).join(' ')
+	const services = batteryOrderServices(battery)
+	const visit = normalizeAppointmentVisit(input.visit)
 
 	const { data: inserted, error } = await supabase
 		.from('service_orders')
 		.insert({
 			organization_id: HOST_ORG,
 			customer_id: customerId,
-			title: `Troca de bateria ${model}`,
+			title: BOOKING_ORDER_TITLE,
 			status: 'orcamento',
 			origin: 'agendamento',
 			appointment_starts_at: startsAt,
 			appointment_model_label: model,
 			device_model_id: deviceModelId,
-			estimated_ready_at: startsAt,
-			customer_description: description,
-			receiving_notes: 'Revisar agendamento online antes de lançar o preço da bateria. Desconto de 5% já aplicado.',
-			services: [],
-			services_total_cents: 0,
-			services_cost_total_cents: 0,
+			estimated_ready_at: null,
+			customer_description: BOOKING_CUSTOMER_DESCRIPTION,
+			receiving_notes: null,
+			services: services.items,
+			services_total_cents: services.totalValueCents,
+			services_cost_total_cents: services.totalCostCents,
 			discount_mode: 'percent',
 			discount_percent: 5,
-			discount_cents: 0,
+			discount_cents: services.discountCents,
 		})
 		.select('id, display_number, share_token')
 		.single()
@@ -205,6 +456,17 @@ export async function createBatteryAppointment (
 		console.error('[appointment-create]', error)
 		return { ok: false as const, error: 'config' as const }
 	}
+
+	const { error: noteError } = await supabase.from('service_order_internal_comments').insert({
+		service_order_id: String(inserted.id),
+		organization_id: HOST_ORG,
+		author_user_id: null,
+		author_display_name: 'Agendamento online',
+		content: buildAppointmentInternalNote(visit, nameNote),
+	})
+	if (noteError) console.error('[appointment-create] descrição interna', noteError.message)
+
+	if (ipGate.record) await recordBookingIp(supabase, ipGate.ipHash)
 
 	await notifyStaffOfAppointment(supabase, {
 		orderId: String(inserted.id),
@@ -286,13 +548,15 @@ export async function rescheduleBatteryAppointment (
 		return { ok: false as const, error: 'horario_indisponivel' as const }
 	}
 	const next = new Date(startsAt).toISOString()
+	if (await isInstantBlocked(supabase, HOST_ORG, next)) {
+		return { ok: false as const, error: 'horario_indisponivel' as const }
+	}
 	const when = formatAppointmentWhen(next)
 	const { error } = await supabase
 		.from('service_orders')
 		.update({
 			appointment_starts_at: next,
-			estimated_ready_at: next,
-			customer_description: `Agendamento online de troca de bateria. Modelo: ${row.appointment_model_label || row.title}. Horário: ${when}. Desconto de 5% do agendamento online.`,
+			customer_description: BOOKING_CUSTOMER_DESCRIPTION,
 		})
 		.eq('id', row.id)
 		.eq('origin', 'agendamento')
@@ -320,17 +584,63 @@ export async function cancelBatteryAppointment (supabase: SupabaseClient, userId
 	return { ok: true as const }
 }
 
+export async function listAppointmentsBetween (
+	supabase: SupabaseClient,
+	organizationId: string,
+	fromKey: string,
+	toKey: string,
+) {
+	if (!isDateKey(fromKey) || !isDateKey(toKey) || fromKey > toKey) return []
+	const start = new Date(`${fromKey}T00:00:00-03:00`).toISOString()
+	const end = new Date(`${addDateKeyDays(toKey, 1)}T00:00:00-03:00`).toISOString()
+	const { data, error } = await supabase
+		.from('service_orders')
+		.select('id, display_number, appointment_starts_at, appointment_model_label, appointment_reviewed_at, status, title, customer_id')
+		.eq('organization_id', organizationId)
+		.eq('origin', 'agendamento')
+		.neq('status', 'cancelada')
+		.gte('appointment_starts_at', start)
+		.lt('appointment_starts_at', end)
+		.order('appointment_starts_at', { ascending: true })
+	if (error) {
+		console.error('[agendamentos]', error)
+		return []
+	}
+	const rows = data ?? []
+	const customerIds = [...new Set(rows.map((row) => row.customer_id).filter(Boolean))]
+	const names = new Map<string, string>()
+	if (customerIds.length) {
+		const { data: customers } = await supabase
+			.from('customers')
+			.select('id, full_name')
+			.in('id', customerIds)
+		for (const customer of customers ?? []) {
+			names.set(String(customer.id), String(customer.full_name || 'Cliente'))
+		}
+	}
+	return rows.map((row) => ({
+		id: String(row.id),
+		displayNumber: row.display_number ?? null,
+		model: String(row.appointment_model_label || row.title || ''),
+		customerName: names.get(String(row.customer_id)) || 'Cliente',
+		reviewed: Boolean(row.appointment_reviewed_at),
+		startsAt: new Date(String(row.appointment_starts_at)).toISOString(),
+	}))
+}
+
 export async function listDayAppointments (supabase: SupabaseClient, organizationId: string, dateKey: string) {
 	if (!isDateKey(dateKey)) return []
 	const starts = listSlotStarts(dateKey)
 	if (!starts.length) return []
+	const range = dayWindow(dateKey, addDateKeyDays(dateKey, 1))
 	const { data } = await supabase
 		.from('service_orders')
 		.select('id, display_number, appointment_starts_at, appointment_model_label, appointment_reviewed_at, status, title, customer_id')
 		.eq('organization_id', organizationId)
 		.eq('origin', 'agendamento')
 		.neq('status', 'cancelada')
-		.in('appointment_starts_at', starts)
+		.gte('appointment_starts_at', range.start)
+		.lt('appointment_starts_at', range.end)
 	const rows = data ?? []
 	const customerIds = [...new Set(rows.map((row) => row.customer_id).filter(Boolean))]
 	const names = new Map<string, string>()
@@ -345,7 +655,7 @@ export async function listDayAppointments (supabase: SupabaseClient, organizatio
 	}
 	const byStart = new Map<string, typeof rows>()
 	for (const row of rows) {
-		const key = new Date(String(row.appointment_starts_at)).toISOString()
+		const key = appointmentInstantKey(String(row.appointment_starts_at))
 		const list = byStart.get(key) ?? []
 		list.push(row)
 		byStart.set(key, list)

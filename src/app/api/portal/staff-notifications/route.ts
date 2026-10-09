@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import { createSupabaseServiceClient } from '@/lib/supabase/service'
 
 export async function GET () {
 	const auth = await requireStaffOrAdmin()
@@ -32,7 +33,8 @@ export async function POST (request: Request) {
 	}
 	const id = String(body.id || '').trim()
 	if (!id) return NextResponse.json({ ok: false }, { status: 400 })
-	const { error } = await auth.supabase
+	const supabase = createSupabaseServiceClient()
+	const { error } = await supabase
 		.from('staff_notifications')
 		.update({ read_at: new Date().toISOString() })
 		.eq('id', id)

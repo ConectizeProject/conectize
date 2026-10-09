@@ -4,11 +4,12 @@ import {
 	createBatteryAppointment,
 	rescheduleBatteryAppointment,
 } from '@/lib/appointments/service'
+import { signupIpFromHeaders } from '@/lib/auth/signup-ip-limit'
 import { getAuthUser } from '@/lib/supabase/server'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 
-function clientError (error: string, status = 400) {
-	return NextResponse.json({ ok: false, error }, { status })
+function clientError (error: string, status = 400, extra?: Record<string, unknown>) {
+	return NextResponse.json({ ok: false, error, ...extra }, { status })
 }
 
 export async function POST (request: Request) {
@@ -20,6 +21,9 @@ export async function POST (request: Request) {
 	}
 	try {
 		const supabase = createSupabaseServiceClient()
+		const visit = body.visit && typeof body.visit === 'object'
+			? body.visit as Record<string, unknown>
+			: {}
 		const result = await createBatteryAppointment(supabase, {
 			model: String(body.model || ''),
 			startsAt: String(body.startsAt || ''),
@@ -28,10 +32,22 @@ export async function POST (request: Request) {
 			phone: String(body.phone || ''),
 			cpf: String(body.cpf || ''),
 			honeypot: String(body.companyWebsite || ''),
+			confirmExtra: body.confirmExtra === true,
+			clientIp: signupIpFromHeaders(request.headers),
+			visit: {
+				path: String(visit.path || ''),
+				search: String(visit.search || ''),
+				referrer: String(visit.referrer || ''),
+			},
 		})
 		if (!result.ok) {
-			const status = result.error === 'horario_indisponivel' ? 409 : 400
-			return clientError(result.error, status)
+			const status = result.error === 'horario_indisponivel' || result.error === 'ja_agendado'
+				? 409
+				: result.error === 'limite_ip'
+					? 429
+					: 400
+			const appointments = 'appointments' in result ? result.appointments : undefined
+			return clientError(result.error, status, appointments ? { appointments } : undefined)
 		}
 		return NextResponse.json(result)
 	} catch (err) {

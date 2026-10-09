@@ -170,7 +170,7 @@ export default async function OrdemPublicaPage({
 	const { data: order } = await supabase
 		.from('service_orders')
 		.select(
-			'id, organization_id, display_number, status, title, imei, device_location, is_warranty, estimated_ready_at, customer_description, receiving_notes, warranty_text, services, payment_methods, device_model_id, created_at, updated_at, closed_at, device_entry_checks, device_exit_checks, customers ( cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date ), device_models ( id, model, device_types ( name, device_brands ( name ) ) ), organizations ( slug, is_host, name, logo_url, phone, email )',
+			'id, organization_id, display_number, status, title, imei, device_location, is_warranty, estimated_ready_at, appointment_starts_at, customer_description, receiving_notes, warranty_text, services, payment_methods, device_model_id, created_at, updated_at, closed_at, device_entry_checks, device_exit_checks, customers ( cpf, cnpj, is_company, full_name, company_name, trade_name, email, mobile_phone, contact_phone, contact_notes, address_full, birth_date ), device_models ( id, model, device_types ( name, device_brands ( name ) ) ), organizations ( slug, is_host, name, logo_url, phone, email )',
 		)
 		.eq('share_token', token)
 		.maybeSingle()
@@ -344,9 +344,19 @@ export default async function OrdemPublicaPage({
 								</CardDescription>
 							</CardHeader>
 							<CardContent className="space-y-4 p-5 pt-0">
+								{order.appointment_starts_at ? (
+									<div>
+										<span className="text-sm font-medium">Agendado para: </span>
+										<span className="text-sm text-muted-foreground">
+											{formatDateTimeBr(order.appointment_starts_at)}
+										</span>
+									</div>
+								) : null}
 								{order.estimated_ready_at && (
 									<div>
-										<span className="text-sm font-medium">Previsão de conclusão: </span>
+										<span className="text-sm font-medium">
+											{order.appointment_starts_at ? 'Previsto para finalização: ' : 'Previsão de conclusão: '}
+										</span>
 										<span className="text-sm text-muted-foreground">
 											{formatDateTimeBr(order.estimated_ready_at)}
 										</span>

@@ -55,6 +55,10 @@ export async function updateOrderAction(
 	const estimatedReadyAtRaw = String(
 		formData.get('estimatedReadyAt') || '',
 	).trim()
+	const hasAppointmentStart = formData.has('appointmentStartsAt')
+	const appointmentStartsAtRaw = String(
+		formData.get('appointmentStartsAt') || '',
+	).trim()
 	const passcodeType = String(formData.get('passcodeType') || '').trim()
 	const passcodeText = String(formData.get('passcodeText') || '').trim()
 	const passcodePattern = String(formData.get('passcodePattern') || '').trim()
@@ -133,6 +137,7 @@ export async function updateOrderAction(
 		.from('service_orders')
 		.select(
 			`display_number, status, services, title, imei, color, device_location, is_warranty, estimated_ready_at,
+				origin, appointment_starts_at,
 				passcode_type, passcode_text, passcode_pattern,
 				payment_methods, customer_description, receiving_notes,
 				warranty_template_id, warranty_text, device_model_id,
@@ -226,6 +231,9 @@ export async function updateOrderAction(
 		device_location: deviceLocation || null,
 		is_warranty: isWarranty,
 		estimated_ready_at: estimatedReadyAt,
+		...(hasAppointmentStart && existing?.origin === 'agendamento'
+			? { appointment_starts_at: previsaoToISO(appointmentStartsAtRaw) }
+			: {}),
 		passcode_type:
 			passcodeType === 'text' || passcodeType === 'pattern'
 				? passcodeType

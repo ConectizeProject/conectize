@@ -1,3 +1,4 @@
+import { loadBatteryMaintenancePrices } from '@/lib/appointments/battery-prices'
 import { loadPublicBatteryAppointment } from '@/lib/appointments/service'
 import {
 	iphoneModels,
@@ -25,13 +26,13 @@ export const metadata = lojaCategoryMetadata({
 export default async function LojaBateriaIphonePage () {
 	let loggedIn = false
 	let appointment: BatteryAppointmentSession | null = null
+	let prices: Record<string, number> = {}
 	try {
+		const supabase = createSupabaseServiceClient()
+		prices = await loadBatteryMaintenancePrices(supabase)
 		const { user } = await getAuthUser()
 		loggedIn = Boolean(user?.id)
-		if (user?.id) {
-			const supabase = createSupabaseServiceClient()
-			appointment = await loadPublicBatteryAppointment(supabase, user.id)
-		}
+		if (user?.id) appointment = await loadPublicBatteryAppointment(supabase, user.id)
 	} catch (err) {
 		console.error('[bateria-agendamento-session]', err)
 	}
@@ -39,6 +40,7 @@ export default async function LojaBateriaIphonePage () {
 	return (
 		<BatteryBooking
 			models={iphoneModels}
+			prices={prices}
 			whatsappHref={whatsappLink('Olá! Vim pelo site e quero agendar a troca de bateria do iPhone.')}
 			loggedIn={loggedIn}
 			appointment={appointment}

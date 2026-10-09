@@ -1,12 +1,13 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Formik } from 'formik'
 import * as Yup from 'yup'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { trackBookingFunnel } from '@/lib/analytics/loja-conversions'
 import { portalFetch } from '@/lib/portal/portal-fetch'
 import { formatCpf } from '@/lib/utils/format-cpf-cnpj'
 import { onlyDigits } from '@/lib/utils/strings'
@@ -48,6 +49,14 @@ export function CompleteProfileClient(props: { initialError?: string, initialCpf
   const router = useRouter()
   const [serverError, setServerError] = useState<string | null>(props.initialError || null)
   const [serverMessage, setServerMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    const origem = new URLSearchParams(window.location.search).get('origem')
+    if (origem !== 'agendamento') return
+    if (window.sessionStorage.getItem('conectize_booking_account_created') === '1') return
+    window.sessionStorage.setItem('conectize_booking_account_created', '1')
+    trackBookingFunnel('account_created')
+  }, [])
 
   const initialValues = useMemo(() => {
     return {

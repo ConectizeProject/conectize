@@ -43,6 +43,11 @@ export function weekdayIndexInSaoPaulo (dateKey: string) {
 	return WEEKDAY_INDEX[label] ?? 0
 }
 
+export function weekStartDateKey (dateKey: string) {
+	if (!isDateKey(dateKey)) return dateKey
+	return addDateKeyDays(dateKey, -weekdayIndexInSaoPaulo(dateKey))
+}
+
 export function addDateKeyDays (dateKey: string, days: number) {
 	const [year, month, day] = dateKey.split('-').map(Number)
 	const date = new Date(Date.UTC(year, month - 1, day + days))
@@ -60,6 +65,13 @@ export function formatDateKeySaoPaulo (date: Date) {
 		month: '2-digit',
 		day: '2-digit',
 	}).format(date)
+}
+
+/** Mesmo instante, mesmo texto, mesmo com offset ou milissegundos diferentes. */
+export function appointmentInstantKey (value: string | null | undefined) {
+	const date = new Date(String(value || ''))
+	if (Number.isNaN(date.getTime())) return ''
+	return date.toISOString()
 }
 
 export function formatSlotLabel (iso: string) {
@@ -101,6 +113,19 @@ export function listSlotStarts (dateKey: string) {
 		starts.push(slotIso(dateKey, minute))
 	}
 	return starts
+}
+
+export function datesWithOpenSlots (taken: ReadonlySet<string>, now = new Date()) {
+	const today = formatDateKeySaoPaulo(now)
+	const latest = lastBookableDateKey(now)
+	const open: string[] = []
+	for (let cursor = today; cursor <= latest; cursor = addDateKeyDays(cursor, 1)) {
+		const hasOpen = listSlotStarts(cursor).some((iso) => {
+			return new Date(iso).getTime() > now.getTime() && !taken.has(iso)
+		})
+		if (hasOpen) open.push(cursor)
+	}
+	return open
 }
 
 export function isBookableSlot (iso: string, now = new Date()) {

@@ -1,10 +1,21 @@
 import { NextResponse } from 'next/server'
-import { listOpenAppointmentStarts } from '@/lib/appointments/service'
+import { listDatesWithOpenSlots, listOpenAppointmentStarts } from '@/lib/appointments/service'
 import { formatSlotLabel, isDateKey } from '@/lib/appointments/slots'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 
 export async function GET (request: Request) {
-	const date = new URL(request.url).searchParams.get('date')?.trim() || ''
+	const url = new URL(request.url)
+	if (url.searchParams.get('disponiveis') === '1') {
+		try {
+			const supabase = createSupabaseServiceClient()
+			const dates = await listDatesWithOpenSlots(supabase)
+			return NextResponse.json({ dates })
+		} catch (err) {
+			console.error('[bateria-horarios]', err)
+			return NextResponse.json({ error: 'config' }, { status: 500 })
+		}
+	}
+	const date = url.searchParams.get('date')?.trim() || ''
 	if (!isDateKey(date)) {
 		return NextResponse.json({ slots: [] })
 	}

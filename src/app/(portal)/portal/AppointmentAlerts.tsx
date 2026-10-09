@@ -24,9 +24,35 @@ export function AppointmentAlerts () {
 	const [askPush, setAskPush] = useState(false)
 	const seenRef = useRef(new Set<string>())
 
+	async function syncPushSubscription () {
+		if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return false
+		if (!('serviceWorker' in navigator)) return false
+		const keyResponse = await fetch('/api/portal/push-subscriptions')
+		const payload = await keyResponse.json() as { publicKey?: string }
+		const publicKey = String(payload.publicKey || '').trim()
+		if (!publicKey) return false
+		const registration = await navigator.serviceWorker.register('/sw-agendamento.js')
+		const subscription = await registration.pushManager.subscribe({
+			userVisibleOnly: true,
+			applicationServerKey: urlBase64ToUint8Array(publicKey),
+		})
+		const save = await fetch('/api/portal/push-subscriptions', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify(subscription),
+		})
+		return save.ok
+	}
+
 	useEffect(() => {
 		if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
 			setAskPush(true)
+		} else if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+			void syncPushSubscription().then((ok) => {
+				if (!ok) setAskPush(true)
+			}).catch(() => {
+				setAskPush(true)
+			})
 		}
 		let stopped = false
 
@@ -72,22 +98,16 @@ export function AppointmentAlerts () {
 	async function enablePush () {
 		if (typeof Notification === 'undefined') return
 		const permission = await Notification.requestPermission()
-		setAskPush(false)
-		if (permission !== 'granted' || !('serviceWorker' in navigator)) return
-		const keyResponse = await fetch('/api/portal/push-subscriptions')
-		const payload = await keyResponse.json() as { publicKey?: string }
-		const publicKey = String(payload.publicKey || '').trim()
-		if (!publicKey) return
-		const registration = await navigator.serviceWorker.register('/sw-agendamento.js')
-		const subscription = await registration.pushManager.subscribe({
-			userVisibleOnly: true,
-			applicationServerKey: urlBase64ToUint8Array(publicKey),
-		})
-		await fetch('/api/portal/push-subscriptions', {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify(subscription),
-		})
+		if (permission !== 'granted') {
+			setAskPush(false)
+			return
+		}
+		try {
+			const ok = await syncPushSubscription()
+			setAskPush(!ok)
+		} catch {
+			setAskPush(true)
+		}
 	}
 
 	if (!askPush && items.length === 0) return null
@@ -115,7 +135,7 @@ export function AppointmentAlerts () {
 					<p className="text-sm font-semibold">{item.title}</p>
 					<p className="mt-1 text-sm text-muted-foreground">{item.body}</p>
 					<div className="mt-2 flex items-center justify-between gap-2">
-						<Link href={item.href || '/portal/ordens'} className="text-sm font-medium underline-offset-4 hover:underline">
+						<Link href={item.href || '/portal/ordens'} className="text-sm font-medium underline-offset-4 hover:underline" onClick={() => { void dismiss(item.id) }}>
 							Abrir OS
 						</Link>
 						<button type="button" className="text-sm" onClick={() => { void dismiss(item.id) }}>

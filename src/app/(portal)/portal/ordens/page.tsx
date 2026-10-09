@@ -253,13 +253,13 @@ export default async function OrdensPage({
 	const openOrdersByStatus: Record<string, PortalOrdensListRow[]> = {}
 	for (const s of OPEN_ORDER_STATUSES) {
 		const column = ordersWithRelations.filter((o) => o.status === s)
-		openOrdersByStatus[s] = s === 'orcamento'
-			? [...column].sort((a, b) => {
-				const aPending = a.origin === 'agendamento' && !a.appointment_reviewed_at ? 0 : 1
-				const bPending = b.origin === 'agendamento' && !b.appointment_reviewed_at ? 0 : 1
-				return aPending - bPending
-			})
-			: column
+		openOrdersByStatus[s] = [...column].sort((a, b) => {
+			const aTime = a.appointment_starts_at ? new Date(a.appointment_starts_at).getTime() : Number.POSITIVE_INFINITY
+			const bTime = b.appointment_starts_at ? new Date(b.appointment_starts_at).getTime() : Number.POSITIVE_INFINITY
+			const aSort = Number.isFinite(aTime) ? aTime : Number.POSITIVE_INFINITY
+			const bSort = Number.isFinite(bTime) ? bTime : Number.POSITIVE_INFINITY
+			return aSort - bSort
+		})
 	}
 
 	const { data: deviceModelsRaw } = await supabase

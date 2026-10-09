@@ -260,7 +260,7 @@ function serializeScalar (key: string, value: unknown): string {
   if (value === null || value === undefined) return ''
   if (key === 'status') return String(value).trim()
   if (key === 'is_warranty') return value === true || value === 'true' ? 'true' : 'false'
-  if (key === 'estimated_ready_at' || key === 'closed_at') return normalizeIso(value)
+  if (key === 'estimated_ready_at' || key === 'closed_at' || key === 'appointment_starts_at') return normalizeIso(value)
   if (key === 'payment_methods') return sortPaymentMethodsJson(value)
   if (key === 'warranty_template_id') {
     const id = parseOptionalUuid(value)
@@ -402,6 +402,7 @@ export const ORDER_EDIT_FIELD_LABELS: Record<string, string> = {
   device_location: 'Localização do aparelho',
   is_warranty: 'Serviço em garantia',
   estimated_ready_at: 'Previsão',
+  appointment_starts_at: 'Agendado para',
   passcode_type: 'Tipo de senha',
   passcode_text: 'Senha (texto)',
   passcode_pattern: 'Senha (padrão)',

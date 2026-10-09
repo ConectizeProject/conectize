@@ -1,6 +1,8 @@
 'use server'
 
+import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
+import { consumeSignupIp, signupIpFromHeaders } from '@/lib/auth/signup-ip-limit'
 import { stripAutoHostOrganizationMembership } from '@/lib/organizations/strip-auto-host-membership'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { onlyDigits } from '@/lib/utils/strings'
@@ -52,6 +54,11 @@ export async function registerCustomerFromOsLinkAction (formData: FormData) {
   }
 
   const organizationId = String(orderRow.organization_id)
+  const headerList = await headers()
+  const signupAllowed = await consumeSignupIp(svc, signupIpFromHeaders(headerList))
+  if (!signupAllowed) {
+    redirect(`/cadastro-cliente?org=${encodeURIComponent(orgSlug)}&ref_os=${encodeURIComponent(refOs)}&error=limite_ip`)
+  }
 
   const { data: createdUser, error: authErr } = await svc.auth.admin.createUser({
     email,
@@ -112,17 +119,19 @@ export async function registerCustomerFromOsLinkAction (formData: FormData) {
   const docFilter = cpf ? `cpf.eq.${cpf}` : `cnpj.eq.${cnpj}`
   const { data: customerMatch } = await svc
     .from('customers')
-    .select('id')
+    .select('id, auth_user_id')
     .eq('organization_id', organizationId)
     .or(docFilter)
     .maybeSingle()
 
-  if (customerMatch?.id) {
+  const currentAuth = customerMatch?.auth_user_id ? String(customerMatch.auth_user_id) : ''
+  if (customerMatch?.id && !currentAuth) {
     await svc
       .from('customers')
       .update({ auth_user_id: userId })
       .eq('id', customerMatch.id)
+      .is('auth_user_id', null)
   }
 
-  redirect('/portal/login?cadastro=cliente')
+  redirect(`/portal/login?cadastro=cliente&redirectTo=${encodeURIComponent('/portal/complete-profile')}`)
 }

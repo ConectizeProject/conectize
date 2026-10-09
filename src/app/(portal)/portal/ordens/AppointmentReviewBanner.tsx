@@ -35,7 +35,7 @@ export function AppointmentReviewBanner ({ orderId, startsAt, modelLabel, review
 			<p className="mt-1 text-sm">
 				{modelLabel ? `${modelLabel}. ` : ''}
 				{when ? `Horário: ${when}. ` : ''}
-				Desconto de 5% já está na OS. Lance o preço da bateria na revisão.
+				A bateria do aparelho e o desconto de 5% já estão na OS. Confira o horário e o valor antes de marcar como revisada.
 			</p>
 			{done ? (
 				<p className="mt-2 text-sm font-medium">Revisão concluída. O cliente não altera mais o horário.</p>

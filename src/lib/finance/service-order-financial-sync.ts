@@ -1374,6 +1374,7 @@ export const __private__ = {
   toSaoPauloIsoStart,
   toSaoPauloIsoEnd,
   serviceOrderFinanceSourceKey,
+  netSalesOrderPaymentAmounts,
 }
 
 async function dedupeServiceOrderFinancialTransactions ({

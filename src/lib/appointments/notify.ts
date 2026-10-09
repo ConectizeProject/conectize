@@ -28,16 +28,23 @@ export async function notifyStaffOfAppointment (
 	const title = 'Novo agendamento de bateria'
 	const body = `${notice.customerName} · ${notice.model} · ${notice.when}`
 
-	const { data: members, error } = await supabase
-		.from('organization_members')
-		.select('user_id')
-		.eq('organization_id', CONECTIZE_HOST_ORGANIZATION_ID)
-		.in('role_in_org', ['admin', 'staff'])
-	if (error) {
-		console.error('[appointment-notify] members', error)
-		return
-	}
-	const userIds = [...new Set((members ?? []).map((row) => String(row.user_id)).filter(Boolean))]
+	const [membersResult, platformResult] = await Promise.all([
+		supabase
+			.from('organization_members')
+			.select('user_id')
+			.eq('organization_id', CONECTIZE_HOST_ORGANIZATION_ID)
+			.in('role_in_org', ['admin', 'staff']),
+		supabase
+			.from('users')
+			.select('id')
+			.eq('role', 'platform_admin'),
+	])
+	if (membersResult.error) console.error('[appointment-notify] members', membersResult.error)
+	if (platformResult.error) console.error('[appointment-notify] platform_admin', platformResult.error)
+	const userIds = [...new Set([
+		...(membersResult.data ?? []).map((row) => String(row.user_id)),
+		...(platformResult.data ?? []).map((row) => String(row.id)),
+	].filter(Boolean))]
 	if (!userIds.length) return
 
 	const rows = userIds.map((userId) => ({
@@ -89,7 +96,9 @@ async function sendWebPush (
 				const status = (err as { statusCode?: number }).statusCode
 				if (status === 404 || status === 410) {
 					await supabase.from('push_subscriptions').delete().eq('endpoint', subscription.endpoint)
+					return
 				}
+				console.error('[appointment-notify] push', status || '', err)
 			}
 		}))
 	} catch (err) {

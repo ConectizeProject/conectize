@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
+	appointmentInstantKey,
 	canCustomerChangeAppointment,
 	formatSlotLabel,
 	isBookableSlot,
+	datesWithOpenSlots,
 	lastBookableDateKey,
 	listSlotStarts,
+	weekStartDateKey,
 } from './slots'
 
 describe('horários de agendamento da loja', () => {
@@ -22,6 +25,13 @@ describe('horários de agendamento da loja', () => {
 		expect(slots).toHaveLength(6)
 	})
 
+	it('começa a semana no domingo', () => {
+		expect(weekStartDateKey('2026-10-08')).toBe('2026-10-04')
+		expect(weekStartDateKey('2026-10-04')).toBe('2026-10-04')
+		expect(weekStartDateKey('2026-10-10')).toBe('2026-10-04')
+		expect(weekStartDateKey('2026-10-11')).toBe('2026-10-11')
+	})
+
 	it('domingo não tem horário', () => {
 		expect(listSlotStarts('2026-10-11')).toEqual([])
 	})
@@ -33,6 +43,17 @@ describe('horários de agendamento da loja', () => {
 		expect(isBookableSlot('2026-10-12T08:30:00-03:00', new Date('2026-10-01T00:00:00-03:00'))).toBe(false)
 	})
 
+	it('omite o dia em que não sobrou horário livre', () => {
+		const now = new Date('2026-10-08T20:00:00-03:00')
+		const open = datesWithOpenSlots(new Set(), now)
+		expect(open).not.toContain('2026-10-08')
+		expect(open).toContain('2026-10-09')
+		expect(open).not.toContain('2026-10-11')
+		const blocked = datesWithOpenSlots(new Set(listSlotStarts('2026-10-09')), now)
+		expect(blocked).not.toContain('2026-10-09')
+		expect(blocked).toContain('2026-10-10')
+	})
+
 	it('não abre horário depois de 15 dias', () => {
 		const now = new Date('2026-10-08T12:00:00-03:00')
 		expect(lastBookableDateKey(now)).toBe('2026-10-23')
@@ -40,6 +61,12 @@ describe('horários de agendamento da loja', () => {
 		const outside = listSlotStarts('2026-10-24')[0]
 		expect(isBookableSlot(inside, now)).toBe(true)
 		expect(isBookableSlot(outside, now)).toBe(false)
+	})
+
+	it('normaliza o mesmo horário com offset ou milissegundos', () => {
+		expect(appointmentInstantKey('2026-10-09T09:30:00-03:00')).toBe('2026-10-09T12:30:00.000Z')
+		expect(appointmentInstantKey('2026-10-09T12:30:00.000Z')).toBe('2026-10-09T12:30:00.000Z')
+		expect(appointmentInstantKey('')).toBe('')
 	})
 
 	it('cliente só altera com 1 hora de antecedência, em orçamento e sem revisão', () => {
