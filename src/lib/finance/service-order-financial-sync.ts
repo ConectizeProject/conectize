@@ -339,23 +339,15 @@ export async function syncServiceOrderFinancialTransactions ({
     })
     .filter(Boolean)
 
-  const { error: deleteError } = await financeSupabase
-    .from('financial_transactions')
-    .delete()
-    .eq('service_order_id', order.id)
-  if (deleteError) {
-    throw new Error(`Erro ao limpar transações financeiras antigas da OS: ${deleteError.message}`)
-  }
+  await replaceFinancialTransactionsWithRestore({
+    supabase: financeSupabase,
+    filter: { column: 'service_order_id', value: order.id },
+    rows: transactionsToInsert as Record<string, unknown>[],
+    label: 'syncServiceOrderFinancialTransactions',
+    treatUniqueAsConcurrentOk: true,
+  })
 
   if (transactionsToInsert.length === 0) return
-
-  const { error: insertError } = await financeSupabase
-    .from('financial_transactions')
-    .insert(transactionsToInsert)
-  if (insertError) {
-    if (String(insertError.code || '') === '23505') return
-    throw new Error(`Erro ao inserir transações financeiras da OS: ${insertError.message}`)
-  }
 
   await dedupeServiceOrderFinancialTransactions({
     supabase: financeSupabase,
@@ -579,22 +571,40 @@ export async function syncResaleDeviceFinancialTransactions ({
 
   const financeSupabase = getFinanceWriteClient(supabase)
 
-  const { error: deleteError } = await financeSupabase
-    .from('financial_transactions')
-    .delete()
-    .eq('resale_device_id', device.id)
-    .eq('type', 'entrada')
-  if (deleteError) {
-    throw new Error(`Erro ao limpar transações financeiras antigas do aparelho vendido: ${deleteError.message}`)
+  // Estorno de venda: limpa entradas (sem insert). Snapshot+restore não se aplica.
+  if (!device.sold) {
+    const { error: deleteError } = await financeSupabase
+      .from('financial_transactions')
+      .delete()
+      .eq('resale_device_id', device.id)
+      .eq('type', 'entrada')
+    if (deleteError) {
+      throw new Error(`Erro ao limpar transações financeiras antigas do aparelho vendido: ${deleteError.message}`)
+    }
+    return
   }
 
-  if (!device.sold) return
-
   const soldFor = Math.max(0, Number(device.sold_for_cents) || 0)
-  if (soldFor <= 0) return
+  if (soldFor <= 0) {
+    await replaceFinancialTransactionsWithRestore({
+      supabase: financeSupabase,
+      filter: { column: 'resale_device_id', value: device.id, type: 'entrada' },
+      rows: [],
+      label: 'syncResaleDeviceFinancialTransactions',
+    })
+    return
+  }
 
   const parsedPayments = parseResalePaymentsForFinance(device)
-  if (parsedPayments.length === 0) return
+  if (parsedPayments.length === 0) {
+    await replaceFinancialTransactionsWithRestore({
+      supabase: financeSupabase,
+      filter: { column: 'resale_device_id', value: device.id, type: 'entrada' },
+      rows: [],
+      label: 'syncResaleDeviceFinancialTransactions',
+    })
+    return
+  }
 
   const uniqueMethodIds = [...new Set(parsedPayments.map((item) => item.payment_method_id))]
   const { data: paymentMethods, error: paymentMethodsError } = await supabase
@@ -616,7 +626,7 @@ export async function syncResaleDeviceFinancialTransactions ({
 
   const occurredAt = buildResaleOccurredAt(device)
   const rows = parsedPayments
-    .map((item, index) => {
+    .map((item) => {
       const contaId = contaByPaymentMethodId.get(item.payment_method_id)
       if (!contaId) return null
       const paymentMethodLabel = descriptionByPaymentMethodId.get(item.payment_method_id) || 'Metodo de pagamento'
@@ -631,16 +641,21 @@ export async function syncResaleDeviceFinancialTransactions ({
         description: `${resaleLabel} - ${paymentMethodLabel}`,
       }
     })
-    .filter(Boolean)
+    .filter(Boolean) as Record<string, unknown>[]
 
-  if (rows.length === 0) return
-
-  const { error: insertError } = await financeSupabase
-    .from('financial_transactions')
-    .insert(rows)
-  if (insertError) {
-    throw new Error(`Erro ao inserir transações financeiras do aparelho vendido: ${insertError.message}`)
+  // Antes: delete vinha antes desta checagem e apagava a receita em silêncio.
+  if (rows.length === 0) {
+    throw new Error(
+      'Nenhuma carteira vinculada às formas de pagamento da venda. Configure em Financeiro > Formas de pagamento ou crie uma carteira.',
+    )
   }
+
+  await replaceFinancialTransactionsWithRestore({
+    supabase: financeSupabase,
+    filter: { column: 'resale_device_id', value: device.id, type: 'entrada' },
+    rows,
+    label: 'syncResaleDeviceFinancialTransactions',
+  })
 
   await dedupeResaleDeviceFinancialTransactions({
     supabase: financeSupabase,
@@ -668,22 +683,39 @@ export async function syncResaleDevicePurchaseFinancialTransactions ({
 
   const financeSupabase = getFinanceWriteClient(supabase)
 
-  const { error: deleteError } = await financeSupabase
-    .from('financial_transactions')
-    .delete()
-    .eq('resale_device_id', device.id)
-    .eq('type', 'saida')
-  if (deleteError) {
-    throw new Error(`Erro ao limpar saídas financeiras da compra do aparelho: ${deleteError.message}`)
+  if (device.acquisition_source !== 'customer_purchase') {
+    const { error: deleteError } = await financeSupabase
+      .from('financial_transactions')
+      .delete()
+      .eq('resale_device_id', device.id)
+      .eq('type', 'saida')
+    if (deleteError) {
+      throw new Error(`Erro ao limpar saídas financeiras da compra do aparelho: ${deleteError.message}`)
+    }
+    return
   }
 
-  if (device.acquisition_source !== 'customer_purchase') return
-
   const purchaseValue = Math.max(0, Number(device.purchase_value_cents) || 0)
-  if (purchaseValue <= 0) return
+  if (purchaseValue <= 0) {
+    await replaceFinancialTransactionsWithRestore({
+      supabase: financeSupabase,
+      filter: { column: 'resale_device_id', value: device.id, type: 'saida' },
+      rows: [],
+      label: 'syncResaleDevicePurchaseFinancialTransactions',
+    })
+    return
+  }
 
   const parsedPayments = parseResalePurchasePaymentsForFinance(device)
-  if (parsedPayments.length === 0) return
+  if (parsedPayments.length === 0) {
+    await replaceFinancialTransactionsWithRestore({
+      supabase: financeSupabase,
+      filter: { column: 'resale_device_id', value: device.id, type: 'saida' },
+      rows: [],
+      label: 'syncResaleDevicePurchaseFinancialTransactions',
+    })
+    return
+  }
 
   const uniqueMethodIds = [...new Set(parsedPayments.map((item) => item.payment_method_id))]
   const { data: paymentMethods, error: paymentMethodsError } = await supabase
@@ -717,19 +749,23 @@ export async function syncResaleDevicePurchaseFinancialTransactions ({
         type: 'saida',
         occurred_at: occurredAt,
         resale_device_id: device.id,
-        description: `Compra usado — ${resaleLabel} - ${paymentMethodLabel}`,
+        description: `Compra usado: ${resaleLabel} - ${paymentMethodLabel}`,
       }
     })
-    .filter(Boolean)
+    .filter(Boolean) as Record<string, unknown>[]
 
-  if (rows.length === 0) return
-
-  const { error: insertError } = await financeSupabase
-    .from('financial_transactions')
-    .insert(rows)
-  if (insertError) {
-    throw new Error(`Erro ao inserir saídas financeiras da compra do aparelho: ${insertError.message}`)
+  if (rows.length === 0) {
+    throw new Error(
+      'Nenhuma carteira vinculada às formas de pagamento da compra. Configure em Financeiro > Formas de pagamento ou crie uma carteira.',
+    )
   }
+
+  await replaceFinancialTransactionsWithRestore({
+    supabase: financeSupabase,
+    filter: { column: 'resale_device_id', value: device.id, type: 'saida' },
+    rows,
+    label: 'syncResaleDevicePurchaseFinancialTransactions',
+  })
 }
 
 type ResalePurchaseFinanceRow = {
@@ -1150,24 +1186,15 @@ export async function syncSalesOrderFinancialTransactions ({
     )
   }
 
-  const { error: deleteError } = await financeSupabase
-    .from('financial_transactions')
-    .delete()
-    .eq('sales_order_id', order.id)
-  if (deleteError) {
-    throw new Error(`Erro ao limpar transações financeiras antigas do pedido: ${deleteError.message}`)
-  }
+  await replaceFinancialTransactionsWithRestore({
+    supabase: financeSupabase,
+    filter: { column: 'sales_order_id', value: order.id },
+    rows,
+    label: 'syncSalesOrderFinancialTransactions',
+    treatUniqueAsConcurrentOk: true,
+  })
 
   if (rows.length === 0) return
-
-  const { error: insertError } = await financeSupabase
-    .from('financial_transactions')
-    .insert(rows)
-  if (insertError) {
-    // Corrida: outro sync já inseriu o mesmo sales_order_payment_id.
-    if (String(insertError.code || '') === '23505') return
-    throw new Error(`Erro ao inserir transações financeiras do pedido: ${insertError.message}`)
-  }
 
   await dedupeSalesOrderFinancialTransactions({
     supabase: financeSupabase,
@@ -1346,6 +1373,110 @@ function getFinanceWriteClient (fallback: SupabaseClient) {
   }
 }
 
+/** Colunas necessárias para reinserir após delete-then-insert falhar. */
+const FINANCIAL_TX_SNAPSHOT_SELECT = [
+  'organization_id',
+  'conta_id',
+  'amount_cents',
+  'type',
+  'occurred_at',
+  'description',
+  'sales_order_id',
+  'sales_order_payment_id',
+  'service_order_id',
+  'source_key',
+  'resale_device_id',
+  'transfer_id',
+].join(', ')
+
+type FinancialTransactionSnapshotRow = {
+  organization_id: string
+  conta_id: string
+  amount_cents: number
+  type: string
+  occurred_at: string
+  description: string | null
+  sales_order_id?: string | null
+  sales_order_payment_id?: string | null
+  service_order_id?: string | null
+  source_key?: string | null
+  resale_device_id?: string | null
+  transfer_id?: string | null
+}
+
+type FinancialTxFilter = {
+  column: 'sales_order_id' | 'service_order_id' | 'resale_device_id'
+  value: string
+  type?: 'entrada' | 'saida'
+}
+
+/**
+ * Delete-then-insert sem restore apagava o financeiro se o insert falhasse
+ * (edição de pedido pago, retry de finalize, re-sync de OS/revenda).
+ */
+async function replaceFinancialTransactionsWithRestore (opts: {
+  supabase: SupabaseClient
+  filter: FinancialTxFilter
+  rows: Record<string, unknown>[]
+  label: string
+  /** Unique (ex.: sales_order_payment_id): corrida já reinseriu — não restaurar. */
+  treatUniqueAsConcurrentOk?: boolean
+}) {
+  let snapshotQuery = opts.supabase
+    .from('financial_transactions')
+    .select(FINANCIAL_TX_SNAPSHOT_SELECT)
+    .eq(opts.filter.column, opts.filter.value)
+  if (opts.filter.type) {
+    snapshotQuery = snapshotQuery.eq('type', opts.filter.type)
+  }
+  const { data: snapshotData, error: snapshotError } = await snapshotQuery
+  if (snapshotError) {
+    throw new Error(
+      `Erro ao snapshot de lançamentos financeiros (${opts.label}): ${snapshotError.message}`,
+    )
+  }
+  // select dinâmico: o client tipa como GenericStringError; validamos via shape própria.
+  const snapshot = (snapshotData ?? []) as unknown as FinancialTransactionSnapshotRow[]
+
+  let deleteQuery = opts.supabase
+    .from('financial_transactions')
+    .delete()
+    .eq(opts.filter.column, opts.filter.value)
+  if (opts.filter.type) {
+    deleteQuery = deleteQuery.eq('type', opts.filter.type)
+  }
+  const { error: deleteError } = await deleteQuery
+  if (deleteError) {
+    throw new Error(
+      `Erro ao limpar transações financeiras (${opts.label}): ${deleteError.message}`,
+    )
+  }
+
+  if (opts.rows.length === 0) return
+
+  const { error: insertError } = await opts.supabase
+    .from('financial_transactions')
+    .insert(opts.rows)
+  if (!insertError) return
+
+  if (opts.treatUniqueAsConcurrentOk && String(insertError.code || '') === '23505') {
+    return
+  }
+
+  if (snapshot.length > 0) {
+    const { error: restoreError } = await opts.supabase
+      .from('financial_transactions')
+      .insert(snapshot)
+    if (restoreError) {
+      console.error(`[${opts.label}] restore after insert failure`, restoreError)
+    }
+  }
+
+  throw new Error(
+    `Erro ao inserir transações financeiras (${opts.label}): ${insertError.message}`,
+  )
+}
+
 async function fetchOrderForSync ({
   supabase,
   orderId,
@@ -1374,6 +1505,8 @@ export const __private__ = {
   toSaoPauloIsoStart,
   toSaoPauloIsoEnd,
   serviceOrderFinanceSourceKey,
+  netSalesOrderPaymentAmounts,
+  replaceFinancialTransactionsWithRestore,
 }
 
 async function dedupeServiceOrderFinancialTransactions ({
