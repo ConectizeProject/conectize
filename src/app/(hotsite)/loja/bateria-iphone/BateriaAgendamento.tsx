@@ -6,8 +6,8 @@ import * as Yup from 'yup'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { BOOKING_DISCOUNT_PERCENT, discountedPriceCents } from '@/lib/appointments/battery-prices'
-import { trackBookingFunnel } from '@/lib/analytics/loja-conversions'
-import { lastBookableDateKey, listSlotStarts } from '@/lib/appointments/slots'
+import { trackAgendamentoConcluido, trackBookingFunnel } from '@/lib/analytics/loja-conversions'
+import { formatSlotLabel, lastBookableDateKey, listSlotStarts } from '@/lib/appointments/slots'
 import { whatsappLink } from '@/lib/data/hotsite-loja'
 import { formatCpf } from '@/lib/utils/format-cpf-cnpj'
 import { formatPhoneBr } from '@/lib/utils/format-phone'
@@ -321,6 +321,7 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 	const [created, setCreated] = useState<{ displayNumber: number | null, shareToken: string } | null>(null)
 	const [extraGate, setExtraGate] = useState<ExtraGate | null>(null)
 	const [step, setStep] = useState(0)
+	const submitLockRef = useRef(false)
 	const schema = useMemo(() => bookingSchema(models), [models])
 	const formik = useFormik<BookingValues>({
 		initialValues: {
@@ -420,6 +421,8 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 	}
 
 	async function submitNew (values: BookingValues, confirmExtra = false) {
+		if (submitLockRef.current) return
+		submitLockRef.current = true
 		const email = values.email.trim()
 		const emailOk = isEmailFormat(email)
 		const cpfOk = isValidCpf(values.cpf)
@@ -433,6 +436,7 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 				void formik.setFieldTouched('cpf', true, false)
 			}
 			trackBookingFunnel('booking_error', funnelDetail({ error: 'dados_invalidos' }))
+			submitLockRef.current = false
 			return
 		}
 		setError('')
@@ -484,6 +488,12 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 				return
 			}
 			trackBookingFunnel('submit_booking', funnelDetail())
+			const horario = slots.find((slot) => slot.startsAt === values.startsAt)?.label || formatSlotLabel(values.startsAt)
+			trackAgendamentoConcluido({
+				modelo: values.model,
+				dataAgendada: date,
+				horario,
+			})
 			setCreated({
 				displayNumber: payload.displayNumber ?? null,
 				shareToken: payload.shareToken || '',
@@ -493,6 +503,7 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 			trackBookingFunnel('booking_error', funnelDetail({ error: 'config' }))
 			setError(ERRORS.config)
 		} finally {
+			submitLockRef.current = false
 			setPending(false)
 		}
 	}

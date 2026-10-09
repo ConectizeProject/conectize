@@ -44,6 +44,30 @@ export type BookingFunnelDetail = {
 	error?: string
 }
 
+const concludedBookingKeys = new Set<string>()
+
+/** Uma vez por agendamento concluído. Sem nome, CPF, telefone ou e-mail. */
+export function trackAgendamentoConcluido (detail: {
+	modelo: string
+	dataAgendada: string
+	horario: string
+}) {
+	const modelo = String(detail.modelo || '').trim()
+	const dataAgendada = String(detail.dataAgendada || '').trim()
+	const horario = String(detail.horario || '').trim()
+	if (!modelo || !dataAgendada || !horario) return
+	const key = `${modelo}|${dataAgendada}|${horario}`
+	if (concludedBookingKeys.has(key)) return
+	if (typeof window.gtag !== 'function') return
+	concludedBookingKeys.add(key)
+	window.gtag('event', 'agendamento_concluido', {
+		modelo,
+		data_agendada: dataAgendada,
+		horario,
+		page_path: window.location.pathname,
+	})
+}
+
 export function trackBookingFunnel (step: BookingFunnelStep, detail?: BookingFunnelDetail) {
 	if (typeof window.gtag !== 'function') return
 	const model = String(detail?.model || '').trim()
