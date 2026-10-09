@@ -4,8 +4,8 @@ import { ExternalLink, Link2, Package, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { publicPageSeo } from '@/lib/utils/site-url'
 
-const title = 'Manual da Integração com o Bling | Conectize'
-const description = 'Passo a passo público para conectar o Conectize ao Bling, autorizar o aplicativo e sincronizar produtos.'
+const title = 'Manual completo da integração com o Bling | Conectize'
+const description = 'Passo a passo para conectar o Conectize ao Bling, autorizar o aplicativo e sincronizar produtos da assistência. Guia público e completo da integração.'
 
 export const metadata: Metadata = {
   title,

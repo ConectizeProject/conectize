@@ -19,6 +19,8 @@ export const business = {
   cnpj: '44.957.050/0001-37',
   priceRange: '$$',
   logoPath: '/logo_conectize.svg',
+  logoRasterPath: '/logo-conectize.png',
+  imagePath: '/og-conectize.png',
   address: {
     streetAddress: 'R. Padre Rolim, 620',
     neighborhood: 'Santa Efigênia',
@@ -94,7 +96,8 @@ export function getFormattedOpeningHours() {
 }
 
 export function getLocalBusinessJsonLd() {
-  const logoUrl = `${business.siteUrl}${business.logoPath}`
+  const logoUrl = `${business.siteUrl}${business.logoRasterPath}`
+  const imageUrl = `${business.siteUrl}${business.imagePath}`
 
   return {
     '@context': 'https://schema.org',
@@ -102,7 +105,7 @@ export function getLocalBusinessJsonLd() {
     '@id': `${business.siteUrl}/#localbusiness`,
     name: business.label,
     legalName: business.legalName,
-    image: logoUrl,
+    image: imageUrl,
     logo: logoUrl,
     description: business.description,
     url: business.siteUrl,

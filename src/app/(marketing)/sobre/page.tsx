@@ -2,8 +2,8 @@ import type { Metadata } from 'next'
 import { Award, Users, ThumbsUp, Zap } from 'lucide-react'
 import { publicPageSeo } from '@/lib/utils/site-url'
 
-const title = 'Sobre Nós - Assistência Técnica em Belo Horizonte | Conectize'
-const description = 'Conheça a Conectize, assistência técnica especializada em conserto de celulares em Belo Horizonte. Mais de 15 anos de experiência, técnicos certificados e garantia de 6 meses.'
+const title = 'Sobre a Conectize em Santa Efigênia, BH'
+const description = 'Conheça a Conectize, assistência de celular e Apple na R. Padre Rolim, 620, Santa Efigênia, BH. Oficina com garantia e atendimento de segunda a sábado.'
 
 export const metadata: Metadata = {
   title,
@@ -28,10 +28,10 @@ export default function SobrePage () {
             Sobre Nós
           </span>
           <h1 className="text-4xl md:text-5xl font-bold text-foreground mb-6">
-            Especialistas em <span className="text-gradient">Conserto de Celulares e Eletrônicos</span>
+            Sobre a assistência <span className="text-gradient">Conectize em BH</span>
           </h1>
           <p className="text-lg text-muted-foreground">
-            Conheça nossa história e compromisso com a excelência em assistência técnica
+            História da oficina na R. Padre Rolim, 620, Santa Efigênia. O orçamento de tela, bateria e placa fica nas páginas de serviço e no WhatsApp.
           </p>
         </div>
 

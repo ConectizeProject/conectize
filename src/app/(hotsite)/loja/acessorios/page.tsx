@@ -5,10 +5,10 @@ import {
 import { LojaCategoryPage, lojaCategoryMetadata } from '../LojaCategoryPage'
 
 const description =
-	'Capinhas, películas, carregadores e cabos para iPhone e Android. Pronta entrega na loja em Santa Efigênia, BH.'
+	'Capinhas, películas, carregadores e cabos para iPhone e Android, com pronta entrega na loja da Conectize em Santa Efigênia, Belo Horizonte (BH).'
 
 export const metadata = lojaCategoryMetadata({
-	title: 'Acessórios para Celular em Belo Horizonte | Conectize',
+	title: 'Capinhas, películas e carregadores em BH | Conectize',
 	description,
 	path: lojaCategoryPaths.acessorios,
 	keywords:
@@ -66,8 +66,7 @@ export default function LojaAcessoriosPage () {
 				},
 				{
 					q: 'Quais as formas de pagamento?',
-					// TODO: preencher formas de pagamento
-					a: 'TODO: preencher formas de pagamento',
+					a: 'As formas de pagamento são confirmadas na loja e no orçamento pelo WhatsApp, antes de fechar a compra.',
 				},
 			]}
 		/>

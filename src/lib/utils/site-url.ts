@@ -9,6 +9,11 @@ export const APEX_HOST = 'conectize.com.br'
 /** URL canônica pública do site (https + www, sem barra final). */
 export const CANONICAL_SITE_ORIGIN = `https://${CANONICAL_HOST}`
 
+export const OG_IMAGE_PATH = '/og-conectize.png'
+export const OG_IMAGE_WIDTH = 1200
+export const OG_IMAGE_HEIGHT = 630
+export const OG_IMAGE_ALT = 'Conectize: assistência técnica de celular e loja de peças em Belo Horizonte'
+
 function isProductionHost (hostname: string): boolean {
   return hostname === APEX_HOST || hostname === CANONICAL_HOST
 }
@@ -56,6 +61,15 @@ type PublicPageSeoInput = {
   siteName?: string
 }
 
+export function socialImage () {
+  return {
+    url: absoluteSiteUrl(OG_IMAGE_PATH),
+    width: OG_IMAGE_WIDTH,
+    height: OG_IMAGE_HEIGHT,
+    alt: OG_IMAGE_ALT,
+  }
+}
+
 /**
  * Canonical, hreflang e og:url da página.
  * O openGraph é completo porque no App Router o openGraph do segmento substitui o do layout.
@@ -63,8 +77,9 @@ type PublicPageSeoInput = {
 export function publicPageSeo (
   path = '/',
   seo: PublicPageSeoInput = {},
-): Pick<Metadata, 'alternates' | 'openGraph'> {
+): Pick<Metadata, 'alternates' | 'openGraph' | 'twitter'> {
   const url = absoluteSiteUrl(path)
+  const image = socialImage()
   return {
     alternates: canonicalAlternates(path),
     openGraph: {
@@ -74,6 +89,13 @@ export function publicPageSeo (
       ...(seo.title ? { title: seo.title } : {}),
       ...(seo.description ? { description: seo.description } : {}),
       url,
+      images: [image],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      ...(seo.title ? { title: seo.title } : {}),
+      ...(seo.description ? { description: seo.description } : {}),
+      images: [image.url],
     },
   }
 }

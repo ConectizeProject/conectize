@@ -72,8 +72,8 @@ export const lojaCopy = {
 	whatsappMessage:
 		'Olá! Quero um orçamento de peças e acessórios para o meu aparelho.',
 	heroIntro: 'Loja em Santa Efigênia, Belo Horizonte.',
-	heroLine: 'Quebrou?',
-	heroShine: 'Você está no lugar certo.',
+	heroLine: 'Loja de peças e acessórios',
+	heroShine: 'para iPhone em BH',
 	heroLead:
 		'Telas, baterias e acessórios. Orçamento no WhatsApp.',
 	disclaimer:
@@ -244,7 +244,8 @@ export const lojaFaq = [
 export function getLojaJsonLd() {
 	const siteUrl = getSiteUrl()
 	const pageUrl = `${siteUrl}${lojaPath}`
-	const logoUrl = `${siteUrl}${business.logoPath}`
+	const logoUrl = `${siteUrl}${business.logoRasterPath}`
+	const imageUrl = `${siteUrl}${business.imagePath}`
 
 	return {
 		'@context': 'https://schema.org',
@@ -252,7 +253,7 @@ export function getLojaJsonLd() {
 		'@id': `${pageUrl}#store`,
 		name: lojaCopy.brand,
 		legalName: business.legalName,
-		image: logoUrl,
+		image: imageUrl,
 		logo: logoUrl,
 		description: lojaCopy.description,
 		url: pageUrl,

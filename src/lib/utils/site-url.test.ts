@@ -71,6 +71,14 @@ describe('public SEO urls', () => {
     expect(seo.openGraph && 'url' in seo.openGraph ? seo.openGraph.url : null).toBe(
       'https://www.conectize.com.br/planos',
     )
+    expect(seo.openGraph && 'siteName' in seo.openGraph ? seo.openGraph.siteName : null).toBe('Conectize')
+    const image = seo.openGraph && 'images' in seo.openGraph ? seo.openGraph.images : null
+    const firstImage = Array.isArray(image) ? image[0] : image
+    expect(firstImage && typeof firstImage === 'object' && 'url' in firstImage ? firstImage.url : null).toBe(
+      'https://www.conectize.com.br/og-conectize.png',
+    )
+    expect(firstImage && typeof firstImage === 'object' && 'alt' in firstImage ? firstImage.alt : '').toContain('Conectize')
+    expect(seo.twitter?.card).toBe('summary_large_image')
     expect(JSON.stringify(seo)).not.toContain('https://conectize.com.br')
     expect(JSON.stringify(seo)).not.toContain('http://conectize.com.br')
   })

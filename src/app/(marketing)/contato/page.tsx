@@ -4,8 +4,8 @@ import { business, buildWhatsAppUrl } from '@/lib/data/business'
 import { publicPageSeo } from '@/lib/utils/site-url'
 import { Phone, Mail, MapPin, Clock, MessageCircle } from 'lucide-react'
 
-const title = 'Contato - Assistência Técnica em Belo Horizonte | Conectize'
-const description = 'Entre em contato com a Conectize. Telefone, WhatsApp, e-mail e endereço em Belo Horizonte. Atendimento de segunda a sábado. Solicite seu orçamento!'
+const title = 'Contato da assistência técnica em BH | Conectize'
+const description = 'Fale com a Conectize pelo telefone ou WhatsApp. Loja e assistência na R. Padre Rolim, 620, Santa Efigênia, BH, de segunda a sábado. Peça seu orçamento.'
 
 export const metadata: Metadata = {
   title,
@@ -23,7 +23,7 @@ export default function ContatoPage () {
             Contato
           </span>
           <h1 className="text-4xl md:text-5xl font-bold text-foreground mb-6">
-            Entre em <span className="text-gradient">Contato</span>
+            Contato da assistência <span className="text-gradient">técnica em BH</span>
           </h1>
           <p className="text-lg text-muted-foreground">
             Tire suas dúvidas, solicite um orçamento ou agende a coleta do seu celular.

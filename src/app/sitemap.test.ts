@@ -8,6 +8,11 @@ describe('sitemap', () => {
   it('lists only final urls on www, without query, redirects or MLB', () => {
     const entries = sitemap()
     expect(entries.length).toBeGreaterThan(100)
+    const pathnames = entries.map((entry) => new URL(entry.url).pathname)
+    expect(pathnames).not.toContain('/planos')
+    expect(pathnames).not.toContain('/manual/bling')
+    expect(pathnames).not.toContain('/acessorios')
+    expect(pathnames).toContain('/loja/acessorios')
 
     for (const entry of entries) {
       const url = new URL(entry.url)

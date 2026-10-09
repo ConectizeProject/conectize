@@ -86,8 +86,9 @@ export default function LojaPage() {
 					<div className={styles.heroInner}>
 						<div className={styles.heroCopy}>
 							<p className={styles.heroIntro}>{lojaCopy.heroIntro}</p>
-							<h1 id="loja-titulo" className={styles.display}>
+							<h1 id="loja-titulo" className={`${styles.display} ${styles.displaySeo}`}>
 								<span className={styles.heroLine}>{lojaCopy.heroLine}</span>
+								{' '}
 								<span className={styles.shine}>{lojaCopy.heroShine}</span>
 							</h1>
 							<p className={styles.lead}>{lojaCopy.heroLead}</p>

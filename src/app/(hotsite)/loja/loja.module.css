@@ -212,6 +212,14 @@
 	line-height: 0.88;
 }
 
+.displaySeo {
+	max-width: 16ch;
+	font-size: clamp(2rem, 5vw, 3.4rem);
+	line-height: 1.02;
+	letter-spacing: -0.045em;
+	text-wrap: balance;
+}
+
 .heroLine {
 	display: block;
 	color: var(--loja-ink);
@@ -1743,6 +1751,11 @@ a.bookingChoice {
 	.heroSplit .display {
 		max-width: 10em;
 		font-size: clamp(3rem, 4.4vw, 4.6rem);
+	}
+
+	.displaySeo {
+		max-width: 18ch;
+		font-size: clamp(2.35rem, 3.2vw, 3.6rem);
 	}
 
 	.heroFlush .heroInner {
