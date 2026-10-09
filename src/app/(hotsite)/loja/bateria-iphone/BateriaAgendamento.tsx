@@ -6,8 +6,8 @@ import * as Yup from 'yup'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { BOOKING_DISCOUNT_PERCENT, discountedPriceCents } from '@/lib/appointments/battery-prices'
-import { trackBookingFunnel } from '@/lib/analytics/loja-conversions'
-import { lastBookableDateKey, listSlotStarts } from '@/lib/appointments/slots'
+import { trackAgendamentoConcluido, trackBookingFunnel } from '@/lib/analytics/loja-conversions'
+import { formatSlotLabel, lastBookableDateKey, listSlotStarts } from '@/lib/appointments/slots'
 import { whatsappLink } from '@/lib/data/hotsite-loja'
 import { formatCpf } from '@/lib/utils/format-cpf-cnpj'
 import { formatPhoneBr } from '@/lib/utils/format-phone'
@@ -321,6 +321,7 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 	const [created, setCreated] = useState<{ displayNumber: number | null, shareToken: string } | null>(null)
 	const [extraGate, setExtraGate] = useState<ExtraGate | null>(null)
 	const [step, setStep] = useState(0)
+	const submitLockRef = useRef(false)
 	const schema = useMemo(() => bookingSchema(models), [models])
 	const formik = useFormik<BookingValues>({
 		initialValues: {
@@ -420,6 +421,8 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 	}
 
 	async function submitNew (values: BookingValues, confirmExtra = false) {
+		if (submitLockRef.current) return
+		submitLockRef.current = true
 		const email = values.email.trim()
 		const emailOk = isEmailFormat(email)
 		const cpfOk = isValidCpf(values.cpf)
@@ -433,6 +436,7 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 				void formik.setFieldTouched('cpf', true, false)
 			}
 			trackBookingFunnel('booking_error', funnelDetail({ error: 'dados_invalidos' }))
+			submitLockRef.current = false
 			return
 		}
 		setError('')
@@ -484,6 +488,12 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 				return
 			}
 			trackBookingFunnel('submit_booking', funnelDetail())
+			const horario = slots.find((slot) => slot.startsAt === values.startsAt)?.label || formatSlotLabel(values.startsAt)
+			trackAgendamentoConcluido({
+				modelo: values.model,
+				dataAgendada: date,
+				horario,
+			})
 			setCreated({
 				displayNumber: payload.displayNumber ?? null,
 				shareToken: payload.shareToken || '',
@@ -493,6 +503,7 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 			trackBookingFunnel('booking_error', funnelDetail({ error: 'config' }))
 			setError(ERRORS.config)
 		} finally {
+			submitLockRef.current = false
 			setPending(false)
 		}
 	}
@@ -896,14 +907,27 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 					) : null}
 
 					{panel === 'success' && created ? (
-						<div className={styles.bookingForm}>
+						<div className={styles.bookingSuccess}>
 							{created.displayNumber != null ? (
 								<p className={styles.bookingOsNumber}>
-									<span>Ordem de serviço</span>
-									<strong>#{created.displayNumber}</strong>
+									<svg className={styles.bookingOsMark} viewBox="0 0 360 108" role="img" aria-label={`Ordem de serviço #${created.displayNumber}`}>
+										<defs>
+											<linearGradient id="booking-os-gradient" x1="0" y1="0" x2="1" y2="1">
+												<stop offset="0%" stopColor="#0c4a62" />
+												<stop offset="46%" stopColor="#156787" />
+												<stop offset="100%" stopColor="#0a3a4e" />
+											</linearGradient>
+										</defs>
+										<text x="180" y="30" textAnchor="middle" fill="url(#booking-os-gradient)" fontFamily="Outfit, sans-serif" fontSize="16" fontWeight="700">
+											Ordem de serviço
+										</text>
+										<text x="180" y="88" textAnchor="middle" fill="url(#booking-os-gradient)" fontFamily="Outfit, sans-serif" fontSize="52" fontWeight="700">
+											#{created.displayNumber}
+										</text>
+									</svg>
 								</p>
 							) : null}
-							<dl className={styles.bookingRecap}>
+							<dl className={styles.bookingSuccessWhen}>
 								<div>
 									<dt>Modelo</dt>
 									<dd>{formik.values.model}</dd>
@@ -916,6 +940,8 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 									<dt>Horário</dt>
 									<dd>{selectedLabel}</dd>
 								</div>
+							</dl>
+							<dl className={styles.bookingRecap}>
 								<div>
 									<dt>Nome</dt>
 									<dd>{formik.values.fullName}</dd>
@@ -932,22 +958,21 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 									<dt>CPF</dt>
 									<dd>{formik.values.cpf}</dd>
 								</div>
-								{maintenanceCents > 0 ? (
-									<div>
-										<dt>Manutenção</dt>
-										<dd>
-											<s className={styles.bookingPriceWas}>{formatMoneyBr(maintenanceCents)}</s>
-											{' '}
-											<strong>{formatMoneyBr(discountedPriceCents(maintenanceCents))}</strong>
-											{' '}
-											<em className={styles.bookingPriceOff}>{BOOKING_DISCOUNT_PERCENT}% off</em>
-										</dd>
-									</div>
-								) : null}
 							</dl>
-							<p className={styles.bookingNote}>
-								Para acompanhar suas ordens, crie uma conta. Na primeira tela depois do acesso, informe o CPF deste agendamento para vincular seu cadastro. Se quiser alterar ou cancelar, fale pelo WhatsApp.
-							</p>
+							{maintenanceCents > 0 ? (
+								<p className={styles.bookingPrice}>
+									<span className={styles.bookingPriceLabel}>Manutenção</span>
+									<span className={styles.bookingPriceValues}>
+										<s className={styles.bookingPriceWas}>{formatMoneyBr(maintenanceCents)}</s>
+										<strong className={styles.bookingPriceNow}>{formatMoneyBr(discountedPriceCents(maintenanceCents))}</strong>
+										<em className={styles.bookingPriceOff}>{BOOKING_DISCOUNT_PERCENT}% off</em>
+									</span>
+								</p>
+							) : null}
+							<ul className={styles.bookingSuccessHints}>
+								<li>Crie uma conta para acompanhar as ordens. Na primeira tela, informe o CPF deste agendamento.</li>
+								<li>Para alterar ou cancelar, fale pelo WhatsApp.</li>
+							</ul>
 							<div className={styles.bookingSubmit}>
 								{accountHref ? (
 									<a className={styles.ctaPrimary} href={accountHref} onClick={() => trackBookingFunnel('account_start')}>

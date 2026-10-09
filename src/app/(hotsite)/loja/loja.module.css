@@ -763,26 +763,16 @@ a.bookingChoice {
 .bookingOsNumber {
 	display: grid;
 	justify-items: center;
-	gap: 0.25rem;
 	margin: 0;
-	padding: 1rem 0.85rem;
+	padding: 0.75rem 0.85rem 0.35rem;
 	border-radius: 0.9rem;
-	background: #0a0a0a;
-	color: #fff;
-	text-align: center;
+	background: var(--loja-bg-soft);
 }
 
-.bookingOsNumber span {
-	color: rgb(255 255 255 / 0.65);
-	font-size: 0.75rem;
-	font-weight: 650;
-}
-
-.bookingOsNumber strong {
-	font-size: 2.15rem;
-	font-weight: 750;
-	letter-spacing: -0.04em;
-	line-height: 1;
+.bookingOsMark {
+	display: block;
+	width: min(100%, 16.5rem);
+	height: auto;
 }
 
 .bookingRecap {
@@ -812,6 +802,85 @@ a.bookingChoice {
 	font-size: 0.95rem;
 	font-weight: 700;
 	text-align: right;
+	overflow-wrap: anywhere;
+}
+
+.bookingSuccess {
+	display: grid;
+	gap: 0.75rem;
+}
+
+.bookingSuccessWhen {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 0.45rem;
+	margin: 0;
+}
+
+.bookingSuccessWhen div {
+	display: grid;
+	gap: 0.15rem;
+	margin: 0;
+	padding: 0.7rem 0.75rem;
+	border-radius: 0.85rem;
+	background: var(--loja-bg-soft);
+}
+
+.bookingSuccessWhen dt {
+	color: var(--loja-muted);
+	font-size: 0.72rem;
+	font-weight: 650;
+}
+
+.bookingSuccessWhen dd {
+	margin: 0;
+	font-size: 0.95rem;
+	font-weight: 750;
+	line-height: 1.25;
+	overflow-wrap: anywhere;
+}
+
+.bookingSuccessHints {
+	display: grid;
+	gap: 0.35rem;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	color: var(--loja-muted);
+	font-size: 0.88rem;
+	line-height: 1.4;
+}
+
+.bookingSuccess .ctaGhost {
+	width: 100%;
+}
+
+.bookingSuccess .bookingPrice {
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+}
+
+.bookingPriceValues {
+	display: flex;
+	flex-wrap: nowrap;
+	align-items: baseline;
+	justify-content: flex-end;
+	gap: 0.35rem 0.55rem;
+}
+
+.bookingSuccess .bookingPriceNow {
+	font-size: 1.25rem;
+}
+
+@media (max-width: 420px) {
+	.bookingSuccessWhen {
+		grid-template-columns: 1fr 1fr;
+	}
+
+	.bookingSuccessWhen div:first-child {
+		grid-column: 1 / -1;
+	}
 }
 
 .bookingForm {
