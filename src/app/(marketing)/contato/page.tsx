@@ -1,16 +1,17 @@
 import type { Metadata } from 'next'
 import { Button } from '@/components/ui/button'
 import { business, buildWhatsAppUrl } from '@/lib/data/business'
-import { getSiteUrl } from '@/lib/utils/site-url'
+import { publicPageSeo } from '@/lib/utils/site-url'
 import { Phone, Mail, MapPin, Clock, MessageCircle } from 'lucide-react'
 
+const title = 'Contato - Assistência Técnica em Belo Horizonte | Conectize'
+const description = 'Entre em contato com a Conectize. Telefone, WhatsApp, e-mail e endereço em Belo Horizonte. Atendimento de segunda a sábado. Solicite seu orçamento!'
+
 export const metadata: Metadata = {
-  title: 'Contato - Assistência Técnica em Belo Horizonte | Conectize',
-  description: 'Entre em contato com a Conectize. Telefone, WhatsApp, e-mail e endereço em Belo Horizonte. Atendimento de segunda a sábado. Solicite seu orçamento!',
+  title,
+  description,
   keywords: 'contato conectize, telefone assistência técnica bh, whatsapp conserto celular, endereço conectize belo horizonte',
-  alternates: {
-    canonical: `${getSiteUrl()}/contato`,
-  },
+  ...publicPageSeo('/contato', { title, description }),
 }
 
 export default function ContatoPage () {

@@ -12,6 +12,10 @@ import {
 	PORTAL_SIMULATED_ROLE_COOKIE,
 	resolveEffectivePortalRole,
 } from './src/lib/auth/portal-role-simulation'
+import {
+	canonicalRedirectStatus,
+	resolveCanonicalRedirect,
+} from './src/lib/utils/canonical-host'
 import { goneCrawlResponse, isGoneCrawlPath } from './src/lib/utils/gone-crawl-paths'
 import { resolveLegacyServiceDestination } from './src/lib/utils/legacy-service-redirect'
 
@@ -115,7 +119,21 @@ async function getUserRole(supabase: SupabaseClient, request: NextRequest) {
 	return { user: { id: sub }, role, realRole }
 }
 
+function redirectToCanonicalHost(request: NextRequest) {
+	const target = resolveCanonicalRedirect({
+		hostname: request.nextUrl.hostname,
+		protocol: request.headers.get('x-forwarded-proto') || request.nextUrl.protocol,
+		pathname: request.nextUrl.pathname,
+		search: request.nextUrl.search,
+	})
+	if (!target) return null
+	return NextResponse.redirect(target, canonicalRedirectStatus(request.method))
+}
+
 export async function middleware(request: NextRequest) {
+	const canonicalRedirect = redirectToCanonicalHost(request)
+	if (canonicalRedirect) return canonicalRedirect
+
 	const { pathname } = request.nextUrl
 
 	if (isGoneCrawlPath(pathname)) return goneCrawlResponse()
@@ -345,14 +363,8 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
 	matcher: [
-		'/servicos',
-		'/servicos/:path*',
-		'/share',
-		'/navigationaddresses-hub',
-		'/p/:path*',
-		'/zO2ixMhVjY2kPD8dEV5bg==',
-		'/portal',
-		'/portal/:path*',
-		'/api/portal/:path*',
+		// Quase tudo, inclusive sitemap, robots e arquivos públicos.
+		// _next/static e _next/image ficam de fora para não passar no middleware.
+		'/((?!_next/static|_next/image).*)',
 	],
 }

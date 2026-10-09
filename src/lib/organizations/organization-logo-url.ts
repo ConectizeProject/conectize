@@ -1,3 +1,5 @@
+import { getSiteUrl } from '@/lib/utils/site-url'
+
 const ORGANIZATION_LOGOS_PUBLIC_PREFIX =
   '/storage/v1/object/public/organization-logos/'
 
@@ -23,11 +25,8 @@ function originFrom (raw: string): string | null {
 export function organizationLogoAllowedOrigins (
   opts?: OrganizationLogoUrlOptions,
 ): { siteOrigin: string, supabaseOrigin: string | null } {
-  const siteRaw =
-    opts?.siteOrigin
-    || process.env.NEXT_PUBLIC_SITE_URL
-    || 'https://www.conectize.com.br'
-  const siteOrigin = originFrom(siteRaw) || 'https://www.conectize.com.br'
+  const siteRaw = opts?.siteOrigin || getSiteUrl()
+  const siteOrigin = originFrom(siteRaw) || getSiteUrl()
   const supabaseRaw = opts?.supabaseUrl ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
   return {
     siteOrigin: trimTrailingSlash(siteOrigin),

@@ -18,7 +18,7 @@ import {
 	iphoneServiceHubHref,
 	servicesHubBreadcrumb,
 } from '@/lib/marketing/iphone-pillars'
-import { getSiteUrl } from '@/lib/utils/site-url'
+import { canonicalAlternates, getSiteUrl } from '@/lib/utils/site-url'
 
 const pageHref = CONSERTO_IPHONE_PATH
 const canonical = `${getSiteUrl()}${pageHref}`
@@ -135,7 +135,7 @@ const faq = [
 export const metadata: Metadata = {
 	title,
 	description,
-	alternates: { canonical },
+	alternates: canonicalAlternates(pageHref),
 	openGraph: {
 		title,
 		description,
