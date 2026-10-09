@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import { resolveHubSecretsReader } from '@/lib/supabase/hub-secrets'
 import {
   archiveEvolutionChat,
   parseEvolutionStableMessageId,
@@ -60,10 +61,11 @@ export async function POST (
       let accessToken: string | null = null
 
       if (conv.hub_connection_id) {
-        const { data: hub } = await auth.supabase
+        const { data: hub } = await resolveHubSecretsReader(auth.supabase)
           .from('hub_connections')
           .select('access_token')
           .eq('id', conv.hub_connection_id)
+          .eq('organization_id', auth.organizationId)
           .maybeSingle()
         accessToken = hub?.access_token as string | null
       }

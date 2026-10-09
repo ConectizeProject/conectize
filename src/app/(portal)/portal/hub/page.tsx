@@ -1,8 +1,10 @@
 import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
 import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
-import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 import { blingOAuthRedirectUri, blingOriginFromHeaders } from '@/lib/integrations/bling/oauth-redirect'
+import { getPortalOrganizationId } from '@/lib/organizations/portal-organization-context'
+import { resolveHubSecretsReader } from '@/lib/supabase/hub-secrets'
+import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
 import { HubClient } from './HubClient'
 import { HubToastClient } from './HubToastClient'
 
@@ -28,10 +30,14 @@ export default async function HubPage() {
   const headerList = await headers()
   const blingRedirectUri = blingOAuthRedirectUri(blingOriginFromHeaders(headerList))
 
-  const { data: connections } = await supabase
-    .from('hub_connections')
-    .select('id, platform_id, metadata, created_at, token_expires_at, api_key')
-    .order('created_at', { ascending: false })
+  const organizationId = await getPortalOrganizationId(supabase, user.id)
+  const connections = organizationId
+    ? (await resolveHubSecretsReader(supabase)
+      .from('hub_connections')
+      .select('id, platform_id, metadata, created_at, token_expires_at, api_key')
+      .eq('organization_id', organizationId)
+      .order('created_at', { ascending: false })).data
+    : []
 
   const connectionRows = connections || []
   const connectedPlatforms = new Set(connectionRows.map((c: { platform_id: string }) => c.platform_id))

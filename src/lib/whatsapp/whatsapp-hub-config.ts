@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { resolveHubSecretsReader } from '@/lib/supabase/hub-secrets'
 
 export type WhatsappHubMetadata = {
 	phone_number_id?: string
@@ -17,11 +18,15 @@ const PLATFORM = 'whatsapp_business'
 
 export async function getWhatsappHubConnection(
 	supabase: SupabaseClient,
+	organizationId: string,
 ): Promise<WhatsappHubConnection> {
-	const { data } = await supabase
+	const orgId = String(organizationId || '').trim()
+	if (!orgId) return null
+	const { data } = await resolveHubSecretsReader(supabase)
 		.from('hub_connections')
 		.select('access_token, metadata')
 		.eq('platform_id', PLATFORM)
+		.eq('organization_id', orgId)
 		.maybeSingle()
 	if (!data) return null
 	return {

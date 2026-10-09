@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth/portal-api'
+import { resolveHubSecretsReader } from '@/lib/supabase/hub-secrets'
 import { getSupabaseHubWriter } from '@/lib/supabase/hub-writes'
 import {
   loadHubInboxAccessMeta,
@@ -21,7 +22,7 @@ export async function GET () {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 
-  const { data } = await auth.supabase
+  const { data } = await resolveHubSecretsReader(auth.supabase)
     .from('hub_connections')
     .select('id, access_token, metadata, created_at')
     .eq('platform_id', PLATFORM)
@@ -82,7 +83,7 @@ export async function POST (request: Request) {
     return NextResponse.json({ ok: false, error: 'phone_number_id_required' }, { status: 400 })
   }
 
-  const { data: existing } = await auth.supabase
+  const { data: existing } = await resolveHubSecretsReader(auth.supabase)
     .from('hub_connections')
     .select('metadata, access_token')
     .eq('platform_id', PLATFORM)

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import { resolveHubSecretsReader } from '@/lib/supabase/hub-secrets'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 import {
   FINALIZED_ORDER_STATUSES,
   OPEN_ORDER_STATUSES,
@@ -164,10 +165,11 @@ export async function POST(request: Request) {
     }, { status: 403 })
   }
 
-  const { data: connection } = await auth.supabase
+  const { data: connection } = await resolveHubSecretsReader(auth.supabase)
     .from('hub_connections')
     .select('api_key, metadata')
     .eq('platform_id', 'chatgpt')
+    .eq('organization_id', auth.organizationId)
     .not('api_key', 'is', null)
     .maybeSingle()
 

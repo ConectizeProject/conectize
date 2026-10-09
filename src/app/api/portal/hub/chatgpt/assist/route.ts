@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import { resolveHubSecretsReader } from '@/lib/supabase/hub-secrets'
 
 function buildAssistSystemPrompt (organizationLabel: string) {
   return `Você é um assistente da ${organizationLabel}, assistência técnica de celulares e eletrônicos.
@@ -37,10 +38,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: 'action_invalid' }, { status: 400 })
   }
 
-  const { data: connection } = await auth.supabase
+  const { data: connection } = await resolveHubSecretsReader(auth.supabase)
     .from('hub_connections')
     .select('api_key, metadata')
     .eq('platform_id', 'chatgpt')
+    .eq('organization_id', auth.organizationId)
     .not('api_key', 'is', null)
     .maybeSingle()
 

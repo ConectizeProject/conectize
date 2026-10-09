@@ -3,6 +3,7 @@ import {
 	MELI_API_BASE_URL,
 	MELI_PLATFORM_ID,
 } from '@/lib/integrations/mercado-livre/constants'
+import { resolveHubSecretsReader } from '@/lib/supabase/hub-secrets'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 
 export type HubConnection = {
@@ -198,7 +199,9 @@ export async function performMeliTokenRefresh(
 		return { ok: false, error: 'no_refresh_token' }
 	}
 
-	const supabase = options?.supabase ?? (await createSupabaseServerClient())
+	const supabase = resolveHubSecretsReader(
+		options?.supabase ?? (await createSupabaseServerClient()),
+	)
 	const firstAttempt = await requestMeliTokenRefresh(connection.refresh_token)
 
 	let sourceConnection = connection
@@ -338,13 +341,15 @@ export async function getMeliConnectionByOrganizationId(
 	supabase: SupabaseClient,
 	organizationId: string,
 ): Promise<HubConnection | null> {
-	const { data, error } = await supabase
+	const orgId = String(organizationId || '').trim()
+	if (!orgId) return null
+	const { data, error } = await resolveHubSecretsReader(supabase)
 		.from('hub_connections')
 		.select(
 			'id, platform_id, access_token, refresh_token, token_expires_at, metadata, created_by',
 		)
 		.eq('platform_id', MELI_PLATFORM_ID)
-		.eq('organization_id', organizationId)
+		.eq('organization_id', orgId)
 		.order('updated_at', { ascending: false })
 		.limit(1)
 		.maybeSingle()
