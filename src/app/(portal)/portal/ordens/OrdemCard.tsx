@@ -47,9 +47,14 @@ function formatDeviceCardLine(dm: PortalOrdensDeviceModelSummary | null): string
 
 function formatOrdemCardDatesLine (order: PortalOrdensListRow): string {
 	const parts: string[] = [formatDateTimeShortBrNoComma(order.created_at)]
-	if (order.estimated_ready_at) {
-		parts.push(formatDateTimeShortBrNoComma(order.estimated_ready_at))
-	}
+	const appointment = order.appointment_starts_at
+		? formatDateTimeShortBrNoComma(order.appointment_starts_at)
+		: ''
+	const ready = order.estimated_ready_at
+		? formatDateTimeShortBrNoComma(order.estimated_ready_at)
+		: ''
+	if (appointment && appointment !== '-' && appointment !== ready) parts.push(appointment)
+	if (ready && ready !== '-') parts.push(ready)
 	if (order.closed_at) {
 		parts.push(formatDateTimeShortBrNoComma(order.closed_at))
 	}
@@ -75,6 +80,7 @@ export function OrdemCard({ order, canDelete, layout = 'carousel', onLinkClick }
 		? ''
 		: [cpfCnpjFmt || null, celularFmt].filter(Boolean).join(' • ') || '—'
 	const datesLine = formatOrdemCardDatesLine(order)
+	const pendingAppointment = order.origin === 'agendamento' && !order.appointment_reviewed_at
 
 	const shellClass =
 		layout === 'list'
@@ -85,7 +91,10 @@ export function OrdemCard({ order, canDelete, layout = 'carousel', onLinkClick }
 
 	return (
 		<div className={shellClass}>
-			<Card className="h-full cursor-pointer transition-colors hover:bg-muted/50" draggable={false}>
+			<Card
+				className={`h-full cursor-pointer transition-colors hover:bg-muted/50 ${pendingAppointment ? 'ring-2 ring-sky-400' : ''}`}
+				draggable={false}
+			>
 				<CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 bg-muted/30 p-0 px-4 pt-2 pb-2">
 					<Link
 						href={ordemHref}

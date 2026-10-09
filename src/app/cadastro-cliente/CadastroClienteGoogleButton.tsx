@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { buildPortalAuthCallbackUrl } from '@/lib/auth/callback-url'
 import { getAuthSiteOrigin } from '@/lib/auth/site-origin'
+import { reserveSignupIp } from '@/lib/auth/reserve-signup-ip'
 import { useSupabaseBrowserClient } from '@/lib/supabase/use-supabase-browser-client'
 
 type Props = {
@@ -21,6 +22,12 @@ export function CadastroClienteGoogleButton ({ orgSlug, refOs }: Props) {
     try {
       if (!supabase) {
         window.location.href = `/cadastro-cliente?org=${encodeURIComponent(orgSlug)}&ref_os=${encodeURIComponent(refOs)}&error=config`
+        return
+      }
+
+      const allowed = await reserveSignupIp()
+      if (!allowed) {
+        window.location.href = `/cadastro-cliente?org=${encodeURIComponent(orgSlug)}&ref_os=${encodeURIComponent(refOs)}&error=limite_ip`
         return
       }
 

@@ -1,10 +1,16 @@
+import { loadBatteryMaintenancePrices } from '@/lib/appointments/battery-prices'
+import { loadPublicBatteryAppointment } from '@/lib/appointments/service'
 import {
 	iphoneModels,
 	lojaCategoryPaths,
 	lojaIndependentAnswer,
 	lojaPickupAnswer,
+	whatsappLink,
 } from '@/lib/data/hotsite-loja'
+import { getAuthUser } from '@/lib/supabase/server'
+import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { LojaCategoryPage, lojaCategoryMetadata } from '../LojaCategoryPage'
+import { BatteryBooking, BatteryBookingBand, BatteryBookingTrigger, type BatteryAppointmentSession } from './BateriaAgendamento'
 
 const description =
 	'Bateria nova para iPhone 11 ao 17, incluindo Pro e Pro Max. Pronta entrega na loja em Santa Efigênia, BH. Consulte o preço pelo WhatsApp.'
@@ -17,13 +23,55 @@ export const metadata = lojaCategoryMetadata({
 		'bateria iphone belo horizonte, bateria iphone bh, bateria iphone 11, bateria iphone 17, bateria iphone pro max, loja santa efigenia',
 })
 
-export default function LojaBateriaIphonePage () {
+export default async function LojaBateriaIphonePage () {
+	let loggedIn = false
+	let appointment: BatteryAppointmentSession | null = null
+	let prices: Record<string, number> = {}
+	try {
+		const supabase = createSupabaseServiceClient()
+		prices = await loadBatteryMaintenancePrices(supabase)
+		const { user } = await getAuthUser()
+		loggedIn = Boolean(user?.id)
+		if (user?.id) appointment = await loadPublicBatteryAppointment(supabase, user.id)
+	} catch (err) {
+		console.error('[bateria-agendamento-session]', err)
+	}
+
 	return (
+		<BatteryBooking
+			models={iphoneModels}
+			prices={prices}
+			whatsappHref={whatsappLink('Olá! Vim pelo site e quero agendar a troca de bateria do iPhone.')}
+			loggedIn={loggedIn}
+			appointment={appointment}
+		>
 		<LojaCategoryPage
+			nav={[
+				{ href: '#agendamento', label: 'Agendar' },
+				{ href: '#modelos', label: 'Modelos' },
+				{ href: '#diferenciais', label: 'Diferenciais' },
+				{ href: '#avaliacoes', label: 'Avaliações' },
+				{ href: '#unidade', label: 'Loja' },
+				{ href: '#contato', label: 'Contato' },
+			]}
+			heroAction={<BatteryBookingTrigger />}
+			afterHero={<BatteryBookingBand />}
 			path={lojaCategoryPaths.bateria}
 			description={description}
 			heroTitle="Bateria nova para iPhone"
-			heroSubtitle="Do iPhone 11 ao 17, incluindo Pro e Pro Max. Pronta entrega e 12 meses de garantia na peça."
+			heroSubtitle={(
+				<>
+					Atendemos todos os modelos de iPhone.
+					<br />
+					Na hora! Com 12 meses de garantia.
+				</>
+			)}
+			heroImage={{
+				src: '/loja/bateria-iphone-hero-branco.webp',
+				width: 640,
+				height: 1024,
+				alt: 'iPhone e bateria de reposição Li-ion',
+			}}
 			whatsappMessage="Olá! Vim pelo site e quero o preço da bateria para iPhone ___"
 			models={iphoneModels}
 			modelsLead="Referência dos modelos de iPhone com bateria na loja. Envie o seu no WhatsApp para confirmar disponibilidade e preço."
@@ -76,5 +124,6 @@ export default function LojaBateriaIphonePage () {
 				},
 			]}
 		/>
+		</BatteryBooking>
 	)
 }

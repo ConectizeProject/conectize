@@ -37,6 +37,10 @@ export type PortalServiceOrderListQueryRow = {
   services_total_cents?: number | null
   services_cost_total_cents?: number | null
   payment_methods?: unknown
+  origin?: string | null
+  appointment_starts_at?: string | null
+  appointment_reviewed_at?: string | null
+  appointment_model_label?: string | null
 }
 
 /** Linha exibida na lista / cards (com relações resolvidas no servidor). */

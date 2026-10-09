@@ -177,6 +177,7 @@ export function PortalShell(props: PortalShellProps) {
 							>
 								<PortalNotificationsMenu
 									supabasePlatformStatus={props.supabasePlatformStatus ?? null}
+									canReceiveStaffNotices={props.role === 'staff' || props.role === 'admin' || props.role === 'platform_admin'}
 								/>
 							</RadixAfterHydration>
 

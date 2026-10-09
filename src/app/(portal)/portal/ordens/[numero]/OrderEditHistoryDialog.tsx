@@ -52,7 +52,7 @@ function formatDisplayValue(
 		if (v === "false") return "Não";
 		return v || "(vazio)";
 	}
-	if (fieldKey === "estimated_ready_at" || fieldKey === "closed_at") {
+	if (fieldKey === "estimated_ready_at" || fieldKey === "closed_at" || fieldKey === "appointment_starts_at") {
 		if (!v) return "(vazio)";
 		const d = new Date(v);
 		if (Number.isNaN(d.getTime())) return v;

@@ -69,7 +69,8 @@ export default async function CadastroClientePage ({
                 {err === 'config' && 'Serviço indisponível. Tente mais tarde.'}
                 {err === 'cadastro_falhou' &&
                   'Não foi possível finalizar o vínculo com a assistência. Tente novamente em instantes.'}
-                {!['os_invalida', 'email_em_uso', 'dados_invalidos', 'senhas_nao_conferem', 'google_oauth', 'documento_invalido', 'config', 'cadastro_falhou'].includes(String(err)) &&
+                {err === 'limite_ip' && 'Este endereço já criou 3 contas hoje. Tente novamente amanhã.'}
+                {!['os_invalida', 'email_em_uso', 'dados_invalidos', 'senhas_nao_conferem', 'google_oauth', 'documento_invalido', 'config', 'cadastro_falhou', 'limite_ip'].includes(String(err)) &&
                   'Não foi possível concluir o cadastro.'}
               </p>
             ) : null}

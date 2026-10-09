@@ -37,6 +37,9 @@ export type OrderAssistInfoSectionProps = {
 	estimatedReadyAtDefault: string
 	/** Já formatado para exibição no resumo (ex.: formatDateTimeBr) */
 	previsaoDisplay: string | null
+	showAppointment?: boolean
+	appointmentStartsAtDefault?: string
+	appointmentDisplay?: string | null
 	customerDescription: string
 	receivingNotes: string
 	deviceEntryChecks: unknown
@@ -57,12 +60,15 @@ function AssistTopFormFields(props: OrderAssistInfoSectionProps) {
 		estimatedReadyAtDefault,
 		customerDescription,
 		receivingNotes,
+		showAppointment = false,
+		appointmentStartsAtDefault = '',
 	} = props
+	const previsaoLabel = showAppointment ? 'Previsto para finalização' : 'Previsão (data e hora)'
 
 	return (
 		<div className="space-y-6">
-			<div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-				<div className="space-y-2 md:col-span-2">
+			<div className={showAppointment ? 'grid grid-cols-1 gap-4 md:grid-cols-2' : 'grid grid-cols-1 gap-4 md:grid-cols-4'}>
+				<div className={showAppointment ? 'space-y-2' : 'space-y-2 md:col-span-2'}>
 					<Label htmlFor="title">Título</Label>
 					<Input
 						id="title"
@@ -72,7 +78,7 @@ function AssistTopFormFields(props: OrderAssistInfoSectionProps) {
 						disabled={formDisabled}
 					/>
 				</div>
-				<div className="space-y-2 md:col-span-1">
+				<div className={showAppointment ? 'space-y-2' : 'space-y-2 md:col-span-1'}>
 					<Label htmlFor={isAdmin ? 'seller_user_id' : 'sellerDisplayName'}>
 						Vendedor
 					</Label>
@@ -99,8 +105,20 @@ function AssistTopFormFields(props: OrderAssistInfoSectionProps) {
 						/>
 					)}
 				</div>
-				<div className="space-y-2 md:col-span-1">
-					<Label htmlFor="estimatedReadyAt">Previsão (data e hora)</Label>
+				{showAppointment ? (
+					<div className="space-y-2">
+						<Label htmlFor="appointmentStartsAt">Agendado para</Label>
+						<Input
+							id="appointmentStartsAt"
+							name="appointmentStartsAt"
+							type="datetime-local"
+							defaultValue={appointmentStartsAtDefault}
+							disabled={formDisabled}
+						/>
+					</div>
+				) : null}
+				<div className={showAppointment ? 'space-y-2' : 'space-y-2 md:col-span-1'}>
+					<Label htmlFor="estimatedReadyAt">{previsaoLabel}</Label>
 					<PrevisaoInput
 						id="estimatedReadyAt"
 						name="estimatedReadyAt"
@@ -168,28 +186,38 @@ function AssistSummaryReadOnly(props: {
 	sellerDisplayName: string
 	previsaoDisplay: string | null
 	customerDescription: string
+	showAppointment?: boolean
+	appointmentDisplay?: string | null
 }) {
-	const { title, sellerDisplayName, previsaoDisplay, customerDescription } = props
+	const { title, sellerDisplayName, previsaoDisplay, customerDescription, showAppointment = false, appointmentDisplay } = props
 	const previsaoResumo = previsaoDisplay?.trim() || '—'
+	const agendadoResumo = appointmentDisplay?.trim() || '-'
+	const previsaoLabel = showAppointment ? 'Previsto para finalização' : 'Previsão'
 	const desc = String(customerDescription || '').trim()
 
 	return (
 		<div className="space-y-6">
-			<div className="grid min-w-0 grid-cols-1 gap-4 text-sm md:grid-cols-4 md:gap-4">
-				<div className="min-w-0 space-y-1 md:col-span-2">
+			<div className={showAppointment ? 'grid min-w-0 grid-cols-1 gap-4 text-sm md:grid-cols-2 md:gap-4' : 'grid min-w-0 grid-cols-1 gap-4 text-sm md:grid-cols-4 md:gap-4'}>
+				<div className={showAppointment ? 'min-w-0 space-y-1' : 'min-w-0 space-y-1 md:col-span-2'}>
 					<div className="text-muted-foreground">Título</div>
 					<div className="font-medium text-foreground break-words">
 						{title.trim() || '—'}
 					</div>
 				</div>
-				<div className="min-w-0 space-y-1 md:col-span-1">
+				<div className={showAppointment ? 'min-w-0 space-y-1' : 'min-w-0 space-y-1 md:col-span-1'}>
 					<div className="text-muted-foreground">Vendedor</div>
 					<div className="font-medium text-foreground break-words">
 						{sellerDisplayName.trim() || '—'}
 					</div>
 				</div>
-				<div className="min-w-0 space-y-1 md:col-span-1">
-					<div className="text-muted-foreground">Previsão</div>
+				{showAppointment ? (
+					<div className="min-w-0 space-y-1">
+						<div className="text-muted-foreground">Agendado para</div>
+						<div className="font-medium text-foreground break-words">{agendadoResumo}</div>
+					</div>
+				) : null}
+				<div className={showAppointment ? 'min-w-0 space-y-1' : 'min-w-0 space-y-1 md:col-span-1'}>
+					<div className="text-muted-foreground">{previsaoLabel}</div>
 					<div className="font-medium text-foreground break-words">{previsaoResumo}</div>
 				</div>
 			</div>
@@ -288,6 +316,8 @@ export function OrderAssistInfoSection(props: OrderAssistInfoSectionProps) {
 						sellerDisplayName={props.sellerDisplayName}
 						previsaoDisplay={props.previsaoDisplay}
 						customerDescription={props.customerDescription}
+						showAppointment={props.showAppointment}
+						appointmentDisplay={props.appointmentDisplay}
 					/>
 				) : null}
 

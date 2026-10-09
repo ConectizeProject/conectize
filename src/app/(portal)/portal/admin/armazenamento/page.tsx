@@ -12,7 +12,7 @@ export default async function StorageUsagePage () {
       <div>
         <h1 className="text-2xl font-bold">Armazenamento</h1>
         <p className="text-sm text-muted-foreground">
-          Acompanhe o uso do Supabase Storage e remova mídias antigas manualmente.
+          Acompanhe o uso do Supabase Storage e libere espaço removendo mídias, mensagens do WhatsApp ou registros de webhooks.
         </p>
       </div>
 
