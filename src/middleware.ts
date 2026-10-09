@@ -2,18 +2,18 @@ import { createServerClient } from '@supabase/ssr'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
-import { isSupabaseInfraError } from './src/lib/auth/auth-session-resilience'
-import { PORTAL_INTENDED_PATH_HEADER } from './src/lib/auth/portal-intended-path'
+import { isSupabaseInfraError } from './lib/auth/auth-session-resilience'
+import { PORTAL_INTENDED_PATH_HEADER } from './lib/auth/portal-intended-path'
 import {
 	isValidPortalRoleHint,
 	PORTAL_ROLE_HINT_COOKIE,
-} from './src/lib/auth/portal-role-hint'
+} from './lib/auth/portal-role-hint'
 import {
 	PORTAL_SIMULATED_ROLE_COOKIE,
 	resolveEffectivePortalRole,
-} from './src/lib/auth/portal-role-simulation'
-import { goneCrawlResponse, isGoneCrawlPath } from './src/lib/utils/gone-crawl-paths'
-import { resolveLegacyServiceDestination } from './src/lib/utils/legacy-service-redirect'
+} from './lib/auth/portal-role-simulation'
+import { goneCrawlResponse, isGoneCrawlPath } from './lib/utils/gone-crawl-paths'
+import { resolvePublicCrawlRedirect } from './lib/utils/public-crawl-redirect'
 
 function getSupabaseEnv() {
 	const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -115,10 +115,17 @@ async function getUserRole(supabase: SupabaseClient, request: NextRequest) {
 	return { user: { id: sub }, role, realRole }
 }
 
+function redirectOrigin(request: NextRequest) {
+	const hostHeader = request.headers.get('host') || request.nextUrl.host
+	const hostname = hostHeader.split(':')[0].toLowerCase()
+	if (hostname === 'conectize.com.br' || hostname === 'www.conectize.com.br') {
+		return 'https://www.conectize.com.br'
+	}
+	return request.nextUrl.origin
+}
+
 export async function middleware(request: NextRequest) {
 	const { pathname } = request.nextUrl
-
-	if (isGoneCrawlPath(pathname)) return goneCrawlResponse()
 
 	if (pathname.startsWith('/api/portal')) {
 		return refreshPortalApiSession(request)
@@ -132,6 +139,30 @@ export async function middleware(request: NextRequest) {
 		pathname.startsWith('/sitemap.xml')
 	) {
 		return NextResponse.next()
+	}
+
+	const normalizedPath =
+		pathname.length > 1 && pathname.endsWith('/')
+			? pathname.slice(0, -1)
+			: pathname
+	if (isGoneCrawlPath(normalizedPath)) return goneCrawlResponse()
+
+	const crawl = resolvePublicCrawlRedirect({
+		pathname,
+		searchParams: request.nextUrl.searchParams,
+		host: request.headers.get('host') || request.nextUrl.host,
+	})
+	if (crawl) {
+		const destination = new URL(
+			`${crawl.pathname}${crawl.search}`,
+			redirectOrigin(request),
+		)
+		const current = request.nextUrl
+		const sameTarget =
+			destination.pathname === current.pathname &&
+			destination.search === current.search &&
+			destination.host === current.host
+		if (!sameTarget) return NextResponse.redirect(destination, 301)
 	}
 
 	if (pathname === '/portal' || pathname.startsWith('/portal/')) {
@@ -323,36 +354,12 @@ export async function middleware(request: NextRequest) {
 		return response
 	}
 
-	if (!pathname.startsWith('/servicos/')) return NextResponse.next()
-
-	const parts = pathname.split('/').filter(Boolean)
-	if (parts[0] !== 'servicos') return NextResponse.next()
-
-	const rest = parts.slice(1)
-	if (rest.length === 0) return NextResponse.next()
-
-	const destination = resolveLegacyServiceDestination(rest)
-	if (destination) {
-		const destUrl = new URL(destination, request.nextUrl.origin)
-		const url = request.nextUrl.clone()
-		url.pathname = destUrl.pathname
-		url.search = destUrl.search
-		return NextResponse.redirect(url, 308)
-	}
-
 	return NextResponse.next()
 }
 
 export const config = {
 	matcher: [
-		'/servicos',
-		'/servicos/:path*',
-		'/share',
-		'/navigationaddresses-hub',
-		'/p/:path*',
-		'/zO2ixMhVjY2kPD8dEV5bg==',
-		'/portal',
-		'/portal/:path*',
+		'/((?!api|_next/static|_next/image|favicon.ico|.*\\..*).*)',
 		'/api/portal/:path*',
 	],
 }

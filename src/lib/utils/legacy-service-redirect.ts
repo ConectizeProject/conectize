@@ -1,94 +1,130 @@
-import { brands, getBrandBySlug, getModelBySlugAnyType, getServiceBySlug, services } from '@/lib/data/services'
-import { buildServiceProductSlug, parseServiceProductSlug } from '@/lib/utils/service-product-slug'
-import { buildServicesHubHref } from '@/lib/utils/services-hub'
+import { brands, getModelBySlugAnyType, services } from '@/lib/data/services'
+import { ASSISTENCIA_IPHONE_PATH } from '@/lib/marketing/iphone-pillars'
+import {
+  closestCanonicalServicePath,
+  indexableServicePath,
+} from '@/lib/utils/canonical-service-path'
+import {
+  SERVICE_DEVICE_LABELS,
+  deviceSlugFromLabel,
+} from '@/lib/utils/service-product-slug'
+import { SERVICES_HUB_PATH } from '@/lib/utils/services-hub'
 
-const serviceSlugs = new Set(services.map((s) => s.slug))
+const serviceSlugs = new Set(services.map((service) => service.slug))
 const brandSlugs = new Set(Object.keys(brands))
+const serviceSlugsByLength = services
+  .map((service) => service.slug)
+  .slice()
+  .sort((a, b) => b.length - a.length)
 
-/** Nome de tipo colado em maiúscula no fim de um slug que já termina com o tipo. */
-const DUPLICATED_DEVICE_LABEL = /-(Smartphone|Tablet|iPhone|iPad|MacBook)$/
-
-function isIndexableServiceSlug (slug: string): boolean {
-  const parsed = parseServiceProductSlug(slug)
-  if (!parsed.isValid) return false
-
-  const service = getServiceBySlug(parsed.serviceSlug)
-  const brand = getBrandBySlug(parsed.brandSlug)
-  if (!service || !brand || !service.brands.includes(brand.slug)) return false
-
-  const excluded = service.excludedDeviceTypes?.[brand.slug] || []
-  const deviceType = brand.deviceTypes?.[parsed.modelSlug]
-  if (deviceType) return !excluded.includes(deviceType.slug)
-
-  const model = getModelBySlugAnyType(parsed.brandSlug, parsed.modelSlug)
-  if (!model) return false
-  return !excluded.includes(model.deviceType.slug)
+function decodeSegment (segment: string): string {
+  try {
+    return decodeURIComponent(segment).trim()
+  } catch {
+    return segment.trim()
+  }
 }
 
-function resolveDuplicatedDeviceSuffix (slug: string): string | null {
-  const match = slug.match(DUPLICATED_DEVICE_LABEL)
-  if (!match) return null
+function legacyDeviceSuffixPath (slug: string): string | null {
+  const lower = slug.toLowerCase()
+  for (const device of SERVICE_DEVICE_LABELS) {
+    for (const label of device.labels) {
+      const tail = `-${label}`
+      if (!lower.endsWith(tail)) continue
+      const prefix = slug.slice(0, slug.length - tail.length)
+      const prefixLower = prefix.toLowerCase()
+      if (prefixLower === device.slug || prefixLower.endsWith(`-${device.slug}`)) {
+        const path = indexableServicePath(prefix)
+        if (path) return path
+      }
+      const rewritten = `${prefix}-${device.slug}`
+      if (rewritten !== slug) {
+        const path = indexableServicePath(rewritten)
+        if (path && path !== `/servicos/${slug}`) return path
+      }
+    }
+  }
+  return null
+}
 
-  const prefix = slug.slice(0, -match[0].length)
-  const label = match[1].toLowerCase()
-  if (!prefix.endsWith(`-${label}`)) return null
-  if (!isIndexableServiceSlug(prefix)) return null
+/** `/servicos/reparo-de-placa-apple` (serviço + marca, sem modelo). */
+function compactServiceBrandPath (slug: string): string | null {
+  const lower = slug.toLowerCase()
+  const serviceSlug = serviceSlugsByLength.find((item) => lower.startsWith(`${item}-`))
+  if (!serviceSlug) return null
+  const rest = lower.slice(serviceSlug.length + 1)
+  if (!brandSlugs.has(rest)) return null
+  return closestCanonicalServicePath({ serviceSlug, brandSlug: rest })
+}
 
-  return `/servicos/${prefix}`
+type ClassifiedSegments = {
+  serviceSlug?: string
+  brandSlug?: string
+  deviceSlug?: string
+  modelSlug?: string
+}
+
+function classifySegments (segments: string[]): ClassifiedSegments | null {
+  let serviceSlug: string | undefined
+  let brandSlug: string | undefined
+  let deviceSlug: string | undefined
+  const unknown: string[] = []
+
+  for (const segment of segments) {
+    const lower = segment.toLowerCase()
+    if (!serviceSlug && serviceSlugs.has(lower)) {
+      serviceSlug = lower
+      continue
+    }
+    if (!brandSlug && brandSlugs.has(lower)) {
+      brandSlug = lower
+      continue
+    }
+    const device = deviceSlugFromLabel(segment)
+    if (!deviceSlug && device) {
+      deviceSlug = device
+      continue
+    }
+    unknown.push(lower)
+  }
+
+  if (!serviceSlug || !brandSlug) return null
+
+  let modelSlug: string | undefined
+  if (brandSlug) {
+    for (const segment of unknown) {
+      const model = getModelBySlugAnyType(brandSlug, segment)
+      if (model) modelSlug = model.modelSlug
+    }
+  }
+
+  return { serviceSlug, brandSlug, deviceSlug, modelSlug }
 }
 
 /**
- * Resolve URLs legadas de /servicos/* para o destino canônico.
- * Retorna path (+ search) relativo, ou null se não houver mapeamento.
+ * Resolve URLs legadas de /servicos/* para o path canônico (sem query).
+ * Retorna null quando a URL já é canônica ou não há mapeamento (404).
  */
 export function resolveLegacyServiceDestination (segments: string[]): string | null {
   if (segments.length === 0) return null
 
-  // /servicos/<servico> → hub
-  if (segments.length === 1) {
-    const slug = segments[0]
-    if (serviceSlugs.has(slug)) return buildServicesHubHref({ servico: slug })
-    return resolveDuplicatedDeviceSuffix(slug)
+  const decoded = segments.map(decodeSegment).filter(Boolean)
+  if (decoded.length === 0) return null
+
+  if (decoded.length === 1) {
+    const slug = decoded[0]
+    const lower = slug.toLowerCase()
+    if (serviceSlugs.has(lower)) return SERVICES_HUB_PATH
+    if (lower === 'apple') return ASSISTENCIA_IPHONE_PATH
+    if (brandSlugs.has(lower)) return SERVICES_HUB_PATH
+    return legacyDeviceSuffixPath(slug) ?? compactServiceBrandPath(slug)
   }
 
-  // /servicos/<marca>/<servico>/<modelo>
-  if (segments.length === 3) {
-    const [a, b, c] = segments
-    if (brandSlugs.has(a) && serviceSlugs.has(b)) {
-      return `/servicos/${buildServiceProductSlug({
-        serviceSlug: b,
-        brandSlug: a,
-        modelSlug: c,
-      })}`
-    }
-    // /servicos/<servico>/<marca>/<tipo> → hub
-    if (serviceSlugs.has(a) && brandSlugs.has(b)) {
-      return buildServicesHubHref({ marca: b, servico: a })
-    }
-  }
+  const classified = classifySegments(decoded)
+  if (!classified?.serviceSlug || !classified.brandSlug) return null
 
-  // /servicos/<marca>/<servico>
-  if (segments.length === 2) {
-    const [a, b] = segments
-    if (brandSlugs.has(a) && serviceSlugs.has(b)) {
-      return buildServicesHubHref({ marca: a, servico: b })
-    }
-    if (serviceSlugs.has(a) && brandSlugs.has(b)) {
-      return buildServicesHubHref({ marca: b, servico: a })
-    }
-  }
-
-  // /servicos/<servico>/<marca>/<tipo>/<modelo>
-  if (segments.length === 4) {
-    const [servico, marca, _tipo, modelo] = segments
-    if (serviceSlugs.has(servico) && brandSlugs.has(marca)) {
-      return `/servicos/${buildServiceProductSlug({
-        serviceSlug: servico,
-        brandSlug: marca,
-        modelSlug: modelo,
-      })}`
-    }
-  }
-
-  return null
+  const destination = closestCanonicalServicePath(classified)
+  const requested = `/servicos/${decoded.join('/')}`
+  if (destination === requested) return null
+  return destination
 }

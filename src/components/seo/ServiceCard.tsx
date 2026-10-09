@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import type { Service } from '@/lib/types/seo'
-import { buildServicesHubHref } from '@/lib/utils/services-hub'
+import { preferredPublicServiceHref } from '@/lib/utils/canonical-service-path'
 
 interface ServiceCardProps {
   service: Service
@@ -9,7 +9,7 @@ interface ServiceCardProps {
 export function ServiceCard ({ service }: ServiceCardProps) {
   return (
     <Link
-      href={buildServicesHubHref({ servico: service.slug })}
+      href={preferredPublicServiceHref(service.slug)}
       className="block bg-card rounded-xl p-6 shadow-card hover:shadow-glow transition-all duration-300 border border-border hover:border-primary/50"
     >
       <h3 className="text-xl font-bold text-foreground mb-2">

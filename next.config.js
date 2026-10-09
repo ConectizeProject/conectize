@@ -35,6 +35,9 @@ const nextConfig = {
 		// em rotas como OS e aparelhos e não restauravam a visibilidade.
 		viewTransition: false,
 	},
+	// A barra final é resolvida no middleware junto com o destino canônico,
+	// para não criar uma cadeia (slash → path antigo → URL final).
+	skipTrailingSlashRedirect: true,
 	// sharp 0.35 + Turbopack no Vercel: libvips não entra no bundle → 500 HTML em upload.
 	// pdfkit precisa do .afm em node_modules (não no virtual root C:\ROOT do bundler).
 	serverExternalPackages: ['sharp', 'pdfkit', '@brasil-fiscal/nfe', 'qrcode'],
@@ -86,38 +89,8 @@ const nextConfig = {
 		},
 	},
 	async redirects() {
-		const serviceSlugs = [
-			'troca-de-tela',
-			'troca-de-vidro-da-tela',
-			'troca-de-vidro-tampa-traseira',
-			'troca-de-bateria',
-			'reparo-de-placa',
-			'troca-de-conector',
-			'troca-de-camera',
-			'correcoes-de-software',
-			'reparo-de-audio',
-			'reparo-de-agua',
-		]
-
-		// Host canônico: apex → www em 308 (Vercel sozinho usa 307 e o GSC conta como 302)
-		const hostRedirects = [
-			{
-				source: '/:path*',
-				has: [{ type: 'host', value: 'conectize.com.br' }],
-				destination: 'https://www.conectize.com.br/:path*',
-				permanent: true,
-			},
-		]
-
-		// Só 1 segmento aqui: next.config não consegue montar slug com hífen
-		// (ex.: troca-de-bateria-samsung-galaxy-a54). Multi-segmento fica no proxy + catch-all.
-		const servicesHubPath = '/conserto-de-celular-belo-horizonte'
-		const serviceRedirects = serviceSlugs.map((serviceSlug) => ({
-			source: `/servicos/${serviceSlug}`,
-			destination: `${servicesHubPath}?servico=${serviceSlug}`,
-			permanent: true,
-		}))
-
+		// Apex → www e paths legados (serviços, MLB, barra final) ficam no middleware,
+		// num único 301 absoluto. Um redirect aqui preservaria o path antigo e criaria cadeia.
 		// Portal: URLs antigas de seminovos → listagem unificada de revenda
 		const legacyPortalRedirects = [
 			{
@@ -137,48 +110,7 @@ const nextConfig = {
 			},
 		]
 
-		// URLs fantasma de loja/ML antiga + home legado (~45% dos 404 do GSC)
-		const legacyStoreRedirects = [
-			{
-				// path-to-regexp (Next 16) rejeita '/MLB-:path*' — repeat precisa de prefixo/sufixo.
-				// IDs ML são um segmento: /MLB-1234567890
-				source: '/MLB-:id',
-				destination: '/acessorios',
-				permanent: true,
-			},
-			{
-				source: '/lista/:path*',
-				destination: '/acessorios',
-				permanent: true,
-			},
-			{
-				source: '/:slug/p/MLB:id',
-				destination: '/acessorios',
-				permanent: true,
-			},
-			{
-				source: '/p/MLB:id',
-				destination: '/acessorios',
-				permanent: true,
-			},
-			{
-				source: '/home',
-				destination: '/',
-				permanent: true,
-			},
-			{
-				source: '/HOME',
-				destination: '/',
-				permanent: true,
-			},
-		]
-
-		return [
-			...hostRedirects,
-			...serviceRedirects,
-			...legacyPortalRedirects,
-			...legacyStoreRedirects,
-		]
+		return legacyPortalRedirects
 	},
 	async headers() {
 		return [

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Smartphone, Battery, Monitor, Cpu, Wifi, Camera, Settings, Wrench, LucideIcon } from "lucide-react";
-import { buildServicesHubHref, SERVICES_HUB_PATH } from "@/lib/utils/services-hub";
+import { preferredPublicServiceHref } from "@/lib/utils/canonical-service-path";
+import { SERVICES_HUB_PATH } from "@/lib/utils/services-hub";
 
 interface Service {
   icon: LucideIcon | null;
@@ -36,49 +37,49 @@ const services: Service[] = [
     icon: Monitor,
     title: "Troca de Vidro da Tela",
     description: "Substituição de vidro da tela quebrado ou arranhado para todas as marcas de celulares.",
-    href: buildServicesHubHref({ servico: "troca-de-vidro-da-tela" }),
+    href: preferredPublicServiceHref("troca-de-vidro-da-tela"),
   },
   {
     icon: Smartphone,
     title: "Troca de Vidro/Tampa Traseira",
     description: "Substituição de vidro traseiro e tampa traseira quebrada, trincada ou arranhada.",
-    href: buildServicesHubHref({ servico: "troca-de-vidro-tampa-traseira" }),
+    href: preferredPublicServiceHref("troca-de-vidro-tampa-traseira"),
   },
   {
     icon: Battery,
     title: "Troca de Bateria",
     description: "Baterias de alta qualidade para seu celular durar mais.",
-    href: buildServicesHubHref({ servico: "troca-de-bateria" }),
+    href: preferredPublicServiceHref("troca-de-bateria"),
   },
   {
     icon: Cpu,
     title: "Reparo de Placa",
     description: "Conserto de placas lógicas e componentes internos com precisão.",
-    href: buildServicesHubHref({ servico: "reparo-de-placa" }),
+    href: preferredPublicServiceHref("reparo-de-placa"),
   },
   {
     icon: Wifi,
     title: "Problemas de Conectividade",
     description: "Reparos em Wi-Fi, Bluetooth, antenas e conexões de rede.",
-    href: buildServicesHubHref({ servico: "troca-de-conector" }),
+    href: preferredPublicServiceHref("troca-de-conector"),
   },
   {
     icon: Camera,
     title: "Reparo de Câmera",
     description: "Troca e conserto de câmeras frontais e traseiras.",
-    href: buildServicesHubHref({ servico: "troca-de-camera" }),
+    href: preferredPublicServiceHref("troca-de-camera"),
   },
   {
     icon: Settings,
     title: "Problemas de Software",
     description: "Formatação, atualização e resolução de problemas de sistema.",
-    href: buildServicesHubHref({ servico: "correcoes-de-software" }),
+    href: preferredPublicServiceHref("correcoes-de-software"),
   },
   {
     icon: Smartphone,
     title: "Troca de Conector",
     description: "Substituição de conector de carga e entrada P2.",
-    href: buildServicesHubHref({ servico: "troca-de-conector" }),
+    href: preferredPublicServiceHref("troca-de-conector"),
   },
   {
     icon: Wrench,
