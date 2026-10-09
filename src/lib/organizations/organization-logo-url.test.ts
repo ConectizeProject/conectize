@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   isAllowedOrganizationLogoUrl,
   resolveAllowedOrganizationLogoFetchUrl,
@@ -47,11 +47,22 @@ describe('isAllowedOrganizationLogoUrl', () => {
 })
 
 describe('resolveAllowedOrganizationLogoFetchUrl', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
   it('resolve path relativo no site e esvazia URL fora da allowlist', () => {
     expect(resolveAllowedOrganizationLogoFetchUrl('/logo.png', opts)).toBe(
       'https://www.conectize.com.br/logo.png',
     )
     expect(resolveAllowedOrganizationLogoFetchUrl('https://evil.example/x', opts)).toBe('')
     expect(resolveAllowedOrganizationLogoFetchUrl('//evil.example/x', opts)).toBe('')
+  })
+
+  it('normaliza o host apex do env para www ao resolver path relativo', () => {
+    vi.stubEnv('NEXT_PUBLIC_SITE_URL', 'https://conectize.com.br')
+    expect(resolveAllowedOrganizationLogoFetchUrl('/logo.png')).toBe(
+      'https://www.conectize.com.br/logo.png',
+    )
   })
 })

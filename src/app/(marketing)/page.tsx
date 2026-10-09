@@ -4,12 +4,10 @@ import Hero from '@/components/Hero'
 import { GeoEntitySection } from '@/components/seo/GeoEntitySection'
 import { GeoServiceArea } from '@/components/seo/GeoServiceArea'
 import { LocalFaq } from '@/components/seo/LocalFaq'
-import { getSiteUrl } from '@/lib/utils/site-url'
+import { canonicalAlternates } from '@/lib/utils/site-url'
 
 export const metadata: Metadata = {
-  alternates: {
-    canonical: getSiteUrl(),
-  },
+  alternates: canonicalAlternates('/'),
 }
 
 const Services = dynamic(() => import('@/components/Services'))

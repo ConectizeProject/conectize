@@ -89,8 +89,9 @@ const nextConfig = {
 		},
 	},
 	async redirects() {
-		// Apex → www e paths legados (serviços, MLB, barra final) ficam no middleware,
-		// num único 301 absoluto. Um redirect aqui preservaria o path antigo e criaria cadeia.
+		// Apex, http, serviços legados, MLB e barra final ficam no middleware,
+		// num único 301 absoluto. Um redirect aqui preservaria o path antigo
+		// (e, no caso de /servicos/{slug}, a query ?servico=) e criaria cadeia.
 		// Portal: URLs antigas de seminovos → listagem unificada de revenda
 		const legacyPortalRedirects = [
 			{

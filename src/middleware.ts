@@ -12,8 +12,15 @@ import {
 	PORTAL_SIMULATED_ROLE_COOKIE,
 	resolveEffectivePortalRole,
 } from './lib/auth/portal-role-simulation'
+import {
+	canonicalRedirectStatus,
+	normalizeHostname,
+	publicHostnameFromHeaders,
+	resolveCanonicalRedirect,
+} from './lib/utils/canonical-host'
 import { goneCrawlResponse, isGoneCrawlPath } from './lib/utils/gone-crawl-paths'
 import { resolvePublicCrawlRedirect } from './lib/utils/public-crawl-redirect'
+import { APEX_HOST, CANONICAL_HOST, CANONICAL_SITE_ORIGIN } from './lib/utils/site-url'
 
 function getSupabaseEnv() {
 	const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -87,6 +94,8 @@ async function refreshPortalApiSession(request: NextRequest) {
  *
  * Nota: mantemos `middleware.ts` (não `proxy.ts`) por bug do Turbopack no Next 16.2.4
  * que faz rotas do matcher retornarem 404 em `next dev` com proxy.ts.
+ * O arquivo fica em `src/`, no mesmo nível de `app`, para o build de produção
+ * incluí-lo. Na raiz, com `src/app`, o Next 16 ignora o middleware.
  * Ver: https://github.com/vercel/next.js/issues/92921
  */
 async function getUserRole(supabase: SupabaseClient, request: NextRequest) {
@@ -115,17 +124,56 @@ async function getUserRole(supabase: SupabaseClient, request: NextRequest) {
 	return { user: { id: sub }, role, realRole }
 }
 
-function redirectOrigin(request: NextRequest) {
-	const hostHeader = request.headers.get('host') || request.nextUrl.host
-	const hostname = hostHeader.split(':')[0].toLowerCase()
-	if (hostname === 'conectize.com.br' || hostname === 'www.conectize.com.br') {
-		return 'https://www.conectize.com.br'
+/**
+ * Um único redirect: host canônico (apex ou http → https://www) e path legado
+ * juntos. Redirecionar o host antes do path recriaria a cadeia do Search Console.
+ * GET/HEAD usam 301. Os demais métodos usam 308 para preservar o corpo.
+ */
+function redirectPublicUrl(request: NextRequest) {
+	const hostname = publicHostnameFromHeaders(request.headers, request.nextUrl.hostname)
+	const protocol = request.headers.get('x-forwarded-proto') || request.nextUrl.protocol
+	const crawl = resolvePublicCrawlRedirect({
+		pathname: request.nextUrl.pathname,
+		searchParams: request.nextUrl.searchParams,
+		host: hostname,
+	})
+	const pathname = crawl?.pathname ?? request.nextUrl.pathname
+	const search = crawl?.search ?? request.nextUrl.search
+
+	const canonical = resolveCanonicalRedirect({
+		hostname,
+		protocol,
+		pathname,
+		search,
+	})
+	if (canonical) {
+		return NextResponse.redirect(canonical, canonicalRedirectStatus(request.method))
 	}
-	return request.nextUrl.origin
+
+	if (!crawl) return null
+
+	const current = `${request.nextUrl.pathname}${request.nextUrl.search}`
+	if (`${pathname}${search}` === current) return null
+
+	const normalized = normalizeHostname(hostname)
+	const onProductionHost = normalized === CANONICAL_HOST || normalized === APEX_HOST
+	const target = onProductionHost
+		? `${CANONICAL_SITE_ORIGIN}${pathname}${search}`
+		: new URL(`${pathname}${search}`, request.nextUrl.origin)
+	return NextResponse.redirect(target, canonicalRedirectStatus(request.method))
 }
 
 export async function middleware(request: NextRequest) {
 	const { pathname } = request.nextUrl
+
+	const normalizedPath =
+		pathname.length > 1 && pathname.endsWith('/')
+			? pathname.slice(0, -1)
+			: pathname
+	if (isGoneCrawlPath(normalizedPath)) return goneCrawlResponse()
+
+	const publicRedirect = redirectPublicUrl(request)
+	if (publicRedirect) return publicRedirect
 
 	if (pathname.startsWith('/api/portal')) {
 		return refreshPortalApiSession(request)
@@ -139,30 +187,6 @@ export async function middleware(request: NextRequest) {
 		pathname.startsWith('/sitemap.xml')
 	) {
 		return NextResponse.next()
-	}
-
-	const normalizedPath =
-		pathname.length > 1 && pathname.endsWith('/')
-			? pathname.slice(0, -1)
-			: pathname
-	if (isGoneCrawlPath(normalizedPath)) return goneCrawlResponse()
-
-	const crawl = resolvePublicCrawlRedirect({
-		pathname,
-		searchParams: request.nextUrl.searchParams,
-		host: request.headers.get('host') || request.nextUrl.host,
-	})
-	if (crawl) {
-		const destination = new URL(
-			`${crawl.pathname}${crawl.search}`,
-			redirectOrigin(request),
-		)
-		const current = request.nextUrl
-		const sameTarget =
-			destination.pathname === current.pathname &&
-			destination.search === current.search &&
-			destination.host === current.host
-		if (!sameTarget) return NextResponse.redirect(destination, 301)
 	}
 
 	if (pathname === '/portal' || pathname.startsWith('/portal/')) {
@@ -359,7 +383,8 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
 	matcher: [
-		'/((?!api|_next/static|_next/image|favicon.ico|.*\\..*).*)',
-		'/api/portal/:path*',
+		// Quase tudo, inclusive sitemap, robots e arquivos públicos, para o apex
+		// ir a https://www num único salto. _next/static e _next/image ficam de fora.
+		'/((?!_next/static|_next/image).*)',
 	],
 }

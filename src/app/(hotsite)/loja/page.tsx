@@ -27,7 +27,7 @@ import {
 	lojaProducts,
 	lojaWhatsAppHref,
 } from '@/lib/data/hotsite-loja'
-import { getSiteUrl } from '@/lib/utils/site-url'
+import { publicPageSeo } from '@/lib/utils/site-url'
 import { HeroBrokenPhone } from './HeroBrokenPhone'
 import { LojaContactCta } from './LojaContactCta'
 import { LojaReviews } from './LojaReviews'
@@ -58,17 +58,11 @@ export const metadata: Metadata = {
 		index: true,
 		follow: true,
 	},
-	alternates: {
-		canonical: `${getSiteUrl()}${lojaPath}`,
-	},
-	openGraph: {
-		type: 'website',
+	...publicPageSeo(lojaPath, {
 		title: lojaCopy.title,
 		description: lojaCopy.description,
-		url: `${getSiteUrl()}${lojaPath}`,
 		siteName: lojaCopy.brand,
-		locale: 'pt_BR',
-	},
+	}),
 }
 
 export default function LojaPage() {

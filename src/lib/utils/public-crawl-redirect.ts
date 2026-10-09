@@ -1,5 +1,7 @@
+import { normalizeHostname } from '@/lib/utils/canonical-host'
 import { resolveLegacyServiceDestination } from '@/lib/utils/legacy-service-redirect'
 import { SERVICES_HUB_PATH } from '@/lib/utils/services-hub'
+import { APEX_HOST } from '@/lib/utils/site-url'
 
 const JUNK_QUERY = /^(attributes?|attribute_id|variation|quantity)$/i
 
@@ -54,8 +56,8 @@ export function resolvePublicCrawlRedirect (input: {
   host?: string
 }): CrawlRedirect | null {
   const { pathname: normalized, hadTrailingSlash } = stripTrailingSlash(input.pathname)
-  const host = (input.host || '').split(':')[0].toLowerCase()
-  const apex = host === 'conectize.com.br'
+  const host = normalizeHostname(input.host || '')
+  const apex = host === APEX_HOST
 
   if (normalized.toLowerCase() === '/home') {
     return { pathname: '/', search: '' }

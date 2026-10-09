@@ -38,7 +38,7 @@ import {
 	buildServicesHubHref,
 	SERVICES_HUB_PATH,
 } from '@/lib/utils/services-hub'
-import { getSiteUrl } from '@/lib/utils/site-url'
+import { getSiteUrl, publicPageSeo } from '@/lib/utils/site-url'
 import { IPHONE_PILLAR_LINKS } from '@/lib/marketing/iphone-pillars'
 
 type SearchParams = Promise<{
@@ -224,16 +224,7 @@ export async function generateMetadata({
 		robots: isFiltering
 			? { index: false, follow: true }
 			: { index: true, follow: true },
-		alternates: {
-			canonical,
-		},
-		openGraph: {
-			title,
-			description,
-			url: canonical,
-			type: 'website',
-			locale: 'pt_BR',
-		},
+		...publicPageSeo(pageHref, { title, description }),
 		twitter: {
 			card: 'summary',
 			title,
