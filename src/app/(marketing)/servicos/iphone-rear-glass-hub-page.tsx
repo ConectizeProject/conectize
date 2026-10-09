@@ -9,6 +9,7 @@ import {
 	getFaqPageJsonLd,
 	getServiceJsonLd,
 } from '@/lib/data/business'
+import { serviceWarranty } from '@/lib/data/site-facts'
 import {
 	ASSISTENCIA_IPHONE_PATH,
 	CONSERTO_IPHONE_PATH,
@@ -61,6 +62,10 @@ const faq = [
 	{
 		q: 'A carga por indução continua funcionando?',
 		a: 'Após a troca, testamos o fechamento e, nos modelos compatíveis, a carga sem fio.',
+	},
+	{
+		q: 'O serviço tem garantia?',
+		a: serviceWarranty.faqAnswer,
 	},
 	{
 		q: 'Onde trocar em BH?',

@@ -4,10 +4,11 @@ import Hero from '@/components/Hero'
 import { GeoEntitySection } from '@/components/seo/GeoEntitySection'
 import { GeoServiceArea } from '@/components/seo/GeoServiceArea'
 import { LocalFaq } from '@/components/seo/LocalFaq'
+import { homeMetaDescription } from '@/lib/data/site-facts'
 import { publicPageSeo } from '@/lib/utils/site-url'
 
 const title = 'Conserto de iPhone e celular em BH | Conectize'
-const description = 'Conserto de iPhone, iPad e celular em BH, com garantia e coleta em domicílio. Troca de tela, bateria e placa. Orçamento rápido pelo WhatsApp.'
+const description = homeMetaDescription
 
 export const metadata: Metadata = {
   title,

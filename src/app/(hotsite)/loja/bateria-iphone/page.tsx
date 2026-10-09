@@ -7,6 +7,7 @@ import {
 	lojaPickupAnswer,
 	whatsappLink,
 } from '@/lib/data/hotsite-loja'
+import { serviceWarranty } from '@/lib/data/site-facts'
 import { getAuthUser } from '@/lib/supabase/server'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { LojaCategoryPage, lojaCategoryMetadata } from '../LojaCategoryPage'
@@ -63,7 +64,7 @@ export default async function LojaBateriaIphonePage () {
 				<>
 					Atendemos todos os modelos de iPhone.
 					<br />
-					Na hora! Com 12 meses de garantia.
+					Na hora! Com {serviceWarranty.duration} de garantia.
 				</>
 			)}
 			heroImage={{
@@ -82,8 +83,8 @@ export default async function LojaBateriaIphonePage () {
 					icon: 'package',
 				},
 				{
-					title: '12 meses de garantia na bateria',
-					description: 'Cobertura de 12 meses na peça.',
+					title: `${serviceWarranty.duration} de garantia`,
+					description: `Cobertura de ${serviceWarranty.duration} para defeito de fabricação.`,
 					icon: 'shield',
 				},
 				{
@@ -108,7 +109,7 @@ export default async function LojaBateriaIphonePage () {
 				},
 				{
 					q: 'Qual a garantia da bateria?',
-					a: '12 meses de garantia na peça. A cobertura vale para falhas de fabricação da bateria.',
+					a: serviceWarranty.faqAnswer,
 				},
 				{
 					q: 'Como sei o preço?',

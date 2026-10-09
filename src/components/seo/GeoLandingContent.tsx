@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { MapPin, MessageCircle, Phone } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { business, buildWhatsAppUrl, getFaqPageJsonLd, getServiceJsonLd } from '@/lib/data/business'
+import { serviceWarranty } from '@/lib/data/site-facts'
 import type { GeoLandingPage } from '@/lib/data/geo-landing-pages'
 
 export function GeoLandingContent({ page }: { page: GeoLandingPage }) {
@@ -128,6 +129,10 @@ export function GeoLandingContent({ page }: { page: GeoLandingPage }) {
                     <p className="font-semibold text-foreground">Contato</p>
                     <p>{business.phoneDisplay}</p>
                     <p>{business.email}</p>
+                  </div>
+                  <div>
+                    <p className="font-semibold text-foreground">Garantia</p>
+                    <p>{serviceWarranty.card}</p>
                   </div>
                 </div>
               </div>

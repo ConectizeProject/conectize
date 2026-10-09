@@ -1,3 +1,5 @@
+import { SERVICE_WARRANTY_MONTHS } from '@/lib/data/site-facts'
+
 const MIN_DESCRIPTION = 140
 const MAX_DESCRIPTION = 155
 
@@ -50,7 +52,11 @@ export function assembleClickDescription(
 	)
 }
 
+const warrantyClause = `com garantia de ${SERVICE_WARRANTY_MONTHS} meses`
+const warrantySentence = `Garantia de ${SERVICE_WARRANTY_MONTHS} meses.`
+
 const WHATSAPP_EXTRAS = [
+	warrantySentence,
 	'Coleta em domicílio e orçamento rápido pelo WhatsApp.',
 	'Orçamento rápido pelo WhatsApp, com coleta em domicílio.',
 	'Peça o orçamento pelo WhatsApp da Conectize.',
@@ -65,10 +71,11 @@ export function serviceClickDescription(
 ): string {
 	return assembleClickDescription(
 		[
-			`${phrase} do ${device} em Belo Horizonte, com garantia e peça de qualidade.`,
-			`${phrase} do ${device} em BH, com garantia e peça de qualidade.`,
-			`${phrase} do ${device} em BH, com garantia.`,
-			`${phrase} do ${device} em BH.`,
+			`${phrase} do ${device} em Belo Horizonte, ${warrantyClause}.`,
+			`${phrase} do ${device} em BH, ${warrantyClause} e peça de qualidade.`,
+			`${phrase} do ${device} em BH, ${warrantyClause}.`,
+			`${phrase} do ${device}. ${warrantySentence}`,
+			`${phrase} ${device}. ${warrantySentence}`,
 		],
 		WHATSAPP_EXTRAS,
 	)
@@ -77,11 +84,13 @@ export function serviceClickDescription(
 export function batteryClickDescription(device: string): string {
 	return assembleClickDescription(
 		[
-			`Troca de bateria do ${device} em Belo Horizonte, com garantia de 12 meses na peça.`,
-			`Troca de bateria do ${device} em BH, com garantia de 12 meses na peça.`,
-			`Troca de bateria do ${device} em BH, com garantia de 12 meses.`,
+			`Troca de bateria do ${device} em Belo Horizonte, ${warrantyClause}.`,
+			`Troca de bateria do ${device} em BH, ${warrantyClause} e peça de qualidade.`,
+			`Troca de bateria do ${device} em BH, ${warrantyClause}.`,
+			`Troca de bateria do ${device}. ${warrantySentence}`,
 		],
 		[
+			warrantySentence,
 			'Coleta em domicílio e orçamento pelo WhatsApp.',
 			'Peça o orçamento pelo WhatsApp da Conectize.',
 			'Orçamento rápido pelo WhatsApp.',

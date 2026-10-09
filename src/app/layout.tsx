@@ -4,6 +4,7 @@ import Script from 'next/script'
 import { WhatsAppClickTracker } from '@/components/analytics/WhatsAppClickTracker'
 import { GoogleAnalyticsSafe } from '@/components/GoogleAnalyticsSafe'
 import { business } from '@/lib/data/business'
+import { homeMetaDescription } from '@/lib/data/site-facts'
 import { socialImage } from '@/lib/utils/site-url'
 import { THEME_BOOT_SCRIPT } from '@/lib/theme-boot-script'
 import './globals.css'
@@ -16,8 +17,7 @@ const outfit = Outfit({
 })
 
 const homeTitle = 'Conserto de iPhone e celular em BH | Conectize'
-const homeDescription =
-	'Conserto de iPhone, iPad e celular em BH, com garantia e coleta em domicílio. Troca de tela, bateria e placa. Orçamento rápido pelo WhatsApp.'
+const homeDescription = homeMetaDescription
 
 export const metadata: Metadata = {
 	metadataBase: new URL(business.siteUrl),

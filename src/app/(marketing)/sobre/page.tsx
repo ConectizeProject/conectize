@@ -1,9 +1,10 @@
 import type { Metadata } from 'next'
 import { Award, Users, ThumbsUp, Zap } from 'lucide-react'
+import { serviceWarranty } from '@/lib/data/site-facts'
 import { publicPageSeo } from '@/lib/utils/site-url'
 
 const title = 'Sobre a Conectize em Santa Efigênia, BH'
-const description = 'Conheça a Conectize, assistência de celular e Apple na R. Padre Rolim, 620, Santa Efigênia, BH. Oficina com garantia e atendimento de segunda a sábado.'
+const description = `Conheça a Conectize, assistência de celular e Apple na R. Padre Rolim, 620, Santa Efigênia, BH. Oficina com ${serviceWarranty.phrase} e atendimento de segunda a sábado.`
 
 export const metadata: Metadata = {
   title,
@@ -67,7 +68,7 @@ export default function SobrePage () {
               <p>
                 Nossa equipe é formada por técnicos certificados e constantemente atualizados
                 sobre as últimas tecnologias do mercado. Trabalhamos com peças de
-                alta qualidade e oferecemos garantia de 6 meses em todos os serviços realizados.
+                alta qualidade e oferecemos {serviceWarranty.phrase} em todos os serviços realizados.
               </p>
               <p>
                 Atendemos todas as marcas de smartphones: iPhone, Samsung, Motorola, Xiaomi,

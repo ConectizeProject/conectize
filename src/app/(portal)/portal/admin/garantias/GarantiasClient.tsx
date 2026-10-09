@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/dialog'
 import { toast } from '@/hooks/use-toast'
 import { portalFetch } from '@/lib/portal/portal-fetch'
+import { serviceWarranty } from '@/lib/data/site-facts'
 import { appConfirm } from '@/lib/ui/app-dialogs'
 
 type WarrantyTemplate = {
@@ -238,7 +239,7 @@ export function GarantiasClient({ initialTemplates }: Props) {
                 id="warranty-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Ex: Garantia padrão 6 meses"
+                placeholder={`Ex: Garantia padrão ${serviceWarranty.duration}`}
               />
             </div>
 

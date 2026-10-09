@@ -25,6 +25,7 @@ import {
 	getFaqPageJsonLd,
 	getServiceJsonLd,
 } from '@/lib/data/business'
+import { serviceWarranty } from '@/lib/data/site-facts'
 import { brands, services } from '@/lib/data/services'
 import {
 	closestCanonicalServicePath,
@@ -53,7 +54,7 @@ const canonical = `${getSiteUrl()}${pageHref}`
 const landingSeo = {
 	title: 'Conserto de celular em BH com garantia | Conectize',
 	description:
-		'Conserto de celular em Belo Horizonte: tela, bateria, vidro e placa, com garantia e coleta em domicílio. Peça o orçamento da Conectize no WhatsApp.',
+		`Conserto de celular em Belo Horizonte: tela, bateria, vidro e placa, com ${serviceWarranty.phrase} e coleta. Orçamento da Conectize no WhatsApp.`,
 	h1: 'Conserto de Celular em Belo Horizonte',
 }
 
@@ -73,6 +74,10 @@ const landingFaq = [
 	{
 		q: 'A Conectize faz coleta e entrega?',
 		a: 'Sim. Há coleta e entrega em Belo Horizonte. Você também pode trazer o aparelho na loja da Santa Efigênia.',
+	},
+	{
+		q: 'Os serviços têm garantia?',
+		a: serviceWarranty.faqAnswer,
 	},
 	{
 		q: 'Onde fica a assistência técnica?',
