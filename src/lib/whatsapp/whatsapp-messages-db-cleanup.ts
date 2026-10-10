@@ -214,17 +214,28 @@ function isMissingPurgeRpc (message: string): boolean {
 
 async function deleteMessagesWhere (
   supabase: SupabaseClient,
-  cutoffAt: string | null,
+  organizationId: string,
+  cutoffAt: string,
 ): Promise<number> {
-  let query = supabase
-    .from('whatsapp_messages')
-    .delete({ count: 'exact' })
+  let deleted = 0
+  let afterId: string | null = null
 
-  if (cutoffAt) query = query.lte('created_at', cutoffAt)
+  for (;;) {
+    const conversationId = await nextConversationId(supabase, organizationId, afterId)
+    if (!conversationId) break
 
-  const { error, count } = await query
-  if (error) throwDb(error)
-  return count ?? 0
+    const { error, count } = await supabase
+      .from('whatsapp_messages')
+      .delete({ count: 'exact' })
+      .eq('conversation_id', conversationId)
+      .lte('created_at', cutoffAt)
+
+    if (error) throwDb(error)
+    deleted += count ?? 0
+    afterId = conversationId
+  }
+
+  return deleted
 }
 
 async function deleteConversationsWhere (
@@ -278,7 +289,7 @@ export async function purgeWhatsappMessagesFromDatabase (
     }
   }
 
-  const deletedMessages = await deleteMessagesWhere(supabase, cutoffAt)
+  const deletedMessages = await deleteMessagesWhere(supabase, organizationId, cutoffAt)
   const deletedConversations = await deleteConversationsWhere(supabase, organizationId, cutoffAt)
   return {
     deletedMessages,
