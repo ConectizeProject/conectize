@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
-import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import { requireStaffIdentity } from '@/lib/auth/portal-api'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 
 export async function GET () {
-	const auth = await requireStaffOrAdmin()
+	const auth = await requireStaffIdentity()
 	if (auth.ok === false) {
 		return NextResponse.json({ error: auth.error }, { status: auth.status })
 	}
@@ -21,7 +21,7 @@ export async function GET () {
 }
 
 export async function POST (request: Request) {
-	const auth = await requireStaffOrAdmin()
+	const auth = await requireStaffIdentity()
 	if (auth.ok === false) {
 		return NextResponse.json({ error: auth.error }, { status: auth.status })
 	}

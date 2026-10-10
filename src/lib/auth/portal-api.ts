@@ -3,10 +3,7 @@ import { cookies } from 'next/headers'
 import { userNeedsMfaChallenge } from '@/lib/auth/mfa'
 import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
-import {
-  ensurePortalOrganizationContext,
-  getPortalOrganizationId,
-} from '@/lib/organizations/portal-organization-context'
+import { ensurePortalOrganizationContext } from '@/lib/organizations/portal-organization-context'
 import {
   PORTAL_SIMULATED_ROLE_COOKIE,
   resolveEffectivePortalRole,
@@ -20,17 +17,20 @@ export type PortalAuthFailure = {
   error: string
 }
 
-export type PortalAuthStaffSuccess = {
+export type PortalStaffIdentity = {
   ok: true
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
   role: PortalStaffRole
   userId: string
-  /** Nome para autor em comentÃ¡rios (OS) */
+  /** Nome para autor em comentários (OS) */
   authorDisplayName: string
   isAdmin: boolean
+  isPlatformAdmin: boolean
+}
+
+export type PortalAuthStaffSuccess = PortalStaffIdentity & {
   /** Organização ativa (RLS / contexto do portal) */
   organizationId: string
-  isPlatformAdmin: boolean
 }
 
 export type PortalAuthAdminSuccess = {
@@ -110,8 +110,7 @@ export async function requireFiscalDocumentsReader (): Promise<
     return { ok: false as const, status: 403, error: 'forbidden' }
   }
 
-  await ensurePortalOrganizationContext(supabase, user.id)
-  const organizationId = await getPortalOrganizationId(supabase, user.id)
+  const organizationId = await ensurePortalOrganizationContext(supabase, user.id)
   if (!organizationId) {
     return { ok: false as const, status: 403, error: 'no_organization_context' }
   }
@@ -163,9 +162,10 @@ export async function requireAccountantPage () {
 }
 
 /**
- * API routes: exige sessão e papel staff ou admin.
+ * Sessão de staff/admin sem resolver a organização ativa.
+ * Use em rotas que só filtram pelo usuário, para não gerar log a cada poll.
  */
-export async function requireStaffOrAdmin (): Promise<PortalAuthFailure | PortalAuthStaffSuccess> {
+export async function requireStaffIdentity (): Promise<PortalAuthFailure | PortalStaffIdentity> {
   const supabase = await createSupabaseServerClient()
   const { user } = await getAuthUser()
   if (!user) {
@@ -196,12 +196,6 @@ export async function requireStaffOrAdmin (): Promise<PortalAuthFailure | Portal
     return { ok: false as const, status: 403, error: 'forbidden' }
   }
 
-  await ensurePortalOrganizationContext(supabase, user.id)
-  const organizationId = await getPortalOrganizationId(supabase, user.id)
-  if (!organizationId) {
-    return { ok: false as const, status: 403, error: 'no_organization_context' }
-  }
-
   const authorDisplayName =
     String(appUser?.full_name || appUser?.email || '').trim() || '(Sem nome)'
 
@@ -215,8 +209,25 @@ export async function requireStaffOrAdmin (): Promise<PortalAuthFailure | Portal
     userId: user.id,
     authorDisplayName,
     isAdmin: normalized === 'admin' || normalized === 'platform_admin',
-    organizationId,
     isPlatformAdmin,
+  }
+}
+
+/**
+ * API routes: exige sessão e papel staff ou admin.
+ */
+export async function requireStaffOrAdmin (): Promise<PortalAuthFailure | PortalAuthStaffSuccess> {
+  const identity = await requireStaffIdentity()
+  if (identity.ok === false) return identity
+
+  const organizationId = await ensurePortalOrganizationContext(identity.supabase, identity.userId)
+  if (!organizationId) {
+    return { ok: false as const, status: 403, error: 'no_organization_context' }
+  }
+
+  return {
+    ...identity,
+    organizationId,
   }
 }
 
@@ -298,8 +309,7 @@ export async function requireStaffAdminOrRetailer (): Promise<
     return { ok: false as const, status: 403, error: 'forbidden' }
   }
 
-  await ensurePortalOrganizationContext(supabase, user.id)
-  const organizationId = await getPortalOrganizationId(supabase, user.id)
+  const organizationId = await ensurePortalOrganizationContext(supabase, user.id)
   if (!organizationId) {
     return { ok: false as const, status: 403, error: 'no_organization_context' }
   }
@@ -351,8 +361,7 @@ export async function requireAdmin (): Promise<PortalAuthFailure | PortalAuthAdm
     return { ok: false as const, status: 403, error: 'forbidden' }
   }
 
-  await ensurePortalOrganizationContext(supabase, user.id)
-  const organizationId = await getPortalOrganizationId(supabase, user.id)
+  const organizationId = await ensurePortalOrganizationContext(supabase, user.id)
   if (!organizationId) {
     return { ok: false as const, status: 403, error: 'no_organization_context' }
   }
@@ -401,8 +410,7 @@ export async function requireRealAdmin (): Promise<PortalAuthFailure | PortalAut
     return { ok: false as const, status: 403, error: 'forbidden' }
   }
 
-  await ensurePortalOrganizationContext(supabase, user.id)
-  const organizationId = await getPortalOrganizationId(supabase, user.id)
+  const organizationId = await ensurePortalOrganizationContext(supabase, user.id)
   if (!organizationId) {
     return { ok: false as const, status: 403, error: 'no_organization_context' }
   }

@@ -77,11 +77,14 @@ function createMiddlewareSupabase(request: NextRequest) {
 	}
 }
 
-/** Renova a sessão nas APIs do portal (o matcher antigo não cobria `/api`). */
+/**
+ * Renova o access token nas APIs do portal quando ele está para vencer.
+ * getSession não consulta /auth/v1/user. A rota é que valida a sessão.
+ */
 async function refreshPortalApiSession(request: NextRequest) {
 	try {
 		const { supabase, getResponse } = createMiddlewareSupabase(request)
-		await supabase.auth.getClaims()
+		await supabase.auth.getSession()
 		return getResponse()
 	} catch {
 		return NextResponse.next()
@@ -89,8 +92,8 @@ async function refreshPortalApiSession(request: NextRequest) {
 }
 
 /**
- * Valida sessão via getClaims (JWT nos cookies, sem chamada ao Auth server).
- * Middleware/proxy roda em Node.js (Next.js 16+); getClaims() valida localmente.
+ * Valida sessão via getClaims. Com JWT HS256 isso ainda chama /auth/v1/user.
+ * Middleware/proxy roda em Node.js (Next.js 16+).
  *
  * Nota: mantemos `middleware.ts` (não `proxy.ts`) por bug do Turbopack no Next 16.2.4
  * que faz rotas do matcher retornarem 404 em `next dev` com proxy.ts.

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { CONECTIZE_HOST_ORGANIZATION_ID } from '@/lib/organizations/constants'
+import { markPortalOrgChecked, readPortalOrgCheckFresh } from '@/lib/organizations/portal-org-check'
 import { stripAutoHostOrganizationMembership } from '@/lib/organizations/strip-auto-host-membership'
 
 function normalizePortalRole (role: string | null | undefined): string {
@@ -34,7 +35,7 @@ async function pickHostOrFirstOrganizationId (supabase: SupabaseClient): Promise
  * - retailer: alinha ao `customers.organization_id` do vínculo em `customer_portal_members`.
  * Admin de tenant sem membership não herda escopo global (evita breakout cross-tenant).
  */
-export async function ensurePortalOrganizationContext (
+async function resolvePortalOrganizationContext (
   supabase: SupabaseClient,
   userId: string,
 ): Promise<string | null> {
@@ -186,6 +187,19 @@ export async function ensurePortalOrganizationContext (
     })
   }
   return null
+}
+
+export async function ensurePortalOrganizationContext (
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<string | null> {
+  if (await readPortalOrgCheckFresh(userId)) {
+    const cached = await getPortalOrganizationId(supabase, userId)
+    if (cached) return cached
+  }
+  const organizationId = await resolvePortalOrganizationContext(supabase, userId)
+  if (organizationId) await markPortalOrgChecked(userId)
+  return organizationId
 }
 
 export async function getPortalOrganizationId (

@@ -82,12 +82,13 @@ export const getPortalAuth = cache(async () => {
 				realRole: 'user' as const,
 				simulatedRole: null as string | null,
 				fullName: '',
+				organizationId: null as string | null,
 			}
 		}
 		const { ensurePortalOrganizationContext } = await import(
 			'@/lib/organizations/portal-organization-context'
 		)
-		await ensurePortalOrganizationContext(supabase, user.id)
+		const organizationId = await ensurePortalOrganizationContext(supabase, user.id)
 		const { data: appUser, error } = await supabase
 			.from('users')
 			.select('role, full_name')
@@ -123,7 +124,7 @@ export const getPortalAuth = cache(async () => {
 			: null
 		const role = resolveEffectivePortalRole(realRole, simulatedRole)
 		const fullName = String(appUser?.full_name || '').trim()
-		return { user, role, realRole, simulatedRole, fullName }
+		return { user, role, realRole, simulatedRole, fullName, organizationId }
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err)
 		if (process.env.NODE_ENV === 'development') {
@@ -152,6 +153,7 @@ export const getPortalAuth = cache(async () => {
 						realRole,
 						simulatedRole,
 						fullName: '',
+						organizationId: null as string | null,
 					}
 				}
 			} catch {
@@ -164,6 +166,7 @@ export const getPortalAuth = cache(async () => {
 			realRole: 'user' as const,
 			simulatedRole: null as string | null,
 			fullName: '',
+			organizationId: null as string | null,
 		}
 	}
 })

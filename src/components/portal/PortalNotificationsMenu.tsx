@@ -9,15 +9,9 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import type { SupabasePlatformStatusBanner } from '@/lib/supabase/platform-status'
+import { forgetStaffNotice, subscribeStaffNotices, type StaffNotice } from '@/lib/portal/staff-notices-poll'
+import { enableStaffPush, readPushPermission, syncStaffPushSubscription } from '@/lib/portal/staff-push-client'
 import { cn } from '@/lib/utils'
-
-type StaffNotice = {
-  id: string
-  title: string
-  body: string
-  href: string | null
-  created_at?: string
-}
 
 type PortalNotificationsMenuProps = {
   supabasePlatformStatus?: SupabasePlatformStatusBanner | null
@@ -47,33 +41,35 @@ export function PortalNotificationsMenu ({
 }: PortalNotificationsMenuProps) {
   const items = supabasePlatformStatus ? [supabasePlatformStatus] : []
   const [staffNotices, setStaffNotices] = useState<StaffNotice[]>([])
+  const [pushPermission, setPushPermission] = useState<NotificationPermission | 'unsupported' | 'failed'>('unsupported')
   const hasAlerts = items.length > 0 || staffNotices.length > 0
+  const showPushPrompt = canReceiveStaffNotices && pushPermission !== 'granted' && pushPermission !== 'unsupported'
 
   useEffect(() => {
     if (!canReceiveStaffNotices) return
-    let stopped = false
-
-    async function load () {
-      try {
-        const response = await fetch('/api/portal/staff-notifications')
-        if (!response.ok) return
-        const payload = await response.json() as { notifications?: StaffNotice[] }
-        if (!stopped) setStaffNotices(payload.notifications ?? [])
-      } catch {
-        // o sininho segue só com o status da plataforma se a rede falhar
-      }
+    const permission = readPushPermission()
+    setPushPermission(permission)
+    if (permission === 'granted') {
+      void syncStaffPushSubscription().catch(() => {
+        setPushPermission('failed')
+      })
     }
-
-    void load()
-    const timer = window.setInterval(() => { void load() }, 15000)
-    return () => {
-      stopped = true
-      window.clearInterval(timer)
-    }
+    return subscribeStaffNotices((next) => {
+      setStaffNotices(next)
+    })
   }, [canReceiveStaffNotices])
 
+  async function turnOnPush () {
+    try {
+      const result = await enableStaffPush()
+      setPushPermission(result === 'failed' ? 'failed' : result)
+    } catch {
+      setPushPermission('failed')
+    }
+  }
+
   async function markStaffNoticeRead (id: string) {
-    setStaffNotices((current) => current.filter((item) => item.id !== id))
+    forgetStaffNotice(id)
     await fetch('/api/portal/staff-notifications', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -116,6 +112,25 @@ export function PortalNotificationsMenu ({
         <div className="border-b px-3 py-2">
           <p className="text-sm font-medium">Notificações</p>
         </div>
+        {showPushPrompt ? (
+          <div className="border-b px-3 py-2.5">
+            <p className="text-sm font-medium">Avisos de agendamento</p>
+            <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+              {pushPermission === 'denied'
+                ? 'O navegador bloqueou os avisos. Libere as notificações deste site para receber um alerta quando um cliente agendar.'
+                : 'Receba um aviso neste navegador quando um cliente agendar.'}
+            </p>
+            {pushPermission === 'default' || pushPermission === 'failed' ? (
+              <button
+                type="button"
+                className="mt-2 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
+                onClick={() => { void turnOnPush() }}
+              >
+                Ativar notificações
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {hasAlerts ? (
           <ul className="max-h-80 overflow-y-auto py-1">
             {staffNotices.map((notice) => {
@@ -167,7 +182,7 @@ export function PortalNotificationsMenu ({
               </li>
             ))}
           </ul>
-        ) : (
+        ) : showPushPrompt ? null : (
           <p className="px-3 py-6 text-center text-sm text-muted-foreground">
             Nenhuma notificação
           </p>
