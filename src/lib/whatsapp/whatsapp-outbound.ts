@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { resolveHubSecretsReader } from '@/lib/supabase/hub-secrets'
 import type { SendTextMessageResult } from '@/lib/whatsapp/whatsapp-cloud-client'
 import { sendEvolutionTextMessage } from '@/lib/whatsapp/evolution-send-client'
 import { sendWhatsAppTextMessage } from '@/lib/whatsapp/whatsapp-cloud-client'
@@ -85,7 +86,11 @@ async function resolveEvolutionOutboundForConversation (
   }
 
   if (instanceFromState) {
-    const hubFromState = await findEvolutionHubByInstance(supabase, instanceFromState)
+    const hubFromState = await findEvolutionHubByInstance(
+      supabase,
+      instanceFromState,
+      conv.organization_id,
+    )
     if (
       hubFromState &&
       hubFromState.organization_id === conv.organization_id
@@ -123,10 +128,11 @@ export async function resolveWhatsappOutboundForConversation (
   if (evoResolved) return evoResolved
 
   if (conv.hub_connection_id) {
-    const { data: hub } = await supabase
+    const { data: hub } = await resolveHubSecretsReader(supabase)
       .from('hub_connections')
       .select('platform_id, access_token, metadata')
       .eq('id', conv.hub_connection_id)
+      .eq('organization_id', conv.organization_id)
       .maybeSingle()
 
     if (hub?.platform_id === WHATSAPP_EVOLUTION_PLATFORM_ID) {
@@ -167,14 +173,17 @@ export async function resolveOrganizationWhatsappOutbound (
   supabase: SupabaseClient,
   organizationId: string,
 ): Promise<ResolvedWhatsappOutbound | null> {
-  const evoHubs = await listEvolutionHubsForOrganization(supabase, organizationId)
+  const orgId = String(organizationId || '').trim()
+  if (!orgId) return null
+
+  const evoHubs = await listEvolutionHubsForOrganization(supabase, orgId)
   const preferred =
     evoHubs.find((h) => h.metadata.preferred_for_messages === true) ?? evoHubs[0]
 
-  const { data: cloudRow } = await supabase
+  const { data: cloudRow } = await resolveHubSecretsReader(supabase)
     .from('hub_connections')
     .select('access_token, metadata')
-    .eq('organization_id', organizationId)
+    .eq('organization_id', orgId)
     .eq('platform_id', 'whatsapp_business')
     .maybeSingle()
 

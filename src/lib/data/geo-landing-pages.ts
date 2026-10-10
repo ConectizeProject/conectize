@@ -1,3 +1,5 @@
+import { serviceWarranty } from '@/lib/data/site-facts'
+import { preferredPublicServiceHref } from '@/lib/utils/canonical-service-path'
 import type { FaqItem } from './business'
 
 export type GeoLandingPage = {
@@ -30,14 +32,14 @@ export const geoLandingPages: GeoLandingPage[] = [
     keywords: 'assistência técnica celular bh, conserto celular belo horizonte, assistência técnica de celular em belo horizonte, reparo celular bh, coleta celular bh',
     eyebrow: 'Assistência técnica em BH',
     h1: 'Assistência técnica de celular em Belo Horizonte',
-    intro: 'A Conectize atende conserto de celulares Android e produtos Apple em Belo Horizonte, com diagnóstico, orçamento por WhatsApp, coleta em domicílio e garantia de 6 meses nos serviços realizados.',
+    intro: `A Conectize atende conserto de celulares Android e produtos Apple em Belo Horizonte, com diagnóstico, orçamento por WhatsApp, coleta em domicílio e ${serviceWarranty.phrase} nos serviços realizados.`,
     entitySummary: 'A Conectize é uma assistência técnica localizada na R. Padre Rolim, 620, Santa Efigênia, Belo Horizonte. A empresa realiza reparos em celulares, iPhone, iPad, MacBook e Apple Watch, incluindo troca de tela, bateria, vidro, placa, conector, câmera, áudio e danos por líquido.',
     serviceType: 'Assistência técnica de celular',
     whatsappMessage: 'Olá! Gostaria de um orçamento para assistência técnica de celular em Belo Horizonte.',
     serviceLinks: [
       { label: 'Troca de tela', href: '/troca-de-tela-celular-bh' },
-      { label: 'Troca de bateria', href: '/conserto-de-celular-belo-horizonte?servico=troca-de-bateria' },
-      { label: 'Reparo de placa', href: '/conserto-de-celular-belo-horizonte?servico=reparo-de-placa' },
+      { label: 'Troca de bateria', href: preferredPublicServiceHref('troca-de-bateria') },
+      { label: 'Reparo de placa', href: preferredPublicServiceHref('reparo-de-placa') },
       { label: 'Coleta em domicílio', href: '/coleta' }
     ],
     sections: [
@@ -65,7 +67,7 @@ export const geoLandingPages: GeoLandingPage[] = [
       },
       {
         q: 'A assistência oferece garantia?',
-        a: 'Sim. Os serviços realizados têm garantia de 6 meses, conforme o tipo de reparo e peça instalada.'
+        a: serviceWarranty.faqAnswer
       }
     ]
   },
@@ -122,7 +124,7 @@ export const geoLandingPages: GeoLandingPage[] = [
     keywords: 'conserto iphone bh, conserto de iphone belo horizonte, assistência iphone bh, troca tela iphone bh, troca bateria iphone bh',
     eyebrow: 'iPhone em Belo Horizonte',
     h1: 'Conserto de iPhone em Belo Horizonte',
-    intro: 'A Conectize realiza conserto de iPhone em BH com diagnóstico técnico, orçamento por WhatsApp, coleta em domicílio e garantia de 6 meses nos serviços realizados.',
+    intro: `A Conectize realiza conserto de iPhone em BH com diagnóstico técnico, orçamento por WhatsApp, coleta em domicílio e ${serviceWarranty.phrase} nos serviços realizados.`,
     entitySummary: 'Para iPhone, a Conectize atende troca de tela, vidro da tela, vidro/tampa traseira, bateria, conector de carga, câmera, áudio, reparo de placa, danos por líquido e software.',
     serviceType: 'Conserto de iPhone',
     whatsappMessage: 'Olá! Gostaria de um orçamento para conserto de iPhone em Belo Horizonte.',
@@ -143,7 +145,7 @@ export const geoLandingPages: GeoLandingPage[] = [
       },
       {
         title: 'Garantia e testes',
-        body: 'Após o reparo, são testadas funções relacionadas ao serviço, como toque, brilho, carga, câmera, áudio, botões e estabilidade. A garantia padrão é de 6 meses.'
+        body: `Após o reparo, são testadas funções relacionadas ao serviço, como toque, brilho, carga, câmera, áudio, botões e estabilidade. ${serviceWarranty.standardIs}`
       }
     ],
     faq: [
@@ -175,7 +177,7 @@ export const geoLandingPages: GeoLandingPage[] = [
     serviceLinks: [
       { label: 'Troca de tela iPhone', href: '/servicos/troca-de-tela-apple-iphone' },
       { label: 'Troca de tela Samsung', href: '/servicos/troca-de-tela-samsung-smartphone' },
-      { label: 'Troca de vidro da tela', href: '/conserto-de-celular-belo-horizonte?servico=troca-de-vidro-da-tela' },
+      { label: 'Troca de vidro da tela', href: preferredPublicServiceHref('troca-de-vidro-da-tela') },
       { label: 'Coleta em domicílio', href: '/coleta' }
     ],
     sections: [
@@ -199,7 +201,7 @@ export const geoLandingPages: GeoLandingPage[] = [
       },
       {
         q: 'Troca de tela tem garantia?',
-        a: 'Sim. A troca de tela tem garantia de 6 meses para o serviço e peça instalada, conforme condições de uso.'
+        a: `Sim. A troca de tela tem ${serviceWarranty.phrase} para o serviço e a peça instalada, conforme condições de uso.`
       },
       {
         q: 'Vocês trocam tela de Samsung e iPhone?',

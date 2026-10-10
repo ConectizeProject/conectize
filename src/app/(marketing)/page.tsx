@@ -4,12 +4,16 @@ import Hero from '@/components/Hero'
 import { GeoEntitySection } from '@/components/seo/GeoEntitySection'
 import { GeoServiceArea } from '@/components/seo/GeoServiceArea'
 import { LocalFaq } from '@/components/seo/LocalFaq'
-import { getSiteUrl } from '@/lib/utils/site-url'
+import { homeMetaDescription } from '@/lib/data/site-facts'
+import { publicPageSeo } from '@/lib/utils/site-url'
+
+const title = 'Conserto de iPhone e celular em BH | Conectize'
+const description = homeMetaDescription
 
 export const metadata: Metadata = {
-  alternates: {
-    canonical: getSiteUrl(),
-  },
+  title,
+  description,
+  ...publicPageSeo('/', { title, description }),
 }
 
 const Services = dynamic(() => import('@/components/Services'))

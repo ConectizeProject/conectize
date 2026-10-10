@@ -2,18 +2,25 @@ import { createServerClient } from '@supabase/ssr'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
-import { isSupabaseInfraError } from './src/lib/auth/auth-session-resilience'
-import { PORTAL_INTENDED_PATH_HEADER } from './src/lib/auth/portal-intended-path'
+import { isSupabaseInfraError } from './lib/auth/auth-session-resilience'
+import { PORTAL_INTENDED_PATH_HEADER } from './lib/auth/portal-intended-path'
 import {
 	isValidPortalRoleHint,
 	PORTAL_ROLE_HINT_COOKIE,
-} from './src/lib/auth/portal-role-hint'
+} from './lib/auth/portal-role-hint'
 import {
 	PORTAL_SIMULATED_ROLE_COOKIE,
 	resolveEffectivePortalRole,
-} from './src/lib/auth/portal-role-simulation'
-import { goneCrawlResponse, isGoneCrawlPath } from './src/lib/utils/gone-crawl-paths'
-import { resolveLegacyServiceDestination } from './src/lib/utils/legacy-service-redirect'
+} from './lib/auth/portal-role-simulation'
+import {
+	canonicalRedirectStatus,
+	normalizeHostname,
+	publicHostnameFromHeaders,
+	resolveCanonicalRedirect,
+} from './lib/utils/canonical-host'
+import { goneCrawlResponse, isGoneCrawlPath } from './lib/utils/gone-crawl-paths'
+import { resolvePublicCrawlRedirect } from './lib/utils/public-crawl-redirect'
+import { APEX_HOST, CANONICAL_HOST, CANONICAL_SITE_ORIGIN } from './lib/utils/site-url'
 
 function getSupabaseEnv() {
 	const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -90,6 +97,8 @@ async function refreshPortalApiSession(request: NextRequest) {
  *
  * Nota: mantemos `middleware.ts` (não `proxy.ts`) por bug do Turbopack no Next 16.2.4
  * que faz rotas do matcher retornarem 404 em `next dev` com proxy.ts.
+ * O arquivo fica em `src/`, no mesmo nível de `app`, para o build de produção
+ * incluí-lo. Na raiz, com `src/app`, o Next 16 ignora o middleware.
  * Ver: https://github.com/vercel/next.js/issues/92921
  */
 async function getUserRole(supabase: SupabaseClient, request: NextRequest) {
@@ -118,10 +127,56 @@ async function getUserRole(supabase: SupabaseClient, request: NextRequest) {
 	return { user: { id: sub }, role, realRole }
 }
 
+/**
+ * Um único redirect: host canônico (apex ou http → https://www) e path legado
+ * juntos. Redirecionar o host antes do path recriaria a cadeia do Search Console.
+ * GET/HEAD usam 301. Os demais métodos usam 308 para preservar o corpo.
+ */
+function redirectPublicUrl(request: NextRequest) {
+	const hostname = publicHostnameFromHeaders(request.headers, request.nextUrl.hostname)
+	const protocol = request.headers.get('x-forwarded-proto') || request.nextUrl.protocol
+	const crawl = resolvePublicCrawlRedirect({
+		pathname: request.nextUrl.pathname,
+		searchParams: request.nextUrl.searchParams,
+		host: hostname,
+	})
+	const pathname = crawl?.pathname ?? request.nextUrl.pathname
+	const search = crawl?.search ?? request.nextUrl.search
+
+	const canonical = resolveCanonicalRedirect({
+		hostname,
+		protocol,
+		pathname,
+		search,
+	})
+	if (canonical) {
+		return NextResponse.redirect(canonical, canonicalRedirectStatus(request.method))
+	}
+
+	if (!crawl) return null
+
+	const current = `${request.nextUrl.pathname}${request.nextUrl.search}`
+	if (`${pathname}${search}` === current) return null
+
+	const normalized = normalizeHostname(hostname)
+	const onProductionHost = normalized === CANONICAL_HOST || normalized === APEX_HOST
+	const target = onProductionHost
+		? `${CANONICAL_SITE_ORIGIN}${pathname}${search}`
+		: new URL(`${pathname}${search}`, request.nextUrl.origin)
+	return NextResponse.redirect(target, canonicalRedirectStatus(request.method))
+}
+
 export async function middleware(request: NextRequest) {
 	const { pathname } = request.nextUrl
 
-	if (isGoneCrawlPath(pathname)) return goneCrawlResponse()
+	const normalizedPath =
+		pathname.length > 1 && pathname.endsWith('/')
+			? pathname.slice(0, -1)
+			: pathname
+	if (isGoneCrawlPath(normalizedPath)) return goneCrawlResponse()
+
+	const publicRedirect = redirectPublicUrl(request)
+	if (publicRedirect) return publicRedirect
 
 	if (pathname.startsWith('/api/portal')) {
 		return refreshPortalApiSession(request)
@@ -326,36 +381,13 @@ export async function middleware(request: NextRequest) {
 		return response
 	}
 
-	if (!pathname.startsWith('/servicos/')) return NextResponse.next()
-
-	const parts = pathname.split('/').filter(Boolean)
-	if (parts[0] !== 'servicos') return NextResponse.next()
-
-	const rest = parts.slice(1)
-	if (rest.length === 0) return NextResponse.next()
-
-	const destination = resolveLegacyServiceDestination(rest)
-	if (destination) {
-		const destUrl = new URL(destination, request.nextUrl.origin)
-		const url = request.nextUrl.clone()
-		url.pathname = destUrl.pathname
-		url.search = destUrl.search
-		return NextResponse.redirect(url, 308)
-	}
-
 	return NextResponse.next()
 }
 
 export const config = {
 	matcher: [
-		'/servicos',
-		'/servicos/:path*',
-		'/share',
-		'/navigationaddresses-hub',
-		'/p/:path*',
-		'/zO2ixMhVjY2kPD8dEV5bg==',
-		'/portal',
-		'/portal/:path*',
-		'/api/portal/:path*',
+		// Quase tudo, inclusive sitemap, robots e arquivos públicos, para o apex
+		// ir a https://www num único salto. _next/static e _next/image ficam de fora.
+		'/((?!_next/static|_next/image).*)',
 	],
 }

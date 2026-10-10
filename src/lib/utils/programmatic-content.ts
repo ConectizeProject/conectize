@@ -1,4 +1,6 @@
 import type { Service, Brand, DeviceType, Model } from '@/lib/types/seo'
+import { serviceWarranty, warrantyAfterLead } from '@/lib/data/site-facts'
+import { batteryClickDescription, serviceClickDescription } from '@/lib/utils/click-description'
 
 type FaqItem = { q: string; a: string }
 
@@ -30,31 +32,6 @@ const city = 'Belo Horizonte'
 
 function normalizeSpaces(value: string) {
     return value.replace(/\s+/g, ' ').trim()
-}
-
-function truncateWords(value: string, maxLength: number) {
-    const text = normalizeSpaces(value)
-    if (text.length <= maxLength) return text
-    const cut = text.slice(0, maxLength)
-    const lastSpace = cut.lastIndexOf(' ')
-    if (lastSpace > 20) return cut.slice(0, lastSpace).trim()
-    return cut.trim()
-}
-
-function ensureTitle(value: string) {
-    const base = normalizeSpaces(value)
-    if (base.length <= 60) return base
-    return truncateWords(base, 60)
-}
-
-function ensureDescription(value: string) {
-    const base = normalizeSpaces(value)
-    if (base.length >= 120 && base.length <= 155) return base
-    if (base.length > 155) return truncateWords(base, 155)
-
-    // padding curto e específico (sem genéricos)
-    const suffix = ' Atendemos em BH com retirada e devolução quando necessário.'
-    return truncateWords(`${base}${suffix}`, 155)
 }
 
 function compactService(service: Service) {
@@ -231,7 +208,7 @@ function getFaq(service: Service, brand: Brand, deviceType: DeviceType, model?: 
                 },
                 {
                     q: 'Qual é o prazo e a garantia?',
-                    a: 'Em geral até 24–48h úteis, variando por disponibilidade e complexidade. Garantia de 6 meses para o serviço e peça instalada.'
+                    a: warrantyAfterLead('Em geral até 24–48h úteis, variando por disponibilidade e complexidade.')
                 }
             ]
         }
@@ -252,7 +229,7 @@ function getFaq(service: Service, brand: Brand, deviceType: DeviceType, model?: 
                 },
                 {
                     q: 'Qual é o prazo e a garantia?',
-                    a: 'Em geral até 24–48h úteis, variando por complexidade. Garantia de 6 meses para o serviço e peça instalada.'
+                    a: warrantyAfterLead('Em geral até 24–48h úteis, variando por complexidade.')
                 }
             ]
         }
@@ -273,7 +250,7 @@ function getFaq(service: Service, brand: Brand, deviceType: DeviceType, model?: 
                 },
                 {
                     q: 'Qual é o prazo e a garantia?',
-                    a: 'Em geral até 24–48h úteis. Garantia de 6 meses para o serviço e peça instalada.'
+                    a: warrantyAfterLead('Em geral até 24–48h úteis.')
                 }
             ]
         }
@@ -295,7 +272,7 @@ function getFaq(service: Service, brand: Brand, deviceType: DeviceType, model?: 
             },
             {
                 q: 'Qual é o prazo e a garantia?',
-                a: 'Em geral até 24–48h úteis, variando por modelo. Garantia de 6 meses para o serviço.'
+                a: warrantyAfterLead('Em geral até 24–48h úteis, variando por modelo.')
             }
         ]
     }
@@ -316,7 +293,7 @@ function getFaq(service: Service, brand: Brand, deviceType: DeviceType, model?: 
             },
             {
                 q: 'Qual é o prazo e a garantia?',
-                a: 'Em geral até 24-48h úteis, variando por modelo e disponibilidade da tampa. Garantia de 6 meses para o serviço e peça instalada.'
+                a: warrantyAfterLead('Em geral até 24-48h úteis, variando por modelo e disponibilidade da tampa.')
             }
         ]
     }
@@ -337,7 +314,7 @@ function getFaq(service: Service, brand: Brand, deviceType: DeviceType, model?: 
             },
             {
                 q: 'Qual é o prazo e a garantia?',
-                a: 'Em geral até 24h úteis. Garantia de 12 meses para o serviço e a peça instalada.'
+                a: warrantyAfterLead('Em geral até 24h úteis.')
             }
         ]
     }
@@ -358,7 +335,7 @@ function getFaq(service: Service, brand: Brand, deviceType: DeviceType, model?: 
             },
             {
                 q: 'Qual é o prazo e a garantia?',
-                a: 'Em geral até 24h úteis. Garantia de 6 meses para o serviço.'
+                a: warrantyAfterLead('Em geral até 24h úteis.')
             }
         ]
     }
@@ -379,7 +356,7 @@ function getFaq(service: Service, brand: Brand, deviceType: DeviceType, model?: 
             },
             {
                 q: 'A garantia vale para qualquer caso?',
-                a: 'A garantia depende do tipo de reparo e do estado geral da placa. Explicamos claramente o que foi corrigido e o que fica fora de cobertura.'
+                a: `${serviceWarranty.serviceAndPart} Ela cobre o reparo realizado. Mau uso, nova queda ou líquido depois do serviço ficam fora da cobertura.`
             }
         ]
     }
@@ -430,7 +407,7 @@ function getFaq(service: Service, brand: Brand, deviceType: DeviceType, model?: 
             },
             {
                 q: 'Qual é o prazo e a garantia?',
-                a: 'Em geral até 24–48h úteis. Garantia de 6 meses quando há troca de componente.'
+                a: warrantyAfterLead('Em geral até 24–48h úteis.')
             }
         ]
     }
@@ -464,7 +441,7 @@ function getFaq(service: Service, brand: Brand, deviceType: DeviceType, model?: 
         },
         {
             q: 'Vocês oferecem garantia?',
-            a: 'Sim. Em geral a garantia é de 6 meses, variando conforme o tipo de serviço e peça instalada.'
+            a: serviceWarranty.faqAnswer
         }
     ]
 }
@@ -1085,7 +1062,7 @@ function getIntro(service: Service, brand: Brand, deviceType: DeviceType, model?
 
         return normalizeSpaces(
             `Trocamos a bateria do iPhone em ${city}. ` +
-            `Se a autonomia caiu, o aparelho desliga sozinho ou esquenta na carga, avaliamos o seu modelo e passamos o orçamento, com garantia de 12 meses na peça instalada.`
+            `Se a autonomia caiu, o aparelho desliga sozinho ou esquenta na carga, avaliamos o seu modelo e passamos o orçamento, com ${serviceWarranty.phrase}.`
         )
     }
 
@@ -1094,84 +1071,89 @@ function getIntro(service: Service, brand: Brand, deviceType: DeviceType, model?
     )
 }
 
+function titlePhrase(service: Service) {
+    const map: Record<string, string> = {
+        'troca-de-tela': 'Troca de tela',
+        'troca-de-vidro-da-tela': 'Troca de vidro',
+        'troca-de-vidro-tampa-traseira': 'Vidro traseiro',
+        'troca-de-bateria': 'Troca de bateria',
+        'reparo-de-placa': 'Reparo de placa',
+        'troca-de-conector': 'Troca de conector',
+        'troca-de-camera': 'Reparo de câmera',
+        'correcoes-de-software': 'Software',
+        'reparo-de-audio': 'Reparo de áudio',
+        'reparo-de-agua': 'Dano por líquido',
+    }
+    return map[service.slug] || compactService(service)
+}
+
+function metaDevice(brand: Brand, deviceType: DeviceType, model?: Model) {
+    if (model) return model.displayName || model.name
+    if (deviceType.displayName.toLowerCase().includes(brand.displayName.toLowerCase())) {
+        return deviceType.displayName
+    }
+    if (brand.slug === 'apple') return deviceType.displayName
+    return `${deviceType.displayName} ${brand.displayName}`
+}
+
+function fitServiceTitle(phrase: string, device: string) {
+    const withBenefit = `${phrase} do ${device} em BH com garantia | Conectize`
+    if (withBenefit.length <= 60) return withBenefit
+    const plain = `${phrase} do ${device} em BH | Conectize`
+    if (plain.length <= 60) return plain
+    const compact = `${phrase} ${device} em BH | Conectize`
+    if (compact.length <= 60) return compact
+    return `${phrase} ${device} | Conectize`
+}
+
 function buildTitle(service: Service, brand: Brand, deviceType: DeviceType, model?: Model) {
     if (isAppleIphoneBattery(service, brand, deviceType)) {
         const device = model ? getDeviceLabel(brand, deviceType, model) : 'iPhone'
-        return ensureTitle(`Troca de Bateria ${device} em BH | Conectize`)
+        return `Troca de Bateria ${device} em BH | Conectize`
     }
 
-    const s = compactService(service)
-    const device = getDeviceLabel(brand, deviceType, model)
+    return fitServiceTitle(titlePhrase(service), metaDevice(brand, deviceType, model))
+}
 
-    const base = `${s} ${device} ${brand.displayName} BH`
-    const withBrand = ensureTitle(base)
-
-    if (withBrand.length <= 48) return ensureTitle(`${withBrand} | Conectize`)
-    return withBrand
+function descriptionPhrase(service: Service) {
+    const map: Record<string, string> = {
+        'troca-de-tela': 'Troca de tela',
+        'troca-de-vidro-da-tela': 'Troca do vidro da tela',
+        'troca-de-vidro-tampa-traseira': 'Troca do vidro traseiro',
+        'troca-de-bateria': 'Troca de bateria',
+        'reparo-de-placa': 'Reparo de placa',
+        'troca-de-conector': 'Troca de conector de carga',
+        'troca-de-camera': 'Reparo de câmera',
+        'correcoes-de-software': 'Correção de software',
+        'reparo-de-audio': 'Reparo de áudio',
+        'reparo-de-agua': 'Reparo após contato com líquido',
+    }
+    return map[service.slug] || compactService(service)
 }
 
 function buildDescription(service: Service, brand: Brand, deviceType: DeviceType, model?: Model) {
-    const s = compactService(service)
-    const device = getDeviceLabel(brand, deviceType, model)
-    const profile = getBrandProfile(brand)
-
-    if (service.slug === 'troca-de-camera' && brand.slug === 'samsung') {
-        return ensureDescription(
-            `${s} em ${city} para ${device}. Testamos OIS, foco e alternância de lentes em Galaxy S/A, checando módulo e flex. Corrige tremor, falha no app e imagem preta.`
-        )
-    }
-
-    if (service.slug === 'troca-de-camera' && brand.slug === 'motorola') {
-        return ensureDescription(
-            `${s} em ${city} para ${device}. Avaliamos módulo, flex e comportamento do OIS em Moto G/Edge. Ideal para foco travando, câmera tremendo, névoa e erro intermitente.`
-        )
-    }
-
-    if (service.slug === 'troca-de-camera' && brand.slug === 'apple') {
-        return ensureDescription(
-            `${s} em ${city} para ${device}. Validamos recursos do iOS (foco, vídeo, retrato) e checamos flex/conectores. Na frontal, cuidamos do conjunto TrueDepth quando aplicável.`
-        )
-    }
-
-    if (service.slug === 'troca-de-vidro-tampa-traseira' && brand.slug === 'apple') {
-        return ensureDescription(
-            `${s} em ${city} para ${device}. Trocamos vidro traseiro/tampa, alinhamos câmera e validamos acabamento, encaixe e carga por indução quando aplicável.`
-        )
-    }
-
-    if (service.slug === 'troca-de-vidro-tampa-traseira' && brand.slug === 'samsung') {
-        return ensureDescription(
-            `${s} em ${city} para ${device}. Corrige back glass trincado, tampa soltando e frestas, com checagem de câmera, vedação e acabamento em Galaxy.`
-        )
-    }
-
-    if (service.slug === 'troca-de-tela' && brand.slug === 'samsung') {
-        return ensureDescription(
-            `Troca de tela em ${city} para ${device}. Processo pensado para AMOLED: brilho, toque e alinhamento do conjunto. Indicado para manchas, linhas e ghost touch em Galaxy.`
-        )
-    }
+    const device = metaDevice(brand, deviceType, model)
 
     if (isAppleIphoneBattery(service, brand, deviceType)) {
-        if (model) {
-            return ensureDescription(
-                `Trocamos a bateria do ${device} em ${city}, com diagnóstico de autonomia, orçamento e garantia de 12 meses na peça instalada.`
-            )
-        }
-
-        return ensureDescription(
-            `Troca de bateria para iPhone em ${city}. Atendemos vários modelos, com diagnóstico, orçamento e garantia de 12 meses na peça instalada.`
-        )
+        return batteryClickDescription(model ? device : 'iPhone')
     }
 
     if (service.slug === 'troca-de-bateria' && brand.slug === 'apple') {
-        return ensureDescription(
-            `Troca de bateria em ${city} para ${device}. Corrige desligamentos, aquecimento e autonomia baixa com testes de carga e estabilidade. Ideal para iPhone com queda brusca de porcentagem.`
-        )
+        return batteryClickDescription(device)
     }
 
-    return ensureDescription(
-        `${s} em ${city} para ${device} ${brand.displayName}. Conteúdo voltado a ${profile.angle}, com sinais comuns, processo detalhado e FAQ específico desta rota.`
-    )
+    return serviceClickDescription(descriptionPhrase(service), device)
+}
+
+function ensureWarrantyMention (items: FaqItem[]): FaqItem[] {
+    if (items.some((item) => item.a.includes(serviceWarranty.duration))) return items
+    return [
+        ...items,
+        {
+            q: 'Vocês oferecem garantia?',
+            a: serviceWarranty.faqAnswer,
+        },
+    ]
 }
 
 export function generateProgrammaticContent(input: Input): ProgrammaticContent {
@@ -1193,7 +1175,7 @@ export function generateProgrammaticContent(input: Input): ProgrammaticContent {
             technical: getTechnicalSection(service, brand, deviceType, model),
             problems: getServiceProblems(service, brand, deviceType),
             process: getServiceProcess(service, brand, deviceType, model),
-            faq: getFaq(service, brand, deviceType, model)
+            faq: ensureWarrantyMention(getFaq(service, brand, deviceType, model))
         }
     }
 }

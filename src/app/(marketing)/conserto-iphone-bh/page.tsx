@@ -9,6 +9,7 @@ import {
 	getFaqPageJsonLd,
 	getServiceJsonLd,
 } from '@/lib/data/business'
+import { serviceWarranty } from '@/lib/data/site-facts'
 import {
 	ASSISTENCIA_IPHONE_PATH,
 	CONSERTO_IPHONE_PATH,
@@ -18,7 +19,7 @@ import {
 	iphoneServiceHubHref,
 	servicesHubBreadcrumb,
 } from '@/lib/marketing/iphone-pillars'
-import { getSiteUrl } from '@/lib/utils/site-url'
+import { getSiteUrl, publicPageSeo } from '@/lib/utils/site-url'
 
 const pageHref = CONSERTO_IPHONE_PATH
 const canonical = `${getSiteUrl()}${pageHref}`
@@ -127,6 +128,10 @@ const faq = [
 		a: 'Aqui o foco é problema → solução. A página de assistência cobre o panorama da oficina e o posicionamento independente.',
 	},
 	{
+		q: 'Os serviços têm garantia?',
+		a: serviceWarranty.faqAnswer,
+	},
+	{
 		q: 'Atendem XR e modelos novos?',
 		a: 'Sim: do XR e 11 até a série 17, incluindo Pro e Pro Max.',
 	},
@@ -135,15 +140,7 @@ const faq = [
 export const metadata: Metadata = {
 	title,
 	description,
-	alternates: { canonical },
-	openGraph: {
-		title,
-		description,
-		url: canonical,
-		siteName: business.name,
-		locale: 'pt_BR',
-		type: 'website',
-	},
+	...publicPageSeo(pageHref, { title, description, siteName: business.name }),
 	robots: { index: true, follow: true },
 }
 

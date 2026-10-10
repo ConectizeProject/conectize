@@ -9,11 +9,13 @@ import {
 	getFaqPageJsonLd,
 	getServiceJsonLd,
 } from '@/lib/data/business'
+import { serviceWarranty } from '@/lib/data/site-facts'
 import {
 	getBrandBySlug,
 	getModelBySlugAnyType,
 	getServiceBySlug,
 } from '@/lib/data/services'
+import { batteryClickDescription } from '@/lib/utils/click-description'
 import { formatModelName } from '@/lib/utils/format-model-name'
 import {
 	buildServiceProductSlug,
@@ -116,7 +118,7 @@ function faqFor(name: string): BatteryModelFaq[] {
 		},
 		{
 			q: 'A bateria possui garantia?',
-			a: 'Sim. A troca de bateria tem garantia de 12 meses, para defeito de fabricação da peça e problema relacionado à instalação.',
+			a: serviceWarranty.faqAnswer,
 		},
 		{
 			q: `Onde trocar a bateria do ${name} em Belo Horizonte?`,
@@ -199,7 +201,7 @@ export function resolveBatteryModelLanding(
 		pageHref: `/servicos/${slug}`,
 		seo: {
 			title: `Troca de Bateria ${name} em BH | Conectize`,
-			description: `Troca de bateria do ${name} em Belo Horizonte. Faça o diagnóstico do aparelho e solicite um orçamento para substituição da bateria na Conectize.`,
+			description: batteryClickDescription(name),
 			h1: `Troca de Bateria do ${name} em Belo Horizonte`,
 		},
 		intro: `Trocamos a bateria do ${name} na Conectize, em Belo Horizonte. Se a carga acaba rápido, o aparelho desliga sozinho ou esquenta ao carregar, avaliamos o seu ${name} e passamos o orçamento pelo WhatsApp antes da troca.`,
@@ -378,8 +380,7 @@ export function BatteryModelPage({
 									A troca da bateria possui garantia?
 								</h2>
 								<p className="text-muted-foreground">
-									Sim. A garantia é de 12 meses e cobre defeito de fabricação da
-									peça e problema relacionado à instalação.
+									{serviceWarranty.coverageSentence}
 								</p>
 							</section>
 

@@ -8,6 +8,7 @@ import {
   type WhatsappEvolutionHubMetadata,
   WHATSAPP_EVOLUTION_PLATFORM_ID,
 } from '@/lib/whatsapp/evolution-hub-config'
+import { resolveHubSecretsReader } from '@/lib/supabase/hub-secrets'
 import { getSupabaseHubWriter } from '@/lib/supabase/hub-writes'
 import {
   loadHubInboxAccessMeta,
@@ -29,7 +30,7 @@ export async function GET () {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 
-  const { data: rows } = await auth.supabase
+  const { data: rows } = await resolveHubSecretsReader(auth.supabase)
     .from('hub_connections')
     .select('id, access_token, metadata, created_at')
     .eq('platform_id', PLATFORM)
@@ -146,7 +147,7 @@ export async function POST (request: Request) {
   }
 
   const { data: existing } = connectionId
-    ? await auth.supabase
+    ? await resolveHubSecretsReader(auth.supabase)
         .from('hub_connections')
         .select('id, metadata, access_token')
         .eq('id', connectionId)
@@ -275,6 +276,7 @@ export async function POST (request: Request) {
     const msg = String(error.message || '')
     if (
       msg.includes('hub_connections_org_evolution_instance_uidx')
+      || msg.includes('hub_connections_evolution_instance_global_uidx')
       || msg.includes('duplicate key') && msg.includes('instance_name')
     ) {
       return NextResponse.json(

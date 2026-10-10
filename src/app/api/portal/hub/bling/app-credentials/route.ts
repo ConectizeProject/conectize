@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth/portal-api'
 import { blingClientIdFromMetadata } from '@/lib/integrations/bling/app-credentials'
+import { resolveHubSecretsReader } from '@/lib/supabase/hub-secrets'
 
 const PLATFORM_ID = 'bling'
 
@@ -25,7 +26,7 @@ export async function POST (request: Request) {
     return NextResponse.json({ ok: false, error: 'client_id_required' }, { status: 400 })
   }
 
-  const existingQuery = auth.supabase
+  const existingQuery = resolveHubSecretsReader(auth.supabase)
     .from('hub_connections')
     .select('id, api_key, metadata')
     .eq('platform_id', PLATFORM_ID)

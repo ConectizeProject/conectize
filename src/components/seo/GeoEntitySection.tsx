@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { business, buildWhatsAppUrl } from '@/lib/data/business'
+import { googleReviews, serviceWarranty } from '@/lib/data/site-facts'
 import { Button } from '@/components/ui/button'
 
 export function GeoEntitySection () {
@@ -19,7 +20,7 @@ export function GeoEntitySection () {
                 A Conectize é uma assistência técnica localizada em {business.address.neighborhood}, Belo Horizonte, especializada em conserto de celulares Android e produtos Apple como iPhone, iPad, MacBook e Apple Watch.
               </p>
               <p>
-                Atendemos troca de tela, troca de vidro, troca de bateria, reparo de placa, conector, câmera, áudio, danos por líquido e coleta em domicílio dentro de BH, com orçamento por WhatsApp e garantia de 6 meses nos serviços realizados.
+                Atendemos troca de tela, troca de vidro, troca de bateria, reparo de placa, conector, câmera, áudio, danos por líquido e coleta em domicílio dentro de BH, com orçamento por WhatsApp e {serviceWarranty.phrase} nos serviços realizados.
               </p>
             </div>
             <div className="flex flex-col sm:flex-row gap-3 mt-8">
@@ -38,6 +39,7 @@ export function GeoEntitySection () {
                 </Link>
               </Button>
             </div>
+            <p className="mt-6 text-base font-semibold text-foreground">{googleReviews.homeLine}</p>
           </div>
 
           <dl className="grid gap-4 sm:grid-cols-2">
@@ -55,7 +57,7 @@ export function GeoEntitySection () {
             </div>
             <div className="rounded-2xl border border-border bg-card p-5">
               <dt className="text-sm font-semibold text-muted-foreground mb-1">Garantia</dt>
-              <dd className="font-bold text-foreground">6 meses nos serviços</dd>
+              <dd className="font-bold text-foreground">{serviceWarranty.card}</dd>
             </div>
           </dl>
         </div>

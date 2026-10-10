@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import type { DeviceType } from '@/lib/types/seo'
-import { buildServicesHubHref } from '@/lib/utils/services-hub'
+import { closestCanonicalServicePath } from '@/lib/utils/canonical-service-path'
 
 interface DeviceTypeCardProps {
   deviceType: DeviceType
@@ -11,10 +11,10 @@ interface DeviceTypeCardProps {
 export function DeviceTypeCard ({ deviceType, serviceSlug, brandSlug }: DeviceTypeCardProps) {
   return (
     <Link
-      href={buildServicesHubHref({
-        marca: brandSlug,
-        servico: serviceSlug,
-        dispositivo: deviceType.slug,
+      href={closestCanonicalServicePath({
+        brandSlug,
+        serviceSlug,
+        deviceSlug: deviceType.slug,
       })}
       className="block bg-card rounded-xl p-6 shadow-card hover:shadow-glow transition-all duration-300 border border-border hover:border-primary/50 text-center"
     >

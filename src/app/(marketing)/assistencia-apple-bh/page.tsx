@@ -9,6 +9,7 @@ import {
 	getFaqPageJsonLd,
 	getServiceJsonLd,
 } from '@/lib/data/business'
+import { serviceWarranty } from '@/lib/data/site-facts'
 import {
 	ASSISTENCIA_IPHONE_PATH,
 	CONSERTO_IPHONE_PATH,
@@ -20,7 +21,7 @@ import {
 	listIphoneSeoModels,
 	servicesHubBreadcrumb,
 } from '@/lib/marketing/iphone-pillars'
-import { getSiteUrl } from '@/lib/utils/site-url'
+import { getSiteUrl, publicPageSeo } from '@/lib/utils/site-url'
 
 const pageHref = ASSISTENCIA_IPHONE_PATH
 const canonical = `${getSiteUrl()}${pageHref}`
@@ -60,8 +61,7 @@ const faq = [
 	},
 	{
 		q: 'Tem garantia?',
-		a: 'Sim. A cobertura acompanha o tipo de reparo e é informada antes de você autorizar.',
-		// TODO: detalhar meses por serviço (ex.: bateria 12 meses)
+		a: serviceWarranty.faqAnswer,
 	},
 	{
 		q: 'Qual a diferença entre autorizada e independente?',
@@ -85,15 +85,7 @@ const models = listIphoneSeoModels('troca-de-tela')
 export const metadata: Metadata = {
 	title,
 	description,
-	alternates: { canonical },
-	openGraph: {
-		title,
-		description,
-		url: canonical,
-		siteName: business.name,
-		locale: 'pt_BR',
-		type: 'website',
-	},
+	...publicPageSeo(pageHref, { title, description, siteName: business.name }),
 	robots: { index: true, follow: true },
 }
 
@@ -252,10 +244,8 @@ export default function AssistenciaAppleBhPage () {
 									peça pelo WhatsApp.
 								</p>
 								<p className="text-muted-foreground leading-relaxed">
-									Garantia cobre defeito de fabricação da peça e problemas da
-									instalação, no prazo do serviço contratado.
+									{serviceWarranty.coverageSentence}
 								</p>
-								{/* TODO: listar meses de garantia por tipo de reparo */}
 								{/* TODO_PRECO_A_PARTIR_DE por serviço */}
 							</section>
 

@@ -37,12 +37,6 @@ export default function sitemap (): MetadataRoute.Sitemap {
       priority: 0.8,
     },
     {
-      url: `${baseUrl}/acessorios`,
-      lastModified,
-      changeFrequency: 'monthly',
-      priority: 0.8,
-    },
-    {
       url: `${baseUrl}/lojistas`,
       lastModified,
       changeFrequency: 'monthly',
@@ -119,18 +113,6 @@ export default function sitemap (): MetadataRoute.Sitemap {
       lastModified,
       changeFrequency: 'weekly',
       priority: 0.8,
-    },
-    {
-      url: `${baseUrl}/manual/bling`,
-      lastModified,
-      changeFrequency: 'monthly',
-      priority: 0.6,
-    },
-    {
-      url: `${baseUrl}/planos`,
-      lastModified,
-      changeFrequency: 'monthly',
-      priority: 0.7,
     },
     ...geoLandingPages.map((page) => ({
       url: `${baseUrl}/${page.slug}`,

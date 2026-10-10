@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useFormik } from 'formik'
 import { brands, services } from '@/lib/data/services'
+import { closestCanonicalServicePath } from '@/lib/utils/canonical-service-path'
 import { formatModelName } from '@/lib/utils/format-model-name'
 import { Loader2 } from 'lucide-react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
@@ -106,13 +107,17 @@ export function ServicesFilters() {
   }
 
   const buildHref = (input: { marca?: string; servico?: string; dispositivo?: string; modelo?: string }) => {
-    const params = new URLSearchParams()
-    if (input.marca) params.set('marca', input.marca)
-    if (input.servico) params.set('servico', input.servico)
-    if (input.dispositivo) params.set('dispositivo', input.dispositivo)
-    if (input.modelo) params.set('modelo', input.modelo)
-    const query = params.toString()
-    return query ? `${pathname}?${query}` : pathname
+    const brandSlug = input.marca || ''
+    const serviceSlug = input.servico || ''
+    const deviceSlug = input.dispositivo || ''
+    const modelSlug = input.modelo || ''
+    if (!brandSlug && !serviceSlug && !deviceSlug && !modelSlug) return pathname
+    return closestCanonicalServicePath({
+      brandSlug,
+      serviceSlug,
+      deviceSlug,
+      modelSlug,
+    })
   }
 
   const applyBrand = async (value: string) => {

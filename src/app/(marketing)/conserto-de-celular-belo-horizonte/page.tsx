@@ -25,15 +25,18 @@ import {
 	getFaqPageJsonLd,
 	getServiceJsonLd,
 } from '@/lib/data/business'
+import { serviceWarranty } from '@/lib/data/site-facts'
 import { brands, services } from '@/lib/data/services'
+import {
+	closestCanonicalServicePath,
+	preferredPublicBrandHref,
+	preferredPublicServiceHref,
+} from '@/lib/utils/canonical-service-path'
 import { formatModelName } from '@/lib/utils/format-model-name'
 import { listServiceHubs } from '@/lib/utils/service-hubs'
 import { buildServiceProductSlug } from '@/lib/utils/service-product-slug'
-import {
-	buildServicesHubHref,
-	SERVICES_HUB_PATH,
-} from '@/lib/utils/services-hub'
-import { getSiteUrl } from '@/lib/utils/site-url'
+import { SERVICES_HUB_PATH } from '@/lib/utils/services-hub'
+import { getSiteUrl, publicPageSeo } from '@/lib/utils/site-url'
 import { IPHONE_PILLAR_LINKS } from '@/lib/marketing/iphone-pillars'
 
 type SearchParams = Promise<{
@@ -49,9 +52,9 @@ const pageHref = SERVICES_HUB_PATH
 const canonical = `${getSiteUrl()}${pageHref}`
 
 const landingSeo = {
-	title: 'Conserto de Celular em Belo Horizonte | Conectize',
+	title: 'Conserto de celular em BH com garantia | Conectize',
 	description:
-		'Conserto de celular em Belo Horizonte: troca de tela, bateria, vidro e reparos em placa. Assistência técnica especializada da Conectize em BH.',
+		`Conserto de celular em Belo Horizonte: tela, bateria, vidro e placa, com ${serviceWarranty.phrase} e coleta. Orçamento da Conectize no WhatsApp.`,
 	h1: 'Conserto de Celular em Belo Horizonte',
 }
 
@@ -71,6 +74,10 @@ const landingFaq = [
 	{
 		q: 'A Conectize faz coleta e entrega?',
 		a: 'Sim. Há coleta e entrega em Belo Horizonte. Você também pode trazer o aparelho na loja da Santa Efigênia.',
+	},
+	{
+		q: 'Os serviços têm garantia?',
+		a: serviceWarranty.faqAnswer,
 	},
 	{
 		q: 'Onde fica a assistência técnica?',
@@ -219,21 +226,7 @@ export async function generateMetadata({
 		robots: isFiltering
 			? { index: false, follow: true }
 			: { index: true, follow: true },
-		alternates: {
-			canonical,
-		},
-		openGraph: {
-			title,
-			description,
-			url: canonical,
-			type: 'website',
-			locale: 'pt_BR',
-		},
-		twitter: {
-			card: 'summary',
-			title,
-			description,
-		},
+		...publicPageSeo(pageHref, { title, description }),
 	}
 }
 
@@ -371,13 +364,17 @@ export default async function ConsertoCelularBeloHorizontePage({
 		if (selectedBrand) {
 			items.push({
 				label: selectedBrand.displayName,
-				href: buildServicesHubHref({ marca: selectedBrand.slug }),
+				href: preferredPublicBrandHref(selectedBrand.slug),
 			})
 		}
 		if (selectedService) {
 			items.push({
 				label: selectedService.name,
-				href: buildServicesHubHref({ marca, servico }),
+				href: closestCanonicalServicePath({
+					serviceSlug: selectedService.slug,
+					brandSlug: selectedBrand?.slug,
+					deviceSlug: dispositivo,
+				}),
 			})
 		}
 		if (
@@ -387,13 +384,22 @@ export default async function ConsertoCelularBeloHorizontePage({
 		) {
 			items.push({
 				label: selectedBrand.deviceTypes[dispositivo].displayName,
-				href: buildServicesHubHref({ marca, servico, dispositivo }),
+				href: closestCanonicalServicePath({
+					serviceSlug: selectedService?.slug,
+					brandSlug: selectedBrand.slug,
+					deviceSlug: dispositivo,
+				}),
 			})
 		}
 		if (modelo) {
 			items.push({
 				label: formatModelName(modelo),
-				href: buildServicesHubHref({ marca, servico, dispositivo, modelo }),
+				href: closestCanonicalServicePath({
+					serviceSlug: selectedService?.slug,
+					brandSlug: selectedBrand?.slug,
+					deviceSlug: dispositivo,
+					modelSlug: modelo,
+				}),
 			})
 		}
 
@@ -407,15 +413,12 @@ export default async function ConsertoCelularBeloHorizontePage({
 		url: canonical,
 	})
 
-	function paginationHref(nextPage: number) {
-		return buildServicesHubHref({
-			marca,
-			servico,
-			dispositivo,
-			modelo: selectedBrand && selectedService ? modelo : undefined,
-			page: nextPage,
-		})
-	}
+	const resultsHref = closestCanonicalServicePath({
+		serviceSlug: servico,
+		brandSlug: marca,
+		deviceSlug: dispositivo,
+		modelSlug: selectedBrand && selectedService ? modelo : undefined,
+	})
 
 	return (
 		<>
@@ -562,9 +565,7 @@ export default async function ConsertoCelularBeloHorizontePage({
 											{services.map((service) => (
 												<li key={service.slug}>
 													<Link
-														href={buildServicesHubHref({
-															servico: service.slug,
-														})}
+														href={preferredPublicServiceHref(service.slug)}
 														className="block rounded-lg border border-border bg-secondary/30 px-4 py-3 hover:bg-secondary/40"
 													>
 														<span className="font-semibold text-foreground">
@@ -591,9 +592,7 @@ export default async function ConsertoCelularBeloHorizontePage({
 												<li key={`chip-${service.slug}`}>
 													<Button asChild variant="secondary" size="sm">
 														<Link
-															href={buildServicesHubHref({
-																servico: service.slug,
-															})}
+															href={preferredPublicServiceHref(service.slug)}
 														>
 															{service.name}
 														</Link>
@@ -626,9 +625,7 @@ export default async function ConsertoCelularBeloHorizontePage({
 															</div>
 															<Button asChild variant="outline" size="sm">
 																<Link
-																	href={buildServicesHubHref({
-																		marca: brand.slug,
-																	})}
+																	href={preferredPublicBrandHref(brand.slug)}
 																>
 																	Ver {brand.displayName}
 																</Link>
@@ -810,9 +807,7 @@ export default async function ConsertoCelularBeloHorizontePage({
 														) : (
 															<Button asChild variant="outline" size="sm">
 																<Link
-																	href={paginationHref(
-																		Math.max(1, results.currentPage - 1),
-																	)}
+																	href={resultsHref}
 																	aria-label="Página anterior"
 																>
 																	<span className="sr-only">Anterior</span>
@@ -834,12 +829,7 @@ export default async function ConsertoCelularBeloHorizontePage({
 														) : (
 															<Button asChild variant="outline" size="sm">
 																<Link
-																	href={paginationHref(
-																		Math.min(
-																			results.totalPages,
-																			results.currentPage + 1,
-																		),
-																	)}
+																	href={resultsHref}
 																	aria-label="Próxima página"
 																>
 																	<span className="sr-only">Próxima</span>

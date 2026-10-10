@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth/portal-api'
+import { resolveHubSecretsReader } from '@/lib/supabase/hub-secrets'
 
 export async function GET() {
   const auth = await requireAdmin()
@@ -36,7 +37,7 @@ export async function POST(request: Request) {
   }
 
   // Se já existe conexão e só está atualizando o modelo, não precisa de api_key
-  const { data: existing } = await auth.supabase
+  const { data: existing } = await resolveHubSecretsReader(auth.supabase)
     .from('hub_connections')
     .select('api_key, metadata')
     .eq('platform_id', platformId)

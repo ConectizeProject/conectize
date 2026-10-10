@@ -9,6 +9,7 @@ import {
 	getFaqPageJsonLd,
 	getServiceJsonLd,
 } from '@/lib/data/business'
+import { serviceWarranty } from '@/lib/data/site-facts'
 import {
 	ASSISTENCIA_IPHONE_PATH,
 	CONSERTO_IPHONE_PATH,
@@ -61,6 +62,10 @@ const faq = [
 	{
 		q: 'A biometria continua funcionando?',
 		a: 'Depende do modelo e da peça. Explicamos no orçamento o que esperar do Face ID / Touch ID.',
+	},
+	{
+		q: 'O serviço tem garantia?',
+		a: serviceWarranty.faqAnswer,
 	},
 	{
 		q: 'Onde trocar a tela em BH?',

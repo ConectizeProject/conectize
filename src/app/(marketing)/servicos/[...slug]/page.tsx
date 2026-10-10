@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { notFound, permanentRedirect } from 'next/navigation'
 import { MessageCircle, Phone, MapPin } from 'lucide-react'
 import { business, buildWhatsAppUrl, getFaqPageJsonLd, getServiceJsonLd } from '@/lib/data/business'
+import { serviceWarranty } from '@/lib/data/site-facts'
 import { getBrandBySlug, getModelBySlugAnyType, getServiceBySlug, services } from '@/lib/data/services'
 import { resolveLegacyServiceDestination } from '@/lib/utils/legacy-service-redirect'
 import { generateKeywords } from '@/lib/utils/seo'
@@ -10,7 +11,7 @@ import { formatModelName } from '@/lib/utils/format-model-name'
 import { generateProgrammaticContent } from '@/lib/utils/programmatic-content'
 import { buildServiceProductSlug, parseServiceProductSlug } from '@/lib/utils/service-product-slug'
 import { listServiceHubs } from '@/lib/utils/service-hubs'
-import { getSiteUrl } from '@/lib/utils/site-url'
+import { publicPageSeo } from '@/lib/utils/site-url'
 import { Breadcrumbs } from '@/components/seo/Breadcrumbs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { BatteryModelPage, resolveBatteryModelLanding } from '../battery-model-page'
@@ -68,16 +69,12 @@ function iphoneGenerationKey (slug: string) {
   return head || null
 }
 
-function ServiceFocusContent (props: { title: string, paragraphs: string[], warrantyMonths?: number }) {
-  const warrantyMonths = props.warrantyMonths ?? 6
-  const isBatteryWarranty = warrantyMonths === 12
+function ServiceFocusContent (props: { title: string, paragraphs: string[] }) {
   const includedInService = [
     'Diagnóstico completo do problema',
     'Substituição com peça de alta qualidade',
     'Testes de funcionalidade após o reparo',
-    isBatteryWarranty
-      ? 'Garantia de 12 meses na troca de bateria'
-      : 'Garantia de 6 meses em todos os serviços realizados',
+    serviceWarranty.includedItem,
     'Suporte técnico após o reparo'
   ]
 
@@ -118,9 +115,7 @@ function ServiceFocusContent (props: { title: string, paragraphs: string[], warr
             Garantia
           </h3>
           <p className="text-muted-foreground">
-            {isBatteryWarranty
-              ? 'A troca de bateria tem garantia de 12 meses. A garantia cobre defeitos de fabricação da peça e problemas relacionados à instalação.'
-              : 'Oferecemos garantia de 6 meses. A garantia cobre defeitos de fabricação da peça e problemas relacionados à instalação.'}
+            {serviceWarranty.coverageSentence}
           </p>
         </div>
       </div>
@@ -128,55 +123,46 @@ function ServiceFocusContent (props: { title: string, paragraphs: string[], warr
   )
 }
 
+function servicePageMetadata (slug: string, metadata: Metadata): Metadata {
+  const title = typeof metadata.title === 'string' ? metadata.title : undefined
+  const description = typeof metadata.description === 'string' ? metadata.description : undefined
+  return {
+    ...metadata,
+    ...publicPageSeo(`/servicos/${slug}`, { title, description }),
+  }
+}
+
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug: segments } = await params
   const slug = resolveProductSlug(segments)
   const batteryLanding = resolveBatteryModelLanding(slug)
   if (batteryLanding) {
-    return {
+    return servicePageMetadata(slug, {
       title: batteryLanding.seo.title,
       description: batteryLanding.seo.description,
       robots: { index: true, follow: true },
-      alternates: { canonical: `${getSiteUrl()}/servicos/${slug}` }
-    }
+    })
   }
   if (slug === POCO_X6_PRO_GLASS_SLUG) {
-    return {
+    return servicePageMetadata(slug, {
       title: pocoX6ProScreenSeo.title,
       description: pocoX6ProScreenSeo.description,
       robots: { index: true, follow: true },
-      alternates: { canonical: `${getSiteUrl()}/servicos/${POCO_X6_PRO_GLASS_SLUG}` }
-    }
+    })
   }
   if (slug === IPHONE_SCREEN_HUB_SLUG) {
-    return {
+    return servicePageMetadata(slug, {
       title: iphoneScreenHubSeo.title,
       description: iphoneScreenHubSeo.description,
       robots: { index: true, follow: true },
-      alternates: { canonical: `${getSiteUrl()}/servicos/${IPHONE_SCREEN_HUB_SLUG}` },
-      openGraph: {
-        title: iphoneScreenHubSeo.title,
-        description: iphoneScreenHubSeo.description,
-        url: `${getSiteUrl()}/servicos/${IPHONE_SCREEN_HUB_SLUG}`,
-        locale: 'pt_BR',
-        type: 'website',
-      },
-    }
+    })
   }
   if (slug === IPHONE_REAR_GLASS_HUB_SLUG) {
-    return {
+    return servicePageMetadata(slug, {
       title: iphoneRearGlassHubSeo.title,
       description: iphoneRearGlassHubSeo.description,
       robots: { index: true, follow: true },
-      alternates: { canonical: `${getSiteUrl()}/servicos/${IPHONE_REAR_GLASS_HUB_SLUG}` },
-      openGraph: {
-        title: iphoneRearGlassHubSeo.title,
-        description: iphoneRearGlassHubSeo.description,
-        url: `${getSiteUrl()}/servicos/${IPHONE_REAR_GLASS_HUB_SLUG}`,
-        locale: 'pt_BR',
-        type: 'website',
-      },
-    }
+    })
   }
   const parsed = parseServiceProductSlug(slug)
   if (!parsed.isValid) {
@@ -215,12 +201,11 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       deviceType: deviceTypeHub
     })
 
-    return {
+    return servicePageMetadata(slug, {
       title: content.title,
       description: content.description,
       keywords: generateKeywords(service, brand, deviceTypeHub),
-      alternates: { canonical: `${getSiteUrl()}/servicos/${slug}` }
-    }
+    })
   }
 
   if (!modelData) {
@@ -254,14 +239,11 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     model
   })
 
-  return {
+  return servicePageMetadata(slug, {
     title: content.title,
     description: content.description,
     keywords: generateKeywords(service, brand, modelData.deviceType, model),
-    alternates: {
-      canonical: `${getSiteUrl()}/servicos/${slug}`
-    }
-  }
+  })
 }
 
 export default async function ServiceProductPage({ params }: PageProps) {
@@ -363,7 +345,6 @@ export default async function ServiceProductPage({ params }: PageProps) {
                   title={iphoneBatteryHub
                     ? 'Sobre a troca de bateria para iPhone'
                     : `Sobre o serviço de ${service.name} para ${deviceType.displayName}`}
-                  warrantyMonths={service.slug === 'troca-de-bateria' ? 12 : 6}
                   paragraphs={iphoneBatteryHub
                     ? [
                         'A troca devolve autonomia ao iPhone no uso do dia a dia. Antes de substituir a bateria, conferimos carga, aquecimento e desligamentos inesperados.',
@@ -589,11 +570,10 @@ export default async function ServiceProductPage({ params }: PageProps) {
                 title={iphoneBatteryModel
                   ? `Sobre a troca de bateria do ${model.displayName}`
                   : `Sobre o serviço de ${service.name} para ${model.displayName}`}
-                warrantyMonths={service.slug === 'troca-de-bateria' ? 12 : 6}
                 paragraphs={iphoneBatteryModel
                   ? [
                       `No ${model.displayName}, a bateria cansada aparece como autonomia curta, desligamento repentino e aquecimento na carga. A troca usa peça compatível com esse aparelho.`,
-                      'Depois da instalação, testamos carga e estabilidade. A garantia da bateria é de 12 meses.'
+                      `Depois da instalação, testamos carga e estabilidade. ${serviceWarranty.serviceAndPart}`
                     ]
                   : [
                       `Serviço especializado de ${service.name.toLowerCase()} para ${model.displayName} (${modelData.deviceType.displayName} ${brand.displayName}) em Belo Horizonte. Realizamos o reparo com peças de alta qualidade, garantindo compatibilidade, experiência e durabilidade do seu dispositivo.`,

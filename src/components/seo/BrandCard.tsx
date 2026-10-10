@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import type { Brand } from '@/lib/types/seo'
-import { buildServicesHubHref } from '@/lib/utils/services-hub'
+import { closestCanonicalServicePath } from '@/lib/utils/canonical-service-path'
 
 interface BrandCardProps {
   brand: Brand
@@ -13,7 +13,7 @@ export function BrandCard ({ brand, serviceSlug }: BrandCardProps) {
     0
   )
   const totalDeviceTypes = Object.keys(brand.deviceTypes).length
-  const href = buildServicesHubHref({ marca: brand.slug, servico: serviceSlug })
+  const href = closestCanonicalServicePath({ brandSlug: brand.slug, serviceSlug })
 
   return (
     <Link

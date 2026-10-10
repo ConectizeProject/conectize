@@ -37,8 +37,8 @@ export function HeroBrokenPhone({
 	src = PHONE_SRC,
 	width = PHONE_WIDTH,
 	height = PHONE_HEIGHT,
-	alt = '',
-	sizes = '(min-width: 900px) 28rem, 21rem',
+	alt = 'iPhone com a tela trincada, na loja de peças da Conectize em Belo Horizonte',
+	sizes = '(min-width: 900px) 448px, 336px',
 	portrait = false,
 }: HeroBrokenPhoneProps = {}) {
 	const stageRef = useRef<HTMLDivElement>(null)
@@ -157,7 +157,7 @@ export function HeroBrokenPhone({
 					height={height}
 					className={styles.phoneImage}
 					priority
-					sizes={portrait ? '(min-width: 900px) 24rem, 16rem' : sizes}
+					sizes={portrait ? '(min-width: 900px) 384px, 256px' : sizes}
 				/>
 			</div>
 		</div>

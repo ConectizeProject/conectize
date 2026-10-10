@@ -1,4 +1,5 @@
 import { services } from './services'
+import { googleAggregateRatingJsonLd, serviceWarranty } from '@/lib/data/site-facts'
 import { getSiteUrl } from '@/lib/utils/site-url'
 
 export type FaqItem = {
@@ -11,7 +12,7 @@ export const business = {
   name: 'Conectize',
   legalName: 'Conectize',
   label: 'Conectize - Assistência Técnica de Celular e Apple',
-  description: 'Assistência técnica especializada em conserto de celulares e produtos Apple em Belo Horizonte, com coleta em domicílio, garantia e atendimento por WhatsApp.',
+  description: `Assistência técnica especializada em conserto de celulares e produtos Apple em Belo Horizonte, com coleta em domicílio, ${serviceWarranty.phrase} e atendimento por WhatsApp.`,
   phone: '+5531986140889',
   phoneDisplay: '(31) 9 8614-0889',
   whatsappUrl: 'https://wa.me/5531986140889',
@@ -19,6 +20,8 @@ export const business = {
   cnpj: '44.957.050/0001-37',
   priceRange: '$$',
   logoPath: '/logo_conectize.svg',
+  logoRasterPath: '/logo-conectize.png',
+  imagePath: '/og-conectize.png',
   address: {
     streetAddress: 'R. Padre Rolim, 620',
     neighborhood: 'Santa Efigênia',
@@ -94,7 +97,8 @@ export function getFormattedOpeningHours() {
 }
 
 export function getLocalBusinessJsonLd() {
-  const logoUrl = `${business.siteUrl}${business.logoPath}`
+  const logoUrl = `${business.siteUrl}${business.logoRasterPath}`
+  const imageUrl = `${business.siteUrl}${business.imagePath}`
 
   return {
     '@context': 'https://schema.org',
@@ -102,7 +106,7 @@ export function getLocalBusinessJsonLd() {
     '@id': `${business.siteUrl}/#localbusiness`,
     name: business.label,
     legalName: business.legalName,
-    image: logoUrl,
+    image: imageUrl,
     logo: logoUrl,
     description: business.description,
     url: business.siteUrl,
@@ -137,6 +141,7 @@ export function getLocalBusinessJsonLd() {
       contactType: 'customer service',
       availableLanguage: 'Portuguese'
     },
+    aggregateRating: googleAggregateRatingJsonLd(),
     areaServed: [
       {
         '@type': 'City',

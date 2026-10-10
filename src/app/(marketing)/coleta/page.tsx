@@ -1,15 +1,16 @@
 import type { Metadata } from 'next'
 import { FreteCalculator } from '@/components/FreteCalculator'
 import { Clock } from 'lucide-react'
-import { getSiteUrl } from '@/lib/utils/site-url'
+import { publicPageSeo } from '@/lib/utils/site-url'
+
+const title = 'Coleta em Domicílio em Belo Horizonte | Conectize'
+const description = 'Serviço exclusivo de coleta e entrega em domicílio para conserto de celulares em Belo Horizonte. Calcule o frete pelo seu CEP. Buscamos e devolvemos seu aparelho. Agende agora!'
 
 export const metadata: Metadata = {
-  title: 'Coleta em Domicílio em Belo Horizonte | Conectize',
-  description: 'Serviço exclusivo de coleta e entrega em domicílio para conserto de celulares em Belo Horizonte. Calcule o frete pelo seu CEP. Buscamos e devolvemos seu aparelho. Agende agora!',
+  title,
+  description,
   keywords: 'coleta em domicilio celular belo horizonte, busca e entrega celular bh, frete coleta celular bh, serviço de coleta celular, calcular frete coleta',
-  alternates: {
-    canonical: `${getSiteUrl()}/coleta`,
-  },
+  ...publicPageSeo('/coleta', { title, description }),
 }
 
 export default function ColetaPage () {

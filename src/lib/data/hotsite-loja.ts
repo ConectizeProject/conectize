@@ -1,4 +1,5 @@
 import { business } from '@/lib/data/business'
+import { googleAggregateRatingJsonLd, googleReviews } from '@/lib/data/site-facts'
 import { getSiteUrl } from '@/lib/utils/site-url'
 
 export const lojaPath = '/loja'
@@ -72,8 +73,8 @@ export const lojaCopy = {
 	whatsappMessage:
 		'Olá! Quero um orçamento de peças e acessórios para o meu aparelho.',
 	heroIntro: 'Loja em Santa Efigênia, Belo Horizonte.',
-	heroLine: 'Quebrou?',
-	heroShine: 'Você está no lugar certo.',
+	heroLine: 'Loja de peças e acessórios',
+	heroShine: 'para iPhone em BH',
 	heroLead:
 		'Telas, baterias e acessórios. Orçamento no WhatsApp.',
 	disclaimer:
@@ -92,10 +93,10 @@ export const lojaNav = [
 ] as const
 
 export const lojaGoogleRating = {
-	ratingValue: 5,
-	reviewCountLabel: 'mais de 400',
-	reviewCount: 400,
-	sourceLabel: 'Google',
+	ratingValue: googleReviews.ratingValue,
+	reviewCountLabel: String(googleReviews.reviewCount),
+	reviewCount: googleReviews.reviewCount,
+	sourceLabel: googleReviews.sourceLabel,
 	mapsUrl: business.hasMap,
 } as const
 
@@ -244,7 +245,8 @@ export const lojaFaq = [
 export function getLojaJsonLd() {
 	const siteUrl = getSiteUrl()
 	const pageUrl = `${siteUrl}${lojaPath}`
-	const logoUrl = `${siteUrl}${business.logoPath}`
+	const logoUrl = `${siteUrl}${business.logoRasterPath}`
+	const imageUrl = `${siteUrl}${business.imagePath}`
 
 	return {
 		'@context': 'https://schema.org',
@@ -252,7 +254,7 @@ export function getLojaJsonLd() {
 		'@id': `${pageUrl}#store`,
 		name: lojaCopy.brand,
 		legalName: business.legalName,
-		image: logoUrl,
+		image: imageUrl,
 		logo: logoUrl,
 		description: lojaCopy.description,
 		url: pageUrl,
@@ -292,13 +294,7 @@ export function getLojaJsonLd() {
 			addressRegion: 'MG',
 			addressCountry: 'BR',
 		},
-		aggregateRating: {
-			'@type': 'AggregateRating',
-			ratingValue: lojaGoogleRating.ratingValue,
-			bestRating: 5,
-			worstRating: 1,
-			ratingCount: lojaGoogleRating.reviewCount,
-		},
+		aggregateRating: googleAggregateRatingJsonLd(),
 		hasOfferCatalog: {
 			'@type': 'OfferCatalog',
 			name: 'Peças e acessórios Conectize Store',

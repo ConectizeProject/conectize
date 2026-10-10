@@ -17,7 +17,7 @@ import {
 	lojaCopy,
 	whatsappLink,
 } from '@/lib/data/hotsite-loja'
-import { getSiteUrl } from '@/lib/utils/site-url'
+import { publicPageSeo } from '@/lib/utils/site-url'
 import { HeroBrokenPhone } from './HeroBrokenPhone'
 import { LojaContactCta } from './LojaContactCta'
 import { LojaReviews } from './LojaReviews'
@@ -97,8 +97,6 @@ export function lojaCategoryMetadata (input: {
 	path: string
 	keywords: string
 }): Metadata {
-	const url = `${getSiteUrl()}${input.path}`
-
 	return {
 		title: input.title,
 		description: input.description,
@@ -107,17 +105,11 @@ export function lojaCategoryMetadata (input: {
 			index: true,
 			follow: true,
 		},
-		alternates: {
-			canonical: url,
-		},
-		openGraph: {
-			type: 'website',
+		...publicPageSeo(input.path, {
 			title: input.title,
 			description: input.description,
-			url,
 			siteName: lojaCopy.brand,
-			locale: 'pt_BR',
-		},
+		}),
 	}
 }
 

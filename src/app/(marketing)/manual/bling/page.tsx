@@ -2,15 +2,16 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { ExternalLink, Link2, Package, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { getSiteUrl } from '@/lib/utils/site-url'
+import { publicPageSeo } from '@/lib/utils/site-url'
+
+const title = 'Manual completo da integração com o Bling | Conectize'
+const description = 'Passo a passo para conectar o Conectize ao Bling, autorizar o aplicativo e sincronizar produtos da assistência. Guia público e completo da integração.'
 
 export const metadata: Metadata = {
-  title: 'Manual da Integração com o Bling | Conectize',
-  description: 'Passo a passo público para conectar o Conectize ao Bling, autorizar o aplicativo e sincronizar produtos.',
+  title,
+  description,
   robots: 'index, follow',
-  alternates: {
-    canonical: `${getSiteUrl()}/manual/bling`,
-  },
+  ...publicPageSeo('/manual/bling', { title, description }),
 }
 
 const requisitos = [
