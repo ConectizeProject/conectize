@@ -4,6 +4,8 @@ import { getSupabaseEnv } from './env'
 
 /**
  * Cliente singleton (createBrowserClient usa cache interno no browser).
+ * Cookies de sessão ficam no host que fez o login (sem Domain pai):
+ * app.conectize.com.br guarda a sessão do portal sem depender de www.
  * Usado para parar o auto-refresh quando a rede/DNS falha e evitar loop de
  * tentativas ao host do projeto (logs em cascata no console).
  */

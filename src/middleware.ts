@@ -12,15 +12,14 @@ import {
 	PORTAL_SIMULATED_ROLE_COOKIE,
 	resolveEffectivePortalRole,
 } from './lib/auth/portal-role-simulation'
-import {
-	canonicalRedirectStatus,
-	normalizeHostname,
-	publicHostnameFromHeaders,
-	resolveCanonicalRedirect,
-} from './lib/utils/canonical-host'
+import { publicHostnameFromHeaders } from './lib/utils/canonical-host'
 import { goneCrawlResponse, isGoneCrawlPath } from './lib/utils/gone-crawl-paths'
-import { resolvePublicCrawlRedirect } from './lib/utils/public-crawl-redirect'
-import { APEX_HOST, CANONICAL_HOST, CANONICAL_SITE_ORIGIN } from './lib/utils/site-url'
+import {
+	appSeoRewritePath,
+	hostSplitRedirect,
+	resolveSurface,
+	SIMULATE_HOST_HEADER,
+} from './lib/utils/host-surface'
 
 function getSupabaseEnv() {
 	const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -124,43 +123,43 @@ async function getUserRole(supabase: SupabaseClient, request: NextRequest) {
 	return { user: { id: sub }, role, realRole }
 }
 
+function simulateHostHeader (request: NextRequest): string | null {
+	return request.headers.get(SIMULATE_HOST_HEADER) || process.env.CONECTIZE_SURFACE || null
+}
+
 /**
- * Um único redirect: host canônico (apex ou http → https://www) e path legado
- * juntos. Redirecionar o host antes do path recriaria a cadeia do Search Console.
- * GET/HEAD usam 301. Os demais métodos usam 308 para preservar o corpo.
+ * Um único redirect: host canônico (apex ou http → https://www), path legado
+ * e separação loja (www) / SaaS (app). Redirecionar em etapas recriaria a cadeia
+ * do Search Console. GET/HEAD usam 301. Os demais usam 308 para preservar o corpo.
+ *
+ * API, webhook, callback OAuth e assets não cruzam de host.
+ * Localhost e *.vercel.app não cruzam, salvo header `x-conectize-host` ou env
+ * `CONECTIZE_SURFACE` (`app` ou `www`).
  */
 function redirectPublicUrl(request: NextRequest) {
 	const hostname = publicHostnameFromHeaders(request.headers, request.nextUrl.hostname)
 	const protocol = request.headers.get('x-forwarded-proto') || request.nextUrl.protocol
-	const crawl = resolvePublicCrawlRedirect({
-		pathname: request.nextUrl.pathname,
-		searchParams: request.nextUrl.searchParams,
-		host: hostname,
-	})
-	const pathname = crawl?.pathname ?? request.nextUrl.pathname
-	const search = crawl?.search ?? request.nextUrl.search
-
-	const canonical = resolveCanonicalRedirect({
+	const split = hostSplitRedirect({
 		hostname,
 		protocol,
-		pathname,
-		search,
+		pathname: request.nextUrl.pathname,
+		search: request.nextUrl.search,
+		simulateHost: simulateHostHeader(request),
+		method: request.method,
 	})
-	if (canonical) {
-		return NextResponse.redirect(canonical, canonicalRedirectStatus(request.method))
-	}
+	if (!split) return null
+	return NextResponse.redirect(split.url, split.status)
+}
 
-	if (!crawl) return null
-
-	const current = `${request.nextUrl.pathname}${request.nextUrl.search}`
-	if (`${pathname}${search}` === current) return null
-
-	const normalized = normalizeHostname(hostname)
-	const onProductionHost = normalized === CANONICAL_HOST || normalized === APEX_HOST
-	const target = onProductionHost
-		? `${CANONICAL_SITE_ORIGIN}${pathname}${search}`
-		: new URL(`${pathname}${search}`, request.nextUrl.origin)
-	return NextResponse.redirect(target, canonicalRedirectStatus(request.method))
+function rewriteAppSeo(request: NextRequest) {
+	const hostname = publicHostnameFromHeaders(request.headers, request.nextUrl.hostname)
+	const surface = resolveSurface(hostname, simulateHostHeader(request))
+	if (surface !== 'app') return null
+	const internal = appSeoRewritePath(request.nextUrl.pathname)
+	if (!internal) return null
+	const url = request.nextUrl.clone()
+	url.pathname = internal
+	return NextResponse.rewrite(url)
 }
 
 export async function middleware(request: NextRequest) {
@@ -174,6 +173,9 @@ export async function middleware(request: NextRequest) {
 
 	const publicRedirect = redirectPublicUrl(request)
 	if (publicRedirect) return publicRedirect
+
+	const appSeo = rewriteAppSeo(request)
+	if (appSeo) return appSeo
 
 	if (pathname.startsWith('/api/portal')) {
 		return refreshPortalApiSession(request)

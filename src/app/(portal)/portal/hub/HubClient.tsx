@@ -45,6 +45,7 @@ import { meliSyncFailureMessage } from '@/lib/integrations/mercado-livre/refresh
 import { usePortalOrganizationName } from '@/lib/portal/portal-branding-context'
 import { appConfirm } from '@/lib/ui/app-dialogs'
 import { cn } from '@/lib/utils'
+import { APP_SITE_ORIGIN, CANONICAL_SITE_ORIGIN } from '@/lib/utils/site-url'
 import { DEFAULT_EVOLUTION_AUTO_MESSAGE_TEMPLATES } from '@/lib/whatsapp/evolution-auto-messages'
 import { EvolutionAutoMessagesFields } from './EvolutionAutoMessagesFields'
 import { McpCursorCard } from './McpKeysDialog'
@@ -2224,10 +2225,11 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
                 <div className="rounded-md border border-dashed bg-muted/20 p-2.5 text-xs text-muted-foreground space-y-1">
                   <p className="font-medium text-foreground">URL do webhook (cadastre no app Bling → Webhooks)</p>
                   <code className="block break-all text-[11px] text-foreground">
-                    https://www.conectize.com.br/api/portal/bling/webhook
+                    {`${APP_SITE_ORIGIN}/api/portal/bling/webhook`}
                   </code>
                   <p>
                     Confira se o servidor &quot;Prod&quot; no Bling aponta exatamente para essa URL. O portal confirma o recebimento na hora e processa o produto em seguida.
+                    A URL {`${CANONICAL_SITE_ORIGIN}/api/portal/bling/webhook`} continua recebendo webhooks já cadastrados.
                   </p>
                 </div>
                 <div className="space-y-1.5">
@@ -2413,11 +2415,12 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
             <div className="rounded-md border border-dashed bg-muted/20 p-2.5 text-xs text-muted-foreground space-y-1">
               <p className="font-medium text-foreground">URL de notificações (cadastre no app Mercado Livre)</p>
               <code className="block break-all text-[11px] text-foreground">
-                https://www.conectize.com.br/api/portal/mercado-livre/webhook
+                {`${APP_SITE_ORIGIN}/api/portal/mercado-livre/webhook`}
               </code>
               <p>
                 Use a mesma URL no painel de desenvolvedores. Pedidos pagos são finalizados no portal;
                 pendentes ficam em rascunho até o pagamento.
+                A URL {`${CANONICAL_SITE_ORIGIN}/api/portal/mercado-livre/webhook`} continua recebendo notificações já cadastradas.
               </p>
             </div>
             {isAdmin && meliConnections.length > 0 ? (
