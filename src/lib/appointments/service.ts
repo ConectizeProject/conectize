@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { iphoneModels } from '@/lib/data/hotsite-loja'
 import { CONECTIZE_HOST_ORGANIZATION_ID } from '@/lib/organizations/constants'
 import { FINALIZED_ORDER_STATUSES } from '@/lib/orders/order-status'
+import { formatCpf } from '@/lib/utils/format-cpf-cnpj'
 import { isEmailFormat, isValidCpf, onlyDigits } from '@/lib/utils/strings'
 import { bookingIpAllowed, recordBookingIp } from './booking-ip'
 import { matchBatteryProduct } from './battery-prices'
@@ -55,6 +56,47 @@ export function nextAppointmentDecision (activeCount: number, confirmExtra: bool
 	if (activeCount >= SIMULTANEOUS_APPOINTMENT_LIMIT) return 'limite' as const
 	if (activeCount > 0 && !confirmExtra) return 'ja_agendado' as const
 	return 'criar' as const
+}
+
+/** CPF no cadastro pode estar só dígitos ou mascarado; o agendamento público busca os dois. */
+export function bookingCustomerCpfCandidates (cpfDigits: string): string[] {
+	const digits = onlyDigits(cpfDigits).slice(0, 11)
+	if (digits.length !== 11) return []
+	const masked = formatCpf(digits)
+	if (masked && masked !== digits) return [digits, masked]
+	return [digits]
+}
+
+export function pickCustomerRowByCpf <T extends { cpf?: string | null }> (
+	rows: readonly T[],
+	cpfDigits: string,
+): T | null {
+	if (!rows.length) return null
+	const digits = onlyDigits(cpfDigits).slice(0, 11)
+	const exactDigits = rows.find((row) => String(row.cpf || '') === digits)
+	if (exactDigits) return exactDigits
+	return rows.find((row) => onlyDigits(String(row.cpf || '')) === digits) ?? rows[0] ?? null
+}
+
+/**
+ * Endpoint público: nunca sobrescreve e-mail/telefone já preenchidos.
+ * Quem conhece o CPF não pode sequestrar o contato do cadastro.
+ */
+export function buildPublicBookingCustomerPatch (
+	existing: {
+		email?: string | null
+		mobile_phone?: string | null
+		phone?: string | null
+		referral_source?: string | null
+	},
+	input: { email: string, phone: string },
+): Record<string, string> {
+	const patch: Record<string, string> = {}
+	if (!String(existing.email || '').trim()) patch.email = input.email
+	if (!String(existing.mobile_phone || '').trim()) patch.mobile_phone = input.phone
+	if (!String(existing.phone || '').trim()) patch.phone = input.phone
+	if (!String(existing.referral_source || '').trim()) patch.referral_source = 'google'
+	return patch
 }
 
 export type CreateAppointmentInput = {
@@ -373,25 +415,22 @@ export async function createBatteryAppointment (
 		return { ok: false as const, error: 'horario_indisponivel' as const }
 	}
 
-	const { data: existing } = await supabase
+	const cpfCandidates = bookingCustomerCpfCandidates(cpf)
+	const { data: matchedRows } = await supabase
 		.from('customers')
-		.select('id, full_name, email, mobile_phone, referral_source')
+		.select('id, cpf, full_name, email, mobile_phone, phone, referral_source')
 		.eq('organization_id', HOST_ORG)
-		.eq('cpf', cpf)
-		.maybeSingle()
+		.in('cpf', cpfCandidates)
+		.limit(5)
 
+	const existing = pickCustomerRowByCpf(matchedRows ?? [], cpf)
 	let customerId = existing?.id ? String(existing.id) : ''
 	let nameNote = ''
-	if (customerId) {
-		if (String(existing?.full_name || '').trim() && String(existing?.full_name || '').trim() !== fullName) {
+	if (customerId && existing) {
+		if (String(existing.full_name || '').trim() && String(existing.full_name || '').trim() !== fullName) {
 			nameNote = `Nome informado no agendamento: ${fullName}. Cadastro existente mantido.`
 		}
-		const patch: Record<string, string> = {
-			email,
-			mobile_phone: phone,
-			phone,
-		}
-		if (!String(existing?.referral_source || '').trim()) patch.referral_source = 'google'
+		const patch = buildPublicBookingCustomerPatch(existing, { email, phone })
 		if (Object.keys(patch).length) {
 			await supabase.from('customers').update(patch).eq('id', customerId)
 		}
@@ -411,9 +450,28 @@ export async function createBatteryAppointment (
 			.select('id')
 			.single()
 		if (error || !created?.id) {
-			return { ok: false as const, error: 'config' as const }
+			if (String(error?.code || '') === '23505') {
+				const { data: racedRows } = await supabase
+					.from('customers')
+					.select('id, cpf, full_name, email, mobile_phone, phone, referral_source')
+					.eq('organization_id', HOST_ORG)
+					.in('cpf', cpfCandidates)
+					.limit(5)
+				const raced = pickCustomerRowByCpf(racedRows ?? [], cpf)
+				if (raced?.id) {
+					customerId = String(raced.id)
+					if (String(raced.full_name || '').trim() && String(raced.full_name || '').trim() !== fullName) {
+						nameNote = `Nome informado no agendamento: ${fullName}. Cadastro existente mantido.`
+					}
+				} else {
+					return { ok: false as const, error: 'config' as const }
+				}
+			} else {
+				return { ok: false as const, error: 'config' as const }
+			}
+		} else {
+			customerId = String(created.id)
 		}
-		customerId = String(created.id)
 	}
 
 	const active = await listActiveAppointments(supabase, customerId)
