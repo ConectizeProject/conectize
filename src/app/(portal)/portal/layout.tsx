@@ -7,14 +7,12 @@ import {
   userNeedsMfaChallenge,
 } from '@/lib/auth/mfa'
 import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
-import { getPortalOrganizationId } from '@/lib/organizations/portal-organization-context'
 import { getSupabasePlatformStatus } from '@/lib/supabase/platform-status'
 import {
   createSupabaseServerClient,
   getPortalAuth,
 } from '@/lib/supabase/server'
 import { RouteProviders } from '@/providers/route-providers'
-import { AppointmentAlerts } from './AppointmentAlerts'
 import { PortalShell } from './PortalShell'
 
 export const dynamic = 'force-dynamic'
@@ -31,7 +29,7 @@ export default async function PortalLayout({
 }: {
   children: React.ReactNode
 }) {
-  const [{ user, role, realRole, simulatedRole, fullName }, supabasePlatformStatus] = await Promise.all([
+  const [{ user, role, realRole, simulatedRole, fullName, organizationId }, supabasePlatformStatus] = await Promise.all([
     getPortalAuth(),
     getSupabasePlatformStatus(),
   ])
@@ -49,7 +47,7 @@ export default async function PortalLayout({
   }
 
   const hasVerifiedMfa = await userHasVerifiedTotp(supabase)
-  const activeOrganizationId = await getPortalOrganizationId(supabase, user.id)
+  const activeOrganizationId = organizationId
   let organizationDisplayName: string | null = null
   let hasWhatsappIntegration = false
   if (activeOrganizationId) {
@@ -101,9 +99,6 @@ export default async function PortalLayout({
       >
         {children}
       </PortalShell>
-      {role === 'staff' || role === 'admin' || role === 'platform_admin' ? (
-        <AppointmentAlerts />
-      ) : null}
     </RouteProviders>
   )
 }

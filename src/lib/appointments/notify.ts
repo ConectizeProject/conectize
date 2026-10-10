@@ -47,7 +47,18 @@ export async function notifyStaffOfAppointment (
 	].filter(Boolean))]
 	if (!userIds.length) return
 
-	const rows = userIds.map((userId) => ({
+	const { data: existing, error: existingError } = await supabase
+		.from('staff_notifications')
+		.select('user_id')
+		.eq('kind', 'agendamento')
+		.eq('service_order_id', notice.orderId)
+		.in('user_id', userIds)
+	if (existingError) console.error('[appointment-notify] existing', existingError)
+	const already = new Set((existing ?? []).map((row) => String(row.user_id)))
+	const pendingIds = userIds.filter((userId) => !already.has(userId))
+	if (!pendingIds.length) return
+
+	const rows = pendingIds.map((userId) => ({
 		organization_id: CONECTIZE_HOST_ORGANIZATION_ID,
 		user_id: userId,
 		kind: 'agendamento',
@@ -58,16 +69,22 @@ export async function notifyStaffOfAppointment (
 	}))
 	const { error: insertError } = await supabase.from('staff_notifications').insert(rows)
 	if (insertError) {
+		if (String(insertError.code || '') === '23505') return
 		console.error('[appointment-notify] insert', insertError)
 	}
 
-	await sendWebPush(supabase, userIds, { title, body, url: href })
+	await sendWebPush(supabase, pendingIds, {
+		title,
+		body,
+		url: href,
+		tag: `agendamento-${notice.orderId}`,
+	})
 }
 
 async function sendWebPush (
 	supabase: SupabaseClient,
 	userIds: string[],
-	payload: { title: string, body: string, url: string },
+	payload: { title: string, body: string, url: string, tag: string },
 ) {
 	const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim() || ''
 	const privateKey = process.env.VAPID_PRIVATE_KEY?.trim() || ''
