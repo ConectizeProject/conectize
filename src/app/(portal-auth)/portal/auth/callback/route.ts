@@ -3,6 +3,10 @@ import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
 import { buildMfaVerifyPath, userNeedsMfaChallenge } from '@/lib/auth/mfa'
 import { assertSafePortalPath } from '@/lib/auth/safe-redirect'
+import {
+  applyAuthCookieToResponse,
+  type AuthCookieOptions,
+} from '@/lib/supabase/auth-cookie-domain'
 import { getSupabaseEnv } from '@/lib/supabase/env'
 
 /**
@@ -22,7 +26,7 @@ export async function GET(request: Request) {
   }
 
   const cookieStore = await cookies()
-  const cookiesToSet: { name: string; value: string; options: Record<string, unknown> }[] = []
+  const cookiesToSet: { name: string; value: string; options: AuthCookieOptions }[] = []
 
   const { url, anonKey } = getSupabaseEnv()
   const supabase = createServerClient(url, anonKey, {
@@ -35,7 +39,7 @@ export async function GET(request: Request) {
           cookiesToSet.push({
             name: c.name,
             value: c.value,
-            options: (c.options || {}) as Record<string, unknown>,
+            options: (c.options || {}) as AuthCookieOptions,
           })
         }
       },
@@ -64,17 +68,13 @@ export async function GET(request: Request) {
     const response = NextResponse.redirect(redirectUrl)
     const isLocalhost = requestUrl.hostname === 'localhost' || requestUrl.hostname === '127.0.0.1'
     for (const { name, value, options } of cookiesToSet) {
-      const opts = { ...(options || {}) } as Record<string, unknown>
+      const opts = { ...(options || {}) }
       delete opts.name
       if (isLocalhost && requestUrl.protocol === 'http:') {
         opts.secure = false
       }
       opts.path = opts.path ?? '/'
-      response.cookies.set(
-        name,
-        value,
-        opts as NonNullable<Parameters<typeof response.cookies.set>[2]>,
-      )
+      applyAuthCookieToResponse(response, requestUrl.hostname, name, value, opts)
     }
     return response
   } catch (err) {

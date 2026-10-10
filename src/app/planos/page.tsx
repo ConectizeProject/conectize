@@ -35,7 +35,7 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion'
 import { Separator } from '@/components/ui/separator'
-import { publicPageSeo } from '@/lib/utils/site-url'
+import { appPageSeo, saasPageJsonLd, storeHref } from '@/lib/utils/site-url'
 
 const title = 'Planos do sistema para assistência técnica | Conectize'
 const description = 'Sistema completo para assistências técnicas: ordens de serviço, clientes, estoque, revenda, financeiro, WhatsApp e integrações. Tudo isolado por empresa.'
@@ -43,8 +43,15 @@ const description = 'Sistema completo para assistências técnicas: ordens de se
 export const metadata = {
   title,
   description,
-  ...publicPageSeo('/planos', { title, description }),
+  ...appPageSeo('/planos', { title, description }),
 }
+
+const planosJsonLd = saasPageJsonLd({
+  path: '/planos',
+  title,
+  description,
+  type: 'SoftwareApplication',
+})
 
 const heroBenefits = [
   'Ordens com numeração própria (começa do #1 na sua empresa)',
@@ -181,9 +188,13 @@ const faqItems = [
 export default function PlanosPage () {
   return (
     <div className="flex min-h-screen flex-col bg-background">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(planosJsonLd) }}
+      />
       <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
         <div className="container flex h-16 items-center justify-between px-4">
-          <Link href="/" className="flex items-center gap-2" aria-label="Ir para página inicial">
+          <Link href="/planos" className="flex items-center gap-2" aria-label="Ir para a página de planos">
             <Image
               src="/logo_conectize.svg"
               alt="Conectize"
@@ -237,7 +248,7 @@ export default function PlanosPage () {
               </h1>
               <p className="mx-auto mt-5 max-w-2xl text-lg text-muted-foreground">
                 Ordens de serviço, clientes, estoque, revenda, financeiro,
-                WhatsApp e integrações — tudo no mesmo ambiente, com a sua
+                WhatsApp e integrações, tudo no mesmo ambiente, com a sua
                 marca e totalmente isolado das demais empresas.
               </p>
 
@@ -522,7 +533,7 @@ export default function PlanosPage () {
             reservados.
           </span>
           <div className="flex items-center gap-4">
-            <Link href="/" className="hover:text-foreground">
+            <Link href={storeHref('/')} className="hover:text-foreground">
               Site institucional
             </Link>
             <Link href="/portal/login" className="hover:text-foreground">

@@ -1,6 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { cookies } from 'next/headers'
+import { cookies, headers } from 'next/headers'
 import type { NextRequest, NextResponse } from 'next/server'
 import { cache } from 'react'
 import {
@@ -17,6 +17,11 @@ import {
 	PORTAL_SIMULATED_ROLE_COOKIE,
 	resolveEffectivePortalRole,
 } from '@/lib/auth/portal-role-simulation'
+import { publicHostnameFromHeaders } from '@/lib/utils/canonical-host'
+import {
+	applyAuthCookieToResponse,
+	withSharedAuthCookieDomain,
+} from './auth-cookie-domain'
 import { getSupabaseEnv } from './env'
 
 /** Claims do JWT Supabase (sub = user id) */
@@ -108,10 +113,14 @@ export const getPortalAuth = cache(async () => {
 		if (!realRole) realRole = 'user'
 		if (appUser?.role && isValidPortalRoleHint(appUser.role)) {
 			try {
+				const headerStore = await headers()
 				cookieStore.set(
 					PORTAL_ROLE_HINT_COOKIE,
 					appUser.role,
-					PORTAL_ROLE_HINT_COOKIE_OPTIONS,
+					withSharedAuthCookieDomain(
+						publicHostnameFromHeaders(headerStore),
+						PORTAL_ROLE_HINT_COOKIE_OPTIONS,
+					),
 				)
 			} catch {
 				// Server Components podem não permitir set de cookie.
@@ -174,6 +183,8 @@ export const getPortalAuth = cache(async () => {
 export async function createSupabaseServerClient() {
 	const { url, anonKey } = getSupabaseEnv()
 	const cookieStore = await cookies()
+	const headerStore = await headers()
+	const hostname = publicHostnameFromHeaders(headerStore)
 
 	return createServerClient(url, anonKey, {
 		cookies: {
@@ -184,7 +195,11 @@ export async function createSupabaseServerClient() {
 				// Em Server Components, set pode falhar; em Route Handlers/Server Actions funciona.
 				try {
 					for (const cookie of cookiesToSet) {
-						cookieStore.set(cookie.name, cookie.value, cookie.options)
+						cookieStore.set(
+							cookie.name,
+							cookie.value,
+							withSharedAuthCookieDomain(hostname, cookie.options),
+						)
 					}
 				} catch {
 					// ignore
@@ -207,6 +222,10 @@ type PendingCookie = {
 export function createSupabaseRouteHandlerClient(request: NextRequest) {
 	const { url, anonKey } = getSupabaseEnv()
 	const pendingCookies: PendingCookie[] = []
+	const hostname = publicHostnameFromHeaders(
+		request.headers,
+		request.nextUrl.hostname,
+	)
 
 	const supabase = createServerClient(url, anonKey, {
 		cookies: {
@@ -230,7 +249,13 @@ export function createSupabaseRouteHandlerClient(request: NextRequest) {
 		supabase,
 		applyCookies(response: NextResponse) {
 			for (const cookie of pendingCookies) {
-				response.cookies.set(cookie.name, cookie.value, cookie.options)
+				applyAuthCookieToResponse(
+					response,
+					hostname,
+					cookie.name,
+					cookie.value,
+					cookie.options,
+				)
 			}
 			return response
 		},

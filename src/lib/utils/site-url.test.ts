@@ -1,11 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   APEX_HOST,
+  APP_SITE_ORIGIN,
   CANONICAL_SITE_ORIGIN,
+  absoluteAppUrl,
   absoluteSiteUrl,
+  appHref,
+  appPageSeo,
   canonicalAlternates,
+  getAppSiteUrl,
   getSiteUrl,
   publicPageSeo,
+  publicSaasOrigin,
+  saasPageJsonLd,
+  storeHref,
 } from '@/lib/utils/site-url'
 
 describe('getSiteUrl', () => {
@@ -46,6 +54,12 @@ describe('getSiteUrl', () => {
     expect(getSiteUrl()).toBe('https://conectize-git-preview.vercel.app')
   })
 
+  it('keeps the store origin on www when the env points at the app host', () => {
+    vi.stubEnv('NEXT_PUBLIC_SITE_URL', 'https://app.conectize.com.br')
+    expect(getSiteUrl()).toBe(CANONICAL_SITE_ORIGIN)
+    expect(getAppSiteUrl()).toBe(APP_SITE_ORIGIN)
+  })
+
   it('falls back when the env is not a URL', () => {
     vi.stubEnv('NEXT_PUBLIC_SITE_URL', 'não é url')
     expect(getSiteUrl()).toBe(CANONICAL_SITE_ORIGIN)
@@ -67,9 +81,9 @@ describe('public SEO urls', () => {
     expect(alternates.languages?.['pt-BR']).toBe(alternates.canonical)
     expect(alternates.languages?.['x-default']).toBe(alternates.canonical)
 
-    const seo = publicPageSeo('/planos', { title: 'Planos', description: 'Sistema' })
+    const seo = publicPageSeo('/contato', { title: 'Contato', description: 'Fale conosco' })
     expect(seo.openGraph && 'url' in seo.openGraph ? seo.openGraph.url : null).toBe(
-      'https://www.conectize.com.br/planos',
+      'https://www.conectize.com.br/contato',
     )
     expect(seo.openGraph && 'siteName' in seo.openGraph ? seo.openGraph.siteName : null).toBe('Conectize')
     const image = seo.openGraph && 'images' in seo.openGraph ? seo.openGraph.images : null
@@ -81,5 +95,67 @@ describe('public SEO urls', () => {
     expect(seo.twitter?.card).toBe('summary_large_image')
     expect(JSON.stringify(seo)).not.toContain('https://conectize.com.br')
     expect(JSON.stringify(seo)).not.toContain('http://conectize.com.br')
+  })
+})
+
+describe('app SEO urls', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('points SaaS canonical, og:url and JSON-LD at app.conectize.com.br', () => {
+    vi.stubEnv('NEXT_PUBLIC_SITE_URL', 'https://www.conectize.com.br')
+    expect(absoluteAppUrl('/planos')).toBe(`${APP_SITE_ORIGIN}/planos`)
+    expect(absoluteAppUrl('/manual/bling')).toBe(`${APP_SITE_ORIGIN}/manual/bling`)
+    expect(appHref('/portal')).toBe(`${APP_SITE_ORIGIN}/portal`)
+    expect(storeHref('/')).toBe(CANONICAL_SITE_ORIGIN)
+
+    const seo = appPageSeo('/planos', { title: 'Planos', description: 'Sistema' })
+    expect(seo.alternates?.canonical).toBe(`${APP_SITE_ORIGIN}/planos`)
+    expect(seo.openGraph && 'url' in seo.openGraph ? seo.openGraph.url : null).toBe(
+      `${APP_SITE_ORIGIN}/planos`,
+    )
+    const image = seo.openGraph && 'images' in seo.openGraph ? seo.openGraph.images : null
+    const firstImage = Array.isArray(image) ? image[0] : image
+    expect(firstImage && typeof firstImage === 'object' && 'url' in firstImage ? firstImage.url : null).toBe(
+      `${APP_SITE_ORIGIN}/og-conectize.png`,
+    )
+
+    const jsonLd = saasPageJsonLd({
+      path: '/planos',
+      title: 'Planos',
+      description: 'Sistema',
+      type: 'SoftwareApplication',
+    })
+    expect(jsonLd.url).toBe(`${APP_SITE_ORIGIN}/planos`)
+    expect(jsonLd.mainEntityOfPage).toBe(`${APP_SITE_ORIGIN}/planos`)
+    expect(JSON.stringify(jsonLd)).not.toContain('https://www.conectize.com.br')
+  })
+
+  it('keeps relative links and local origins outside production', () => {
+    vi.stubEnv('NEXT_PUBLIC_SITE_URL', 'http://localhost:3000')
+    vi.stubEnv('CONECTIZE_SURFACE', '')
+    expect(getAppSiteUrl()).toBe('http://localhost:3000')
+    expect(absoluteAppUrl('/planos')).toBe('http://localhost:3000/planos')
+    expect(appHref('/portal')).toBe('/portal')
+    expect(storeHref('/contato')).toBe('/contato')
+    expect(publicSaasOrigin('http://localhost:3000')).toBe('http://localhost:3000')
+  })
+
+  it('points store links at www when the app surface is simulated locally', () => {
+    vi.stubEnv('NEXT_PUBLIC_SITE_URL', 'http://localhost:3000')
+    vi.stubEnv('CONECTIZE_SURFACE', 'app')
+    expect(storeHref('/')).toBe(CANONICAL_SITE_ORIGIN)
+    expect(storeHref('/contato')).toBe(`${CANONICAL_SITE_ORIGIN}/contato`)
+    expect(appHref('/portal')).toBe('/portal')
+  })
+
+  it('uses the app origin for public OS links generated on www or app', () => {
+    vi.stubEnv('NEXT_PUBLIC_SITE_URL', 'https://www.conectize.com.br')
+    expect(publicSaasOrigin('https://www.conectize.com.br')).toBe(APP_SITE_ORIGIN)
+    expect(publicSaasOrigin('https://app.conectize.com.br')).toBe(APP_SITE_ORIGIN)
+    expect(publicSaasOrigin('https://conectize-git-preview.vercel.app')).toBe(
+      'https://conectize-git-preview.vercel.app',
+    )
   })
 })

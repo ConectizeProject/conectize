@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { ExternalLink, Link2, Package, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { publicPageSeo } from '@/lib/utils/site-url'
+import { appPageSeo, saasPageJsonLd, storeHref } from '@/lib/utils/site-url'
 
 const title = 'Manual completo da integração com o Bling | Conectize'
 const description = 'Passo a passo para conectar o Conectize ao Bling, autorizar o aplicativo e sincronizar produtos da assistência. Guia público e completo da integração.'
@@ -11,8 +11,15 @@ export const metadata: Metadata = {
   title,
   description,
   robots: 'index, follow',
-  ...publicPageSeo('/manual/bling', { title, description }),
+  ...appPageSeo('/manual/bling', { title, description }),
 }
+
+const manualJsonLd = saasPageJsonLd({
+  path: '/manual/bling',
+  title,
+  description,
+  type: 'TechArticle',
+})
 
 const requisitos = [
   'Ter uma conta ativa no Conectize.',
@@ -44,6 +51,10 @@ const observacoes = [
 export default function ManualBlingPage () {
   return (
     <div className="min-h-screen bg-secondary/20 pb-20 pt-32">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(manualJsonLd) }}
+      />
       <div className="container mx-auto px-4">
         <div className="mx-auto mb-12 max-w-4xl text-center">
           <span className="mb-6 inline-block text-sm font-semibold uppercase tracking-wider text-primary-accessible">
@@ -164,7 +175,7 @@ export default function ManualBlingPage () {
               </p>
               <div className="flex flex-col gap-3 sm:flex-row">
                 <Button asChild>
-                  <Link href="/contato">Falar com o suporte</Link>
+                  <Link href={storeHref('/contato')}>Falar com o suporte</Link>
                 </Button>
                 <Button variant="outline" asChild>
                   <Link href="/portal">Acessar o portal</Link>
