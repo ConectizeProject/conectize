@@ -91,15 +91,26 @@ export function appHref (path: string): string {
 }
 
 /**
+ * Na superfície app (host real ou CONECTIZE_SURFACE=app) os links da loja
+ * saem para www, inclusive no dev. Fora isso, localhost e preview ficam relativos.
+ */
+function storeLinksUseCanonicalWww (): boolean {
+  const surface = (process.env.CONECTIZE_SURFACE || '').trim().toLowerCase()
+  if (surface === 'app' || surface === APP_HOST) return true
+  return isProductionSiteUrl(getSiteUrl())
+}
+
+/**
  * Link do SaaS para uma página da loja.
- * Em produção vira URL absoluta de www. Em localhost e preview permanece relativa.
+ * Em produção vira URL absoluta de www. Em localhost e preview permanece relativa,
+ * salvo simulação da superfície app.
  */
 export function storeHref (path: string): string {
   if (!path || path === '/') {
-    return isProductionSiteUrl(getSiteUrl()) ? CANONICAL_SITE_ORIGIN : '/'
+    return storeLinksUseCanonicalWww() ? CANONICAL_SITE_ORIGIN : '/'
   }
   const normalized = path.startsWith('/') ? path : `/${path}`
-  if (!isProductionSiteUrl(getSiteUrl())) return normalized
+  if (!storeLinksUseCanonicalWww()) return normalized
   return `${CANONICAL_SITE_ORIGIN}${normalized}`
 }
 

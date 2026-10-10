@@ -248,7 +248,7 @@ export default function PlanosPage () {
               </h1>
               <p className="mx-auto mt-5 max-w-2xl text-lg text-muted-foreground">
                 Ordens de serviço, clientes, estoque, revenda, financeiro,
-                WhatsApp e integrações — tudo no mesmo ambiente, com a sua
+                WhatsApp e integrações, tudo no mesmo ambiente, com a sua
                 marca e totalmente isolado das demais empresas.
               </p>
 

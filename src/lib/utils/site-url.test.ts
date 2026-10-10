@@ -134,11 +134,20 @@ describe('app SEO urls', () => {
 
   it('keeps relative links and local origins outside production', () => {
     vi.stubEnv('NEXT_PUBLIC_SITE_URL', 'http://localhost:3000')
+    vi.stubEnv('CONECTIZE_SURFACE', '')
     expect(getAppSiteUrl()).toBe('http://localhost:3000')
     expect(absoluteAppUrl('/planos')).toBe('http://localhost:3000/planos')
     expect(appHref('/portal')).toBe('/portal')
     expect(storeHref('/contato')).toBe('/contato')
     expect(publicSaasOrigin('http://localhost:3000')).toBe('http://localhost:3000')
+  })
+
+  it('points store links at www when the app surface is simulated locally', () => {
+    vi.stubEnv('NEXT_PUBLIC_SITE_URL', 'http://localhost:3000')
+    vi.stubEnv('CONECTIZE_SURFACE', 'app')
+    expect(storeHref('/')).toBe(CANONICAL_SITE_ORIGIN)
+    expect(storeHref('/contato')).toBe(`${CANONICAL_SITE_ORIGIN}/contato`)
+    expect(appHref('/portal')).toBe('/portal')
   })
 
   it('uses the app origin for public OS links generated on www or app', () => {

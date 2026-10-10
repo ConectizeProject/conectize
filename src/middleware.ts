@@ -12,8 +12,16 @@ import {
 	PORTAL_SIMULATED_ROLE_COOKIE,
 	resolveEffectivePortalRole,
 } from './lib/auth/portal-role-simulation'
+import {
+	applyAuthCookieToResponse,
+	sharedAuthPromotionHeaders,
+	shouldPromoteAuthCookies,
+} from './lib/supabase/auth-cookie-domain'
 import { publicHostnameFromHeaders } from './lib/utils/canonical-host'
-import { goneCrawlResponse, isGoneCrawlPath } from './lib/utils/gone-crawl-paths'
+import {
+	goneCrawlResponse,
+	isGoneCrawlPath,
+} from './lib/utils/gone-crawl-paths'
 import {
 	appSeoRewritePath,
 	hostSplitRedirect,
@@ -63,8 +71,18 @@ function createMiddlewareSupabase(request: NextRequest) {
 					request.cookies.set(cookie.name, cookie.value)
 				}
 				response = NextResponse.next({ request })
+				const hostname = publicHostnameFromHeaders(
+					request.headers,
+					request.nextUrl.hostname,
+				)
 				for (const cookie of cookiesToSet) {
-					response.cookies.set(cookie.name, cookie.value, cookie.options)
+					applyAuthCookieToResponse(
+						response,
+						hostname,
+						cookie.name,
+						cookie.value,
+						cookie.options,
+					)
 				}
 			},
 		},
@@ -123,8 +141,12 @@ async function getUserRole(supabase: SupabaseClient, request: NextRequest) {
 	return { user: { id: sub }, role, realRole }
 }
 
-function simulateHostHeader (request: NextRequest): string | null {
-	return request.headers.get(SIMULATE_HOST_HEADER) || process.env.CONECTIZE_SURFACE || null
+function simulateHostHeader(request: NextRequest): string | null {
+	return (
+		request.headers.get(SIMULATE_HOST_HEADER) ||
+		process.env.CONECTIZE_SURFACE ||
+		null
+	)
 }
 
 /**
@@ -137,8 +159,12 @@ function simulateHostHeader (request: NextRequest): string | null {
  * `CONECTIZE_SURFACE` (`app` ou `www`).
  */
 function redirectPublicUrl(request: NextRequest) {
-	const hostname = publicHostnameFromHeaders(request.headers, request.nextUrl.hostname)
-	const protocol = request.headers.get('x-forwarded-proto') || request.nextUrl.protocol
+	const hostname = publicHostnameFromHeaders(
+		request.headers,
+		request.nextUrl.hostname,
+	)
+	const protocol =
+		request.headers.get('x-forwarded-proto') || request.nextUrl.protocol
 	const split = hostSplitRedirect({
 		hostname,
 		protocol,
@@ -148,11 +174,26 @@ function redirectPublicUrl(request: NextRequest) {
 		method: request.method,
 	})
 	if (!split) return null
-	return NextResponse.redirect(split.url, split.status)
+	const response = NextResponse.redirect(split.url, split.status)
+	let targetHost = ''
+	try {
+		targetHost = new URL(split.url).hostname
+	} catch {
+		targetHost = ''
+	}
+	if (shouldPromoteAuthCookies(hostname, targetHost)) {
+		for (const line of sharedAuthPromotionHeaders(request.cookies.getAll())) {
+			response.headers.append('Set-Cookie', line)
+		}
+	}
+	return response
 }
 
 function rewriteAppSeo(request: NextRequest) {
-	const hostname = publicHostnameFromHeaders(request.headers, request.nextUrl.hostname)
+	const hostname = publicHostnameFromHeaders(
+		request.headers,
+		request.nextUrl.hostname,
+	)
 	const surface = resolveSurface(hostname, simulateHostHeader(request))
 	if (surface !== 'app') return null
 	const internal = appSeoRewritePath(request.nextUrl.pathname)
@@ -244,9 +285,19 @@ export async function middleware(request: NextRequest) {
 					return request.cookies.getAll()
 				},
 				setAll(cookiesToSet) {
+					const hostname = publicHostnameFromHeaders(
+						request.headers,
+						request.nextUrl.hostname,
+					)
 					for (const cookie of cookiesToSet) {
 						request.cookies.set(cookie.name, cookie.value)
-						response.cookies.set(cookie.name, cookie.value, cookie.options)
+						applyAuthCookieToResponse(
+							response,
+							hostname,
+							cookie.name,
+							cookie.value,
+							cookie.options,
+						)
 					}
 				},
 			},
