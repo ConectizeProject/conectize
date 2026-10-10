@@ -78,6 +78,23 @@ export function pickCustomerRowByCpf <T extends { cpf?: string | null }> (
 	return rows.find((row) => onlyDigits(String(row.cpf || '')) === digits) ?? rows[0] ?? null
 }
 
+export function normalizeBookingEmail (email: string) {
+	return String(email || '').trim().toLowerCase()
+}
+
+/**
+ * CPF sozinho não prova identidade no endpoint público.
+ * Só reutiliza o cadastro quando o e-mail informado confere com o gravado.
+ */
+export function publicBookingCanAttachToCustomer (
+	existing: { email?: string | null },
+	submittedEmail: string,
+) {
+	const stored = normalizeBookingEmail(String(existing.email || ''))
+	const submitted = normalizeBookingEmail(submittedEmail)
+	return Boolean(stored && submitted && stored === submitted)
+}
+
 /**
  * Endpoint público: nunca sobrescreve e-mail/telefone já preenchidos.
  * Quem conhece o CPF não pode sequestrar o contato do cadastro.
@@ -427,6 +444,9 @@ export async function createBatteryAppointment (
 	let customerId = existing?.id ? String(existing.id) : ''
 	let nameNote = ''
 	if (customerId && existing) {
+		if (!publicBookingCanAttachToCustomer(existing, email)) {
+			return { ok: false as const, error: 'dados_invalidos' as const }
+		}
 		if (String(existing.full_name || '').trim() && String(existing.full_name || '').trim() !== fullName) {
 			nameNote = `Nome informado no agendamento: ${fullName}. Cadastro existente mantido.`
 		}
@@ -459,6 +479,9 @@ export async function createBatteryAppointment (
 					.limit(5)
 				const raced = pickCustomerRowByCpf(racedRows ?? [], cpf)
 				if (raced?.id) {
+					if (!publicBookingCanAttachToCustomer(raced, email)) {
+						return { ok: false as const, error: 'dados_invalidos' as const }
+					}
 					customerId = String(raced.id)
 					if (String(raced.full_name || '').trim() && String(raced.full_name || '').trim() !== fullName) {
 						nameNote = `Nome informado no agendamento: ${fullName}. Cadastro existente mantido.`

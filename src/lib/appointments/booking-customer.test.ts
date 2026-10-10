@@ -3,6 +3,7 @@ import {
 	bookingCustomerCpfCandidates,
 	buildPublicBookingCustomerPatch,
 	pickCustomerRowByCpf,
+	publicBookingCanAttachToCustomer,
 } from './service'
 
 describe('cliente no agendamento público', () => {
@@ -47,6 +48,25 @@ describe('cliente no agendamento público', () => {
 			},
 			{ email: 'atacante@evil.test', phone: '31911112222' },
 		)).toEqual({})
+	})
+
+	it('só reutiliza cadastro existente quando o e-mail confere', () => {
+		expect(publicBookingCanAttachToCustomer(
+			{ email: 'Cliente@empresa.com' },
+			'cliente@empresa.com',
+		)).toBe(true)
+		expect(publicBookingCanAttachToCustomer(
+			{ email: 'cliente@empresa.com' },
+			'atacante@evil.test',
+		)).toBe(false)
+		expect(publicBookingCanAttachToCustomer(
+			{ email: '' },
+			'atacante@evil.test',
+		)).toBe(false)
+		expect(publicBookingCanAttachToCustomer(
+			{ email: null },
+			'atacante@evil.test',
+		)).toBe(false)
 	})
 
 	it('preenche só campos vazios e a origem quando faltam', () => {
