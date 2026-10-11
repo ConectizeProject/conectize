@@ -189,13 +189,81 @@ async function resolvePortalOrganizationContext (
   return null
 }
 
+/**
+ * Cookie `conectize_portal_org_ok` só evita o resolve completo; nunca prova
+ * membership. Sem esta checagem, ex-membro com `users.role` staff/admin e
+ * cookie forjado (userId.ts sem assinatura) continua usando a org via
+ * service-role nas APIs `require*`.
+ */
+export function canReuseCachedPortalOrganization (input: {
+  role: string | null | undefined
+  hasStaffMembership: boolean
+  hasAccountantMembership: boolean
+}) {
+  const rawRole = String(input.role || '')
+  if (rawRole === 'platform_admin') return true
+
+  const normalized = normalizePortalRole(input.role)
+  if (normalized === 'accountant') return input.hasAccountantMembership
+  if (normalized === 'staff' || normalized === 'admin') return input.hasStaffMembership
+  return false
+}
+
+async function cachedPortalOrganizationStillAllowed (
+  supabase: SupabaseClient,
+  userId: string,
+  organizationId: string,
+): Promise<boolean> {
+  const { data: appUser } = await supabase
+    .from('users')
+    .select('role')
+    .eq('id', userId)
+    .maybeSingle()
+
+  const rawRole = String(appUser?.role || '')
+  const normalized = normalizePortalRole(appUser?.role)
+
+  let hasStaffMembership = false
+  let hasAccountantMembership = false
+
+  if (rawRole !== 'platform_admin') {
+    if (normalized === 'accountant') {
+      const { data } = await supabase
+        .from('organization_members')
+        .select('organization_id')
+        .eq('user_id', userId)
+        .eq('organization_id', organizationId)
+        .eq('role_in_org', 'accountant')
+        .maybeSingle()
+      hasAccountantMembership = Boolean(data?.organization_id)
+    } else if (normalized === 'staff' || normalized === 'admin') {
+      const { data } = await supabase
+        .from('organization_members')
+        .select('organization_id')
+        .eq('user_id', userId)
+        .eq('organization_id', organizationId)
+        .in('role_in_org', ['admin', 'staff'])
+        .maybeSingle()
+      hasStaffMembership = Boolean(data?.organization_id)
+    }
+  }
+
+  return canReuseCachedPortalOrganization({
+    role: appUser?.role,
+    hasStaffMembership,
+    hasAccountantMembership,
+  })
+}
+
 export async function ensurePortalOrganizationContext (
   supabase: SupabaseClient,
   userId: string,
 ): Promise<string | null> {
   if (await readPortalOrgCheckFresh(userId)) {
     const cached = await getPortalOrganizationId(supabase, userId)
-    if (cached) return cached
+    if (cached && await cachedPortalOrganizationStillAllowed(supabase, userId, cached)) {
+      return cached
+    }
   }
   const organizationId = await resolvePortalOrganizationContext(supabase, userId)
   if (organizationId) await markPortalOrgChecked(userId)
