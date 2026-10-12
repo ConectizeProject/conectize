@@ -36,6 +36,8 @@ export async function processEvolutionWebhookPayload (
 	if (isEvolutionMessagesDeleteEvent(event)) {
 		const deletes = parseEvolutionMessageDeletes(body)
 		for (const d of deletes) {
+			const hub = await findEvolutionHubByInstance(supabase, d.instance)
+			if (!hub) continue
 			const ok = await markEvolutionMessageDeleted({ supabase, message: d })
 			if (ok) stats.deleted += 1
 		}
@@ -70,10 +72,11 @@ export async function processEvolutionWebhookPayload (
 	if (isEvolutionMessagesUpdateEvent(event)) {
 		const statusUpdates = parseEvolutionMessageStatusUpdates(body)
 		for (const u of statusUpdates) {
+			const hub = await findEvolutionHubByInstance(supabase, u.instance)
+			if (!hub) continue
 			const ok = await applyWhatsappMessageDeliveryStatus({
 				supabase,
 				stableWaMessageId: u.stableWaMessageId,
-				waMessageId: u.waMessageId,
 				deliveryStatus: u.deliveryStatus,
 			})
 			if (ok) stats.delivery_updated += 1
@@ -82,6 +85,8 @@ export async function processEvolutionWebhookPayload (
 		const upserts = parseEvolutionMessageUpserts(body)
 		for (const m of upserts) {
 			if (String(m.text).toLowerCase().includes('revoked') || m.text === '[deleted]') {
+				const hub = await findEvolutionHubByInstance(supabase, m.instance)
+				if (!hub) continue
 				const ok = await markEvolutionMessageDeleted({
 					supabase,
 					message: {
