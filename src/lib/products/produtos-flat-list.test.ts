@@ -42,6 +42,28 @@ describe('groupProductRowsAsFamilies', () => {
     expect(flat).toEqual(['parent-a', 'child-a', 'parent-b'])
   })
 
+  it('ordena os filhos pela modificação mais recente', () => {
+    const parent = row({
+      id: 'p',
+      bling_id: '1',
+      updated_at: '2026-03-01T00:00:00.000Z',
+    })
+    const older = row({
+      id: 'old',
+      parent_bling_id: '1',
+      catalog_sort_key: '000000000001.000001',
+      updated_at: '2026-04-01T00:00:00.000Z',
+    })
+    const newer = row({
+      id: 'new',
+      parent_bling_id: '1',
+      catalog_sort_key: '000000000001.000002',
+      updated_at: '2026-05-01T00:00:00.000Z',
+    })
+    const families = groupProductRowsAsFamilies([older, parent, newer])
+    expect(families[0].map((r) => r.id)).toEqual(['p', 'new', 'old'])
+  })
+
   it('agrupa filho por parent_product_id', () => {
     const parent = row({ id: 'p1', updated_at: '2026-01-01T00:00:00.000Z' })
     const child = row({

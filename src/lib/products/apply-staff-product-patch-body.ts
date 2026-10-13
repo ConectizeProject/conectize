@@ -354,8 +354,11 @@ export async function applyStaffProductPatchFromBody (
   }
 
   const wantSyncToBling = body.syncToBling === true
+  const skipBling = body.skipBling === true
   const hub = wantSyncToBling ? await getBlingConnectionForCurrentUser() : null
-  const canSyncToBling = wantSyncToBling && hub !== null && hub.ok === true
+  const hubConnected = hub !== null && hub.ok === true
+  const canSyncToBling = wantSyncToBling && hubConnected
+  const preserveBlingSyncState = skipBling || (wantSyncToBling && !hubConnected)
 
   const hasProductPatch = Object.keys(patch).length > 0
   const hasCompatUpdate = compatibleIds !== null
@@ -369,7 +372,7 @@ export async function applyStaffProductPatchFromBody (
   let midProduct: Product
 
   if (hasProductPatch) {
-    const upd = await updateProductAndSyncBling(id, patch)
+    const upd = await updateProductAndSyncBling(id, patch, { preserveBlingSyncState })
     if (!upd.ok && 'error' in upd) {
       const status = upd.error === 'bling_request_failed' ? 502 : 400
       return {

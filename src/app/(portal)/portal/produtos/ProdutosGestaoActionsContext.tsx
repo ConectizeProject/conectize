@@ -13,6 +13,7 @@ import {
 export type ProdutosGestaoHandlers = {
   openAssistenciaLinks: () => void
   openCreateProduct: () => void
+  suggestLinksDisabled: boolean
 }
 
 type CtxValue = {

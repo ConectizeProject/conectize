@@ -256,6 +256,12 @@ type ReorderVariationsResult =
 				| "db_error";
 	  };
 
+export type ProductServiceSession = {
+	supabase: SupabaseServerClient;
+	userId: string;
+	organizationId: string;
+};
+
 async function requireAuth(): Promise<AuthSuccess | AuthFailure> {
 	const supabase = await createSupabaseServerClient();
 	const { user } = await getAuthUser();
@@ -717,9 +723,11 @@ export async function repairAllVariationAttributesForOrganization(): Promise<
 
 export async function getProductByIdWithVariations(
 	id: string,
-	options?: { skipRepair?: boolean },
+	options?: { skipRepair?: boolean; session?: ProductServiceSession },
 ): Promise<GetProductWithVariationsResult> {
-	const auth = await requireAuth();
+	const auth: AuthSuccess | AuthFailure = options?.session
+		? { ok: true, ...options.session }
+		: await requireAuth();
 	if (!auth.ok) return { ok: false, error: "not_authenticated" };
 
 	const { data, error } = await auth.supabase
@@ -1277,6 +1285,9 @@ export async function recomputeVariationDisplayNamesForParent(
 
 	const parent = withVars.product;
 	const keys = parseVariationAttributeKeys(parent.variationAttributeKeys);
+	if (keys.length === 0) {
+		return { ok: true, updated: 0 };
+	}
 	const parentName = parent.name.trim();
 	let updated = 0;
 
@@ -1415,12 +1426,15 @@ export async function replaceProductCompatibleDeviceModels(
 /** Modelos compatíveis com rótulo para formulário do portal (marca · tipo · modelo). */
 export async function getProductCompatibleModelsForForm(
 	productId: string,
+	session?: ProductServiceSession,
 ): Promise<
 	| { ok: true; entries: { id: string; label: string }[] }
 	| AuthFailure
 	| { ok: false; error: "db_error" }
 > {
-	const auth = await requireAuth();
+	const auth: AuthSuccess | AuthFailure = session
+		? { ok: true, ...session }
+		: await requireAuth();
 	if (!auth.ok) return { ok: false, error: "not_authenticated" };
 
 	const { data: pcRows, error } = await auth.supabase

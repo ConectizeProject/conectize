@@ -8,10 +8,8 @@ import {
   deviceModelCandidateLabel,
 } from '@/lib/products/suggest-service-product-links'
 
-/** Tamanho de página ao varrer `products` (PostgREST `range` inclusivo). */
-const PRODUCT_PAGE_SIZE = 1000
-/** Limite de segurança: ~1M linhas; evita loop infinito se algo der errado. */
-const MAX_PRODUCT_PAGES = 1024
+const PRODUCT_ID_CHUNK = 200
+const MAX_SUGGESTION_PRODUCTS = 500
 
 function parseCatalogKind (raw: string | null): 'product' | 'service' {
   const k = String(raw || '').trim().toLowerCase()
@@ -46,14 +44,30 @@ function mapRowsToCandidates (data: ModelRow[] | null): DeviceModelCandidate[] {
   })
 }
 
-export async function GET (request: NextRequest) {
+export async function POST (request: NextRequest) {
   const auth = await requireStaffOrAdmin()
   if (auth.ok === false) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 
-  const catalogKind = parseCatalogKind(new URL(request.url).searchParams.get('kind'))
+  const body = await request.json().catch(() => null) as { kind?: unknown; productIds?: unknown } | null
+  const catalogKind = parseCatalogKind(typeof body?.kind === 'string' ? body.kind : null)
+  const productIds = [...new Set(
+    (Array.isArray(body?.productIds) ? body.productIds : [])
+      .map((id) => String(id || '').trim())
+      .filter(Boolean),
+  )].slice(0, MAX_SUGGESTION_PRODUCTS)
   const { supabase } = auth
+
+  if (productIds.length === 0) {
+    const empty = NextResponse.json({
+      ok: true,
+      items: [],
+      meta: { catalogKind, catalogItemsScanned: 0, totalReturned: 0 },
+    })
+    empty.headers.set('Cache-Control', 'no-store')
+    return empty
+  }
 
   const { data: tagRows, error: tagsError } = await supabase
     .from('pricing_tags')
@@ -72,16 +86,14 @@ export async function GET (request: NextRequest) {
   type ProductRow = { id: string; name: string; pricing_tag_id: string | null }
   const products: ProductRow[] = []
 
-  for (let page = 0; page < MAX_PRODUCT_PAGES; page++) {
-    const from = page * PRODUCT_PAGE_SIZE
-    const to = from + PRODUCT_PAGE_SIZE - 1
+  for (let i = 0; i < productIds.length; i += PRODUCT_ID_CHUNK) {
+    const idChunk = productIds.slice(i, i + PRODUCT_ID_CHUNK)
     const { data: productRows, error: productsError } = await supabase
       .from('products')
       .select('id, name, pricing_tag_id')
       .eq('kind', catalogKind)
       .eq('is_active', true)
-      .order('name', { ascending: true })
-      .range(from, to)
+      .in('id', idChunk)
 
     if (productsError || !productRows) {
       return NextResponse.json({ ok: false, error: 'products_load_failed' }, { status: 500 })
@@ -93,17 +105,15 @@ export async function GET (request: NextRequest) {
       pricing_tag_id: p.pricing_tag_id != null ? String(p.pricing_tag_id) : null,
     }))
     products.push(...chunk)
-
-    if (chunk.length < PRODUCT_PAGE_SIZE) break
   }
 
   const tagNameById = new Map(tags.map((t) => [t.id, t.name]))
-  const productIds = products.map((p) => p.id)
+  const loadedProductIds = products.map((p) => p.id)
 
   const compatByProduct = new Map<string, string[]>()
   const chunkSize = 200
-  for (let i = 0; i < productIds.length; i += chunkSize) {
-    const chunk = productIds.slice(i, i + chunkSize)
+  for (let i = 0; i < loadedProductIds.length; i += chunkSize) {
+    const chunk = loadedProductIds.slice(i, i + chunkSize)
     const { data: compatRows, error: compatError } = await supabase
       .from('product_compatible_device_models')
       .select('product_id, device_model_id')

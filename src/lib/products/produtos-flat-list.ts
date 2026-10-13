@@ -144,21 +144,19 @@ export function isChildSortRow (row: IdSortRow): boolean {
   return Boolean(row.parent_bling_id || row.parent_product_id)
 }
 
-function activityMs (row: IdSortRow): number {
+function modificationMs (row: IdSortRow): number {
   const updated = row.updated_at ? new Date(row.updated_at).getTime() : 0
-  const created = row.created_at ? new Date(row.created_at).getTime() : 0
-  const u = Number.isFinite(updated) ? updated : 0
-  const c = Number.isFinite(created) ? created : 0
-  return Math.max(u, c)
+  return Number.isFinite(updated) ? updated : 0
 }
 
 function compareChildrenWithinFamily (a: IdSortRow, b: IdSortRow): number {
+  const at = modificationMs(a)
+  const bt = modificationMs(b)
+  if (at !== bt) return bt - at
   const ak = a.catalog_sort_key ?? '\uffff'
   const bk = b.catalog_sort_key ?? '\uffff'
   if (ak !== bk) return ak < bk ? -1 : 1
-  const at = a.created_at ? new Date(a.created_at).getTime() : 0
-  const bt = b.created_at ? new Date(b.created_at).getTime() : 0
-  return at - bt
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
 }
 
 function familyIdForRow (
@@ -173,8 +171,8 @@ function familyIdForRow (
 }
 
 /**
- * Agrupa pai + filhos e ordena famílias pela atividade mais recente (criação/edição).
- * Dentro da família: pai primeiro, depois filhos.
+ * Agrupa pai + filhos e ordena famílias pela modificação mais recente.
+ * Dentro da família: pai primeiro, depois filhos pela data de modificação.
  */
 export function groupProductRowsAsFamilies (rows: IdSortRow[]): IdSortRow[][] {
   const parentIdByBling = new Map<string, string>()
@@ -197,7 +195,7 @@ export function groupProductRowsAsFamilies (rows: IdSortRow[]): IdSortRow[][] {
     const children = members.filter((m) => isChildSortRow(m))
     children.sort(compareChildrenWithinFamily)
     const ordered = [...parents, ...children]
-    const activity = Math.max(...members.map(activityMs), 0)
+    const activity = Math.max(...members.map(modificationMs), 0)
     return { key, activity, ordered }
   })
 
@@ -298,13 +296,15 @@ export async function fetchActiveProductSortRows (
   kindFilter: 'product' | 'service' | 'all',
 ): Promise<IdSortRow[]> {
   const out: IdSortRow[] = []
-  let from = 0
+  let lastId: string | null = null
   for (;;) {
     let query = supabase
       .from('products')
       .select(PRODUCT_SORT_ROW_SELECT)
       .eq('is_active', true)
-      .range(from, from + ACTIVE_SORT_PAGE - 1)
+      .order('id', { ascending: true })
+      .limit(ACTIVE_SORT_PAGE)
+    if (lastId) query = query.gt('id', lastId)
 
     if (kindFilter === 'service') query = query.eq('kind', 'service')
     else if (kindFilter === 'product') query = query.neq('kind', 'service')
@@ -314,7 +314,8 @@ export async function fetchActiveProductSortRows (
     const chunk = (data ?? []).map((r) => mapProductRowToIdSortRow(r as Record<string, unknown>))
     out.push(...chunk)
     if (chunk.length < ACTIVE_SORT_PAGE) break
-    from += ACTIVE_SORT_PAGE
+    lastId = chunk[chunk.length - 1]?.id ?? null
+    if (!lastId) break
   }
   return out
 }

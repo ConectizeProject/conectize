@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { GripVertical, Loader2 } from 'lucide-react'
+import { Copy, GripVertical, Link2, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useToast } from '@/hooks/use-toast'
+import { splitPortalVariationDisplayName } from '@/lib/products/variation-display-name'
 import { cn, formatCurrency } from '@/lib/utils'
 import type { Product } from '@/lib/products/service'
 import {
@@ -20,8 +21,16 @@ import {
   type ProductFormSubmitPayload,
   type CompatibleEntry,
 } from './ProductForm'
+import { isSafeProductListImageUrl } from './product-list-shared'
 import { ProductStockPanel } from './ProductStockPanel'
 import { VariationDisplayName } from './VariationDisplayName'
+import {
+  forgetProductFormCache,
+  isProductFormCacheFresh,
+  loadProductForm,
+  readProductFormCache,
+  type ProductFormCachePayload,
+} from './product-form-cache'
 
 type SavePhase = 'idle' | 'saving' | 'syncing'
 
@@ -82,7 +91,6 @@ export function ProductFormDialog ({
   mode,
   productId,
   initialName,
-  initialBlingId,
   initialParentProductId,
   initialParentBlingId,
   initialParentName,
@@ -130,7 +138,7 @@ export function ProductFormDialog ({
       el.scrollTop += Math.ceil(maxStep * intensity)
     }
   }
-  const [editTab, setEditTab] = useState<'dados' | 'variacoes' | 'estoque'>('dados')
+  const [editTab, setEditTab] = useState<'dados' | 'fiscal' | 'variacoes' | 'estoque'>('dados')
   const [syncingProduct, setSyncingProduct] = useState(false)
   const [syncingStock, setSyncingStock] = useState(false)
   const [applyImageChildrenBusy, setApplyImageChildrenBusy] = useState(false)
@@ -147,43 +155,58 @@ export function ProductFormDialog ({
   const [createParentAttrKeys, setCreateParentAttrKeys] = useState<string[]>([])
   const [createParentName, setCreateParentName] = useState<string | null>(null)
   const [parentVariationKeysPortalEl, setParentVariationKeysPortalEl] = useState<HTMLDivElement | null>(null)
+  const [fiscalPortalEl, setFiscalPortalEl] = useState<HTMLDivElement | null>(null)
   const keysPersistSeqRef = useRef(0)
+  const productIdRef = useRef(productId)
+  productIdRef.current = productId
 
-  const loadEdit = useCallback(async (opts?: { silent?: boolean, seq?: number }) => {
+  const applyFormPayload = useCallback((data: ProductFormCachePayload) => {
+    const raw = data.product as Product
+    setLoadedProduct(raw)
+    setFormProduct(mapProductToForm(raw))
+    setCompatibleModels(
+      Array.isArray(data.compatibleModels)
+        ? (data.compatibleModels as CompatibleEntry[])
+        : [],
+    )
+    setVariations(Array.isArray(data.variations) ? (data.variations as Product[]) : [])
+  }, [])
+
+  const loadEdit = useCallback(async (opts?: { silent?: boolean, seq?: number, force?: boolean }) => {
     if (!productId || mode !== 'edit') return
+    const requestedId = productId
     const silent = opts?.silent === true
-    if (!silent) {
+    const cached = readProductFormCache(productId)
+    const fresh = Boolean(cached) && isProductFormCacheFresh(productId) && opts?.force !== true
+    if (!silent && cached && fresh) {
+      applyFormPayload(cached)
+      setLoadError(null)
+      setLoading(false)
+    } else if (!silent) {
       setLoading(true)
       setLoadError(null)
     }
     try {
-      const res = await fetch(`/api/portal/produtos/${productId}`)
-      const data = await res.json().catch(() => null)
-      if (!res.ok || !data?.ok || !data?.product) {
-        if (silent) return
-        throw new Error(data?.message || data?.error || 'Não foi possível carregar o item.')
-      }
+      const data = await loadProductForm(productId, { force: opts?.force === true || silent })
+      if (productIdRef.current !== requestedId) return
       if (opts?.seq != null && opts.seq !== keysPersistSeqRef.current) return
-      const raw = data.product as Product
-      setLoadedProduct(raw)
-      setFormProduct(mapProductToForm(raw))
-      setCompatibleModels(
-        Array.isArray(data.compatibleModels)
-          ? (data.compatibleModels as CompatibleEntry[])
-          : [],
-      )
-      setVariations(Array.isArray(data.variations) ? (data.variations as Product[]) : [])
+      if (!data) {
+        if (silent || fresh) return
+        throw new Error('Não foi possível carregar o item.')
+      }
+      applyFormPayload(data)
     } catch (err) {
-      if (silent) return
+      if (productIdRef.current !== requestedId) return
+      if (silent || fresh) return
       setLoadError(err instanceof Error ? err.message : 'Erro ao carregar.')
       setFormProduct(null)
       setLoadedProduct(null)
       setCompatibleModels([])
       setVariations([])
     } finally {
-      if (!silent) setLoading(false)
+      if (!silent && productIdRef.current === requestedId) setLoading(false)
     }
-  }, [productId, mode])
+  }, [productId, mode, applyFormPayload])
 
   useEffect(() => {
     if (!open) return
@@ -205,7 +228,7 @@ export function ProductFormDialog ({
       setLoading(false)
       return
     }
-    void loadEdit()
+    void loadEdit(reloadKey > 0 ? { force: true } : undefined)
   }, [open, mode, productId, loadEdit, reloadKey])
 
   useEffect(() => {
@@ -224,6 +247,7 @@ export function ProductFormDialog ({
     setCreateParentAttrKeys([])
     setCreateParentName(null)
     setParentVariationKeysPortalEl(null)
+    setFiscalPortalEl(null)
   }, [open])
 
   useEffect(() => {
@@ -233,7 +257,7 @@ export function ProductFormDialog ({
 
   useEffect(() => {
     if (!loadedProduct || loadedProduct.kind !== 'service') return
-    setEditTab('dados')
+    setEditTab((tab) => (tab === 'fiscal' ? tab : 'dados'))
   }, [loadedProduct?.id, loadedProduct?.kind])
 
   useEffect(() => {
@@ -300,9 +324,8 @@ export function ProductFormDialog ({
     let cancelled = false
     void (async () => {
       try {
-        const res = await fetch(`/api/portal/produtos/${initialParentProductId}`)
-        const data = await res.json().catch(() => null)
-        if (cancelled || !res.ok || !data?.ok || !data?.product) return
+        const data = await loadProductForm(initialParentProductId)
+        if (cancelled || !data?.product) return
         const p = data.product as Product
         setCreateParentAttrKeys(
           Array.isArray(p.variationAttributeKeys) ? p.variationAttributeKeys : [],
@@ -430,6 +453,7 @@ export function ProductFormDialog ({
           ...(payload.variationAttributeValues !== undefined
             ? { variationAttributeValues: payload.variationAttributeValues }
             : {}),
+          ...(!blingHubConnected ? { skipBling: true } : {}),
         }),
       })
       const data = await res.json().catch(() => null)
@@ -443,6 +467,7 @@ export function ProductFormDialog ({
         return
       }
 
+      forgetProductFormCache(productId)
       const nextProduct = (data.product || null) as Product | null
       let savedProduct = nextProduct
       if (nextProduct) {
@@ -519,7 +544,8 @@ export function ProductFormDialog ({
         return
       }
       toast({ variant: 'success', title: successTitle })
-      await loadEdit()
+      forgetProductFormCache(productId)
+      await loadEdit({ force: true })
       onSuccess?.()
     } finally {
       setLoading(false)
@@ -564,7 +590,7 @@ export function ProductFormDialog ({
         title: 'Erro ao ordenar variações',
         description: 'Tente novamente.',
       })
-      void loadEdit()
+      void loadEdit({ force: true })
     } finally {
       if (seq === variationOrderPersistSeqRef.current) {
         setReorderingVariationId(null)
@@ -578,12 +604,30 @@ export function ProductFormDialog ({
         : 'Novo produto/serviço')
     : 'Editar produto/serviço'
 
-  const blingIdLabel = (() => {
-    if (!blingHubConnected) return null
-    const b = loadedProduct?.blingId ?? initialBlingId
-    if (b != null && String(b).trim()) return String(b)
-    return '—'
-  })()
+  function copyHeaderValue (text: string) {
+    const value = String(text || '').trim()
+    if (!value) return
+    const write = navigator?.clipboard?.writeText(value)
+    if (!write) {
+      toast({
+        variant: 'destructive',
+        title: 'Não foi possível copiar',
+        description: 'Área de transferência indisponível neste navegador.',
+      })
+      return
+    }
+    void write
+      .then(() => {
+        toast({ description: 'Copiado para a área de transferência', duration: 2000 })
+      })
+      .catch(() => {
+        toast({
+          variant: 'destructive',
+          title: 'Não foi possível copiar',
+          description: 'Verifique permissões do site ou use HTTPS.',
+        })
+      })
+  }
 
   const isEditProductWithStock = Boolean(
     loadedProduct && loadedProduct.kind !== 'service',
@@ -591,6 +635,17 @@ export function ProductFormDialog ({
   const isVariationChild = Boolean(
     loadedProduct?.parentBlingId || loadedProduct?.parentProductId,
   )
+  const headerImageUrl = formProduct?.imageUrl && isSafeProductListImageUrl(formProduct.imageUrl)
+    ? formProduct.imageUrl
+    : null
+  const headerTitle = (() => {
+    const fullName = formProduct?.name?.trim() || initialName || 'Editar produto'
+    if (!isVariationChild) return fullName
+    const { suffix } = splitPortalVariationDisplayName(fullName, parentSummaryForVariation?.name)
+    return suffix || fullName
+  })()
+  const headerSku = formProduct?.sku?.trim() || ''
+  const headerBarcode = formProduct?.barcode?.trim() || ''
   const isParentWithVariations = Boolean(
     isEditProductWithStock && !isVariationChild && variations.length > 0,
   )
@@ -697,7 +752,7 @@ export function ProductFormDialog ({
         <DialogDescription className="sr-only">
           {mode === 'create'
             ? 'Cadastro de produto ou serviço: preços, imagem, modelos compatíveis e variações quando aplicável.'
-            : 'Edição de produto ou serviço: dados, variações e estoque.'}
+            : 'Edição de produto ou serviço: dados, fiscal, variações e estoque.'}
         </DialogDescription>
         {mode === 'create' ? (
           <>
@@ -757,32 +812,81 @@ export function ProductFormDialog ({
               <Tabs
                 value={editTab}
                 onValueChange={(v) => {
-                  setEditTab(v as 'dados' | 'variacoes' | 'estoque')
+                  setEditTab(v as 'dados' | 'fiscal' | 'variacoes' | 'estoque')
                 }}
                 className="flex min-h-0 flex-1 flex-col"
               >
                 <DialogHeader className="shrink-0 space-y-3 border-b px-6 pt-4 pb-0 text-left">
-                  <div className="space-y-1 pr-8">
-                    <DialogTitle className="truncate text-base font-semibold tracking-tight sm:text-lg">
-                      {formProduct.name?.trim() || initialName || 'Editar produto'}
-                    </DialogTitle>
-                    <p className="text-[11px] leading-relaxed text-muted-foreground">
-                      <span className="text-muted-foreground/90">ID portal</span>
-                      {' '}
-                      <span className="font-mono tabular-nums text-foreground/70 select-all">
-                        {formProduct.id}
-                      </span>
-                      {blingIdLabel != null ? (
-                        <>
-                          <span className="mx-1.5 text-muted-foreground/40" aria-hidden>·</span>
-                          <span className="text-muted-foreground/90">Bling</span>
-                          {' '}
-                          <span className="font-mono tabular-nums text-foreground/70 select-all">
-                            {blingIdLabel}
+                  <div className="space-y-2 pr-8">
+                    {isVariationChild && parentSummaryForVariation ? (
+                      <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                        <span className="shrink-0">Produto pai:</span>
+                        <span className="truncate font-medium text-foreground">
+                          {parentSummaryForVariation.name}
+                        </span>
+                        {onNavigateToProductId ? (
+                          <button
+                            type="button"
+                            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-primary hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+                            aria-label={`Abrir produto pai ${parentSummaryForVariation.name}`}
+                            title="Abrir produto pai"
+                            disabled={savePhase !== 'idle'}
+                            onClick={() => onNavigateToProductId(parentSummaryForVariation.id)}
+                          >
+                            <Link2 className="h-3.5 w-3.5" aria-hidden />
+                          </button>
+                        ) : null}
+                      </p>
+                    ) : null}
+                    <div className="flex min-w-0 items-start gap-3">
+                      <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-muted/30">
+                        {headerImageUrl ? (
+                          <img
+                            src={headerImageUrl}
+                            alt=""
+                            width={56}
+                            height={56}
+                            loading="lazy"
+                            decoding="async"
+                            referrerPolicy="no-referrer"
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <span className="text-[10px] font-medium uppercase text-muted-foreground">
+                            {headerTitle.slice(0, 2) || '?'}
                           </span>
-                        </>
-                      ) : null}
-                    </p>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-1.5">
+                        <DialogTitle className="truncate text-base font-semibold tracking-tight sm:text-lg">
+                          {headerTitle}
+                        </DialogTitle>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {headerSku ? (
+                            <button
+                              type="button"
+                              onClick={() => copyHeaderValue(headerSku)}
+                              className="inline-flex max-w-full min-w-0 cursor-pointer items-center gap-1 rounded border border-border/60 bg-muted/70 px-1.5 py-0.5 text-left font-mono text-xs transition-colors hover:bg-muted"
+                              title="Copiar SKU"
+                            >
+                              <span className="truncate">{headerSku}</span>
+                              <Copy className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+                            </button>
+                          ) : null}
+                          {headerBarcode ? (
+                            <button
+                              type="button"
+                              onClick={() => copyHeaderValue(headerBarcode)}
+                              className="inline-flex max-w-full min-w-0 cursor-pointer items-center gap-1 rounded border border-border/60 bg-muted/70 px-1.5 py-0.5 text-left font-mono text-xs transition-colors hover:bg-muted"
+                              title="Copiar código de barras"
+                            >
+                              <span className="truncate">{headerBarcode}</span>
+                              <Copy className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                   <TabsList className="h-auto w-full justify-start gap-0 rounded-none border-0 bg-transparent p-0">
                     <TabsTrigger
@@ -790,6 +894,12 @@ export function ProductFormDialog ({
                       className="rounded-none border-b-2 border-transparent px-3 pb-2.5 pt-1 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     >
                       Dados
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="fiscal"
+                      className="rounded-none border-b-2 border-transparent px-3 pb-2.5 pt-1 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    >
+                      Fiscal
                     </TabsTrigger>
                     {isEditProductWithStock && !isVariationChild ? (
                       <TabsTrigger
@@ -813,75 +923,14 @@ export function ProductFormDialog ({
                 <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
                   <TabsContent
                     value="dados"
-                    {...productEditTabMountProps}
-                    className={variationTabPanelClass}
+                    forceMount
+                    className="mt-0 focus-visible:outline-none data-[state=inactive]:hidden"
                   >
                     {(
                       (blingHubConnected && loadedProduct.blingId)
                       || savePhase !== 'idle'
-                      || isVariationChild
                     ) ? (
                       <div className="mb-5 space-y-3">
-                        {isVariationChild && parentSummaryForVariation ? (
-                          <div className="flex gap-3 rounded-lg border border-border/80 bg-muted/15 p-3 sm:p-3.5">
-                            <div className="h-14 w-14 shrink-0 overflow-hidden rounded-md border border-border/70 bg-background">
-                              {parentSummaryForVariation.imageUrl ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img
-                                  src={parentSummaryForVariation.imageUrl}
-                                  alt=""
-                                  className="h-full w-full object-cover"
-                                  loading="lazy"
-                                />
-                              ) : (
-                                <div className="flex h-full w-full items-center justify-center text-[10px] text-muted-foreground">
-                                  Sem foto
-                                </div>
-                              )}
-                            </div>
-                            <div className="min-w-0 flex-1 space-y-1">
-                              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                                Produto pai
-                              </p>
-                              <p className="truncate text-sm font-semibold tracking-tight text-foreground">
-                                {parentSummaryForVariation.name}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                {parentSummaryForVariation.sku
-                                  ? (
-                                    <>
-                                      SKU{' '}
-                                      <span className="font-mono tabular-nums text-foreground/80">
-                                        {parentSummaryForVariation.sku}
-                                      </span>
-                                    </>
-                                  )
-                                  : 'Sem SKU'}
-                                {parentSummaryForVariation.salePriceCents != null ? (
-                                  <>
-                                    <span className="mx-1.5 text-muted-foreground/40" aria-hidden>·</span>
-                                    {formatCurrency(parentSummaryForVariation.salePriceCents / 100)}
-                                  </>
-                                ) : null}
-                                <span className="mx-1.5 text-muted-foreground/40" aria-hidden>·</span>
-                                {parentSummaryForVariation.isActive ? 'Ativo' : 'Inativo'}
-                              </p>
-                            </div>
-                            {onNavigateToProductId ? (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                className="shrink-0 self-center"
-                                disabled={savePhase !== 'idle'}
-                                onClick={() => onNavigateToProductId(parentSummaryForVariation.id)}
-                              >
-                                Abrir pai
-                              </Button>
-                            ) : null}
-                          </div>
-                        ) : null}
-
                         {blingHubConnected && loadedProduct.blingId ? (
                           <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/80 bg-muted/15 px-3 py-2.5">
                             <p className="mr-auto text-xs text-muted-foreground">
@@ -961,7 +1010,18 @@ export function ProductFormDialog ({
                       onCancel={() => onOpenChange(false)}
                       onSubmit={handleSubmit}
                       onPersistVariationAttributeKeys={persistVariationAttributeKeys}
+                      embedFiscalInTab
+                      fiscalPortalEl={fiscalPortalEl}
+                      onRequestFiscalTab={() => setEditTab('fiscal')}
                     />
+                  </TabsContent>
+
+                  <TabsContent
+                    value="fiscal"
+                    forceMount
+                    className="mt-0 focus-visible:outline-none data-[state=inactive]:hidden"
+                  >
+                    <div ref={setFiscalPortalEl} className="min-h-0" />
                   </TabsContent>
 
                   {isEditProductWithStock && !isVariationChild ? (

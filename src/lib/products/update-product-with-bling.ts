@@ -206,6 +206,7 @@ function normalizePatch (input: UpdateProductInput): NormalizePatchResult {
 export async function updateProductAndSyncBling (
   id: string,
   input: UpdateProductInput,
+  options?: { preserveBlingSyncState?: boolean },
 ): Promise<ProductMutationResult> {
   const normalizedPatch = normalizePatch(input)
   if ('error' in normalizedPatch) {
@@ -232,10 +233,12 @@ export async function updateProductAndSyncBling (
       ? currentProduct.blingSyncPending
       : true
 
-  const updatedResult = await updateProduct(id, {
-    ...patch,
-    blingSyncPending: nextBlingSyncPending,
-  })
+  const updatedResult = await updateProduct(id, options?.preserveBlingSyncState
+    ? patch
+    : {
+      ...patch,
+      blingSyncPending: nextBlingSyncPending,
+    });
 
   if (!updatedResult.ok || !('product' in updatedResult)) {
     return { ok: false, error: 'error' in updatedResult ? updatedResult.error ?? 'db_error' : 'db_error' }
