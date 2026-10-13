@@ -6,10 +6,18 @@ import { buildPortalAuthCallbackUrl } from '@/lib/auth/callback-url'
 import { getAuthSiteOrigin } from '@/lib/auth/site-origin'
 import { reserveSignupIp } from '@/lib/auth/reserve-signup-ip'
 import { useSupabaseBrowserClient } from '@/lib/supabase/use-supabase-browser-client'
+import { onlyDigits } from '@/lib/utils/strings'
 
 type Props = {
   orgSlug: string
   refOs: string
+}
+
+function readCadastroDocumentDigits () {
+  if (typeof document === 'undefined') return ''
+  const input = document.getElementById('document')
+  if (!(input instanceof HTMLInputElement)) return ''
+  return onlyDigits(input.value).slice(0, 14)
 }
 
 export function CadastroClienteGoogleButton ({ orgSlug, refOs }: Props) {
@@ -20,6 +28,12 @@ export function CadastroClienteGoogleButton ({ orgSlug, refOs }: Props) {
     if (loading) return
     setLoading(true)
     try {
+      const documentDigits = readCadastroDocumentDigits()
+      if (documentDigits.length !== 11 && documentDigits.length !== 14) {
+        window.location.href = `/cadastro-cliente?org=${encodeURIComponent(orgSlug)}&ref_os=${encodeURIComponent(refOs)}&error=documento_invalido`
+        return
+      }
+
       if (!supabase) {
         window.location.href = `/cadastro-cliente?org=${encodeURIComponent(orgSlug)}&ref_os=${encodeURIComponent(refOs)}&error=config`
         return
@@ -31,7 +45,7 @@ export function CadastroClienteGoogleButton ({ orgSlug, refOs }: Props) {
         return
       }
 
-      const redirectTo = `/portal/cadastro-cliente/vincular?org=${encodeURIComponent(orgSlug)}&ref_os=${encodeURIComponent(refOs)}`
+      const redirectTo = `/portal/cadastro-cliente/vincular?org=${encodeURIComponent(orgSlug)}&ref_os=${encodeURIComponent(refOs)}&document=${encodeURIComponent(documentDigits)}`
       const callbackUrl = buildPortalAuthCallbackUrl(redirectTo, getAuthSiteOrigin())
 
       const { data, error } = await supabase.auth.signInWithOAuth({

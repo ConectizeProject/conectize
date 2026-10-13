@@ -60,5 +60,15 @@ describe('cadastro-cliente claim from OS link', () => {
       },
       submittedDocumentDigits: '52998224725',
     })).toBe(false)
+
+    expect(shouldClaimCustomerFromOsRegistration({
+      orderCustomerId: 'cust-os',
+      customer: {
+        id: 'cust-os',
+        auth_user_id: null,
+        cpf: '52998224725',
+      },
+      submittedDocumentDigits: '',
+    })).toBe(false)
   })
 })

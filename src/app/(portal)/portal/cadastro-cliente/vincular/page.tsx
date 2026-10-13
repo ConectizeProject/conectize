@@ -1,19 +1,22 @@
 import { redirect } from 'next/navigation'
+import { shouldClaimCustomerFromOsRegistration } from '@/lib/auth/cadastro-cliente-claim'
 import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { stripAutoHostOrganizationMembership } from '@/lib/organizations/strip-auto-host-membership'
 import { getAuthUser } from '@/lib/supabase/server'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
+import { onlyDigits } from '@/lib/utils/strings'
 
 export const dynamic = 'force-dynamic'
 
 export default async function VincularCadastroClientePage ({
   searchParams,
 }: {
-  searchParams: Promise<{ org?: string; ref_os?: string }>
+  searchParams: Promise<{ org?: string; ref_os?: string; document?: string }>
 }) {
   const sp = await searchParams
   const orgSlug = String(sp.org || '').trim().toLowerCase()
   const refOs = String(sp.ref_os || '').trim()
+  const submittedDocument = onlyDigits(String(sp.document || '')).slice(0, 14)
 
   if (!orgSlug || !refOs) {
     redirect('/portal/complete-profile?error=os_invalida')
@@ -50,6 +53,43 @@ export default async function VincularCadastroClientePage ({
   }
 
   const organizationId = String(orderRow.organization_id)
+  const orderCustomerId = orderRow.customer_id ? String(orderRow.customer_id) : null
+  let orderCustomer: {
+    id: string
+    auth_user_id?: string | null
+    cpf?: string | null
+    cnpj?: string | null
+  } | null = null
+
+  if (orderCustomerId) {
+    const { data: customer } = await svc
+      .from('customers')
+      .select('id, auth_user_id, cpf, cnpj')
+      .eq('id', orderCustomerId)
+      .eq('organization_id', organizationId)
+      .maybeSingle()
+
+    orderCustomer = customer
+    const currentAuth = customer?.auth_user_id ? String(customer.auth_user_id) : null
+
+    // Share token alone must not bind an unclaimed customer. Same proof as the
+    // email/password cadastro action: CPF/CNPJ of the OS customer.
+    if (!currentAuth) {
+      if (!shouldClaimCustomerFromOsRegistration({
+        orderCustomerId,
+        customer,
+        submittedDocumentDigits: submittedDocument,
+      })) {
+        redirect(
+          `/cadastro-cliente?org=${encodeURIComponent(orgSlug)}&ref_os=${encodeURIComponent(refOs)}&error=documento_nao_confere`,
+        )
+      }
+    } else if (currentAuth !== user.id) {
+      redirect(
+        `/cadastro-cliente?org=${encodeURIComponent(orgSlug)}&ref_os=${encodeURIComponent(refOs)}&error=cliente_ja_vinculado`,
+      )
+    }
+  }
 
   const { error: memberErr } = await svc.from('organization_members').upsert(
     {
@@ -78,21 +118,20 @@ export default async function VincularCadastroClientePage ({
     redirect('/portal/complete-profile?error=vinculo_falhou')
   }
 
-  if (orderRow.customer_id) {
-    const customerId = String(orderRow.customer_id)
-    const { data: customer } = await svc
+  if (
+    orderCustomerId &&
+    shouldClaimCustomerFromOsRegistration({
+      orderCustomerId,
+      customer: orderCustomer,
+      submittedDocumentDigits: submittedDocument,
+    })
+  ) {
+    await svc
       .from('customers')
-      .select('id, auth_user_id')
-      .eq('id', customerId)
-      .maybeSingle()
-
-    const currentAuth = customer?.auth_user_id ? String(customer.auth_user_id) : null
-    if (!currentAuth || currentAuth === user.id) {
-      await svc
-        .from('customers')
-        .update({ auth_user_id: user.id })
-        .eq('id', customerId)
-    }
+      .update({ auth_user_id: user.id })
+      .eq('id', orderCustomerId)
+      .eq('organization_id', organizationId)
+      .is('auth_user_id', null)
   }
 
   redirect('/portal/complete-profile')
