@@ -6,6 +6,7 @@ import {
   getProductById,
   getProductByIdWithVariations,
   getProductCompatibleModelsForForm,
+  type ProductServiceSession,
 } from '@/lib/products/service'
 import { resolveListDisplayCostCents } from '@/lib/products/list-display-cost'
 import { syncProductToBling } from '@/lib/products/update-product-with-bling'
@@ -22,7 +23,26 @@ export async function GET (
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 
-  const result = await getProductByIdWithVariations(id)
+  const session: ProductServiceSession = {
+    supabase: auth.supabase,
+    userId: auth.userId,
+    organizationId: auth.organizationId,
+  }
+
+  const [result, lastEntryResult, compat] = await Promise.all([
+    getProductByIdWithVariations(id, { session }),
+    auth.supabase
+      .from('product_stock_movements')
+      .select('unit_value_cents, created_at')
+      .eq('product_id', id)
+      .eq('type', 'entry')
+      .gt('unit_value_cents', 0)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    getProductCompatibleModelsForForm(id, session),
+  ])
+
   if (!result.ok) {
     const err = 'error' in result ? result.error : 'not_found'
     const status = err === 'not_authenticated' ? 401 : 404
@@ -32,15 +52,7 @@ export async function GET (
     }, { status })
   }
 
-  const { data: lastEntryRow } = await auth.supabase
-    .from('product_stock_movements')
-    .select('unit_value_cents, created_at')
-    .eq('product_id', id)
-    .eq('type', 'entry')
-    .gt('unit_value_cents', 0)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+  const lastEntryRow = lastEntryResult.data
 
   const lastEntry = lastEntryRow as { unit_value_cents?: number; created_at?: string } | null
   const lastEntryMs =
@@ -62,7 +74,6 @@ export async function GET (
     }),
   }
 
-  const compat = await getProductCompatibleModelsForForm(id)
   const compatibleModels = compat.ok ? compat.entries : []
 
   return NextResponse.json({

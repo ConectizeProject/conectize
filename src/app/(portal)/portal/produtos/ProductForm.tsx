@@ -286,6 +286,13 @@ type Props = {
    */
   embedVariationKeysInVariationsTab?: boolean
   /**
+   * Edição com abas: NCM, CEST, origem e unidade vão para a aba Fiscal.
+   */
+  embedFiscalInTab?: boolean
+  fiscalPortalEl?: HTMLElement | null
+  /** Leva o diálogo até a aba Fiscal quando a validação fiscal falha. */
+  onRequestFiscalTab?: () => void
+  /**
    * Edição do pai: guarda as chaves no servidor ao remover ou ao sair do campo,
    * sem depender do Salvar da aba Dados.
    */
@@ -310,6 +317,9 @@ export function ProductForm ({
   variationAttributesPortalEl = null,
   variationAttributeKeysPortalEl = null,
   embedVariationKeysInVariationsTab = false,
+  embedFiscalInTab = false,
+  fiscalPortalEl = null,
+  onRequestFiscalTab,
   onPersistVariationAttributeKeys,
 }: Props) {
   const nameInputRef = useRef<HTMLInputElement>(null)
@@ -333,6 +343,7 @@ export function ProductForm ({
   const [ncm, setNcm] = useState(() => maskNcm(product?.ncm || ''))
   const [cest, setCest] = useState(() => maskCest(product?.cest || ''))
   const [fiscalOrigin, setFiscalOrigin] = useState(() => normalizeFiscalOriginSelectValue(product?.fiscalOrigin ?? 0))
+  const [fiscalUnit, setFiscalUnit] = useState(() => String(product?.fiscalUnit || 'UN'))
   const [fci, setFci] = useState(() => maskFci(product?.fci || ''))
   const [cestSuggestions, setCestSuggestions] = useState<CestSuggestion[]>([])
   const [cestTableStatus, setCestTableStatus] = useState<CestTableStatus>('unknown')
@@ -476,13 +487,14 @@ export function ProductForm ({
     setNcm(maskNcm(product.ncm || ''))
     setCest(maskCest(product.cest || ''))
     setFiscalOrigin(normalizeFiscalOriginSelectValue(product.fiscalOrigin ?? 0))
+    setFiscalUnit(String(product.fiscalUnit || 'UN'))
     setFci(maskFci(product.fci || ''))
     setImageUrl(
       product.imageUrl != null && String(product.imageUrl).trim()
         ? String(product.imageUrl).trim()
         : '',
     )
-  }, [product?.id, product?.ncm, product?.cest, product?.fiscalOrigin, product?.fci, product?.imageUrl])
+  }, [product?.id, product?.ncm, product?.cest, product?.fiscalOrigin, product?.fiscalUnit, product?.fci, product?.imageUrl])
 
   const ncmDigits = fiscalDigits(ncm, 8)
 
@@ -713,6 +725,14 @@ export function ProductForm ({
     setCompatibleModels((prev) => prev.filter((m) => m.id !== id))
   }
 
+  function focusFiscalField (fieldId: string) {
+    onRequestFiscalTab?.()
+    requestAnimationFrame(() => {
+      const el = document.getElementById(fieldId) as HTMLInputElement | null
+      el?.focus()
+    })
+  }
+
   async function handleSubmit (event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setSubmitErrors({})
@@ -770,10 +790,7 @@ export function ProductForm ({
       setSubmitErrors({
         ncm: 'Informe o NCM com 8 dígitos (0000.00.00) ou deixe em branco.',
       })
-      queueMicrotask(() => {
-        const el = document.getElementById('ncm') as HTMLInputElement | null
-        el?.focus()
-      })
+      focusFiscalField('ncm')
       return
     }
 
@@ -782,10 +799,7 @@ export function ProductForm ({
       setSubmitErrors({
         cest: 'Informe o CEST com 7 dígitos (00.000.00) ou deixe em branco.',
       })
-      queueMicrotask(() => {
-        const el = document.getElementById('cest') as HTMLInputElement | null
-        el?.focus()
-      })
+      focusFiscalField('cest')
       return
     }
 
@@ -801,10 +815,7 @@ export function ProductForm ({
             allowedCests: cestSuggestions.map((item) => item.code),
           }),
         })
-        queueMicrotask(() => {
-          const el = document.getElementById('cest') as HTMLInputElement | null
-          el?.focus()
-        })
+        focusFiscalField('cest')
         return
       }
     }
@@ -828,10 +839,7 @@ export function ProductForm ({
       setSubmitErrors({
         fci: 'Informe o FCI no formato UUID (8-4-4-4-12). Obrigatório para origens 3, 5 e 8.',
       })
-      queueMicrotask(() => {
-        const el = document.getElementById('fci') as HTMLInputElement | null
-        el?.focus()
-      })
+      focusFiscalField('fci')
       return
     }
 
@@ -853,7 +861,7 @@ export function ProductForm ({
       cfop: kind === 'product' ? fiscalDigits(product?.cfop || '', 4) || null : null,
       fiscalOrigin: fiscalOriginValue,
       fci: kind === 'product' && fciNormalized !== 'invalid' ? fciNormalized : null,
-      fiscalUnit: kind === 'product' ? String(formData.get('fiscalUnit') || '').trim() || null : null,
+      fiscalUnit: kind === 'product' ? fiscalUnit.trim() || null : null,
       icmsCsosn: kind === 'product' ? fiscalDigits(product?.icmsCsosn || '', 3) || null : null,
       icmsCst: kind === 'product' ? fiscalDigits(product?.icmsCst || '', 3) || null : null,
       pisCst: kind === 'product' ? fiscalDigits(product?.pisCst || '', 2) || null : null,
@@ -978,11 +986,210 @@ export function ProductForm ({
     )
   }
 
+  function renderFiscalSection () {
+    if (kind !== 'product') {
+      return (
+        <div className="rounded-lg border border-border/80 bg-muted/15 px-4 py-3 text-sm text-muted-foreground">
+          Nota de serviço (NFS-e) fica para uma fase futura; serviços não entram na emissão de NFC-e.
+        </div>
+      )
+    }
+
+    return (
+      <FormSection
+        title="Fiscal"
+        description="Na emissão, o sistema lê o cliente e este cadastro. Com CEST, a nota usa CFOP 5405 e CSOSN 500 no mesmo estado, ou 6405 fora do estado. Sem CEST, usa CFOP 5102 e CSOSN 102, ou 6102 fora do estado. Itens sem NCM são bloqueados."
+      >
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="space-y-2 sm:col-span-2 lg:col-span-2">
+            <Label htmlFor="origem">Origem</Label>
+            <input type="hidden" name="fiscalOrigin" value={fiscalOrigin} />
+            <Select
+              value={fiscalOrigin}
+              onValueChange={(value) => {
+                setFiscalOrigin(value)
+                if (!originRequiresFci(value)) {
+                  setFci('')
+                  if (submitErrors.fci) setSubmitErrors((s) => ({ ...s, fci: undefined }))
+                }
+              }}
+              disabled={pending}
+            >
+              <SelectTrigger id="origem" className="w-full">
+                <SelectValue placeholder="Selecione a origem" />
+              </SelectTrigger>
+              <SelectContent>
+                {FISCAL_ORIGIN_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {originRequiresFci(fiscalOrigin) ? (
+            <div className="space-y-2 sm:col-span-2 lg:col-span-3">
+              <Label htmlFor="fci">FCI</Label>
+              <Input
+                id="fci"
+                name="fci"
+                autoComplete="off"
+                spellCheck={false}
+                maxLength={36}
+                value={fci}
+                onChange={(e) => {
+                  setFci(maskFci(e.target.value))
+                  if (submitErrors.fci) setSubmitErrors((s) => ({ ...s, fci: undefined }))
+                }}
+                placeholder="00000000-0000-0000-0000-000000000000"
+                disabled={pending}
+                className={cn(submitErrors.fci && 'border-destructive')}
+                aria-invalid={submitErrors.fci ? true : undefined}
+                aria-describedby={submitErrors.fci ? 'fci-error' : 'fci-hint'}
+              />
+              {submitErrors.fci
+                ? (
+                  <p id="fci-error" className="text-sm text-destructive" role="alert">
+                    {submitErrors.fci}
+                  </p>
+                )
+                : (
+                  <p id="fci-hint" className="text-xs text-muted-foreground">
+                    Ficha de Conteúdo de Importação. Obrigatória nas origens 3, 5 e 8.
+                  </p>
+                )}
+            </div>
+          ) : null}
+          <div className="space-y-2">
+            <Label htmlFor="ncm">NCM</Label>
+            <Input
+              id="ncm"
+              name="ncm"
+              inputMode="numeric"
+              autoComplete="off"
+              maxLength={10}
+              value={ncm}
+              onChange={(e) => {
+                setNcm(maskNcm(e.target.value))
+                if (submitErrors.ncm) setSubmitErrors((s) => ({ ...s, ncm: undefined }))
+              }}
+              placeholder="0000.00.00"
+              disabled={pending}
+              className={cn(submitErrors.ncm && 'border-destructive')}
+              aria-invalid={submitErrors.ncm ? true : undefined}
+              aria-describedby={submitErrors.ncm ? 'ncm-error' : 'ncm-hint'}
+            />
+            {submitErrors.ncm
+              ? (
+                <p id="ncm-error" className="text-sm text-destructive" role="alert">
+                  {submitErrors.ncm}
+                </p>
+              )
+              : (
+                <p id="ncm-hint" className="text-xs text-muted-foreground">
+                  Máscara visual. A SEFAZ recebe só os 8 dígitos.
+                </p>
+              )}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="cest">{cestTableStatus === 'in' ? 'CEST (obrigatório)' : 'CEST'}</Label>
+            <Input
+              id="cest"
+              name="cest"
+              list="cest-suggestions"
+              inputMode="numeric"
+              autoComplete="off"
+              maxLength={10}
+              value={cest}
+              onChange={(e) => {
+                setCest(maskCest(e.target.value))
+                if (submitErrors.cest) setSubmitErrors((s) => ({ ...s, cest: undefined }))
+              }}
+              placeholder="00.000.00"
+              disabled={pending}
+              className={cn(submitErrors.cest && 'border-destructive')}
+              aria-invalid={submitErrors.cest ? true : undefined}
+              aria-describedby={submitErrors.cest ? 'cest-error' : undefined}
+            />
+            {submitErrors.cest
+              ? (
+                <p id="cest-error" className="text-sm text-destructive" role="alert">
+                  {submitErrors.cest}
+                </p>
+              )
+              : null}
+            <datalist id="cest-suggestions">
+              {cestSuggestions.map((suggestion) => (
+                <option key={suggestion.code} value={maskCest(suggestion.code)}>
+                  {suggestion.label}
+                </option>
+              ))}
+            </datalist>
+            {isLoadingCestSuggestions ? (
+              <p className="text-xs text-muted-foreground">Buscando CESTs para o NCM...</p>
+            ) : null}
+            {!isLoadingCestSuggestions && ncmDigits.length === 8 && cestTableStatus === 'out' ? (
+              <p className="text-xs text-muted-foreground">Este NCM de 8 dígitos não está na tabela. Se a nota de entrada trouxe CEST, informe o mesmo código: a posição da tabela, como 8544, cobre esse NCM.</p>
+            ) : null}
+            {!isLoadingCestSuggestions && ncmDigits.length === 8 && cestTableStatus === 'in' && cestSuggestions.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Este NCM exige CEST. Preencha o código de 7 dígitos.</p>
+            ) : null}
+            {!isLoadingCestSuggestions && ncmDigits.length === 8 && cestTableStatus === 'unknown' ? (
+              <p className="text-xs text-muted-foreground">Não foi possível consultar a tabela CEST. Você pode preencher manualmente.</p>
+            ) : null}
+            {cestSuggestions.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {cestSuggestions.slice(0, 5).map((suggestion) => (
+                  <Button
+                    key={suggestion.code}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-auto min-h-8 px-2 py-1 text-left text-xs"
+                    title={suggestion.label}
+                    onClick={() => setCest(maskCest(suggestion.code))}
+                    disabled={pending}
+                  >
+                    {maskCest(suggestion.code)}
+                  </Button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="fiscalUnit">Unidade</Label>
+            <Input
+              id="fiscalUnit"
+              name="fiscalUnit"
+              maxLength={6}
+              value={fiscalUnit}
+              onChange={(e) => setFiscalUnit(e.target.value.toUpperCase())}
+              disabled={pending}
+            />
+          </div>
+        </div>
+      </FormSection>
+    )
+  }
+
+  function renderFormActions () {
+    return (
+      <div className="sticky bottom-0 z-10 -mx-1 flex justify-end gap-2 border-t border-border/80 bg-background/95 px-1 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <Button type="button" variant="outline" onClick={onCancel} disabled={pending}>
+          Cancelar
+        </Button>
+        <Button type="submit" form="portal-product-form" disabled={pending}>
+          {pending ? 'Salvando...' : 'Salvar'}
+        </Button>
+      </div>
+    )
+  }
+
   const formInner = (
-    <form onSubmit={handleSubmit} className="space-y-5">
+    <form id="portal-product-form" onSubmit={handleSubmit} className="space-y-5">
       <FormSection
         title="Identidade"
-        description="Tipo, nome e códigos usados no catálogo e na emissão fiscal."
+        description="Tipo, nome e códigos usados no catálogo."
       >
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
@@ -1385,177 +1592,22 @@ export function ProductForm ({
         ) : null}
       </FormSection>
 
-      {kind === 'product' ? (
-        <FormSection
-          title="Fiscal"
-          description="Na emissão, o sistema lê o cliente e este cadastro. Com CEST, a nota usa CFOP 5405 e CSOSN 500 no mesmo estado, ou 6405 fora do estado. Sem CEST, usa CFOP 5102 e CSOSN 102, ou 6102 fora do estado. Itens sem NCM são bloqueados."
-        >
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-            <div className="space-y-2 sm:col-span-2 lg:col-span-2">
-              <Label htmlFor="origem">Origem</Label>
-              <input type="hidden" name="fiscalOrigin" value={fiscalOrigin} />
-              <Select
-                value={fiscalOrigin}
-                onValueChange={(value) => {
-                  setFiscalOrigin(value)
-                  if (!originRequiresFci(value)) {
-                    setFci('')
-                    if (submitErrors.fci) setSubmitErrors((s) => ({ ...s, fci: undefined }))
-                  }
-                }}
-                disabled={pending}
-              >
-                <SelectTrigger id="origem" className="w-full">
-                  <SelectValue placeholder="Selecione a origem" />
-                </SelectTrigger>
-                <SelectContent>
-                  {FISCAL_ORIGIN_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {originRequiresFci(fiscalOrigin) ? (
-              <div className="space-y-2 sm:col-span-2 lg:col-span-3">
-                <Label htmlFor="fci">FCI</Label>
-                <Input
-                  id="fci"
-                  name="fci"
-                  autoComplete="off"
-                  spellCheck={false}
-                  maxLength={36}
-                  value={fci}
-                  onChange={(e) => {
-                    setFci(maskFci(e.target.value))
-                    if (submitErrors.fci) setSubmitErrors((s) => ({ ...s, fci: undefined }))
-                  }}
-                  placeholder="00000000-0000-0000-0000-000000000000"
-                  disabled={pending}
-                  className={cn(submitErrors.fci && 'border-destructive')}
-                  aria-invalid={submitErrors.fci ? true : undefined}
-                  aria-describedby={submitErrors.fci ? 'fci-error' : 'fci-hint'}
-                />
-                {submitErrors.fci
-                  ? (
-                    <p id="fci-error" className="text-sm text-destructive" role="alert">
-                      {submitErrors.fci}
-                    </p>
-                  )
-                  : (
-                    <p id="fci-hint" className="text-xs text-muted-foreground">
-                      Ficha de Conteúdo de Importação. Obrigatória nas origens 3, 5 e 8.
-                    </p>
-                  )}
-              </div>
-            ) : null}
-            <div className="space-y-2">
-              <Label htmlFor="ncm">NCM</Label>
-              <Input
-                id="ncm"
-                name="ncm"
-                inputMode="numeric"
-                autoComplete="off"
-                maxLength={10}
-                value={ncm}
-                onChange={(e) => {
-                  setNcm(maskNcm(e.target.value))
-                  if (submitErrors.ncm) setSubmitErrors((s) => ({ ...s, ncm: undefined }))
-                }}
-                placeholder="0000.00.00"
-                disabled={pending}
-                className={cn(submitErrors.ncm && 'border-destructive')}
-                aria-invalid={submitErrors.ncm ? true : undefined}
-                aria-describedby={submitErrors.ncm ? 'ncm-error' : 'ncm-hint'}
-              />
-              {submitErrors.ncm
-                ? (
-                  <p id="ncm-error" className="text-sm text-destructive" role="alert">
-                    {submitErrors.ncm}
-                  </p>
-                )
-                : (
-                  <p id="ncm-hint" className="text-xs text-muted-foreground">
-                    Máscara visual. A SEFAZ recebe só os 8 dígitos.
-                  </p>
-                )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="cest">{cestTableStatus === 'in' ? 'CEST (obrigatório)' : 'CEST'}</Label>
-              <Input
-                id="cest"
-                name="cest"
-                list="cest-suggestions"
-                inputMode="numeric"
-                autoComplete="off"
-                maxLength={10}
-                value={cest}
-                onChange={(e) => {
-                  setCest(maskCest(e.target.value))
-                  if (submitErrors.cest) setSubmitErrors((s) => ({ ...s, cest: undefined }))
-                }}
-                placeholder="00.000.00"
-                disabled={pending}
-                className={cn(submitErrors.cest && 'border-destructive')}
-                aria-invalid={submitErrors.cest ? true : undefined}
-                aria-describedby={submitErrors.cest ? 'cest-error' : undefined}
-              />
-              {submitErrors.cest
-                ? (
-                  <p id="cest-error" className="text-sm text-destructive" role="alert">
-                    {submitErrors.cest}
-                  </p>
-                )
-                : null}
-              <datalist id="cest-suggestions">
-                {cestSuggestions.map((suggestion) => (
-                  <option key={suggestion.code} value={maskCest(suggestion.code)}>
-                    {suggestion.label}
-                  </option>
-                ))}
-              </datalist>
-              {isLoadingCestSuggestions ? (
-                <p className="text-xs text-muted-foreground">Buscando CESTs para o NCM...</p>
-              ) : null}
-              {!isLoadingCestSuggestions && ncmDigits.length === 8 && cestTableStatus === 'out' ? (
-                <p className="text-xs text-muted-foreground">Este NCM de 8 dígitos não está na tabela. Se a nota de entrada trouxe CEST, informe o mesmo código: a posição da tabela, como 8544, cobre esse NCM.</p>
-              ) : null}
-              {!isLoadingCestSuggestions && ncmDigits.length === 8 && cestTableStatus === 'in' && cestSuggestions.length === 0 ? (
-                <p className="text-xs text-muted-foreground">Este NCM exige CEST. Preencha o código de 7 dígitos.</p>
-              ) : null}
-              {!isLoadingCestSuggestions && ncmDigits.length === 8 && cestTableStatus === 'unknown' ? (
-                <p className="text-xs text-muted-foreground">Não foi possível consultar a tabela CEST. Você pode preencher manualmente.</p>
-              ) : null}
-              {cestSuggestions.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {cestSuggestions.slice(0, 5).map((suggestion) => (
-                    <Button
-                      key={suggestion.code}
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-auto min-h-8 px-2 py-1 text-left text-xs"
-                      title={suggestion.label}
-                      onClick={() => setCest(maskCest(suggestion.code))}
-                      disabled={pending}
-                    >
-                      {maskCest(suggestion.code)}
-                    </Button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="fiscalUnit">Unidade</Label>
-              <Input id="fiscalUnit" name="fiscalUnit" maxLength={6} defaultValue={product?.fiscalUnit || 'UN'} disabled={pending} />
-            </div>
-          </div>
-        </FormSection>
+      {embedFiscalInTab ? (
+        fiscalPortalEl ? (
+          createPortal(
+            <div className="space-y-5">
+              {renderFiscalSection()}
+              {renderFormActions()}
+            </div>,
+            fiscalPortalEl,
+          )
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Os dados fiscais abrem na aba Fiscal.
+          </p>
+        )
       ) : (
-        <div className="rounded-lg border border-border/80 bg-muted/15 px-4 py-3 text-sm text-muted-foreground">
-          Nota de serviço (NFS-e) fica para uma fase futura; serviços não entram na emissão de NFC-e.
-        </div>
+        renderFiscalSection()
       )}
 
       {showVariationKeyEditor ? (
@@ -1612,14 +1664,7 @@ export function ProductForm ({
         </DialogContent>
       </Dialog>
 
-      <div className="sticky bottom-0 z-10 -mx-1 flex justify-end gap-2 border-t border-border/80 bg-background/95 px-1 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-        <Button type="button" variant="outline" onClick={onCancel} disabled={pending}>
-          Cancelar
-        </Button>
-        <Button type="submit" disabled={pending}>
-          {pending ? 'Salvando...' : 'Salvar'}
-        </Button>
-      </div>
+      {renderFormActions()}
     </form>
   )
 

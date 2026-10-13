@@ -10,6 +10,7 @@ import {
   sliceProductFamilies,
   type IdSortRow,
 } from '@/lib/products/produtos-flat-list'
+import { iphoneBatteryListVariationName } from '@/lib/products/iphone-battery-variation-title'
 import { resolveListDisplayCostCents } from '@/lib/products/list-display-cost'
 import type { ProductRow } from '@/app/(portal)/portal/produtos/product-list-shared'
 
@@ -204,7 +205,12 @@ export async function fetchGestaoListRawSlice (
       totalCount = page.totalCount
     }
   } catch (err) {
-    console.error('[produtos-flat-list]', err)
+    const detail = err instanceof Error
+      ? err.message
+      : (err && typeof err === 'object' && 'message' in err)
+        ? String((err as { message: unknown }).message)
+        : String(err)
+    console.error('[produtos-flat-list]', detail)
     listLoadError = true
     flatRows = []
     totalCount = 0
@@ -398,6 +404,9 @@ export async function enrichGestaoRawRowsToProductRows (
       : null
     return {
       ...normalized,
+      name: isVar
+        ? iphoneBatteryListVariationName(normalized.name, parentName, p.sku)
+        : normalized.name,
       is_variation: isVar,
       has_variations: parentIdsWithChildren.has(p.id),
       parent_name: parentName,

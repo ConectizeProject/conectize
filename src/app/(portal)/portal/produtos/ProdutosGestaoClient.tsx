@@ -185,6 +185,7 @@ export function ProdutosGestaoClient ({
         initialEditProductId={initialEditProductId}
         initialCreateVariationParentId={initialCreateVariationParentId}
         blingHubConnected={blingHubConnected}
+        isFiltering={isFiltering}
       />
     </div>
   )

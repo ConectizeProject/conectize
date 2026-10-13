@@ -34,6 +34,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { toast } from '@/hooks/use-toast'
 import { getLabelWindowFeatures } from '@/lib/ordem-print'
+import { generateEan13 } from '@/lib/products/generate-ean13'
 import { buildProductLabelHtml } from '@/lib/products/product-label-print'
 import {
 	GESTAO_LIST_CHUNK,
@@ -44,6 +45,7 @@ import { BulkEditProductsModal } from './BulkEditProductsModal'
 import type { BulkEditFieldKey, BulkEditGroup } from '@/lib/products/bulk-edit-fields'
 import { useOptionalProdutosGestaoActionsRegistration } from './ProdutosGestaoActionsContext'
 import { ProductEditDialog } from './ProductEditDialog'
+import { type ProductBarcodeJob } from './ProductListBarcodeCell'
 import { ProductListCard } from './ProductListCard'
 import { ProductListTableRow } from './ProductListTableRow'
 import {
@@ -88,6 +90,8 @@ type Props = {
 	initialCreateVariationParentId?: string
 	/** Organização tem conexão Bling no Hub. */
 	blingHubConnected?: boolean
+	/** Busca de filtros em andamento: a lista mostra o estado de carregamento. */
+	isFiltering?: boolean
 }
 
 export function ProductsListClient({
@@ -102,16 +106,14 @@ export function ProductsListClient({
 	initialEditProductId,
 	initialCreateVariationParentId,
 	blingHubConnected = false,
+	isFiltering = false,
 }: Props) {
 	const router = useRouter()
 	const [editingProduct, setEditingProduct] = useState<Pick<ProductRow, 'id' | 'name' | 'bling_id'> | null>(null)
 	const [productEditInitialTab, setProductEditInitialTab] = useState<'estoque' | undefined>(undefined)
 	const [syncingId, setSyncingId] = useState<string | null>(null)
 	const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
-	const [barcodeGeneratingId, setBarcodeGeneratingId] = useState<string | null>(null)
-	const [barcodeGeneratingStage, setBarcodeGeneratingStage] = useState<'updating' | 'syncing' | null>(null)
-	/** Código já retornado pela API; mantém UI até a lista refletir (evita flash do "Gerar"). */
-	const [barcodeOptimistic, setBarcodeOptimistic] = useState<{ productId: string, barcode: string } | null>(null)
+	const [barcodeJobs, setBarcodeJobs] = useState<Record<string, ProductBarcodeJob>>({})
 	const [deleteDialog, setDeleteDialog] = useState<{
 		id: string
 		name: string
@@ -134,6 +136,7 @@ export function ProductsListClient({
 	const [bulkFieldPickerOpen, setBulkFieldPickerOpen] = useState(false)
 	const [pushPortalDialogOpen, setPushPortalDialogOpen] = useState(false)
 	const [assistenciaLinkModalOpen, setAssistenciaLinkModalOpen] = useState(false)
+	const [assistenciaLinkProductIds, setAssistenciaLinkProductIds] = useState<string[]>([])
 	const [assistenciaLinkCatalogKind, setAssistenciaLinkCatalogKind] = useState<'product' | 'service'>(
 		'product',
 	)
@@ -149,7 +152,8 @@ export function ProductsListClient({
 	const isProductTab = filterKind === 'product' || filterKind === 'all'
 	const syncInFlightRef = useRef(false)
 	const duplicateInFlightRef = useRef(false)
-	const barcodeInFlightRef = useRef(false)
+	const barcodeInFlightRef = useRef<Set<string>>(new Set())
+	const barcodeSuccessTimersRef = useRef<Record<string, number>>({})
 
 	const [extraRows, setExtraRows] = useState<ProductRow[]>([])
 	const [stockOverrides, setStockOverrides] = useState<Record<string, number>>({})
@@ -266,13 +270,17 @@ export function ProductsListClient({
 		if (!registerGestaoHeader || !unregisterGestaoHeader) return
 		registerGestaoHeader({
 			openAssistenciaLinks: () => {
+				const ids = [...selectedIds]
+				if (ids.length === 0) return
+				setAssistenciaLinkProductIds(ids)
 				setAssistenciaLinkCatalogKind(filterKind === 'service' ? 'service' : 'product')
 				setAssistenciaLinkModalOpen(true)
 			},
 			openCreateProduct: openCreateDialog,
+			suggestLinksDisabled: selectedIds.size === 0,
 		})
 		return () => unregisterGestaoHeader()
-	}, [registerGestaoHeader, unregisterGestaoHeader, filterKind, openCreateDialog])
+	}, [registerGestaoHeader, unregisterGestaoHeader, filterKind, openCreateDialog, selectedIds])
 
 	useEffect(() => {
 		setSelectedIds(new Set())
@@ -352,13 +360,13 @@ export function ProductsListClient({
 	}, [initialCreateVariationParentId, router])
 
 	useEffect(() => {
-		if (!barcodeOptimistic) return
-		const row = mergedProducts.find((p) => p.id === barcodeOptimistic.productId)
-		const fromServer = row?.barcode ? String(row.barcode).trim() : ''
-		if (fromServer && fromServer === barcodeOptimistic.barcode.trim()) {
-			setBarcodeOptimistic(null)
+		const timers = barcodeSuccessTimersRef.current
+		return () => {
+			for (const id of Object.keys(timers)) {
+				window.clearTimeout(timers[id])
+			}
 		}
-	}, [mergedProducts, barcodeOptimistic])
+	}, [])
 
 	const rows = useMemo(
 		() =>
@@ -499,99 +507,98 @@ export function ProductsListClient({
 		}
 	}, [router])
 
-	const handleGenerateBarcodeFromBling = useCallback(async (productId: string) => {
-		if (barcodeInFlightRef.current) return
-		barcodeInFlightRef.current = true
-		setBarcodeGeneratingId(productId)
-		setBarcodeGeneratingStage('updating')
-		setBarcodeOptimistic(null)
+	const handleGenerateBarcodeFromBling = useCallback((productId: string) => {
+		if (barcodeInFlightRef.current.has(productId)) return
+		barcodeInFlightRef.current.add(productId)
+		const code = generateEan13()
+		setBarcodeJobs((prev) => ({
+			...prev,
+			[productId]: { barcode: code, status: 'saving' },
+		}))
 
-		function clearBarcodeGenerationOnly() {
-			barcodeInFlightRef.current = false
-			setBarcodeGeneratingId(null)
-			setBarcodeGeneratingStage(null)
-		}
+		void (async () => {
+			function markError (barcode: string) {
+				setBarcodeJobs((prev) => ({
+					...prev,
+					[productId]: { barcode, status: 'error' },
+				}))
+			}
 
-		function clearBarcodeGenerationAndOptimistic() {
-			clearBarcodeGenerationOnly()
-			setBarcodeOptimistic(null)
-		}
+			try {
+				const res = await fetch(`/api/portal/produtos/${productId}/barcode-generate`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ barcode: code }),
+				})
+				const data = await res.json().catch(() => null)
+				if (!res.ok || !data?.ok) {
+					markError(code)
+					toast({
+						variant: 'destructive',
+						title: 'Erro ao gerar código de barras',
+						description: data?.message || data?.error || 'Tente novamente.',
+					})
+					return
+				}
 
-		try {
-			toast({
-				variant: 'default',
-				title: 'Atualizando',
-				description: 'Gerando código de barras e salvando no portal...',
-			})
+				const saved = data?.product?.barcode != null
+					? String(data.product.barcode).trim()
+					: code
+				const barcode = saved || code
+				setRowOverrides((prev) => ({
+					...prev,
+					[productId]: { ...prev[productId], barcode },
+				}))
+				setBarcodeJobs((prev) => ({
+					...prev,
+					[productId]: { barcode, status: 'saving' },
+				}))
 
-			const res = await fetch(`/api/portal/produtos/${productId}/barcode-generate`, {
-				method: 'POST',
-			})
-			const data = await res.json().catch(() => null)
-			if (!res.ok || !data?.ok) {
+				if (blingHubConnected && data?.shouldSyncToBling) {
+					const syncRes = await fetch(`/api/portal/produtos/${productId}/sync-bling`, {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ portalFieldsChanged: ['barcode'] }),
+					})
+					const syncData = await syncRes.json().catch(() => null)
+					if (!syncRes.ok || !syncData?.ok) {
+						markError(barcode)
+						toast({
+							variant: 'destructive',
+							title: 'Erro ao sincronizar',
+							description: syncData?.message || syncData?.error || 'Código salvo no portal. Falha ao enviar ao Bling.',
+						})
+						return
+					}
+				}
+
+				setBarcodeJobs((prev) => ({
+					...prev,
+					[productId]: { barcode, status: 'success' },
+				}))
+				const previousTimer = barcodeSuccessTimersRef.current[productId]
+				if (previousTimer) window.clearTimeout(previousTimer)
+				barcodeSuccessTimersRef.current[productId] = window.setTimeout(() => {
+					delete barcodeSuccessTimersRef.current[productId]
+					setBarcodeJobs((prev) => {
+						if (prev[productId]?.status !== 'success') return prev
+						const next = { ...prev }
+						delete next[productId]
+						return next
+					})
+				}, 1600)
+			} catch {
+				markError(code)
 				toast({
 					variant: 'destructive',
 					title: 'Erro ao gerar código de barras',
-					description: data?.message || data?.error || 'Tente novamente.',
+					description: 'Tente novamente.',
 				})
-				clearBarcodeGenerationAndOptimistic()
-				return
+			} finally {
+				barcodeInFlightRef.current.delete(productId)
 			}
-
-			const rawBarcode = data?.product?.barcode != null ? String(data.product.barcode).trim() : ''
-			if (rawBarcode) {
-				setBarcodeOptimistic({ productId, barcode: rawBarcode })
-			}
-
-			if (data?.shouldSyncToBling && blingHubConnected) {
-				setBarcodeGeneratingStage('syncing')
-				toast({
-					variant: 'default',
-					title: 'Sincronizando',
-					description: 'Enviando alteração ao Bling...',
-				})
-
-				const syncRes = await fetch(`/api/portal/produtos/${productId}/sync-bling`, {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ portalFieldsChanged: ['barcode'] }),
-				})
-
-				const syncData = await syncRes.json().catch(() => null)
-				if (!syncRes.ok || !syncData?.ok) {
-					toast({
-						variant: 'destructive',
-						title: 'Erro ao sincronizar',
-						description: syncData?.message || syncData?.error || 'Tente novamente.',
-					})
-					try {
-						await router.refresh()
-					} catch {
-						// ignore
-					}
-					clearBarcodeGenerationOnly()
-					return
-				}
-			}
-
-			toast({
-				variant: 'success',
-				title: 'Finalizado',
-				description: blingHubConnected && data?.shouldSyncToBling
-					? 'Código de barras gerado e sincronizado.'
-					: 'Código de barras gerado.',
-			})
-			await router.refresh()
-			clearBarcodeGenerationOnly()
-		} catch {
-			toast({
-				variant: 'destructive',
-				title: 'Erro ao gerar código de barras',
-				description: 'Tente novamente.',
-			})
-			clearBarcodeGenerationAndOptimistic()
-		}
-	}, [blingHubConnected, router])
+		})()
+	}, [blingHubConnected])
 
 	const openDeleteDialog = useCallback((product: ProductRow) => {
 		const hasBling = blingHubConnected && Boolean(product.bling_id)
@@ -662,14 +669,37 @@ export function ProductsListClient({
 			? false
 			: 'indeterminate'
 
-	const toggleRowSelected = useCallback((id: string, checked: boolean) => {
+	const selectionAnchorIdRef = useRef<string | null>(null)
+
+	const toggleRowSelected = useCallback((id: string, checked: boolean, shiftKey = false) => {
+		const anchorId = selectionAnchorIdRef.current
+		const anchorIndex = anchorId == null
+			? -1
+			: filteredRows.findIndex((row) => row.id === anchorId)
+		const currentIndex = filteredRows.findIndex((row) => row.id === id)
+		const canSelectRange = shiftKey && anchorIndex >= 0 && currentIndex >= 0
+
+		if (!canSelectRange) {
+			selectionAnchorIdRef.current = id
+			setSelectedIds((prev) => {
+				const next = new Set(prev)
+				if (checked) next.add(id)
+				else next.delete(id)
+				return next
+			})
+			return
+		}
+
+		const start = Math.min(anchorIndex, currentIndex)
+		const end = Math.max(anchorIndex, currentIndex)
 		setSelectedIds((prev) => {
 			const next = new Set(prev)
-			if (checked) next.add(id)
-			else next.delete(id)
+			for (let index = start; index <= end; index += 1) {
+				next.add(filteredRows[index].id)
+			}
 			return next
 		})
-	}, [])
+	}, [filteredRows])
 
 	const toggleSelectAll = useCallback((checked: boolean) => {
 		if (!checked) {
@@ -793,7 +823,6 @@ export function ProductsListClient({
 			.filter(
 				(r) =>
 					selectedIds.has(r.id) &&
-					r.bling_id &&
 					!(r.barcode && String(r.barcode).trim())
 			)
 			.map((r) => r.id)
@@ -801,7 +830,7 @@ export function ProductsListClient({
 			toast({
 				variant: 'destructive',
 				title: 'Nada para gerar',
-				description: 'Selecione itens com Bling e sem código de barras.',
+				description: 'Selecione itens sem código de barras.',
 			})
 			return
 		}
@@ -1126,8 +1155,24 @@ export function ProductsListClient({
 				</div>
 			)}
 
-			{filteredRows.length > 0 ? (
-				<>
+			{isFiltering && filteredRows.length === 0 ? (
+				<Card className="min-w-0 max-w-full" aria-busy="true">
+					<CardContent className="flex min-h-40 items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+						<Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+						Buscando produtos
+					</CardContent>
+				</Card>
+			) : filteredRows.length > 0 ? (
+				<div className="relative min-w-0" aria-busy={isFiltering || undefined}>
+					{isFiltering ? (
+						<div className="pointer-events-none absolute inset-0 z-10 flex justify-center bg-background/70 pt-10">
+							<p className="flex h-9 items-center gap-2 rounded-md border bg-card px-3 text-sm text-muted-foreground shadow-sm">
+								<Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+								Buscando produtos
+							</p>
+						</div>
+					) : null}
+					<div className={isFiltering ? 'pointer-events-none select-none opacity-60' : undefined}>
 					<div className="flex min-w-0 max-w-full flex-col gap-3 md:hidden" data-product-list="cards">
 						{filteredRows.map((product) => (
 							<ProductListCard
@@ -1139,13 +1184,7 @@ export function ProductsListClient({
 								blingHubConnected={blingHubConnected}
 								isSyncing={syncingId === product.id}
 								isDuplicating={duplicatingId === product.id}
-								isBarcodeGenerating={barcodeGeneratingId === product.id}
-								barcodeGeneratingStage={barcodeGeneratingStage}
-								optimisticBarcode={
-									barcodeOptimistic?.productId === product.id
-										? barcodeOptimistic.barcode.trim()
-										: null
-								}
+								barcodeJob={barcodeJobs[product.id] ?? null}
 								onToggleSelect={toggleRowSelected}
 								onRowClick={handleProductRowClick}
 								onEditProduct={handleEditProduct}
@@ -1225,13 +1264,7 @@ export function ProductsListClient({
 												blingHubConnected={blingHubConnected}
 												isSyncing={syncingId === product.id}
 												isDuplicating={duplicatingId === product.id}
-												isBarcodeGenerating={barcodeGeneratingId === product.id}
-												barcodeGeneratingStage={barcodeGeneratingStage}
-												optimisticBarcode={
-													barcodeOptimistic?.productId === product.id
-														? barcodeOptimistic.barcode.trim()
-														: null
-												}
+												barcodeJob={barcodeJobs[product.id] ?? null}
 												onToggleSelect={toggleRowSelected}
 												onRowClick={handleProductRowClick}
 												onEditProduct={handleEditProduct}
@@ -1248,7 +1281,8 @@ export function ProductsListClient({
 							</div>
 						</CardContent>
 					</Card>
-				</>
+					</div>
+				</div>
 			) : (
 				<Card className="min-w-0 max-w-full">
 					<CardContent className="min-w-0 space-y-4 py-8 text-sm">
@@ -1494,6 +1528,7 @@ export function ProductsListClient({
 
 			<AssistenciaServicoLinkModal
 				catalogKind={assistenciaLinkCatalogKind}
+				productIds={assistenciaLinkProductIds}
 				open={assistenciaLinkModalOpen}
 				onOpenChange={setAssistenciaLinkModalOpen}
 				onSuccess={() => router.refresh()}

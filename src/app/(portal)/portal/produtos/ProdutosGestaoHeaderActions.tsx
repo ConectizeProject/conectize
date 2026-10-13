@@ -15,7 +15,8 @@ export function ProdutosGestaoHeaderActions () {
         variant="secondary"
         size="sm"
         className="sm:h-9"
-        disabled={disabled}
+        disabled={disabled || Boolean(handlers?.suggestLinksDisabled)}
+        title={handlers?.suggestLinksDisabled ? 'Marque produtos na listagem' : undefined}
         onClick={() => handlers?.openAssistenciaLinks()}
       >
         <Link2 className="mr-1.5 h-3.5 w-3.5" />

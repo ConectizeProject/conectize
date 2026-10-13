@@ -1,7 +1,7 @@
 'use client'
 
 import { memo, useCallback } from 'react'
-import { Barcode, Copy, CopyPlus, Loader2, MoreHorizontal, Tag, Trash2 } from 'lucide-react'
+import { Copy, CopyPlus, Loader2, MoreHorizontal, Tag, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -20,7 +20,13 @@ import {
 	productTableCheckboxColumnWidthPx,
 	type ProductRow,
 } from './product-list-shared'
+import { ProductListBarcodeCell, type ProductBarcodeJob } from './ProductListBarcodeCell'
 import { ProductListNameImageBlock } from './ProductListNameImageBlock'
+import {
+	cancelProductFormPrefetch,
+	prefetchProductForm,
+	scheduleProductFormPrefetch,
+} from './product-form-cache'
 import { QuickCostPriceCell } from './QuickCostPriceCell'
 import { QuickSalePriceCell } from './QuickSalePriceCell'
 
@@ -32,10 +38,8 @@ type Props = {
 	blingHubConnected?: boolean
 	isSyncing: boolean
 	isDuplicating: boolean
-	isBarcodeGenerating: boolean
-	barcodeGeneratingStage: 'updating' | 'syncing' | null
-	optimisticBarcode: string | null
-	onToggleSelect: (id: string, checked: boolean) => void
+	barcodeJob: ProductBarcodeJob | null
+	onToggleSelect: (id: string, checked: boolean, shiftKey?: boolean) => void
 	onRowClick: (product: ProductRow) => void
 	onOpenStock: (product: ProductRow) => void
 	onGenerateBarcode: (id: string) => void
@@ -54,9 +58,7 @@ export const ProductListCard = memo(function ProductListCard({
 	blingHubConnected = false,
 	isSyncing,
 	isDuplicating,
-	isBarcodeGenerating,
-	barcodeGeneratingStage: _barcodeGeneratingStage,
-	optimisticBarcode,
+	barcodeJob,
 	onToggleSelect,
 	onRowClick,
 	onOpenStock,
@@ -74,7 +76,11 @@ export const ProductListCard = memo(function ProductListCard({
 		[onToggleSelect, product.id]
 	)
 
-	const handleCardClick = useCallback(() => {
+	const handleCardClick = useCallback((event?: React.MouseEvent) => {
+		if (event?.shiftKey) {
+			event.preventDefault()
+			return
+		}
 		onRowClick(product)
 	}, [onRowClick, product])
 
@@ -104,69 +110,31 @@ export const ProductListCard = memo(function ProductListCard({
 	}, [])
 
 	const serverBarcode = product.barcode?.trim() || null
-	const displayBarcode = serverBarcode || optimisticBarcode
-
-	const barcodeBlock = (() => {
-		if (displayBarcode && !isBarcodeGenerating) {
-			return (
-				<button
-					type="button"
-					onClick={(e) => {
-						e.stopPropagation()
-						copyToClipboard(displayBarcode)
-					}}
-					className="inline-flex max-w-full min-w-0 cursor-pointer items-center gap-1 rounded border border-border/60 bg-muted/70 px-1.5 py-0.5 text-left font-mono text-xs transition-colors hover:bg-muted"
-					title="Clique para copiar"
-				>
-					<span className="truncate">{displayBarcode}</span>
-					<Copy className="h-3 w-3 shrink-0 text-muted-foreground" />
-				</button>
-			)
-		}
-		if (!product.bling_id) {
-			return <span className="text-muted-foreground">—</span>
-		}
-		if (isBarcodeGenerating) {
-			return (
-				<div
-					className="inline-flex max-w-full min-w-0 items-center gap-2 rounded border border-border/60 bg-muted/70 px-2 py-1"
-					aria-busy="true"
-				>
-					<span className="min-w-0 flex-1 truncate font-mono text-xs tabular-nums">
-						{displayBarcode
-							? displayBarcode
-							: (
-								<span
-									className="inline-block h-4 w-[7.5rem] max-w-full rounded bg-muted-foreground/15 animate-pulse"
-									aria-hidden
-								/>
-							)}
-					</span>
-					<Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" aria-hidden />
-				</div>
-			)
-		}
-		return (
-			<button
-				type="button"
-				onClick={(e) => {
-					e.stopPropagation()
-					onGenerateBarcode(product.id)
-				}}
-				className="inline-flex max-w-full min-w-0 cursor-pointer items-center gap-1 rounded border border-border/60 bg-muted/70 px-1.5 py-0.5 text-left font-mono text-xs transition-colors hover:bg-muted"
-				aria-label="Gerar código de barras"
-			>
-				<Barcode className="h-3 w-3 text-muted-foreground" />
-				<span className="truncate">Gerar</span>
-			</button>
-		)
-	})()
+	const barcodeBlock = (
+		<ProductListBarcodeCell
+			serverBarcode={serverBarcode}
+			job={barcodeJob}
+			onGenerate={() => onGenerateBarcode(product.id)}
+			onCopy={copyToClipboard}
+			textClassName="text-xs"
+		/>
+	)
 
 	return (
 		<div
 			role="button"
 			tabIndex={0}
 			onClick={handleCardClick}
+			onPointerEnter={() => scheduleProductFormPrefetch(product.id)}
+			onPointerLeave={() => cancelProductFormPrefetch(product.id)}
+			onPointerDown={(event) => {
+				if (event.shiftKey && event.button === 0) {
+					event.preventDefault()
+					if (!bulkBusy) onToggleSelect(product.id, true, true)
+					return
+				}
+				prefetchProductForm(product.id)
+			}}
 			onKeyDown={(e) => {
 				if (e.key === 'Enter' || e.key === ' ') {
 					e.preventDefault()
@@ -186,10 +154,21 @@ export const ProductListCard = memo(function ProductListCard({
 					}}
 					onClick={(e) => e.stopPropagation()}
 					onKeyDown={(e) => e.stopPropagation()}
+					onPointerDown={(e) => e.stopPropagation()}
 				>
 					<Checkbox
 						className={productTableCheckboxClass}
 						checked={isSelected}
+						onPointerDown={(event) => {
+							if (!event.shiftKey || event.button !== 0) return
+							event.preventDefault()
+							event.stopPropagation()
+							onToggleSelect(product.id, true, true)
+						}}
+						onClick={(event) => {
+							if (!event.shiftKey) return
+							event.preventDefault()
+						}}
 						onCheckedChange={(c) => handleCheckboxChange(c === true)}
 						aria-label={`Selecionar ${product.name}`}
 						disabled={bulkBusy}
@@ -206,7 +185,12 @@ export const ProductListCard = memo(function ProductListCard({
 						<div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
 							<DropdownMenu modal={false}>
 								<DropdownMenuTrigger asChild>
-									<Button variant="ghost" size="icon" className="h-9 w-9 shrink-0">
+									<Button
+										variant="ghost"
+										size="icon"
+										className="h-9 w-9 shrink-0"
+										onPointerDown={() => prefetchProductForm(product.id)}
+									>
 										<MoreHorizontal className="h-4 w-4" />
 										<span className="sr-only">Abrir ações</span>
 									</Button>
@@ -303,7 +287,7 @@ export const ProductListCard = memo(function ProductListCard({
 									: 'grid grid-cols-1'
 							}
 						>
-							<div className="min-w-0">
+							<div className="min-w-0" onPointerDown={(e) => e.stopPropagation()}>
 								<dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Código de barras</dt>
 								<dd className="mt-0.5 min-w-0">{barcodeBlock}</dd>
 							</div>

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { SlidersHorizontal, X } from 'lucide-react'
+import { Loader2, SlidersHorizontal, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
@@ -177,8 +177,20 @@ export function ProdutosFilterForm ({
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-            <Button type="submit" className="h-10 touch-manipulation px-4" disabled={isSubmitting}>
-              Filtrar
+            <Button
+              type="submit"
+              className="h-10 touch-manipulation px-4"
+              disabled={isSubmitting}
+              aria-busy={isSubmitting || undefined}
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                  Buscando
+                </>
+              ) : (
+                'Filtrar'
+              )}
             </Button>
             <Button
               type="button"

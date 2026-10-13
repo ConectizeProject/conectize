@@ -63,6 +63,7 @@ function buildPatchBody (row: SugestaoVinculoRow): Record<string, unknown> | nul
 type Props = {
   /** Catálogo analisado: produtos físicos ou serviços. */
   catalogKind: 'product' | 'service'
+  productIds: string[]
   open: boolean
   onOpenChange: (open: boolean) => void
   onSuccess: () => void
@@ -70,6 +71,7 @@ type Props = {
 
 export function AssistenciaServicoLinkModal ({
   catalogKind,
+  productIds,
   open,
   onOpenChange,
   onSuccess,
@@ -96,12 +98,10 @@ export function AssistenciaServicoLinkModal ({
       loadingLabel: isProduct ? 'Carregando produtos e sugestões…' : 'Carregando serviços e sugestões…',
       emptyLabel: isProduct
         ? (
-            'Nenhum produto sem tag e sem modelo com sugestão completa (tag + modelo). '
-            + 'Todos os itens ativos do catálogo foram analisados; ajuste nomes, tags ou cadastro de modelos.'
+            'Nenhum dos produtos marcados está sem tag e sem modelo com sugestão completa (tag + modelo).'
           )
         : (
-            'Nenhum serviço sem tag e sem modelo com sugestão completa (tag + modelo). '
-            + 'Todos os itens ativos do catálogo foram analisados; ajuste nomes, tags ou cadastro de modelos.'
+            'Nenhum dos serviços marcados está sem tag e sem modelo com sugestão completa (tag + modelo).'
           ),
       itemNoun: isProduct ? 'produto' : 'serviço',
       kindQuery: isProduct ? 'product' : 'service',
@@ -111,10 +111,14 @@ export function AssistenciaServicoLinkModal ({
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const qs = new URLSearchParams({ kind: catalogKind })
       const res = await fetch(
-        `/api/portal/staff/produtos/servicos-sugestoes-vinculo?${qs.toString()}`,
-        { method: 'GET', cache: 'no-store' },
+        '/api/portal/staff/produtos/servicos-sugestoes-vinculo',
+        {
+          method: 'POST',
+          cache: 'no-store',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ kind: catalogKind, productIds }),
+        },
       )
       const data = await res.json().catch(() => null)
       if (!res.ok || !data?.ok || !Array.isArray(data.items)) {
@@ -134,7 +138,7 @@ export function AssistenciaServicoLinkModal ({
     } finally {
       setLoading(false)
     }
-  }, [catalogKind])
+  }, [catalogKind, productIds])
 
   useEffect(() => {
     if (!open) return

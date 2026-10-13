@@ -1,30 +1,15 @@
 import { NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import { fiscalGtinOrNull } from '@/lib/fiscal/gtin'
 import { getBlingConnectionForCurrentUser } from '@/lib/integrations/bling/api'
+import { generateEan13 } from '@/lib/products/generate-ean13'
 import { getProductById } from '@/lib/products/service'
 import { updateProductAndSyncBling } from '@/lib/products/update-product-with-bling'
 
 type Params = Promise<{ id: string }>
 
-function calculateEAN13Checksum (code12: string) {
-  let sum = 0
-  for (let i = 0; i < 12; i += 1) {
-    const digit = Number(code12[i])
-    sum += i % 2 === 0 ? digit : digit * 3
-  }
-  return (10 - (sum % 10)) % 10
-}
-
-function generateEAN13 () {
-  const prefix = '761'
-  const randomNineDigits = Math.floor(100000000 + Math.random() * 900000000)
-  const baseCode = `${prefix}${randomNineDigits.toString()}`
-  const checksum = calculateEAN13Checksum(baseCode)
-  return `${baseCode}${checksum}`
-}
-
 export async function POST (
-  _request: Request,
+  request: Request,
   { params }: { params: Params },
 ) {
   const { id } = await params
@@ -40,20 +25,26 @@ export async function POST (
 
   const product = productRes.product
   if (product.barcode) {
-    return NextResponse.json({ ok: true, product, syncedToBling: false })
+    return NextResponse.json({ ok: true, product, syncedToBling: false, shouldSyncToBling: false })
   }
 
-  const nextBarcode = generateEAN13()
+  const body = await request.json().catch(() => ({})) as { barcode?: unknown }
+  const requested = fiscalGtinOrNull(body?.barcode)
+  const nextBarcode = requested && requested.length === 13 ? requested : generateEan13()
 
-  const updateRes = await updateProductAndSyncBling(id, { barcode: nextBarcode })
+  const hub = await getBlingConnectionForCurrentUser()
+  const hubConnected = hub.ok === true
+
+  const updateRes = await updateProductAndSyncBling(id, { barcode: nextBarcode }, {
+    preserveBlingSyncState: !hubConnected,
+  })
   if (!updateRes.ok) {
     const error = 'error' in updateRes ? updateRes.error : 'db_error'
     const message = 'message' in updateRes ? updateRes.message : undefined
     return NextResponse.json({ ok: false, error, message }, { status: 400 })
   }
 
-  const hub = await getBlingConnectionForCurrentUser()
-  const shouldSyncToBling = hub.ok === true && Boolean(updateRes.product.blingId)
+  const shouldSyncToBling = hubConnected && Boolean(updateRes.product.blingId)
   return NextResponse.json({
     ok: true,
     product: updateRes.product,
@@ -61,4 +52,3 @@ export async function POST (
     shouldSyncToBling,
   })
 }
-
