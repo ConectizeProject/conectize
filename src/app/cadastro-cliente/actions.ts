@@ -2,6 +2,7 @@
 
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
+import { shouldClaimCustomerFromOsRegistration } from '@/lib/auth/cadastro-cliente-claim'
 import { consumeSignupIp, signupIpFromHeaders } from '@/lib/auth/signup-ip-limit'
 import { stripAutoHostOrganizationMembership } from '@/lib/organizations/strip-auto-host-membership'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
@@ -35,7 +36,7 @@ export async function registerCustomerFromOsLinkAction (formData: FormData) {
 
   const { data: orderRow, error: orderErr } = await svc
     .from('service_orders')
-    .select('id, organization_id')
+    .select('id, organization_id, customer_id')
     .eq('share_token', refOs)
     .maybeSingle()
 
@@ -113,24 +114,27 @@ export async function registerCustomerFromOsLinkAction (formData: FormData) {
     redirect(`/cadastro-cliente?org=${encodeURIComponent(orgSlug)}&ref_os=${encodeURIComponent(refOs)}&error=cadastro_falhou`)
   }
 
-  const cpf = document.length === 11 ? document : null
-  const cnpj = document.length === 14 ? document : null
-
-  const docFilter = cpf ? `cpf.eq.${cpf}` : `cnpj.eq.${cnpj}`
-  const { data: customerMatch } = await svc
-    .from('customers')
-    .select('id, auth_user_id')
-    .eq('organization_id', organizationId)
-    .or(docFilter)
-    .maybeSingle()
-
-  const currentAuth = customerMatch?.auth_user_id ? String(customerMatch.auth_user_id) : ''
-  if (customerMatch?.id && !currentAuth) {
-    await svc
+  const orderCustomerId = orderRow.customer_id ? String(orderRow.customer_id) : null
+  if (orderCustomerId) {
+    const { data: orderCustomer } = await svc
       .from('customers')
-      .update({ auth_user_id: userId })
-      .eq('id', customerMatch.id)
-      .is('auth_user_id', null)
+      .select('id, auth_user_id, cpf, cnpj')
+      .eq('id', orderCustomerId)
+      .eq('organization_id', organizationId)
+      .maybeSingle()
+
+    if (shouldClaimCustomerFromOsRegistration({
+      orderCustomerId,
+      customer: orderCustomer,
+      submittedDocumentDigits: document,
+    })) {
+      await svc
+        .from('customers')
+        .update({ auth_user_id: userId })
+        .eq('id', orderCustomerId)
+        .eq('organization_id', organizationId)
+        .is('auth_user_id', null)
+    }
   }
 
   redirect(`/portal/login?cadastro=cliente&redirectTo=${encodeURIComponent('/portal/complete-profile')}`)
