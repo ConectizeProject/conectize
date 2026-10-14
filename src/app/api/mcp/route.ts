@@ -16,6 +16,23 @@ function unauthorized() {
 	)
 }
 
+function methodNotAllowed() {
+	return Response.json(
+		{
+			jsonrpc: '2.0',
+			error: { code: -32000, message: 'Method not allowed.' },
+			id: null,
+		},
+		{
+			status: 405,
+			headers: {
+				Allow: 'POST, DELETE',
+				'Cache-Control': 'no-store',
+			},
+		},
+	)
+}
+
 async function handle(request: Request) {
 	const actor = await resolveMcpActor(request.headers.get('authorization'))
 	if (!actor) return unauthorized()
@@ -29,8 +46,9 @@ async function handle(request: Request) {
 	return transport.handleRequest(request)
 }
 
-export function GET(request: Request) {
-	return handle(request)
+export function GET() {
+	// Sem stream. Na Vercel o GET fica aberto até o timeout e o cliente derruba a conexão.
+	return methodNotAllowed()
 }
 
 export function POST(request: Request) {

@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from '@/hooks/use-toast'
 import { appConfirm } from '@/lib/ui/app-dialogs'
+import { APEX_HOST, CANONICAL_HOST, CANONICAL_SITE_ORIGIN } from '@/lib/utils/site-url'
 import { cn } from '@/lib/utils'
 
 type McpKeyRow = {
@@ -26,6 +27,18 @@ type McpKeyRow = {
 	last_used_at: string | null
 	revoked_at: string | null
 	user_id: string
+}
+
+function mcpEndpoint(origin: string) {
+	try {
+		const host = new URL(origin).hostname.toLowerCase()
+		if (host === APEX_HOST || host === CANONICAL_HOST) {
+			return `${CANONICAL_SITE_ORIGIN}/api/mcp`
+		}
+	} catch {
+		return ''
+	}
+	return origin ? `${origin}/api/mcp` : ''
 }
 
 function formatWhen(value: string | null) {
@@ -72,7 +85,7 @@ export function McpCursorCard() {
 	}, [loadKeys])
 
 	const hasActiveKey = keys.some((key) => !key.revoked_at)
-	const mcpUrl = `${origin}/api/mcp`
+	const mcpUrl = mcpEndpoint(origin)
 
 	async function handleCreate() {
 		const trimmed = label.trim()
