@@ -22,8 +22,6 @@ import { cn } from '@/lib/utils'
 const TABS = [
   { href: '/portal/vendas', id: 'pedidos', label: 'Pedidos' },
   { href: '/portal/vendas/produtos', id: 'produtos', label: 'Por produtos' },
-  { href: '/portal/vendas/nfce', id: 'nfce', label: 'NFC-e' },
-  { href: '/portal/vendas/nfe', id: 'nfe', label: 'NF-e' },
 ] as const
 
 function activeTab (pathname: string) {
@@ -36,6 +34,7 @@ function activeTab (pathname: string) {
 export function VendasModuleTabs () {
   const pathname = usePathname() || '/portal/vendas'
   const router = useRouter()
+  const isCheckout = pathname === '/portal/vendas/checkout' || pathname.startsWith('/portal/vendas/checkout/')
   const current = activeTab(pathname)
   const [isCreating, setIsCreating] = useState(false)
   const [xmlDialogOpen, setXmlDialogOpen] = useState(false)
@@ -63,27 +62,34 @@ export function VendasModuleTabs () {
     }
   }
 
+  if (isCheckout) return null
+
+  const isFiscalList = current === 'nfe' || current === 'nfce'
+  const pageTitle = current === 'nfe' ? 'NF-e' : current === 'nfce' ? 'NFC-e' : 'Pedidos de Venda'
+
   return (
     <div className='flex flex-wrap items-center justify-between gap-3'>
       <div>
-        <h1 className='text-2xl font-semibold'>Vendas</h1>
-        <nav className='mt-3 inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground' aria-label='Seções de vendas'>
-          {TABS.map((tab) => (
-            <Link
-              key={tab.id}
-              href={tab.href}
-              className={cn(
-                'inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all',
-                current === tab.id
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'hover:text-foreground',
-              )}
-              aria-current={current === tab.id ? 'page' : undefined}
-            >
-              {tab.label}
-            </Link>
-          ))}
-        </nav>
+        <h1 className='text-2xl font-semibold'>{pageTitle}</h1>
+        {isFiscalList ? null : (
+          <nav className='mt-3 inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground' aria-label='Seções de vendas'>
+            {TABS.map((tab) => (
+              <Link
+                key={tab.id}
+                href={tab.href}
+                className={cn(
+                  'inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all',
+                  current === tab.id
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'hover:text-foreground',
+                )}
+                aria-current={current === tab.id ? 'page' : undefined}
+              >
+                {tab.label}
+              </Link>
+            ))}
+          </nav>
+        )}
       </div>
       <div className='flex flex-wrap items-center gap-2'>
         {current === 'nfce' || current === 'nfe' ? (

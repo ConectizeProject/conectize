@@ -54,6 +54,8 @@ type SalesOrderCupomPreviewProps = {
   orderId: string
   autoPrint?: boolean
   className?: string
+  iframeClassName?: string
+  fitContentMax?: number
   onPrintReady?: (print: () => boolean) => void
 }
 
@@ -61,6 +63,8 @@ export function SalesOrderCupomPreview ({
   orderId,
   autoPrint = false,
   className,
+  iframeClassName,
+  fitContentMax,
   onPrintReady,
 }: SalesOrderCupomPreviewProps) {
   return (
@@ -70,6 +74,8 @@ export function SalesOrderCupomPreview ({
       errorMessage='Não foi possível carregar o cupom.'
       autoPrint={autoPrint}
       className={className}
+      iframeClassName={iframeClassName}
+      fitContentMax={fitContentMax}
       onPrintReady={onPrintReady}
     />
   )

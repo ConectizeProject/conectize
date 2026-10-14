@@ -1,6 +1,6 @@
 'use client'
 
-import { Download, ExternalLink, FileCheck2, FileText, Loader2, Printer, Send } from 'lucide-react'
+import { Download, ExternalLink, FileCheck2, FileText, Loader2, MoreHorizontal, Printer, Send } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
@@ -15,10 +15,15 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { toast } from '@/hooks/use-toast'
 import { fiscalEmitFailureMessage } from '@/lib/fiscal/emit-failure-message'
 import { emitSalesOrderFiscalDocument } from '@/lib/fiscal/emit-sales-order-client'
@@ -71,6 +76,7 @@ type SalesOrderAfterSaleDialogProps = {
   saving?: boolean
   error?: string | null
   initialBling?: SalesOrderBlingLinkState | null
+  hasBlingIntegration?: boolean
   onDone?: () => void
 }
 
@@ -105,6 +111,9 @@ export function SalesOrderAfterSaleActions (props: {
   /** Se informado, imprime o iframe embutido em vez de abrir o modal global. */
   onPrintCupom?: () => boolean
   onBlingUpdated?: (state: SalesOrderBlingLinkState) => void
+  /** checkout: preview do PDV, com Imprimir, NFC-e e menu compacto. */
+  layout?: 'default' | 'checkout'
+  hasBlingIntegration?: boolean
 }) {
   const [busyPrint, setBusyPrint] = useState(false)
   const [busyBling, setBusyBling] = useState(false)
@@ -359,8 +368,92 @@ export function SalesOrderAfterSaleActions (props: {
     }
   }
 
+  const isCheckout = props.layout === 'checkout'
+  const nfceLabel = needsFiscalCorrection
+    ? 'Completar NFC-e'
+    : canPrintFiscal
+      ? 'Imprimir NFC-e'
+      : 'Gerar NFC-e'
+  const nfeMenuLabel = needsNfeCorrection
+    ? 'Completar Nota Fiscal'
+    : canPrintNfe
+      ? 'Imprimir Nota Fiscal'
+      : 'Gerar Nota Fiscal'
+  const showBlingAction = Boolean(props.hasBlingIntegration) && canSendBling
+
   return (
-    <div className={props.className || 'flex flex-wrap gap-2'}>
+    <div className={isCheckout ? 'space-y-3' : (props.className || 'flex flex-wrap gap-2')}>
+      {isCheckout ? (
+        <div className='flex w-full items-center gap-2'>
+          <Button
+            type='button'
+            variant='outline'
+            className='h-11 flex-1 px-3'
+            disabled={busyPrint}
+            onClick={() => void handlePrint()}
+          >
+            {busyPrint ? <Loader2 className='h-4 w-4 animate-spin' /> : <Printer className='h-4 w-4' />}
+            Imprimir
+          </Button>
+          {isPaid ? (
+            <Button
+              type='button'
+              variant='outline'
+              className='h-11 flex-1 px-3'
+              disabled={busyNfce}
+              onClick={() => void handleNfce()}
+            >
+              {busyNfce ? <Loader2 className='h-4 w-4 animate-spin' /> : <FileCheck2 className='h-4 w-4' />}
+              {nfceLabel}
+            </Button>
+          ) : null}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type='button'
+                variant='outline'
+                size='icon'
+                className='h-11 w-11 shrink-0'
+                aria-label='Mais ações'
+              >
+                <MoreHorizontal className='h-4 w-4' />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align='end' side='top' className='z-[100]'>
+              {isPaid ? (
+                <DropdownMenuItem
+                  className='gap-2'
+                  disabled={busyNfe}
+                  onSelect={() => void handleNfe()}
+                >
+                  {busyNfe ? <Loader2 className='h-4 w-4 animate-spin' /> : <FileText className='h-4 w-4' />}
+                  {nfeMenuLabel}
+                </DropdownMenuItem>
+              ) : null}
+              {showBlingAction ? (
+                viewUrl ? (
+                  <DropdownMenuItem className='gap-2' asChild>
+                    <a href={viewUrl} target='_blank' rel='noopener noreferrer'>
+                      <ExternalLink className='h-4 w-4' />
+                      {bling.blingNfceId ? 'Ver NFC-e no Bling' : 'Ver pedido no Bling'}
+                    </a>
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem
+                    className='gap-2'
+                    disabled={busyBling || !isPaid}
+                    onSelect={() => void handleSendToBling()}
+                  >
+                    {busyBling ? <Loader2 className='h-4 w-4 animate-spin' /> : <Send className='h-4 w-4' />}
+                    Enviar ao Bling
+                  </DropdownMenuItem>
+                )
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      ) : (
+      <>
       <Button type='button' variant='outline' disabled={busyPrint} onClick={() => void handlePrint()}>
         {busyPrint ? <Loader2 className='h-4 w-4 animate-spin' /> : <Printer className='h-4 w-4' />}
         <span className='ml-2'>Imprimir cupom</span>
@@ -427,6 +520,8 @@ export function SalesOrderAfterSaleActions (props: {
           </Button>
         )
       ) : null}
+      </>
+      )}
       {nfceStatus === 'denied' && nfce.fiscalDocument?.id ? (
         <p className='basis-full text-sm text-destructive'>
           NFC-e denegada.{' '}
@@ -489,6 +584,7 @@ export function SalesOrderAfterSaleDialog ({
   saving = false,
   error = null,
   initialBling,
+  hasBlingIntegration = false,
   onDone,
 }: SalesOrderAfterSaleDialogProps) {
   const [bling, setBling] = useState<SalesOrderBlingLinkState | null>(initialBling ?? null)
@@ -515,7 +611,7 @@ export function SalesOrderAfterSaleDialog ({
     >
       <DialogContent
         aria-describedby={undefined}
-        className='sm:max-w-md'
+        className='sm:max-w-md [&>button]:right-6 [&>button]:top-6'
         onPointerDownOutside={(event) => {
           if (saving) event.preventDefault()
         }}
@@ -523,7 +619,7 @@ export function SalesOrderAfterSaleDialog ({
           if (saving) event.preventDefault()
         }}
       >
-        <DialogHeader>
+        <DialogHeader className='pr-8'>
           <DialogTitle>
             {error
               ? 'Não foi possível finalizar'
@@ -531,79 +627,70 @@ export function SalesOrderAfterSaleDialog ({
                 ? (orderNumber != null ? `Finalizando pedido #${orderNumber}` : 'Finalizando pedido')
                 : `Pedido ${orderNumber != null ? `#${orderNumber}` : ''} finalizado`}
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className={error ? undefined : 'sr-only'}>
             {error
               ? error
-              : saving
-                ? 'Salvando a venda em segundo plano. A impressão fica disponível em instantes.'
-                : 'Imprima o cupom, emita a NFC-e ou a NF-e de venda, ou envie ao Bling quando quiser.'}
+              : 'Pré-visualização do cupom. Imprima, gere a NFC-e ou comece uma nova venda.'}
           </DialogDescription>
         </DialogHeader>
 
         {error ? null : isReady && orderId ? (
           <div className='space-y-3'>
-            <div aria-hidden className='pointer-events-none fixed left-0 top-0 -z-10 h-0 w-0 overflow-hidden'>
-              <SalesOrderCupomPreview
-                orderId={orderId}
-                autoPrint={false}
-                className='h-[800px] w-[420px]'
-                onPrintReady={(print) => {
-                  printRef.current = print
-                }}
-              />
-            </div>
+            <SalesOrderCupomPreview
+              orderId={orderId}
+              autoPrint={false}
+              fitContentMax={420}
+              onPrintReady={(print) => {
+                printRef.current = print
+              }}
+            />
             <SalesOrderAfterSaleActions
               orderId={orderId}
               orderNumber={orderNumber}
               status='paid'
+              layout='checkout'
+              hasBlingIntegration={hasBlingIntegration}
               blingPedidoId={bling?.blingPedidoId}
               blingNfceId={bling?.blingNfceId}
               onPrintCupom={() => Boolean(printRef.current?.())}
               onBlingUpdated={setBling}
             />
             {bling?.nfceError ? (
-              <p className='text-sm text-muted-foreground'>
+              <p className='text-center text-sm text-muted-foreground'>
                 A geração automática da NFC-e não concluiu. Abra o pedido no Bling e gere a nota por lá.
               </p>
             ) : null}
           </div>
-        ) : (
+        ) : error ? null : (
           <div className='space-y-3'>
-            <div className='flex items-center gap-2 text-sm text-muted-foreground'>
-              <Loader2 className='h-4 w-4 shrink-0 animate-spin' />
-              Finalizando venda…
+            <div className='flex h-[280px] w-full items-center justify-center rounded-md border bg-muted/40'>
+              <Loader2 className='h-5 w-5 animate-spin text-muted-foreground' />
             </div>
-            <div className='flex flex-col gap-2 sm:flex-row sm:flex-wrap'>
-              <Button type='button' variant='outline' disabled className='justify-start'>
-                <Loader2 className='h-4 w-4 animate-spin' />
-                <span className='ml-2'>Imprimir cupom</span>
+            <div className='flex w-full items-center gap-2'>
+              <Button type='button' variant='outline' className='h-11 flex-1 px-3' disabled>
+                <Printer className='h-4 w-4' />
+                Imprimir
               </Button>
-              <Button type='button' disabled className='justify-start'>
+              <Button type='button' variant='outline' className='h-11 flex-1 px-3' disabled>
                 <FileCheck2 className='h-4 w-4' />
-                <span className='ml-2'>NFC-e + imprimir cupom fiscal</span>
+                Gerar NFC-e
               </Button>
-              <Button type='button' disabled className='justify-start'>
-                <FileText className='h-4 w-4' />
-                <span className='ml-2'>Gerar NF-e</span>
-              </Button>
-              <Button type='button' disabled className='justify-start'>
-                <Send className='h-4 w-4' />
-                <span className='ml-2'>Enviar ao Bling</span>
+              <Button type='button' variant='outline' size='icon' className='h-11 w-11 shrink-0' disabled aria-label='Mais ações'>
+                <MoreHorizontal className='h-4 w-4' />
               </Button>
             </div>
           </div>
         )}
 
-        <DialogFooter>
-          <Button
-            type='button'
-            variant='secondary'
-            onClick={handleClose}
-            disabled={saving}
-          >
-            {error ? 'Voltar' : 'Nova venda'}
-          </Button>
-        </DialogFooter>
+        <Button
+          type='button'
+          variant={error ? 'secondary' : 'default'}
+          className='h-11 w-full'
+          onClick={handleClose}
+          disabled={saving}
+        >
+          {error ? 'Voltar' : 'Nova venda'}
+        </Button>
       </DialogContent>
     </Dialog>
   )

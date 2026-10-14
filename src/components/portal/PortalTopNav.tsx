@@ -43,7 +43,7 @@ function NavDirectLink ({
 	onNavigate?: () => void
 	className?: string
 }) {
-	const active = isPortalNavItemActive(pathname, item.href)
+	const active = isPortalNavItemActive(pathname, item)
 	return (
 		<Link
 			href={item.href}
@@ -87,7 +87,7 @@ function NavGroupDropdown ({
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="start" className="min-w-48">
 				{group.items.map((item) => {
-					const itemActive = isPortalNavItemActive(pathname, item.href)
+					const itemActive = isPortalNavItemActive(pathname, item)
 					return (
 						<DropdownMenuItem key={item.href} asChild>
 							<Link
@@ -158,7 +158,7 @@ function MobileNav ({
 							</p>
 							<ul className="flex flex-col gap-1">
 								{group.items.map((item) => {
-									const active = isPortalNavItemActive(pathname, item.href)
+									const active = isPortalNavItemActive(pathname, item)
 									return (
 										<li key={item.href}>
 											<Link

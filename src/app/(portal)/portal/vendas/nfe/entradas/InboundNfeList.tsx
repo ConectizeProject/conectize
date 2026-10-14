@@ -57,7 +57,15 @@ function formatDate (value: string | null) {
   return date.toLocaleDateString('pt-BR')
 }
 
-export function InboundNfeList () {
+type InboundNfeListProps = {
+  title?: string
+  showOutboundLink?: boolean
+}
+
+export function InboundNfeList ({
+  title = 'NF-e de entrada',
+  showOutboundLink = true,
+}: InboundNfeListProps) {
   const [documents, setDocuments] = useState<InboundDoc[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
@@ -84,15 +92,17 @@ export function InboundNfeList () {
     <div className='space-y-4'>
       <div className='flex flex-wrap items-center justify-between gap-3'>
         <div>
-          <h2 className='text-lg font-medium'>NF-e de entrada</h2>
+          <h2 className='text-lg font-medium'>{title}</h2>
           <p className='text-sm text-muted-foreground'>
             Produtos novos (XML ou manual) e aparelhos usados.
           </p>
         </div>
         <div className='flex flex-wrap items-center gap-2'>
-          <Link href='/portal/vendas/nfe'>
-            <Button type='button' variant='outline'>Saídas</Button>
-          </Link>
+          {showOutboundLink ? (
+            <Link href='/portal/vendas/nfe'>
+              <Button type='button' variant='outline'>Saídas</Button>
+            </Link>
+          ) : null}
           <Link href='/portal/vendas/nfe/entradas/nova'>
             <Button type='button'>
               <Plus className='mr-1 h-4 w-4' />

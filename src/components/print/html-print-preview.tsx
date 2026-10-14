@@ -27,6 +27,8 @@ type HtmlPrintPreviewProps = {
   autoPrint?: boolean
   className?: string
   iframeClassName?: string
+  /** Ajusta a altura do iframe ao conteúdo, até este limite em px. */
+  fitContentMax?: number
   onPrintReady?: (print: () => boolean) => void
 }
 
@@ -37,6 +39,7 @@ export function HtmlPrintPreview ({
   autoPrint = false,
   className,
   iframeClassName,
+  fitContentMax,
   onPrintReady,
 }: HtmlPrintPreviewProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
@@ -58,6 +61,11 @@ export function HtmlPrintPreview ({
 
   function handleLoad () {
     setIsLoading(false)
+    if (fitContentMax && iframeRef.current?.contentDocument?.body) {
+      const contentHeight = iframeRef.current.contentDocument.body.scrollHeight
+      const next = Math.min(fitContentMax, Math.max(160, contentHeight + 2))
+      iframeRef.current.style.height = `${next}px`
+    }
     if (!autoPrint || autoPrintedRef.current) return
     autoPrintedRef.current = true
     window.setTimeout(() => {

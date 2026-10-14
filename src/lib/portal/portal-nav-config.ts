@@ -1,6 +1,8 @@
 export type PortalNavItem = {
 	href: string
 	label: string
+	/** Rotas que começam com href, mas pertencem a outro item do menu. */
+	excludePrefixes?: string[]
 }
 
 export type PortalNavGroup = {
@@ -26,7 +28,6 @@ function group(label: string, items: PortalNavItem[]): PortalNavGroup {
 export function buildPortalNavConfig({
 	role,
 	isAdmin,
-	hasWhatsappIntegration,
 }: BuildPortalNavParams): PortalNavConfig {
 	const normalizedRole = role === 'customer' ? 'user' : role
 	const isBasicUser = normalizedRole === 'user' || !normalizedRole
@@ -67,36 +68,78 @@ export function buildPortalNavConfig({
 		}
 	}
 
-	const operacoesItems: PortalNavItem[] = [
-		{ href: '/portal/ordens', label: 'Ordens de serviço' },
-		{ href: '/portal/orcamentos', label: 'Orçamentos' },
+	const cadastros: PortalNavItem[] = [
+		{ href: '/portal/produtos', label: 'Produtos e serviços' },
+		{ href: '/portal/mercado-livre', label: 'Anúncios' },
+		{ href: '/portal/clientes', label: 'Clientes' },
 	]
-
-	if (hasWhatsappIntegration) {
-		operacoesItems.push({ href: '/portal/whatsapp', label: 'WhatsApp' })
+	if (!isStaff && isAdmin) {
+		cadastros.push({ href: '/portal/admin/usuarios', label: 'Usuários' })
 	}
+	cadastros.push(
+		{ href: '/portal/revendaaparelhos', label: 'Aparelhos' },
+		{ href: '/portal/fornecedores', label: 'Fornecedores' },
+		{ href: '/portal/notas-fiscais-entrada', label: 'Notas fiscais de entrada' },
+		{ href: '/portal/checkin-recebimento', label: 'Check-in de recebimento' },
+	)
 
 	const groups: PortalNavGroup[] = [
-		group('Operações', operacoesItems),
-		group('Cadastros', [
-			{ href: '/portal/produtos', label: 'Produtos e serviços' },
-			{ href: '/portal/mercado-livre', label: 'Anúncios' },
-			{ href: '/portal/clientes', label: 'Clientes' },
-			{ href: '/portal/revendaaparelhos', label: 'Aparelhos à venda' },
-		]),
 		group('Vendas', [
 			{ href: '/portal/pdv', label: 'Frente de caixa' },
-			{ href: '/portal/vendas', label: 'Vendas' },
+			{ href: '/portal/ordens', label: 'Ordens de serviço' },
+			{ href: '/portal/orcamentos', label: 'Orçamentos' },
+			{
+				href: '/portal/vendas',
+				label: 'Pedidos de Venda',
+				excludePrefixes: [
+					'/portal/vendas/checkout',
+					'/portal/vendas/nfe',
+					'/portal/vendas/nfce',
+				],
+			},
+			{ href: '/portal/vendas/checkout', label: 'Checkout de pedidos' },
+			{ href: '/portal/vendas/nfe', label: 'NF-e' },
+			{ href: '/portal/vendas/nfce', label: 'NFC-e' },
 		]),
+		group('Cadastros', cadastros),
 	]
 
 	if (!isStaff && isAdmin) {
 		groups.push(
-			group('Administração', [
-				{ href: '/portal/admin/usuarios', label: 'Usuários' },
+			group('Financeiro', [
+				{
+					href: '/portal/financeiro',
+					label: 'Gestão Financeira',
+					excludePrefixes: [
+						'/portal/financeiro/dre',
+						'/portal/financeiro/bancos',
+						'/portal/financeiro/comissoes',
+						'/portal/financeiro/formas-pagamento',
+					],
+				},
+				{ href: '/portal/financeiro/dre', label: 'DRE' },
+				{ href: '/portal/financeiro/bancos', label: 'Caixas e Bancos' },
+				{ href: '/portal/financeiro/comissoes', label: 'Comissões' },
+			]),
+		)
+	}
+
+	groups.push(
+		group('Mensagens', [
+			{ href: '/portal/whatsapp', label: 'WhatsApp' },
+			{ href: '/portal/mensagens/perguntas', label: 'Perguntas' },
+			{ href: '/portal/mensagens/vendas', label: 'Mensagens de venda' },
+			{ href: '/portal/mensagens/reclamacoes', label: 'Reclamações' },
+			{ href: '/portal/mensagens/prontas', label: 'Mensagens prontas' },
+		]),
+	)
+
+	if (!isStaff && isAdmin) {
+		groups.push(
+			group('Meu negócio', [
+				{ href: '/portal/meu-negocio/curva-abc', label: 'Curva ABC' },
 				{ href: '/portal/hub', label: 'HUB' },
-				{ href: '/portal/financeiro', label: 'Financeiro' },
-				{ href: '/portal/relatorios/servicos', label: 'Relatórios' },
+				{ href: '/portal/relatorios', label: 'Relatórios' },
 			]),
 		)
 	}
@@ -104,7 +147,11 @@ export function buildPortalNavConfig({
 	return { groups, directLinks: [] }
 }
 
-export function isPortalNavItemActive(pathname: string, href: string): boolean {
+export function isPortalNavItemActive(pathname: string, item: PortalNavItem): boolean {
+	const { href, excludePrefixes } = item
+	if (excludePrefixes?.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) {
+		return false
+	}
 	if (href === '/portal') return pathname === '/portal'
 	if (href === '/portal/dashboard') return pathname === '/portal/dashboard'
 	return pathname === href || pathname.startsWith(`${href}/`)
@@ -114,5 +161,5 @@ export function isPortalNavGroupActive(
 	pathname: string,
 	items: PortalNavItem[],
 ): boolean {
-	return items.some((item) => isPortalNavItemActive(pathname, item.href))
+	return items.some((item) => isPortalNavItemActive(pathname, item))
 }
