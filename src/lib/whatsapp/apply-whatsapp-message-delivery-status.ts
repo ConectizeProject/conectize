@@ -8,38 +8,33 @@ import {
 export async function applyWhatsappMessageDeliveryStatus (opts: {
   supabase: SupabaseClient
   stableWaMessageId: string
-  waMessageId: string
+  /** @deprecated Ignorado: só `stableWaMessageId` (instance:keyId) evita cruzar tenants. */
+  waMessageId?: string
   deliveryStatus: WaDeliveryStatus
 }): Promise<boolean> {
-  const tryIds = [
-    opts.stableWaMessageId,
-    opts.waMessageId,
-  ].filter((id, i, arr) => id && arr.indexOf(id) === i)
+  const waMessageId = String(opts.stableWaMessageId || '').trim()
+  if (!waMessageId || !waMessageId.includes(':')) return false
 
-  for (const waMessageId of tryIds) {
-    const { data: row, error } = await opts.supabase
-      .from('whatsapp_messages')
-      .select('id, direction, payload')
-      .eq('wa_message_id', waMessageId)
-      .maybeSingle()
+  const { data: row, error } = await opts.supabase
+    .from('whatsapp_messages')
+    .select('id, direction, payload')
+    .eq('wa_message_id', waMessageId)
+    .maybeSingle()
 
-    if (error || !row?.id) continue
-    if (row.direction !== 'out') continue
+  if (error || !row?.id) return false
+  if (row.direction !== 'out') return false
 
-    const payload = (row.payload as Record<string, unknown> | null) || {}
-    if (!isWaDeliveryStatusUpgrade(payload.delivery_status, opts.deliveryStatus)) {
-      return true
-    }
-
-    const { error: updErr } = await opts.supabase
-      .from('whatsapp_messages')
-      .update({
-        payload: mergePayloadDeliveryStatus(payload, opts.deliveryStatus),
-      })
-      .eq('id', row.id)
-
-    if (!updErr) return true
+  const payload = (row.payload as Record<string, unknown> | null) || {}
+  if (!isWaDeliveryStatusUpgrade(payload.delivery_status, opts.deliveryStatus)) {
+    return true
   }
 
-  return false
+  const { error: updErr } = await opts.supabase
+    .from('whatsapp_messages')
+    .update({
+      payload: mergePayloadDeliveryStatus(payload, opts.deliveryStatus),
+    })
+    .eq('id', row.id)
+
+  return !updErr
 }

@@ -115,28 +115,25 @@ export async function markEvolutionMessageDeleted (opts: {
 	message: EvolutionMessageDelete
 }): Promise<boolean> {
 	const { supabase, message } = opts
+	const stableId = String(message.stableWaMessageId || '').trim()
+	// Só o id com prefixo da instância (`instance:keyId`). O id cru do Baileys
+	// colide entre tenants; lookup global via service role apagava mensagem alheia.
+	if (!stableId || !stableId.includes(':')) return false
+
 	const now = new Date().toISOString()
+	const { data: row } = await supabase
+		.from('whatsapp_messages')
+		.select('id, deleted_at')
+		.eq('wa_message_id', stableId)
+		.maybeSingle()
 
-	const tryIds = [message.stableWaMessageId, message.waMessageId]
+	if (!row?.id) return false
+	if (row.deleted_at) return true
 
-	for (const waMessageId of tryIds) {
-		const { data: row } = await supabase
-			.from('whatsapp_messages')
-			.select('id, deleted_at')
-			.eq('wa_message_id', waMessageId)
-			.maybeSingle()
+	await supabase
+		.from('whatsapp_messages')
+		.update({ deleted_at: now })
+		.eq('id', row.id)
 
-		if (!row?.id) continue
-
-		if (row.deleted_at) return true
-
-		await supabase
-			.from('whatsapp_messages')
-			.update({ deleted_at: now })
-			.eq('id', row.id)
-
-		return true
-	}
-
-	return false
+	return true
 }
