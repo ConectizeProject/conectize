@@ -2,13 +2,10 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { List, Landmark, CreditCard, Percent } from 'lucide-react'
+import { CreditCard } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const submenuItems = [
-  { href: '/portal/financeiro', label: 'Movimentação', icon: List, exact: true },
-  { href: '/portal/financeiro/comissoes', label: 'Comissões', icon: Percent, exact: false },
-  { href: '/portal/financeiro/bancos', label: 'Carteiras', icon: Landmark, exact: false },
   { href: '/portal/financeiro/formas-pagamento', label: 'Formas de pagamento', icon: CreditCard, exact: false },
 ]
 

@@ -179,6 +179,7 @@ function patchSessionOrderNfce(
 export function PdvClient({
 	sellerName,
 	organizationId = null,
+	hasBlingIntegration = false,
 }: PdvClientProps) {
 	const router = useRouter()
 	const [loadingCash, setLoadingCash] = useState(true)
@@ -951,6 +952,14 @@ export function PdvClient({
 		})
 	}
 
+	function commitProductToCart(product: CatalogProduct) {
+		const added = addProductToCart(product, 1)
+		if (!added) return
+		requestAnimationFrame(() => {
+			document.getElementById('pdv-search')?.focus()
+		})
+	}
+
 	async function handleSearchSubmit() {
 		const code = query.trim()
 		if (!code) return
@@ -960,12 +969,7 @@ export function PdvClient({
 			if (isLikelyBarcode(code)) {
 				const product = await lookupProductByBarcode(code)
 				if (product) {
-					const added = addProductToCart(product, 1)
-					if (added) {
-						requestAnimationFrame(() => {
-							document.getElementById('pdv-search')?.focus()
-						})
-					}
+					commitProductToCart(product)
 					return
 				}
 				toast({
@@ -999,14 +1003,12 @@ export function PdvClient({
 			)
 
 			if (exact) {
-				selectProduct(exact)
-				setSearchResults([])
+				commitProductToCart(exact)
 				return
 			}
 
 			if (products.length === 1) {
-				selectProduct(products[0])
-				setSearchResults([])
+				commitProductToCart(products[0])
 				return
 			}
 
@@ -2273,16 +2275,16 @@ export function PdvClient({
 
 	return (
 		<div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-			<header className="flex shrink-0 items-center justify-between rounded-t-xl border-b bg-primary px-4 py-2 text-primary-foreground">
-				<div className="flex items-center gap-4">
-					<h1 className="text-lg font-semibold">Frente de Caixa</h1>
-					<span className="text-sm opacity-90">Vendedor: {sellerName}</span>
+			<header className="flex shrink-0 flex-col gap-2 rounded-t-xl border-b bg-primary px-3 py-2 text-primary-foreground sm:flex-row sm:items-center sm:justify-between sm:px-4">
+				<div className="flex min-w-0 items-center gap-2 sm:gap-4">
+					<h1 className="shrink-0 text-base font-semibold sm:text-lg">Frente de Caixa</h1>
+					<span className="truncate text-xs opacity-90 sm:text-sm">Vendedor: {sellerName}</span>
 					<span className="hidden text-[11px] opacity-75 lg:inline">
 						F2 busca · F3 qtd · F4 pag. · F5 cliente · F6 finalizar · F7 exato ·
 						F9 nova
 					</span>
 				</div>
-				<div className="flex items-center gap-2">
+				<div className="flex shrink-0 flex-wrap items-center gap-2">
 					<Button
 						variant="secondary"
 						size="sm"
@@ -2354,7 +2356,7 @@ export function PdvClient({
 				}}
 			/>
 
-			<div className="relative grid min-h-0 flex-1 grid-cols-12 gap-0 overflow-hidden rounded-b-xl">
+			<div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-b-xl lg:grid lg:grid-cols-12">
 				{!cashOpen && !loadingCash ? (
 					<div className="absolute inset-0 z-20 flex items-center justify-center bg-background/80 backdrop-blur-[1px]">
 						<div className="mx-4 flex max-w-sm flex-col items-center gap-3 rounded-xl border bg-card px-6 py-8 text-center shadow-sm">
@@ -2370,14 +2372,14 @@ export function PdvClient({
 					</div>
 				) : null}
 				{/* Produto + carrinho + ações da venda */}
-				<div className="col-span-10 flex min-h-0 flex-col overflow-hidden border-r">
-					<div className="grid min-h-0 flex-1 grid-cols-2">
+				<div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:col-span-10 lg:border-r">
+					<div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:grid lg:grid-cols-2 lg:overflow-hidden">
 						{/* Coluna esquerda — abas */}
-						<div className="flex flex-col overflow-hidden border-r">
+						<div className="flex flex-col border-b lg:min-h-0 lg:overflow-hidden lg:border-b-0 lg:border-r">
 							<Tabs
 								value={activeTab}
 								onValueChange={setActiveTab}
-								className="flex flex-1 flex-col overflow-hidden"
+								className="flex flex-col lg:min-h-0 lg:flex-1 lg:overflow-hidden"
 							>
 								<TabsList className="mx-3 mt-3 grid w-auto grid-cols-2">
 									<TabsTrigger value="produto">Produto</TabsTrigger>
@@ -2386,7 +2388,7 @@ export function PdvClient({
 
 								<TabsContent
 									value="produto"
-									className="flex min-h-0 flex-1 flex-col overflow-hidden p-4 data-[state=inactive]:hidden"
+									className="flex flex-col p-3 data-[state=inactive]:hidden sm:p-4 lg:min-h-0 lg:flex-1 lg:overflow-hidden"
 								>
 									<div className="mb-3 shrink-0">
 										<Label className="text-xs text-muted-foreground">
@@ -2401,7 +2403,7 @@ export function PdvClient({
 												Nenhum produto cadastrado
 											</p>
 										) : (
-											<div className="mt-1 grid grid-cols-5 gap-1">
+											<div className="mt-1 flex gap-1 overflow-x-auto pb-1 lg:grid lg:grid-cols-5 lg:overflow-visible lg:pb-0">
 												{topProducts.slice(0, 5).map((product, index) => (
 													<button
 														key={product.id}
@@ -2409,7 +2411,7 @@ export function PdvClient({
 														title={product.name}
 														onClick={() => selectProduct(product)}
 														className={cn(
-															'relative h-16 overflow-hidden rounded-md border text-left hover:opacity-90',
+															'relative h-16 w-28 shrink-0 overflow-hidden rounded-md border text-left hover:opacity-90 lg:w-auto lg:shrink',
 															selectedProduct?.id === product.id &&
 																'border-primary ring-2 ring-primary',
 														)}
@@ -2505,7 +2507,12 @@ export function PdvClient({
 										) : null}
 									</div>
 
-									<div className="mb-3 flex min-h-0 flex-1 flex-col">
+									<div
+										className={cn(
+											'mb-3 flex-col lg:flex lg:h-auto lg:min-h-0 lg:flex-1',
+											selectedProduct ? 'flex h-28' : 'hidden',
+										)}
+									>
 										<ProductPreview product={selectedProduct} />
 									</div>
 
@@ -2588,7 +2595,7 @@ export function PdvClient({
 
 								<TabsContent
 									value="pagamento"
-									className="flex-1 overflow-auto p-4 data-[state=inactive]:hidden"
+									className="p-3 data-[state=inactive]:hidden sm:p-4 lg:flex-1 lg:overflow-auto"
 								>
 									<div className="space-y-3">
 										<div className="grid gap-3 sm:grid-cols-[minmax(10rem,12.5rem)_1fr]">
@@ -2794,7 +2801,7 @@ export function PdvClient({
 						</div>
 
 						{/* Coluna centro — carrinho */}
-						<div className="relative flex min-h-0 flex-col overflow-hidden">
+						<div className="relative flex flex-col border-b lg:min-h-0 lg:overflow-hidden lg:border-b-0">
 							{loadingOrderId ? (
 								<div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-background/80 backdrop-blur-[1px]">
 									<Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -2810,13 +2817,83 @@ export function PdvClient({
 								</h2>
 							</div>
 
-							<div className="min-h-0 flex-1 overflow-auto">
+							<div className="lg:min-h-0 lg:flex-1 lg:overflow-auto">
 								{cart.length === 0 ? (
 									<p className="py-12 text-center text-sm text-muted-foreground">
 										Nenhum item no carrinho
 									</p>
 								) : (
-									<table className="w-full table-fixed text-sm">
+									<>
+									<ul className="divide-y lg:hidden">
+										{cart.map((item) => (
+											<li
+												key={item.lineId}
+												className={cn(
+													'flex items-start gap-2 px-3 py-2',
+													item.lineId === editingCartLineId &&
+														'bg-primary/5',
+												)}
+											>
+												<div className="min-w-0 flex-1">
+													<p className="text-sm font-medium leading-snug">
+														{item.name}
+													</p>
+													<p className="mt-0.5 text-xs tabular-nums text-muted-foreground">
+														{maskedFromCents(item.unitPriceCents)}
+														{' · '}
+														{maskedFromCents(cartLineSubtotalCents(item))}
+													</p>
+													{item.discountCents > 0 ? (
+														<p className="text-[11px] text-muted-foreground">
+															Desc. − {maskedFromCents(item.discountCents)}
+														</p>
+													) : null}
+												</div>
+												<Input
+													type="number"
+													min={1}
+													aria-label={`Quantidade de ${item.name}`}
+													value={item.quantity}
+													onChange={(e) =>
+														updateCartItem(item.lineId, {
+															quantity: Math.max(
+																1,
+																Math.round(Number(e.target.value) || 1),
+															),
+														})
+													}
+													className="h-9 w-14 shrink-0 px-1 text-center text-sm"
+												/>
+												<Button
+													type="button"
+													variant="ghost"
+													size="icon"
+													className="h-9 w-9 shrink-0"
+													onClick={() =>
+														void beginEditCartItem(item.lineId)
+													}
+													aria-label="Editar item"
+												>
+													<Pencil className="h-4 w-4" />
+												</Button>
+												<Button
+													type="button"
+													variant="ghost"
+													size="icon"
+													className="h-9 w-9 shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+													onClick={() => {
+														if (editingCartLineId === item.lineId)
+															cancelCartLineEdit()
+														removeCartItem(item.lineId)
+													}}
+													aria-label="Remover item"
+												>
+													<Trash2 className="h-4 w-4" />
+												</Button>
+											</li>
+										))}
+									</ul>
+									<table className="hidden w-full table-fixed text-sm lg:table">
 										<thead className="sticky top-0 z-10 border-b bg-muted/70">
 											<tr className="text-left text-xs font-medium text-muted-foreground">
 												<th className="px-3 py-2.5">Produto</th>
@@ -2908,10 +2985,11 @@ export function PdvClient({
 											))}
 										</tbody>
 									</table>
+									</>
 								)}
 							</div>
 
-							<div className="shrink-0 space-y-1.5 border-t bg-muted/20 px-4 py-3">
+							<div className="hidden shrink-0 space-y-1.5 border-t bg-muted/20 px-4 py-3 lg:block">
 								{discountTotalCents > 0 || surchargeCents > 0 ? (
 									<>
 										<div className="flex items-center justify-between text-sm text-muted-foreground">
@@ -2956,16 +3034,25 @@ export function PdvClient({
 						</div>
 					</div>
 
-					<div className="flex shrink-0 justify-end gap-2 border-t bg-muted/40 px-4 py-2.5">
-						<Button
-							variant="outline"
-							onClick={() => void cancelCurrentOrder()}
-							disabled={busy || (!currentOrderId && cart.length === 0)}
-						>
-							Excluir venda
-						</Button>
-						<Button
-							onClick={() => finalizeOrder()}
+					<div className="flex shrink-0 flex-col gap-2 border-t bg-muted/40 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-end sm:px-4">
+						<div className="flex items-baseline justify-between sm:mr-auto lg:hidden">
+							<span className="text-sm font-medium">Total</span>
+							<span className="text-xl font-bold tabular-nums text-primary">
+								{maskedFromCents(totalCents)}
+							</span>
+						</div>
+						<div className="flex gap-2">
+							<Button
+								variant="outline"
+								className="min-w-0 flex-1 sm:w-auto sm:flex-none"
+								onClick={() => void cancelCurrentOrder()}
+								disabled={busy || (!currentOrderId && cart.length === 0)}
+							>
+								Excluir venda
+							</Button>
+							<Button
+								className="min-w-0 flex-1 sm:w-auto sm:flex-none"
+								onClick={() => finalizeOrder()}
 							disabled={
 								busy ||
 								afterSaleSaving ||
@@ -2974,16 +3061,17 @@ export function PdvClient({
 								cart.length === 0
 							}
 						>
-							{afterSaleSaving ? (
-								<Loader2 className="mr-2 h-4 w-4 animate-spin" />
-							) : null}
-							Finalizar venda (F6)
-						</Button>
+								{afterSaleSaving ? (
+									<Loader2 className="mr-2 h-4 w-4 animate-spin" />
+								) : null}
+								Finalizar venda (F6)
+							</Button>
+						</div>
 					</div>
 				</div>
 
 				{/* Coluna direita — últimos pedidos */}
-				<div className="col-span-2 flex min-w-0 flex-col overflow-hidden bg-muted/20">
+				<div className="flex max-h-36 shrink-0 flex-col overflow-hidden border-t bg-muted/20 lg:col-span-2 lg:max-h-none lg:min-h-0 lg:border-t-0">
 					<div className={pdvColumnHeaderClass}>
 						<h2 className={pdvColumnTitleClass}>Últimos pedidos</h2>
 					</div>
@@ -3051,6 +3139,15 @@ export function PdvClient({
 													</Button>
 												</DropdownMenuTrigger>
 												<DropdownMenuContent align="end">
+													<DropdownMenuItem
+														onClick={() => {
+															router.push(`/portal/vendas/${order.id}`, {
+																transitionTypes: ['nav-forward'],
+															})
+														}}
+													>
+														Ver venda
+													</DropdownMenuItem>
 													<DropdownMenuItem
 														onClick={() =>
 															void openSalesOrderCupomPrintLazy(order.id)
@@ -3423,6 +3520,7 @@ export function PdvClient({
 				orderNumber={afterSaleOrderNumber}
 				saving={afterSaleSaving}
 				error={afterSaleError}
+				hasBlingIntegration={hasBlingIntegration}
 			/>
 		</div>
 	)

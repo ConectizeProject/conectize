@@ -63,4 +63,5 @@ export type OrderSummary = {
 export type PdvClientProps = {
   sellerName: string
   organizationId?: string | null
+  hasBlingIntegration?: boolean
 }
