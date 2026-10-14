@@ -719,18 +719,20 @@ export async function linkInboundNfeItem (
 
 async function postProductsInbound (auth: AuthCtx, documentId: string, doc: InboundNfeDocumentRow) {
   const items = doc.items || []
-  const unlinked = items.filter((item) => !item.product_id)
-  if (unlinked.length > 0) {
+  const linked = items.filter((item) => item.product_id)
+  if (linked.length === 0) {
     return {
       ok: false as const,
       error: 'unlinked_items' as const,
-      message: `Vincule todos os itens a produtos antes de lançar no estoque (${unlinked.length} pendente(s)).`,
+      message: 'Vincule ao menos um item a um produto para lançar no estoque. Os demais podem ficar sem vínculo.',
     }
   }
 
   const service = createSupabaseServiceClient()
 
   for (const item of items) {
+    // Itens sem cadastro ficam de fora do estoque.
+    if (!item.product_id) continue
     // Retry após falha parcial: não relança itens já vinculados a movimento.
     if (item.stock_movement_id) continue
 
@@ -742,8 +744,6 @@ async function postProductsInbound (auth: AuthCtx, documentId: string, doc: Inbo
         message: `Quantidade inválida no item "${item.description}". Use quantidades inteiras para estoque.`,
       }
     }
-    if (!item.product_id) continue
-
     const { data: kindRow } = await service
       .from('products')
       .select('kind')

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { FileUp, Loader2, Plus, Search, Trash2, Upload } from 'lucide-react'
+import { Barcode, FileUp, Loader2, Plus, Search, Trash2, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/hooks/use-toast'
+import { extractNfeAccessKey } from '@/lib/fiscal/nfe-access-key'
 import { portalFetch } from '@/lib/portal/portal-fetch'
 import { parse3utoolsText } from '@/lib/resale/parse-3utools'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
@@ -123,6 +124,9 @@ export function InboundNfeCreateClient () {
 
   // XML
   const [isImporting, setIsImporting] = useState(false)
+  const [accessKey, setAccessKey] = useState('')
+  const accessKeyLookupRef = useRef(false)
+  const lastAccessKeyLookupRef = useRef('')
 
   // Manual products
   const [issuerName, setIssuerName] = useState('')
@@ -196,6 +200,56 @@ export function InboundNfeCreateClient () {
     { id: 'manual' as const, title: 'Cadastro manual', description: 'Produtos novos sem XML' },
     { id: 'usados' as const, title: 'Usados / aparelhos', description: 'Compra de seminovo de cliente final' },
   ]), [])
+
+  async function lookupByAccessKey (raw: string) {
+    if (accessKeyLookupRef.current || isImporting) return
+    const key = extractNfeAccessKey(raw)
+    if (!key) {
+      toast({
+        title: 'Chave inválida',
+        description: 'Leia o código de barras do DANFE. A chave tem 44 dígitos.',
+        variant: 'destructive',
+      })
+      return
+    }
+    accessKeyLookupRef.current = true
+    setIsImporting(true)
+    try {
+      const res = await portalFetch('/api/portal/fiscal/inbound-nfe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'access_key', access_key: key }),
+      })
+      const data = await res?.json().catch(() => null)
+      if (!data?.ok || !data.document?.id) {
+        toast({
+          title: 'Não foi possível buscar a nota',
+          description: data?.message || data?.error || 'A SEFAZ não devolveu o XML.',
+          variant: 'destructive',
+        })
+        return
+      }
+      toast({ title: 'Nota importada', description: 'Revise os itens e lance no estoque.' })
+      router.push(`/portal/vendas/nfe/entradas/${encodeURIComponent(String(data.document.id))}`)
+    } catch (err) {
+      toast({
+        title: 'Não foi possível buscar a nota',
+        description: err instanceof Error ? err.message : 'Falha ao consultar a SEFAZ.',
+        variant: 'destructive',
+      })
+    } finally {
+      accessKeyLookupRef.current = false
+      setIsImporting(false)
+    }
+  }
+
+  function onAccessKeyChange (value: string) {
+    setAccessKey(value)
+    const key = extractNfeAccessKey(value)
+    if (!key || key === lastAccessKeyLookupRef.current) return
+    lastAccessKeyLookupRef.current = key
+    void lookupByAccessKey(value)
+  }
 
   async function onXmlFile (file: File | null) {
     if (!file || isImporting) return
@@ -396,7 +450,37 @@ export function InboundNfeCreateClient () {
           <CardHeader className='pb-3'>
             <CardTitle className='text-base'>Importar XML do fornecedor</CardTitle>
           </CardHeader>
-          <CardContent className='space-y-3'>
+          <CardContent className='space-y-4'>
+            <form
+              className='flex flex-col gap-2 sm:flex-row sm:items-end'
+              onSubmit={(event) => {
+                event.preventDefault()
+                const field = event.currentTarget.elements.namedItem('access_key')
+                const value = field instanceof HTMLInputElement ? field.value : accessKey
+                void lookupByAccessKey(value)
+              }}
+            >
+              <div className='min-w-0 flex-1 space-y-1'>
+                <Label htmlFor='inbound-nfe-access-key'>Chave de acesso</Label>
+                <Input
+                  id='inbound-nfe-access-key'
+                  name='access_key'
+                  value={accessKey}
+                  onChange={(event) => onAccessKeyChange(event.target.value)}
+                  inputMode='numeric'
+                  autoComplete='off'
+                  placeholder='Leia o código de barras do DANFE'
+                  disabled={isImporting}
+                />
+              </div>
+              <Button type='submit' disabled={isImporting || !accessKey.trim()}>
+                {isImporting ? <Loader2 className='mr-1 h-4 w-4 animate-spin' /> : <Barcode className='mr-1 h-4 w-4' />}
+                {isImporting ? 'Buscando...' : 'Buscar nota'}
+              </Button>
+            </form>
+            <p className='text-sm text-muted-foreground'>
+              O leitor preenche a chave de 44 dígitos. A consulta usa o certificado A1 da loja e importa o XML quando a SEFAZ devolve a nota completa.
+            </p>
             <input
               ref={fileRef}
               type='file'
@@ -408,14 +492,15 @@ export function InboundNfeCreateClient () {
             />
             <Button
               type='button'
+              variant='outline'
               disabled={isImporting}
               onClick={() => fileRef.current?.click()}
             >
               {isImporting ? <Loader2 className='mr-1 h-4 w-4 animate-spin' /> : <Upload className='mr-1 h-4 w-4' />}
-              {isImporting ? 'Importando...' : 'Selecionar XML'}
+              Selecionar XML
             </Button>
             <p className='text-sm text-muted-foreground'>
-              Após importar, você vincula os itens aos produtos e lança o estoque.
+              Depois da importação, você vincula os itens aos produtos e lança o estoque.
             </p>
           </CardContent>
         </Card>

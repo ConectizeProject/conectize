@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import { downloadInboundNfeXmlByAccessKey } from '@/lib/fiscal/download-inbound-nfe-xml'
 import {
   createManualProductsInbound,
   createUsedDevicesInbound,
@@ -7,6 +8,14 @@ import {
   listInboundNfeDocuments,
 } from '@/lib/fiscal/inbound-nfe'
 import { readInboundXmlUpload } from '@/lib/fiscal/parse-inbound-nfe-xml'
+
+function inboundImportStatus (error: string) {
+  if (error === 'duplicate_access_key') return 409
+  if (error === 'not_found') return 404
+  if (error === 'rate_limited') return 429
+  if (error === 'summary_only') return 422
+  return 400
+}
 
 export async function GET () {
   const auth = await requireStaffOrAdmin()
@@ -56,12 +65,11 @@ export async function POST (request: Request) {
     }
     const result = await importInboundNfeXml(auth, xmlContent)
     if (!result.ok) {
-      const status = result.error === 'duplicate_access_key' ? 409 : 400
       return NextResponse.json({
         ok: false,
         error: result.error,
         message: 'message' in result ? result.message : 'Falha ao importar XML.',
-      }, { status })
+      }, { status: inboundImportStatus(result.error) })
     }
     return NextResponse.json({ ok: true, document: result.document })
   }
@@ -72,6 +80,26 @@ export async function POST (request: Request) {
   }
 
   const mode = String(body.mode || body.source_mode || '').trim()
+
+  if (mode === 'access_key') {
+    const downloaded = await downloadInboundNfeXmlByAccessKey(auth, String(body.access_key || ''))
+    if (!downloaded.ok) {
+      return NextResponse.json({
+        ok: false,
+        error: downloaded.error,
+        message: downloaded.message,
+      }, { status: inboundImportStatus(downloaded.error) })
+    }
+    const result = await importInboundNfeXml(auth, downloaded.xml)
+    if (!result.ok) {
+      return NextResponse.json({
+        ok: false,
+        error: result.error,
+        message: 'message' in result ? result.message : 'Falha ao importar XML.',
+      }, { status: inboundImportStatus(result.error) })
+    }
+    return NextResponse.json({ ok: true, document: result.document })
+  }
 
   if (mode === 'xml' || body.xml) {
     const xmlContent = String(body.xml || '')
@@ -84,12 +112,11 @@ export async function POST (request: Request) {
     }
     const result = await importInboundNfeXml(auth, xmlContent)
     if (!result.ok) {
-      const status = result.error === 'duplicate_access_key' ? 409 : 400
       return NextResponse.json({
         ok: false,
         error: result.error,
         message: 'message' in result ? result.message : 'Falha ao importar XML.',
-      }, { status })
+      }, { status: inboundImportStatus(result.error) })
     }
     return NextResponse.json({ ok: true, document: result.document })
   }

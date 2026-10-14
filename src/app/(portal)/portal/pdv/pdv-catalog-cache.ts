@@ -11,6 +11,16 @@ function normalizeSearchText (value: string) {
     .trim()
 }
 
+function matchesSearchToken (token: string, name: string, sku: string, barcode: string) {
+  const isShortNumber = /^\d{1,4}$/.test(token)
+  if (isShortNumber) {
+    const boundary = new RegExp(`(?:^|[^0-9])${token}(?:[^0-9]|$)`)
+    return boundary.test(name) || boundary.test(sku)
+  }
+  if (name.includes(token) || sku.includes(token)) return true
+  return barcode === token || (token.length >= 6 && barcode.includes(token))
+}
+
 function isCatalogProduct (row: unknown): row is CatalogProduct {
   if (!row || typeof row !== 'object') return false
   const product = row as CatalogProduct
@@ -32,7 +42,12 @@ export function scoreCatalogMatch (product: CatalogProduct, query: string) {
   if (barcode.includes(q)) return 60
   if (name.includes(q)) return 50
   if (sku.includes(q)) return 40
-  return 0
+
+  const tokens = q.split(/\s+/).filter((token) => token.length > 0)
+  if (tokens.length < 2) return 0
+  if (!tokens.every((token) => matchesSearchToken(token, name, sku, barcode))) return 0
+  const nameHits = tokens.filter((token) => name.includes(token)).length
+  return 30 + nameHits
 }
 
 export function searchLocalCatalog (products: CatalogProduct[], query: string, limit = 10) {
