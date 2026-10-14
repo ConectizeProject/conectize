@@ -2,11 +2,15 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { PopoverAnchor } from '@radix-ui/react-popover'
 import { CheckCircle2, Link2, Loader2 } from 'lucide-react'
+import { searchLocalCatalog } from '@/app/(portal)/portal/pdv/pdv-catalog-cache'
+import type { CatalogProduct } from '@/app/(portal)/portal/pdv/pdv-types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Popover, PopoverContent } from '@/components/ui/popover'
 import {
   Table,
   TableBody,
@@ -15,19 +19,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { syncCatalogSnapshot } from '@/lib/pdv/sync-catalog-snapshot'
 import { portalFetch } from '@/lib/portal/portal-fetch'
+import { usePortalOrganizationId } from '@/lib/portal/portal-branding-context'
 import { toast } from '@/hooks/use-toast'
 import { appConfirm } from '@/lib/ui/app-dialogs'
 import { maskedFromCents } from '@/lib/utils/money'
 import { revendaPath } from '@/lib/revenda/revenda-paths'
-
-type ProductHit = {
-  id: string
-  name: string
-  sku?: string | null
-  barcode?: string | null
-  hasVariations?: boolean
-}
 
 type InboundItem = {
   id: string
@@ -78,6 +76,87 @@ type Props = {
   documentId: string
 }
 
+function StockProductSearch ({
+  query,
+  hits,
+  isCatalogLoading,
+  disabled,
+  onQueryChange,
+  onPick,
+}: {
+  query: string
+  hits: CatalogProduct[]
+  isCatalogLoading: boolean
+  disabled: boolean
+  onQueryChange: (value: string) => void
+  onPick: (product: CatalogProduct) => void
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const canSearch = query.trim().length >= 2
+
+  return (
+    <Popover open={isOpen && canSearch} onOpenChange={setIsOpen}>
+      <PopoverAnchor asChild>
+        <div className='relative'>
+          <Input
+            value={query}
+            placeholder='Buscar produto...'
+            autoComplete='off'
+            disabled={disabled}
+            onChange={(event) => {
+              onQueryChange(event.target.value)
+              setIsOpen(event.target.value.trim().length >= 2)
+            }}
+            onFocus={() => {
+              if (canSearch) setIsOpen(true)
+            }}
+          />
+          {isCatalogLoading ? (
+            <Loader2 className='absolute right-2 top-2.5 h-4 w-4 animate-spin text-muted-foreground' />
+          ) : (
+            <Link2 className='pointer-events-none absolute right-2 top-2.5 h-4 w-4 text-muted-foreground' />
+          )}
+        </div>
+      </PopoverAnchor>
+      <PopoverContent
+        align='start'
+        sideOffset={4}
+        className='z-50 w-[var(--radix-popover-trigger-width)] min-w-64 p-1'
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        onCloseAutoFocus={(event) => event.preventDefault()}
+      >
+        {isCatalogLoading && hits.length === 0 ? (
+          <p className='px-3 py-2 text-sm text-muted-foreground'>Carregando catálogo...</p>
+        ) : hits.length === 0 ? (
+          <p className='px-3 py-2 text-sm text-muted-foreground'>Nenhum produto encontrado.</p>
+        ) : (
+          <ul className='max-h-64 overflow-auto'>
+            {hits.map((hit) => (
+              <li key={hit.id}>
+                <button
+                  type='button'
+                  className='flex w-full flex-col items-start rounded-sm px-3 py-2 text-left text-sm hover:bg-accent'
+                  disabled={disabled}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    onPick(hit)
+                    setIsOpen(false)
+                  }}
+                >
+                  <span className='font-medium'>{hit.name}</span>
+                  <span className='text-xs text-muted-foreground'>
+                    {[hit.sku, hit.barcode].filter(Boolean).join(' · ') || 'Sem SKU'}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 function formatDate (value: string | null) {
   if (!value) return '—'
   const date = new Date(value)
@@ -86,13 +165,14 @@ function formatDate (value: string | null) {
 }
 
 export function InboundNfeDetail ({ documentId }: Props) {
+  const organizationId = usePortalOrganizationId()
   const [document, setDocument] = useState<InboundDoc | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isPosting, setIsPosting] = useState(false)
   const [linkingItemId, setLinkingItemId] = useState<string | null>(null)
   const [searchByItem, setSearchByItem] = useState<Record<string, string>>({})
-  const [hitsByItem, setHitsByItem] = useState<Record<string, ProductHit[]>>({})
-  const [searchingItemId, setSearchingItemId] = useState<string | null>(null)
+  const [catalog, setCatalog] = useState<CatalogProduct[]>([])
+  const [isCatalogLoading, setIsCatalogLoading] = useState(true)
 
   async function load () {
     setIsLoading(true)
@@ -113,33 +193,42 @@ export function InboundNfeDetail ({ documentId }: Props) {
     void load()
   }, [documentId])
 
+  useEffect(() => {
+    if (!organizationId) {
+      setCatalog([])
+      setIsCatalogLoading(false)
+      return
+    }
+    let cancelled = false
+    setIsCatalogLoading(true)
+    void syncCatalogSnapshot(organizationId, {
+      onProducts: (products) => {
+        if (!cancelled) setCatalog(products)
+      },
+    }).finally(() => {
+      if (!cancelled) setIsCatalogLoading(false)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [organizationId])
+
+  const stockCatalog = useMemo(
+    () => catalog.filter((product) => product.kind !== 'service'),
+    [catalog],
+  )
+
   const items = document?.items || []
   const isUsed = document?.entry_kind === 'used_devices'
   const unlinkedCount = useMemo(
     () => (isUsed ? 0 : items.filter((item) => !item.product_id).length),
     [items, isUsed],
   )
+  const linkedCount = isUsed ? items.length : items.length - unlinkedCount
   const isDraft = document?.status === 'draft'
 
-  async function searchProducts (itemId: string, query: string) {
+  function updateProductSearch (itemId: string, query: string) {
     setSearchByItem((prev) => ({ ...prev, [itemId]: query }))
-    if (query.trim().length < 2) {
-      setHitsByItem((prev) => ({ ...prev, [itemId]: [] }))
-      return
-    }
-    setSearchingItemId(itemId)
-    try {
-      const params = new URLSearchParams({ q: query, kind: 'product' })
-      const res = await portalFetch(`/api/portal/produtos/search?${params.toString()}`)
-      const data = await res?.json().catch(() => null)
-      const list = Array.isArray(data?.items) ? data.items as ProductHit[] : []
-      setHitsByItem((prev) => ({
-        ...prev,
-        [itemId]: list.filter((hit) => !hit.hasVariations),
-      }))
-    } finally {
-      setSearchingItemId((current) => (current === itemId ? null : current))
-    }
   }
 
   async function linkProduct (itemId: string, productId: string | null) {
@@ -164,7 +253,6 @@ export function InboundNfeDetail ({ documentId }: Props) {
         return
       }
       setDocument(data.document as InboundDoc)
-      setHitsByItem((prev) => ({ ...prev, [itemId]: [] }))
       setSearchByItem((prev) => ({ ...prev, [itemId]: '' }))
     } finally {
       setLinkingItemId(null)
@@ -173,19 +261,22 @@ export function InboundNfeDetail ({ documentId }: Props) {
 
   async function postToStock () {
     if (!isDraft || isPosting) return
-    if (!isUsed && unlinkedCount > 0) {
+    if (!isUsed && linkedCount === 0) {
       toast({
-        title: 'Itens sem produto',
-        description: `Vincule os ${unlinkedCount} item(ns) restantes antes de lançar.`,
+        title: 'Nenhum produto vinculado',
+        description: 'Vincule ao menos um item. Os que não estão cadastrados podem ficar de fora.',
         variant: 'destructive',
       })
       return
     }
+    const skippedNote = !isUsed && unlinkedCount > 0
+      ? ` ${linkedCount} ${linkedCount === 1 ? 'item entra' : 'itens entram'} no estoque. ${unlinkedCount} ${unlinkedCount === 1 ? 'fica de fora' : 'ficam de fora'}, sem produto vinculado.`
+      : ''
     const confirmed = await appConfirm({
       title: isUsed ? 'Lançar aparelhos no estoque?' : 'Lançar entrada no estoque?',
       description: isUsed
         ? 'Cada aparelho será cadastrado como seminovo. Se houver forma de pagamento, gera saída financeira.'
-        : 'As quantidades serão somadas ao estoque e o custo dos produtos poderá ser atualizado.',
+        : `As quantidades vinculadas serão somadas ao estoque e o custo desses produtos poderá ser atualizado.${skippedNote}`,
       confirmLabel: isUsed ? 'Lançar usados' : 'Lançar estoque',
     })
     if (!confirmed) return
@@ -210,7 +301,9 @@ export function InboundNfeDetail ({ documentId }: Props) {
         title: 'Entrada lançada',
         description: isUsed
           ? 'Aparelhos cadastrados no estoque de seminovos.'
-          : 'Estoque atualizado com base na NF-e de entrada.',
+          : unlinkedCount > 0
+            ? `${linkedCount} ${linkedCount === 1 ? 'item lançado' : 'itens lançados'}. ${unlinkedCount} ${unlinkedCount === 1 ? 'ficou' : 'ficaram'} sem vínculo.`
+            : 'Estoque atualizado com base na NF-e de entrada.',
       })
     } finally {
       setIsPosting(false)
@@ -269,7 +362,7 @@ export function InboundNfeDetail ({ documentId }: Props) {
             <Button type='button' variant='outline'>Voltar</Button>
           </Link>
           {isDraft ? (
-            <Button type='button' disabled={isPosting || (!isUsed && unlinkedCount > 0)} onClick={() => void postToStock()}>
+            <Button type='button' disabled={isPosting || (!isUsed && linkedCount === 0)} onClick={() => void postToStock()}>
               {isPosting ? <Loader2 className='mr-1 h-4 w-4 animate-spin' /> : <CheckCircle2 className='mr-1 h-4 w-4' />}
               {isUsed ? 'Lançar usados' : 'Lançar no estoque'}
             </Button>
@@ -319,8 +412,8 @@ export function InboundNfeDetail ({ documentId }: Props) {
               {items.map((item) => (
                 <TableRow key={item.id}>
                   <TableCell>{item.line_number}</TableCell>
-                  <TableCell className='max-w-[280px]'>
-                    <p className='truncate font-medium'>{item.description}</p>
+                  <TableCell className='min-w-56 max-w-md whitespace-normal'>
+                    <p className='font-medium break-words'>{item.description}</p>
                     <p className='text-xs text-muted-foreground'>
                       {isUsed
                         ? [
@@ -373,41 +466,14 @@ export function InboundNfeDetail ({ documentId }: Props) {
                         ) : null}
                       </div>
                     ) : isDraft ? (
-                      <div className='space-y-2'>
-                        <div className='relative'>
-                          <Input
-                            value={searchByItem[item.id] || ''}
-                            placeholder='Buscar produto...'
-                            onChange={(event) => {
-                              void searchProducts(item.id, event.target.value)
-                            }}
-                          />
-                          {searchingItemId === item.id ? (
-                            <Loader2 className='absolute right-2 top-2.5 h-4 w-4 animate-spin text-muted-foreground' />
-                          ) : (
-                            <Link2 className='pointer-events-none absolute right-2 top-2.5 h-4 w-4 text-muted-foreground' />
-                          )}
-                        </div>
-                        {(hitsByItem[item.id] || []).length > 0 ? (
-                          <ul className='max-h-40 overflow-auto rounded-md border bg-background'>
-                            {(hitsByItem[item.id] || []).map((hit) => (
-                              <li key={hit.id}>
-                                <button
-                                  type='button'
-                                  className='flex w-full flex-col items-start px-3 py-2 text-left text-sm hover:bg-muted'
-                                  disabled={linkingItemId === item.id}
-                                  onClick={() => void linkProduct(item.id, hit.id)}
-                                >
-                                  <span className='font-medium'>{hit.name}</span>
-                                  <span className='text-xs text-muted-foreground'>
-                                    {[hit.sku, hit.barcode].filter(Boolean).join(' · ') || hit.id}
-                                  </span>
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : null}
-                      </div>
+                      <StockProductSearch
+                        query={searchByItem[item.id] || ''}
+                        hits={searchLocalCatalog(stockCatalog, searchByItem[item.id] || '', 12)}
+                        isCatalogLoading={isCatalogLoading}
+                        disabled={linkingItemId === item.id}
+                        onQueryChange={(value) => updateProductSearch(item.id, value)}
+                        onPick={(product) => void linkProduct(item.id, product.id)}
+                      />
                     ) : (
                       <span className='text-sm text-muted-foreground'>Sem vínculo</span>
                     )}
