@@ -83,7 +83,7 @@ export async function POST (request: Request) {
 
   if (mode === 'access_key') {
     const downloaded = await downloadInboundNfeXmlByAccessKey(auth, String(body.access_key || ''))
-    if (!downloaded.ok) {
+    if (downloaded.ok === false) {
       return NextResponse.json({
         ok: false,
         error: downloaded.error,
@@ -91,7 +91,7 @@ export async function POST (request: Request) {
       }, { status: inboundImportStatus(downloaded.error) })
     }
     const result = await importInboundNfeXml(auth, downloaded.xml)
-    if (!result.ok) {
+    if (result.ok === false) {
       return NextResponse.json({
         ok: false,
         error: result.error,

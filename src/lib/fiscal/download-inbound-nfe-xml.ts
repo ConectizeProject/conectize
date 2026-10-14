@@ -73,7 +73,7 @@ export async function downloadInboundNfeXmlByAccessKey (
 
   const environment = profile.fiscal_environment === 'producao' ? 'producao' : 'homologacao'
   const certificate = await getFiscalCertificateSecret(auth.organizationId)
-  if (!certificate.ok) {
+  if (certificate.ok === false) {
     return {
       ok: false as const,
       error: 'missing_certificate' as const,
@@ -129,7 +129,7 @@ export async function downloadInboundNfeXmlByAccessKey (
   }
 
   const parsed = parseNfeDistDFeResponse(responseXml)
-  if (!parsed.ok) {
+  if (parsed.ok === false) {
     if (parsed.error === 'not_found' && environment === 'homologacao') {
       return {
         ok: false as const,
