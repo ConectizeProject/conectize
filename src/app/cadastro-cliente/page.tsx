@@ -66,14 +66,25 @@ export default async function CadastroClientePage ({
                 {err === 'senhas_nao_conferem' && 'As senhas não conferem. Digite novamente.'}
                 {err === 'google_oauth' && 'Não foi possível iniciar o cadastro com Google. Tente novamente.'}
                 {err === 'documento_invalido' && 'Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido.'}
+                {err === 'documento_nao_confere' &&
+                  'O CPF/CNPJ informado não confere com o cadastro desta ordem de serviço.'}
+                {err === 'cliente_ja_vinculado' &&
+                  'Este cadastro de cliente já está vinculado a outra conta.'}
                 {err === 'config' && 'Serviço indisponível. Tente mais tarde.'}
                 {err === 'cadastro_falhou' &&
                   'Não foi possível finalizar o vínculo com a assistência. Tente novamente em instantes.'}
                 {err === 'limite_ip' && 'Este endereço já criou 3 contas hoje. Tente novamente amanhã.'}
-                {!['os_invalida', 'email_em_uso', 'dados_invalidos', 'senhas_nao_conferem', 'google_oauth', 'documento_invalido', 'config', 'cadastro_falhou', 'limite_ip'].includes(String(err)) &&
+                {!['os_invalida', 'email_em_uso', 'dados_invalidos', 'senhas_nao_conferem', 'google_oauth', 'documento_invalido', 'documento_nao_confere', 'cliente_ja_vinculado', 'config', 'cadastro_falhou', 'limite_ip'].includes(String(err)) &&
                   'Não foi possível concluir o cadastro.'}
               </p>
             ) : null}
+            <div className="space-y-2 mb-4">
+              <Label htmlFor="document">CPF ou CNPJ (somente números)</Label>
+              <Input id="document" name="document" form="cadastro-cliente-form" inputMode="numeric" required maxLength={14} />
+              <p className="text-xs text-muted-foreground">
+                Obrigatório também para cadastrar com Google: precisa ser o mesmo documento da ordem de serviço.
+              </p>
+            </div>
             <div className='mb-4'>
               <CadastroClienteGoogleButton orgSlug={orgSlug} refOs={refOs} />
             </div>
@@ -85,16 +96,12 @@ export default async function CadastroClientePage ({
                 <span className='bg-card px-2 text-muted-foreground'>ou</span>
               </div>
             </div>
-            <form action={registerCustomerFromOsLinkAction} className="space-y-4">
+            <form id="cadastro-cliente-form" action={registerCustomerFromOsLinkAction} className="space-y-4">
               <input type="hidden" name="orgSlug" value={orgSlug} />
               <input type="hidden" name="refOs" value={refOs} />
               <div className="space-y-2">
                 <Label htmlFor="fullName">Nome completo</Label>
                 <Input id="fullName" name="fullName" required />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="document">CPF ou CNPJ (somente números)</Label>
-                <Input id="document" name="document" inputMode="numeric" required maxLength={14} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="email">E-mail</Label>
