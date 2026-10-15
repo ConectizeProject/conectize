@@ -39,4 +39,17 @@ describe('list-display-cost', () => {
       }),
     ).toBe(15000)
   })
+
+  it('custo de listagem pode divergir do cadastro (formulário deve gravar o cadastro)', () => {
+    const cadastroCents = 5000
+    const displayCents = resolveListDisplayCostCents({
+      costPriceCents: cadastroCents,
+      costPriceManualEditedAt: null,
+      lastEntryUnitValueCents: 8000,
+      lastEntryTimeMs: Date.parse('2026-10-01T00:00:00Z'),
+    })
+    expect(displayCents).toBe(8000)
+    expect(displayCents).not.toBe(cadastroCents)
+  })
 })
+

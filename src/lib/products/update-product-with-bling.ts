@@ -6,6 +6,7 @@ import {
   createProductSyncSnapshot,
   type PortalFieldForBling,
 } from '@/lib/products/bling-sync'
+import { shouldStampCostPriceManualEdit } from '@/lib/products/cost-price-manual-stamp'
 import {
   parseVariationAttributeKeys,
   parseVariationAttributeValues,
@@ -220,10 +221,10 @@ export async function updateProductAndSyncBling (
 
   const currentProduct = currentResult.product
   const patch = { ...normalizedPatch.patch }
-  // Qualquer PATCH explícito de custo (portal) deve atualizar `cost_price_manual_edited_at`,
-  // senão `resolveListDisplayCostCents` pode continuar mostrando só a última entrada de estoque
-  // mesmo com o cadastro já igual ao valor exibido (usuário acha que "não salvou").
-  if (patch.costPriceCents !== undefined) {
+  // Só marca edição manual quando o custo de cadastro de fato muda. Reenviar o
+  // mesmo valor (form sempre manda costPrice) não deve travar a listagem no
+  // cadastro nem mascarar uma sobrescrita acidental do custo de exibição.
+  if (shouldStampCostPriceManualEdit(patch.costPriceCents, currentProduct.costPriceCents)) {
     patch.costPriceManuallyEdited = true
   }
 

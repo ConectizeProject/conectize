@@ -8,7 +8,6 @@ import {
   getProductCompatibleModelsForForm,
   type ProductServiceSession,
 } from '@/lib/products/service'
-import { resolveListDisplayCostCents } from '@/lib/products/list-display-cost'
 import { syncProductToBling } from '@/lib/products/update-product-with-bling'
 
 type Params = Promise<{ id: string }>
@@ -29,17 +28,12 @@ export async function GET (
     organizationId: auth.organizationId,
   }
 
-  const [result, lastEntryResult, compat] = await Promise.all([
+  // Custo de cadastro (`cost_price_cents`) intacto: a listagem usa
+  // `resolveListDisplayCostCents` (última entrada), mas o formulário grava
+  // `costPrice` no PATCH e marca edição manual. Substituir aqui apagava o
+  // custo real ao salvar qualquer outro campo.
+  const [result, compat] = await Promise.all([
     getProductByIdWithVariations(id, { session }),
-    auth.supabase
-      .from('product_stock_movements')
-      .select('unit_value_cents, created_at')
-      .eq('product_id', id)
-      .eq('type', 'entry')
-      .gt('unit_value_cents', 0)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
     getProductCompatibleModelsForForm(id, session),
   ])
 
@@ -52,33 +46,11 @@ export async function GET (
     }, { status })
   }
 
-  const lastEntryRow = lastEntryResult.data
-
-  const lastEntry = lastEntryRow as { unit_value_cents?: number; created_at?: string } | null
-  const lastEntryMs =
-    lastEntry?.created_at != null
-      ? new Date(String(lastEntry.created_at)).getTime()
-      : null
-  const lastEntryCents =
-    typeof lastEntry?.unit_value_cents === 'number'
-      ? lastEntry.unit_value_cents
-      : null
-
-  const product = {
-    ...result.product,
-    costPriceCents: resolveListDisplayCostCents({
-      costPriceCents: result.product.costPriceCents,
-      costPriceManualEditedAt: result.product.costPriceManualEditedAt,
-      lastEntryUnitValueCents: lastEntryCents,
-      lastEntryTimeMs: lastEntryMs,
-    }),
-  }
-
   const compatibleModels = compat.ok ? compat.entries : []
 
   return NextResponse.json({
     ok: true,
-    product,
+    product: result.product,
     variations: result.variations,
     compatibleModels,
   })
