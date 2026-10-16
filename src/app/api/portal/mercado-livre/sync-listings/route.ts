@@ -32,6 +32,7 @@ export async function POST() {
 		})
 	} catch (err) {
 		const message = err instanceof Error ? err.message : 'unknown_error'
+		console.error('[meli sync-listings]', message)
 		const isAuthError =
 			message === 'meli_not_connected' ||
 			message === 'meli_user_id_missing_in_connection' ||

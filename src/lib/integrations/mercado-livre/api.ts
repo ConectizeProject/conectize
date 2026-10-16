@@ -41,6 +41,7 @@ type MeliRequestOptions = {
 	path: string
 	query?: Record<string, string | number | boolean | undefined | null>
 	body?: unknown
+	headers?: Record<string, string>
 }
 
 export type MeliUserMe = {
@@ -388,6 +389,7 @@ async function meliRequestJson<T>(
 				...(method === 'GET' || method === 'DELETE'
 					? {}
 					: { 'Content-Type': 'application/json' }),
+				...(options.headers ?? {}),
 			},
 			body:
 				method === 'GET' || method === 'DELETE'
@@ -413,6 +415,88 @@ async function meliRequestJson<T>(
 		throw new Error(getMeliErrorMessage(data, res.status))
 	}
 	return data as T
+}
+
+async function meliRequestBinary (
+	connection: HubConnection,
+	options: MeliRequestOptions,
+	supabase?: SupabaseClient,
+): Promise<{ bytes: Uint8Array, contentType: string | null }> {
+	const supabaseClient = supabase ?? (await createSupabaseServerClient())
+	const current = await refreshMeliTokenIfNeeded(connection, {
+		supabase: supabaseClient,
+	})
+	const token = current.access_token
+	if (!token) throw new Error('meli_access_token_missing')
+
+	async function send (accessToken: string) {
+		const method = options.method || 'GET'
+		const url = new URL(`${MELI_API_BASE_URL}${options.path}`)
+		if (options.query) {
+			for (const [key, value] of Object.entries(options.query)) {
+				if (value === undefined || value === null) continue
+				url.searchParams.set(key, String(value))
+			}
+		}
+
+		return fetch(url.toString(), {
+			method,
+			headers: {
+				Authorization: `Bearer ${accessToken}`,
+				Accept: '*/*',
+				...(options.headers ?? {}),
+			},
+			body:
+				method === 'GET' || method === 'DELETE'
+					? undefined
+					: JSON.stringify(options.body ?? {}),
+		})
+	}
+
+	let res = await send(token)
+	if (res.status === 401 && current.refresh_token) {
+		const forced = await performMeliTokenRefresh(current, {
+			supabase: supabaseClient,
+		})
+		if (forced.ok === true && forced.connection.access_token) {
+			res = await send(forced.connection.access_token)
+		} else if (forced.ok === false) {
+			throw new Error(forced.error)
+		}
+	}
+
+	if (!res.ok) {
+		const data = await res.json().catch(() => null)
+		throw new Error(getMeliErrorMessage(data, res.status))
+	}
+
+	const buffer = await res.arrayBuffer()
+	return {
+		bytes: new Uint8Array(buffer),
+		contentType: res.headers.get('content-type'),
+	}
+}
+
+export async function getMeliShipmentLabelsZpl (
+	connection: HubConnection,
+	shipmentId: string,
+	supabase?: SupabaseClient,
+): Promise<Uint8Array> {
+	const id = String(shipmentId || '').trim()
+	if (!id) throw new Error('meli_shipment_id_missing')
+	const { bytes } = await meliRequestBinary(
+		connection,
+		{
+			path: '/shipment_labels',
+			query: {
+				shipment_ids: id,
+				response_type: 'zpl2',
+			},
+		},
+		supabase,
+	)
+	if (!bytes.length) throw new Error('meli_label_empty')
+	return bytes
 }
 
 export type MeliUserProductDetails = {
@@ -621,6 +705,190 @@ export async function getMeliOrder(
 		{
 			path: `/orders/${id}`,
 		},
+		supabase,
+	)
+}
+
+export type MeliClaimSummary = {
+	id: string
+	status: 'opened' | 'closed' | null
+	type: string | null
+}
+
+function parseMeliClaimsPayload (data: unknown): MeliClaimSummary[] {
+	const rows = Array.isArray((data as { data?: unknown } | null)?.data)
+		? (data as { data: unknown[] }).data
+		: Array.isArray((data as { results?: unknown } | null)?.results)
+			? (data as { results: unknown[] }).results
+			: Array.isArray(data)
+				? data
+				: []
+	return rows
+		.map((row) => {
+			if (!row || typeof row !== 'object' || Array.isArray(row)) return null
+			const claim = row as Record<string, unknown>
+			const statusRaw = String(claim.status || '').trim().toLowerCase()
+			const status = statusRaw === 'opened' || statusRaw === 'closed'
+				? statusRaw
+				: null
+			return {
+				id: String(claim.id || '').trim(),
+				status,
+				type: String(claim.type || '').trim() || null,
+			} satisfies MeliClaimSummary
+		})
+		.filter((claim): claim is MeliClaimSummary => Boolean(claim?.id))
+}
+
+async function searchMeliClaimsByQuery (
+	connection: HubConnection,
+	query: Record<string, string | number>,
+	supabase?: SupabaseClient,
+): Promise<MeliClaimSummary[]> {
+	// Endpoint oficial: /post-purchase/v1/claims/search
+	const primary = await meliRequestJson<{ data?: unknown } | { results?: unknown }>(
+		connection,
+		{
+			path: '/post-purchase/v1/claims/search',
+			query,
+		},
+		supabase,
+	).catch(() => null)
+	const primaryClaims = parseMeliClaimsPayload(primary)
+	if (primaryClaims.length > 0) return primaryClaims
+
+	// Fallback legado (alguns ambientes ainda respondem em /v1).
+	const legacy = await meliRequestJson<{ data?: unknown } | { results?: unknown }>(
+		connection,
+		{
+			path: '/v1/claims/search',
+			query,
+		},
+		supabase,
+	).catch(() => null)
+	return parseMeliClaimsPayload(legacy)
+}
+
+/** Busca reclamações/mediações vinculadas ao pedido (e ao pack, se informado). */
+export async function searchMeliClaimsByOrderId(
+	connection: HubConnection,
+	orderId: string,
+	supabase?: SupabaseClient,
+	options?: { packId?: string | null },
+): Promise<MeliClaimSummary[]> {
+	const id = String(orderId || '').trim()
+	if (!id) return []
+	const byOrder = await searchMeliClaimsByQuery(
+		connection,
+		{ order_id: id, limit: 10 },
+		supabase,
+	)
+	if (byOrder.length > 0) return byOrder
+
+	const packId = String(options?.packId || '').trim()
+	if (!packId || packId === id) return []
+	return searchMeliClaimsByQuery(
+		connection,
+		{ pack_id: packId, limit: 10 },
+		supabase,
+	)
+}
+
+/** Escolhe a reclamação mais relevante para exibir (mediação aberta > mediação fechada > demais). */
+export function pickMeliClaimForDisplay (
+	claims: MeliClaimSummary[],
+): MeliClaimSummary | null {
+	if (!Array.isArray(claims) || claims.length === 0) return null
+	const mediations = claims.filter((item) => item.type === 'mediations')
+	const pool = mediations.length > 0 ? mediations : claims
+	return pool.find((item) => item.status === 'opened')
+		|| pool.find((item) => item.status === 'closed')
+		|| pool[0]
+		|| null
+}
+
+export type MeliOrdersSearchPage = {
+	results?: unknown
+	paging?: {
+		total?: number
+		offset?: number
+		limit?: number
+	}
+}
+
+export async function searchMeliOrdersByCreatedAt(
+	connection: HubConnection,
+	params: {
+		sellerId: string
+		from: string
+		to: string
+		status: string
+		offset: number
+		limit: number
+	},
+	supabase?: SupabaseClient,
+): Promise<MeliOrdersSearchPage> {
+	const sellerId = String(params.sellerId || '').trim()
+	if (!sellerId) throw new Error('meli_user_id_missing')
+	return meliRequestJson<MeliOrdersSearchPage>(
+		connection,
+		{
+			path: '/orders/search',
+			query: {
+				seller: sellerId,
+				'order.date_created.from': params.from,
+				'order.date_created.to': params.to,
+				'order.status': params.status,
+				sort: 'date_desc',
+				offset: params.offset,
+				limit: params.limit,
+			},
+		},
+		supabase,
+	)
+}
+
+export async function getMeliShipment(
+	connection: HubConnection,
+	shipmentId: string,
+	supabase?: SupabaseClient,
+): Promise<Record<string, unknown>> {
+	const id = encodeURIComponent(String(shipmentId).trim())
+	return meliRequestJson<Record<string, unknown>>(
+		connection,
+		{
+			path: `/shipments/${id}`,
+			headers: { 'x-format-new': 'true' },
+		},
+		supabase,
+	)
+}
+
+export async function getMeliShipmentCosts(
+	connection: HubConnection,
+	shipmentId: string,
+	supabase?: SupabaseClient,
+): Promise<Record<string, unknown>> {
+	const id = encodeURIComponent(String(shipmentId).trim())
+	return meliRequestJson<Record<string, unknown>>(
+		connection,
+		{
+			path: `/shipments/${id}/costs`,
+			headers: { 'x-format-new': 'true' },
+		},
+		supabase,
+	)
+}
+
+export async function getMeliShipmentSla(
+	connection: HubConnection,
+	shipmentId: string,
+	supabase?: SupabaseClient,
+): Promise<Record<string, unknown>> {
+	const id = encodeURIComponent(String(shipmentId).trim())
+	return meliRequestJson<Record<string, unknown>>(
+		connection,
+		{ path: `/shipments/${id}/sla` },
 		supabase,
 	)
 }

@@ -13,6 +13,14 @@ describe('meliRefreshTokenErrorToMessage', () => {
     expect(message.toLowerCase()).not.toContain('bling')
   })
 
+  it('explica a falta de permissão de vendas', () => {
+    const message = meliRefreshTokenErrorToMessage(
+      'At least one policy returned UNAUTHORIZED.',
+    )
+    expect(message.toLowerCase()).toContain('vendas e envios')
+    expect(message.toLowerCase()).toContain('reconecte')
+  })
+
   it('maps refresh_failed_http with invalid_grant to Mercado Livre, not Bling', () => {
     const message = meliRefreshTokenErrorToMessage(
       'refresh_failed_http_400: invalid_grant',

@@ -179,3 +179,104 @@ export function allocateOrderShippingToItems (
 ): number[] {
   return allocateOrderFeeToItems(orderShippingCents, itemSubtotalsCents)
 }
+
+/**
+ * Frete compartilhado (carrinho MELI / mesmo envio): o valor costuma vir
+ * repetido em cada pedido do pack. Deduplica por shipment_id (ou pelo máximo
+ * quando não há id) para não somar o mesmo frete várias vezes.
+ */
+export function dedupeSharedShippingCents (entries: Array<{
+  shipmentId?: string | null
+  amountCents: number
+}>): number {
+  const normalized = entries.map((entry) => ({
+    shipmentId: String(entry.shipmentId || '').trim(),
+    amountCents: Math.max(0, Math.trunc(Number(entry.amountCents) || 0)),
+  }))
+  const withShipment = normalized.filter((entry) => entry.shipmentId)
+  if (withShipment.length > 0) {
+    const byShipment = new Map<string, number>()
+    for (const entry of withShipment) {
+      byShipment.set(
+        entry.shipmentId,
+        Math.max(byShipment.get(entry.shipmentId) || 0, entry.amountCents),
+      )
+    }
+    let total = 0
+    for (const amount of byShipment.values()) total += amount
+    return total
+  }
+  return normalized.reduce((max, entry) => Math.max(max, entry.amountCents), 0)
+}
+
+export type PackShippingShare = {
+  shippingGrossCents: number
+  shippingRefundCents: number
+}
+
+/**
+ * Rateia frete/reembolso do pool (pack ou pedido) entre linhas, na proporção
+ * do subtotal. Chave do pool: pack_id quando existir, senão order_id.
+ */
+export function allocateSharedShippingToRows <T extends {
+  id: string
+  subtotalCents: number
+  order: { id: string, mlPackId?: string | null }
+}> (
+  rows: T[],
+  shippingByOrderId: Map<string, {
+    shipmentId?: string | null
+    shippingGrossCents: number
+    shippingRefundCents: number
+  }>,
+): Map<string, PackShippingShare> {
+  const out = new Map<string, PackShippingShare>()
+  if (rows.length === 0) return out
+
+  const pools = new Map<string, T[]>()
+  for (const row of rows) {
+    const packId = String(row.order.mlPackId || '').trim()
+    const key = packId ? `pack:${packId}` : `order:${row.order.id}`
+    const list = pools.get(key)
+    if (list) list.push(row)
+    else pools.set(key, [row])
+  }
+
+  for (const poolRows of pools.values()) {
+    const orderIds = [...new Set(poolRows.map((row) => row.order.id).filter(Boolean))]
+    const entries = orderIds.map((orderId) => {
+      const live = shippingByOrderId.get(orderId)
+      return {
+        shipmentId: live?.shipmentId ?? null,
+        gross: Math.max(0, Math.trunc(Number(live?.shippingGrossCents) || 0)),
+        refund: Math.max(0, Math.trunc(Number(live?.shippingRefundCents) || 0)),
+      }
+    })
+
+    const packGross = dedupeSharedShippingCents(
+      entries.map((entry) => ({
+        shipmentId: entry.shipmentId,
+        amountCents: entry.gross,
+      })),
+    )
+    const packRefund = dedupeSharedShippingCents(
+      entries.map((entry) => ({
+        shipmentId: entry.shipmentId,
+        amountCents: entry.refund,
+      })),
+    )
+
+    const subtotals = poolRows.map((row) => row.subtotalCents)
+    const grossShares = allocateOrderShippingToItems(packGross, subtotals)
+    const refundShares = allocateOrderShippingToItems(packRefund, subtotals)
+
+    poolRows.forEach((row, index) => {
+      out.set(row.id, {
+        shippingGrossCents: grossShares[index] || 0,
+        shippingRefundCents: refundShares[index] || 0,
+      })
+    })
+  }
+
+  return out
+}
