@@ -1,7 +1,11 @@
 import { MELI_PLATFORM_ID } from '@/lib/integrations/mercado-livre/constants'
-import { syncMeliOrderById } from '@/lib/integrations/mercado-livre/order-sync'
+import {
+	syncMeliOrderById,
+	syncMeliShipmentById,
+} from '@/lib/integrations/mercado-livre/order-sync'
 import {
 	isMeliOrdersTopic,
+	isMeliShipmentsTopic,
 	parseMeliWebhook,
 } from '@/lib/integrations/mercado-livre/webhooks'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
@@ -85,20 +89,30 @@ export async function processMeliWebhook(
 	}
 
 	const parsed = parseMeliWebhook(payload)
-	if (!isMeliOrdersTopic(parsed.topic)) {
+	if (!isMeliOrdersTopic(parsed.topic) && !isMeliShipmentsTopic(parsed.topic)) {
 		return markProcessed()
 	}
 
-	const orderId = parsed.orderId
-	if (!orderId) {
-		return markError('meli_order_id_missing_in_resource')
-	}
-
 	try {
+		if (isMeliShipmentsTopic(parsed.topic)) {
+			if (!parsed.shipmentId) {
+				return markError('meli_shipment_id_missing_in_resource')
+			}
+			await syncMeliShipmentById({
+				supabase,
+				organizationId,
+				shipmentId: parsed.shipmentId,
+			})
+			return markProcessed()
+		}
+
+		if (!parsed.orderId) {
+			return markError('meli_order_id_missing_in_resource')
+		}
 		await syncMeliOrderById({
 			supabase,
 			organizationId,
-			orderId,
+			orderId: parsed.orderId,
 		})
 		return markProcessed()
 	} catch (err) {

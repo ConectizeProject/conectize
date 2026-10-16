@@ -17,6 +17,7 @@ import {
 import { createProductSyncSnapshot } from "@/lib/products/bling-sync";
 import { fetchProductHasVariationChildren } from "@/lib/products/parent-has-variations";
 import { isStockMovementEditable } from "@/lib/products/stock-movement-editable";
+import { repriceProductStockEntryUnitValues } from "@/lib/products/reprice-stock-entry-costs";
 import {
 	ensurePortalOrganizationContext,
 	getPortalOrganizationId,
@@ -1238,6 +1239,22 @@ export async function updateProduct(
 
 	if (error || !data) {
 		return { ok: false as const, error: "db_error" as const };
+	}
+
+	if (
+		input.costPriceManuallyEdited === true &&
+		input.costPriceCents !== undefined
+	) {
+		const unitValueCents = normalizeMoney(input.costPriceCents) ?? 0;
+		const repriced = await repriceProductStockEntryUnitValues({
+			supabase: auth.supabase,
+			organizationId: auth.organizationId,
+			productId: id,
+			unitValueCents,
+		});
+		if (!repriced.ok) {
+			console.error("[products] reprice stock entries", repriced.error);
+		}
 	}
 
 	return { ok: true as const, product: mapRowToProduct(data) };

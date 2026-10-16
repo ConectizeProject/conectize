@@ -1,4 +1,7 @@
-import { MELI_ORDERS_TOPIC } from '@/lib/integrations/mercado-livre/constants'
+import {
+	MELI_ORDERS_TOPIC,
+	MELI_SHIPMENTS_TOPIC,
+} from '@/lib/integrations/mercado-livre/constants'
 
 export type MeliWebhookParsed = {
 	topic: string
@@ -6,6 +9,7 @@ export type MeliWebhookParsed = {
 	userId: string | null
 	applicationId: string | null
 	orderId: string | null
+	shipmentId: string | null
 	raw: Record<string, unknown>
 }
 
@@ -34,6 +38,16 @@ export function extractMeliOrderIdFromResource(
 	return match?.[1] ?? null
 }
 
+export function extractMeliShipmentIdFromResource(
+	resource: string | null | undefined,
+): string | null {
+	const raw = String(resource || '').trim()
+	if (!raw) return null
+	const match =
+		raw.match(/\/shipments\/(\d+)/i) || raw.match(/^shipments\/(\d+)/i)
+	return match?.[1] ?? null
+}
+
 export function parseMeliWebhook(payload: unknown): MeliWebhookParsed {
 	const root = asRecord(payload) ?? {}
 	const topic = String(root.topic ?? root.topic_id ?? '').trim()
@@ -48,6 +62,7 @@ export function parseMeliWebhook(payload: unknown): MeliWebhookParsed {
 		userId,
 		applicationId,
 		orderId: extractMeliOrderIdFromResource(resource),
+		shipmentId: extractMeliShipmentIdFromResource(resource),
 		raw: root,
 	}
 }
@@ -57,5 +72,13 @@ export function isMeliOrdersTopic(topic: string): boolean {
 		String(topic || '')
 			.trim()
 			.toLowerCase() === MELI_ORDERS_TOPIC
+	)
+}
+
+export function isMeliShipmentsTopic(topic: string): boolean {
+	return (
+		String(topic || '')
+			.trim()
+			.toLowerCase() === MELI_SHIPMENTS_TOPIC
 	)
 }

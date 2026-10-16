@@ -771,6 +771,7 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
   const [blingEditingId, setBlingEditingId] = useState<string | null>(null)
   const [meliDialogOpen, setMeliDialogOpen] = useState(false)
   const [meliSyncing, setMeliSyncing] = useState(false)
+  const [meliOrdersSyncing, setMeliOrdersSyncing] = useState(false)
   const [infoDialog, setInfoDialog] = useState<Integration | null>(null)
   const [apiKey, setApiKey] = useState('')
   const [selectedModel, setSelectedModel] = useState<string>(chatgptModel)
@@ -1297,6 +1298,43 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
       })
     } finally {
       setMeliSyncing(false)
+    }
+  }
+
+  async function handleSyncMeliOrders () {
+    if (!isAdmin || meliOrdersSyncing || meliSyncing) return
+    setMeliOrdersSyncing(true)
+    try {
+      const res = await fetch('/api/portal/mercado-livre/sync-orders', {
+        method: 'POST',
+        credentials: 'include',
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        toast({
+          title: 'Falha ao sincronizar vendas',
+          description: meliSyncFailureMessage(data),
+          variant: 'destructive',
+        })
+        return
+      }
+      const imported = Number(data.imported || 0)
+      const failed = Number(data.failed || 0)
+      const created = Number(data.created || 0)
+      const verified = Number(data.verified || 0)
+      const failedPart = failed > 0 ? ` ${failed} não puderam ser processados.` : ''
+      const detailPart = imported > 0
+        ? ` ${created} novo(s), ${verified} já existente(s) conferido(s).`
+        : ''
+      toast({
+        variant: 'success',
+        title: 'Vendas sincronizadas',
+        description: imported > 0
+          ? `${imported} pedido(s) dos últimos 60 dias processado(s).${detailPart}${failedPart}`
+          : `Nenhum pedido pago ou cancelado nos últimos 60 dias.${failedPart}`,
+      })
+    } finally {
+      setMeliOrdersSyncing(false)
     }
   }
 
@@ -2433,7 +2471,7 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
                   <Button
                     type="button"
                     size="sm"
-                    disabled={meliSyncing}
+                    disabled={meliSyncing || meliOrdersSyncing}
                     onClick={() => void handleSyncMeliListings()}
                     className="gap-1.5"
                   >
@@ -2445,6 +2483,34 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
                   <Button type="button" size="sm" variant="outline" asChild>
                     <Link href="/portal/mercado-livre" prefetch={false}>
                       Ver anúncios
+                    </Link>
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+            {isAdmin && meliConnections.length > 0 ? (
+              <div className="rounded-md border p-3 space-y-2">
+                <p className="text-sm font-medium">Vendas</p>
+                <p className="text-xs text-muted-foreground">
+                  Busca os pedidos pagos e cancelados dos últimos 60 dias. Se já existirem, só confere se os dados estão corretos.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={meliOrdersSyncing || meliSyncing}
+                    onClick={() => void handleSyncMeliOrders()}
+                    className="gap-1.5"
+                  >
+                    {meliOrdersSyncing
+                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      : <ShoppingCart className="h-3.5 w-3.5" />}
+                    {meliOrdersSyncing ? 'Sincronizando…' : 'Sincronizar vendas'}
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" asChild>
+                    <Link href="/portal/vendas" prefetch={false}>
+                      Ver pedidos
                     </Link>
                   </Button>
                 </div>

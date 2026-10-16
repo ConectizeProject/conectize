@@ -126,3 +126,15 @@ export function resolveFifoUnitCostCents (
   const layers = buildFifoLayers(movements)
   return consumeFifoCost(layers, quantity, productCostCents).unitCostCents
 }
+
+/** Reaplica o custo unitário nas camadas restantes (ordem FIFO intacta). */
+export function repriceFifoLayers (
+  layers: FifoLayer[],
+  unitCostCents: number,
+): FifoLayer[] {
+  const cost = Math.max(0, Math.trunc(Number(unitCostCents) || 0))
+  return layers.map((layer) => ({
+    qty: layer.qty,
+    unitCostCents: cost,
+  }))
+}

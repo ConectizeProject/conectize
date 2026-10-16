@@ -58,7 +58,7 @@ function formatPercent (value: number | null | undefined) {
   return `${value.toFixed(2).replace('.', ',')}%`
 }
 
-function MarginRow ({
+export function MarginRow ({
   icon,
   value,
   valueClassName,
