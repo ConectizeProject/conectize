@@ -113,11 +113,10 @@ export async function persistVirtualProductCostFromComponents (params: {
     .from('products')
     .select('cost_price_cents')
     .eq('id', productId)
-    .maybeSingle()
   const organizationId = String(params.organizationId || '').trim()
   if (organizationId) currentQuery = currentQuery.eq('organization_id', organizationId)
 
-  const { data: current } = await currentQuery
+  const { data: current } = await currentQuery.maybeSingle()
   const stored = Math.round(Number((current as { cost_price_cents?: number | null } | null)?.cost_price_cents) || 0)
   if (stored === costPriceCents) {
     return { ok: true, isVirtual: true, costPriceCents }

@@ -54,6 +54,7 @@ export async function GET (request: NextRequest) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 
+  const staffAuth = auth
   const { searchParams } = new URL(request.url)
   const from = String(searchParams.get('from') || '').trim()
   const to = String(searchParams.get('to') || '').trim()
@@ -69,10 +70,10 @@ export async function GET (request: NextRequest) {
   const { from: rangeFrom, to: rangeTo, pageSize } = vendasListRange(page)
 
   function buildOrdersQuery (columns: string) {
-    let query = auth.supabase
+    let query = staffAuth.supabase
       .from('sales_orders')
       .select(columns, { count: 'exact' })
-      .eq('organization_id', auth.organizationId)
+      .eq('organization_id', staffAuth.organizationId)
       .order('created_at', { ascending: false })
 
     if (paginated) query = query.range(rangeFrom, rangeTo)
@@ -94,7 +95,7 @@ export async function GET (request: NextRequest) {
     const { data: payRows, error: payError } = await auth.supabase
       .from('sales_order_payments')
       .select('sales_order_id')
-      .eq('organization_id', auth.organizationId)
+      .eq('organization_id', staffAuth.organizationId)
       .eq('payment_method_id', paymentMethodId)
       .neq('status', 'canceled')
       .limit(8000)
@@ -168,11 +169,11 @@ export async function GET (request: NextRequest) {
     return next
   }
 
-  function recentMarketplaceQuery () {
-    let next = auth.supabase
+  function recentMarketplaceQuery (columns: string) {
+    let next = staffAuth.supabase
       .from('sales_orders')
-      .select(ORDER_COLUMNS)
-      .eq('organization_id', auth.organizationId)
+      .select(columns)
+      .eq('organization_id', staffAuth.organizationId)
       .eq('status', 'paid')
       .not('ml_order_id', 'is', null)
       .order('created_at', { ascending: false })
@@ -201,7 +202,7 @@ export async function GET (request: NextRequest) {
   if (listed.error && missingFulfillmentColumn(listed.error.message)) {
     classifyLaneInMemory = laneNeedsFulfillment
     listed = laneNeedsFulfillment
-      ? await recentMarketplaceQuery()
+      ? await recentMarketplaceQuery(laneNeedsFulfillment ? FULFILLMENT_COLUMNS : ORDER_COLUMNS)
       : await filteredQuery(ORDER_COLUMNS)
   }
   if (listed.error) {
@@ -210,7 +211,7 @@ export async function GET (request: NextRequest) {
   }
   const { data, count } = listed
 
-  let orders = (data ?? []) as ListedOrder[]
+  let orders = (data ?? []) as unknown as ListedOrder[]
   let total = count ?? orders.length
   orders = await withLiveMeliFulfillment({
     supabase: auth.supabase,
@@ -232,7 +233,7 @@ export async function GET (request: NextRequest) {
       ? auth.supabase
           .from('fiscal_documents')
           .select('id, sales_order_id, status, model')
-          .eq('organization_id', auth.organizationId)
+          .eq('organization_id', staffAuth.organizationId)
           .neq('status', 'canceled')
           .in('sales_order_id', orderIds)
           .order('created_at', { ascending: true })

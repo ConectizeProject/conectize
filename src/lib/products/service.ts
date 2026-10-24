@@ -1267,7 +1267,7 @@ export async function updateProduct(
 			productId: id,
 			unitValueCents,
 		});
-		if (!repriced.ok) {
+		if (repriced.ok === false) {
 			console.error("[products] reprice stock entries", repriced.error);
 		}
 	}

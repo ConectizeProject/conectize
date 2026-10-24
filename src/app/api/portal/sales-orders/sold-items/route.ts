@@ -14,7 +14,7 @@ import {
   allocateSharedShippingToRows,
   computeSoldItemMargin,
 } from '@/lib/vendas/sold-item-margin'
-import { withLiveMeliFulfillment } from '@/lib/integrations/mercado-livre/fulfillment'
+import { withLiveMeliFulfillment, type LiveMeliFulfillmentFields } from '@/lib/integrations/mercado-livre/fulfillment'
 import { withLiveMeliInvoices } from '@/lib/integrations/mercado-livre/api'
 import { matchMeliSaleItem, meliItemPublicUrl, taxCentsFromMargin } from '@/lib/vendas/meli-sale-display'
 import {
@@ -1072,7 +1072,7 @@ export async function GET (request: NextRequest) {
       .map((row) => row.order.id)
       .filter(Boolean),
   )]
-  let liveOrders = saleOrders
+  let liveOrders: Array<(typeof saleOrders)[number] & LiveMeliFulfillmentFields> = saleOrders
   let presentation = {
     marginTaxPercent: 0,
     itemsByOrderId: new Map() as Awaited<ReturnType<typeof loadSalesOrderListPresentation>>['itemsByOrderId'],
