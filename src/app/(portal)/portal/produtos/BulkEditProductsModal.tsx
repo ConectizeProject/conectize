@@ -48,6 +48,7 @@ type BulkMetaItem =
     salePriceCents: number | null
     costPriceCents: number | null
     catalogCostPriceCents: number | null
+    isVirtualStock?: boolean
     pricingTagId: string | null
     deviceModelIds: string[]
     ncm: string | null
@@ -348,6 +349,7 @@ function rowChangedForFields (
   ini: RowValues,
   fields: readonly BulkEditFieldKey[],
   allowDeviceModel: boolean,
+  skipCost = false,
 ): boolean {
   if (hasBulkEditField(fields, 'pricingTagId') && cur.tag !== ini.tag) return true
   if (
@@ -358,7 +360,7 @@ function rowChangedForFields (
     return true
   }
   if (hasBulkEditField(fields, 'salePrice') && cur.saleMasked !== ini.saleMasked) return true
-  if (hasBulkEditField(fields, 'costPrice') && cur.costMasked !== ini.costMasked) return true
+  if (!skipCost && hasBulkEditField(fields, 'costPrice') && cur.costMasked !== ini.costMasked) return true
   if (hasBulkEditField(fields, 'ncm') && cur.ncm !== ini.ncm) return true
   if (hasBulkEditField(fields, 'cest') && cur.cest !== ini.cest) return true
   if (hasBulkEditField(fields, 'fiscalOrigin') && cur.fiscalOrigin !== ini.fiscalOrigin) return true
@@ -386,6 +388,8 @@ function bulkPatchErrorLabel (error: string, message?: string) {
       return 'FCI inválido (formato UUID).'
     case 'fiscalOrigin_invalid':
       return 'Origem fiscal inválida.'
+    case 'virtual_cost_locked':
+      return 'O custo deste produto é a soma da composição virtual e não pode ser alterado.'
     case 'nothing_to_update':
       return 'Nada para atualizar nesta linha.'
     case 'not_found':
@@ -597,10 +601,12 @@ export function BulkEditProductsModal ({
       const a = rowStates[id]
       const b = initialRowStates[id]
       if (!a || !b) continue
-      if (rowChangedForFields(a, b, fields, allowDeviceModel)) return true
+      const item = items.find((row) => row.id === id)
+      const skipCost = Boolean(item && item.missing === false && item.isVirtualStock)
+      if (rowChangedForFields(a, b, fields, allowDeviceModel, skipCost)) return true
     }
     return false
-  }, [rowStates, initialRowStates, fields, allowDeviceModel])
+  }, [rowStates, initialRowStates, fields, allowDeviceModel, items])
 
   const suggestionForItem = useCallback(
     (it: Extract<BulkMetaItem, { missing: false }>, row: RowValues): number | null => {
@@ -696,6 +702,8 @@ export function BulkEditProductsModal ({
     setRowStates((prev) => {
       const next = { ...prev }
       for (const id of Object.keys(next)) {
+        const item = items.find((row) => !row.missing && row.id === id)
+        if (item && item.missing === false && item.isVirtualStock) continue
         next[id] = { ...next[id], costMasked: masked }
       }
       return next
@@ -853,7 +861,9 @@ export function BulkEditProductsModal ({
       const a = effectiveRows[id]
       const b = initialRowStates[id]
       if (!a || !b) continue
-      if (rowChangedForFields(a, b, fields, allowDeviceModel)) {
+      const item = items.find((row) => row.id === id)
+      const skipCost = Boolean(item && item.missing === false && item.isVirtualStock)
+      if (rowChangedForFields(a, b, fields, allowDeviceModel, skipCost)) {
         anyChanged = true
         break
       }
@@ -887,7 +897,7 @@ export function BulkEditProductsModal ({
           return
         }
       }
-      if (showCost) {
+      if (showCost && !it.isVirtualStock) {
         const costParsed = parseMaskedMoneyToCents(cur.costMasked)
         if (costParsed === 'invalid') {
           toast({
@@ -906,7 +916,7 @@ export function BulkEditProductsModal ({
       const cur = effectiveRows[it.id]
       const ini = initialRowStates[it.id]
       if (!cur || !ini) continue
-      if (!rowChangedForFields(cur, ini, fields, allowDeviceModel)) continue
+      if (!rowChangedForFields(cur, ini, fields, allowDeviceModel, Boolean(it.isVirtualStock))) continue
 
       const body: Record<string, unknown> = { productId: it.id }
 
@@ -926,7 +936,7 @@ export function BulkEditProductsModal ({
         }
       }
 
-      if (showCost && cur.costMasked !== ini.costMasked) {
+      if (showCost && cur.costMasked !== ini.costMasked && !it.isVirtualStock) {
         const curCents = parseMaskedMoneyToCents(cur.costMasked)
         if (curCents !== 'invalid') {
           body.costPrice = (curCents === null ? 0 : curCents) / 100
@@ -1510,7 +1520,8 @@ export function BulkEditProductsModal ({
                                   onChange={(e) =>
                                     updateRow(it.id, { costMasked: formatMoneyInput(e.target.value) })}
                                   className="h-9 w-[7.5rem] tabular-nums text-xs"
-                                  disabled={submitting}
+                                  disabled={submitting || Boolean(it.isVirtualStock)}
+                                  title={it.isVirtualStock ? 'Custo calculado pela composição virtual' : undefined}
                                 />
                               </td>
                             ) : null}

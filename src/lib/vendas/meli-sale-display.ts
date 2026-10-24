@@ -308,6 +308,7 @@ export function taxCentsFromMargin (totalCents: number, marginTaxPercent: number
 export type StockMovementSign = {
   productId: string
   salesOrderId: string | null
+  serviceOrderId?: string | null
   type: string
   quantity: number
   createdAt: string
@@ -315,12 +316,16 @@ export type StockMovementSign = {
 
 export function saleExitAt (
   movements: StockMovementSign[],
-  salesOrderId: string,
+  orderId: string,
   productId: string,
+  kind: 'sales' | 'service' = 'sales',
 ): string | null {
   let latest: string | null = null
   for (const movement of movements) {
-    if (movement.salesOrderId !== salesOrderId || movement.productId !== productId) continue
+    const matchesOrder = kind === 'service'
+      ? movement.serviceOrderId === orderId
+      : movement.salesOrderId === orderId
+    if (!matchesOrder || movement.productId !== productId) continue
     if (movement.type !== 'exit') continue
     if (!latest || movement.createdAt > latest) latest = movement.createdAt
   }

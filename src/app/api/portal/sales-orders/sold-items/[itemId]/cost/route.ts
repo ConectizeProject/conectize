@@ -11,6 +11,11 @@ import {
   parseSoldOsItemId,
   recomputeServiceOrderCostTotalCents,
 } from '@/lib/vendas/sold-os-product-lines'
+import {
+  fetchProductHasVirtualStock,
+  persistDependentVirtualKitCosts,
+} from '@/lib/products/virtual-stock-cost'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 type Params = Promise<{ itemId: string }>
 
@@ -21,6 +26,40 @@ function paymentInstallments (metadata: unknown): number {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return 1
   const n = Number((metadata as { installments?: unknown }).installments)
   return Number.isFinite(n) && n >= 1 ? Math.round(n) : 1
+}
+
+async function applyCatalogCostFromSale (params: {
+  supabase: SupabaseClient
+  organizationId: string
+  productId: string
+  unitCostCents: number
+}): Promise<{ ok: true } | { ok: false, error: 'product_update_failed' }> {
+  const isVirtual = await fetchProductHasVirtualStock({
+    supabase: params.supabase,
+    organizationId: params.organizationId,
+    productId: params.productId,
+  })
+  if (isVirtual) {
+    return { ok: true }
+  }
+  const { error: updProductErr } = await params.supabase
+    .from('products')
+    .update({
+      cost_price_cents: params.unitCostCents,
+      cost_price_manual_edited_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('organization_id', params.organizationId)
+    .eq('id', params.productId)
+  if (updProductErr) {
+    return { ok: false, error: 'product_update_failed' }
+  }
+  await persistDependentVirtualKitCosts({
+    supabase: params.supabase,
+    organizationId: params.organizationId,
+    componentProductId: params.productId,
+  })
+  return { ok: true }
 }
 
 function allocateProportion (
@@ -163,18 +202,14 @@ export async function PATCH (
     }
 
     if (scope === 'sale_and_product') {
-      const { error: updProductErr } = await auth.supabase
-        .from('products')
-        .update({
-          cost_price_cents: unitCostCents,
-          cost_price_manual_edited_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq('organization_id', auth.organizationId)
-        .eq('id', productId)
-
-      if (updProductErr) {
-        return NextResponse.json({ ok: false, error: 'product_update_failed' }, { status: 500 })
+      const applied = await applyCatalogCostFromSale({
+        supabase: auth.supabase,
+        organizationId: auth.organizationId,
+        productId,
+        unitCostCents,
+      })
+      if (applied.ok === false) {
+        return NextResponse.json({ ok: false, error: applied.error }, { status: 500 })
       }
     }
 
@@ -361,18 +396,14 @@ export async function PATCH (
   }
 
   if (scope === 'sale_and_product') {
-    const { error: updProductErr } = await auth.supabase
-      .from('products')
-      .update({
-        cost_price_cents: unitCostCents,
-        cost_price_manual_edited_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('organization_id', auth.organizationId)
-      .eq('id', productId)
-
-    if (updProductErr) {
-      return NextResponse.json({ ok: false, error: 'product_update_failed' }, { status: 500 })
+    const applied = await applyCatalogCostFromSale({
+      supabase: auth.supabase,
+      organizationId: auth.organizationId,
+      productId,
+      unitCostCents,
+    })
+    if (applied.ok === false) {
+      return NextResponse.json({ ok: false, error: applied.error }, { status: 500 })
     }
   }
 

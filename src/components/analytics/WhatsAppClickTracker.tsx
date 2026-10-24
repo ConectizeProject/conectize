@@ -1,17 +1,8 @@
 'use client'
 
 import { useEffect } from 'react'
-
-type GtagFn = (
-	command: 'event' | 'config' | 'js' | 'set',
-	...args: unknown[]
-) => void
-
-declare global {
-	interface Window {
-		gtag?: GtagFn
-	}
-}
+import { trackWhatsAppClick } from '@/lib/analytics/loja-conversions'
+import { ensureWhatsAppOriginText } from '@/lib/data/business'
 
 const WHATSAPP_ANCHOR_SELECTOR =
 	'a[href*="wa.me"], a[href*="api.whatsapp.com"], a[href*="whatsapp.com/send"]'
@@ -32,13 +23,11 @@ function isWhatsAppHref (href: string) {
 
 /**
  * Listener único (delegação) para cliques em links de WhatsApp no site inteiro.
- * Dispara os mesmos eventos GA4 usados na /loja, sem preventDefault.
+ * Dispara só whatsapp_click, sem preventDefault.
  */
 export function WhatsAppClickTracker () {
 	useEffect(() => {
 		function handleClick (event: MouseEvent) {
-			if (typeof window.gtag !== 'function') return
-
 			const target = event.target
 			if (!(target instanceof Element)) return
 
@@ -46,29 +35,12 @@ export function WhatsAppClickTracker () {
 			if (!(anchor instanceof HTMLAnchorElement)) return
 			if (!isWhatsAppHref(anchor.href)) return
 
-			const event_category = location.pathname.startsWith('/loja')
-				? 'loja'
-				: 'site'
-			const event_label = anchor.dataset.placement?.trim() || 'conteudo'
-			const link_url = anchor.href
-			const page_path = location.pathname
+			const nextHref = ensureWhatsAppOriginText(anchor.href, location.pathname)
+			if (nextHref !== anchor.href) anchor.href = nextHref
 
-			window.gtag('event', 'conversion_event_outbound_click', {
-				event_category,
-				event_label,
-				link_url,
-				page_path,
-				event_timeout: 2000,
-			})
-			window.gtag('event', 'whatsapp_click', {
-				event_category,
-				event_label,
-				link_url,
-				page_path,
-			})
-			window.gtag('event', 'clique_whatsapp', {
-				link_url,
-				page_path,
+			trackWhatsAppClick({
+				page_path: location.pathname,
+				link_url: anchor.href,
 			})
 		}
 

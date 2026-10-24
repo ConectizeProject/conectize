@@ -470,6 +470,10 @@ export async function getServiceOrderNfeState (auth: AuthCtx, orderId: string) {
   return getExistingFiscalDocument(auth, orderId, '55', 'service')
 }
 
+export async function getServiceOrderNfceState (auth: AuthCtx, orderId: string) {
+  return getExistingFiscalDocument(auth, orderId, '65', 'service')
+}
+
 export async function emitNfceForSalesOrder (auth: AuthCtx, orderId: string) {
   return emitFiscalDocumentForSalesOrder(auth, orderId, '65')
 }
@@ -480,6 +484,10 @@ export async function emitNfeForSalesOrder (auth: AuthCtx, orderId: string) {
 
 export async function emitNfeForServiceOrder (auth: AuthCtx, orderId: string) {
   return emitFiscalDocument(auth, { serviceOrderId: orderId }, '55')
+}
+
+export async function emitNfceForServiceOrder (auth: AuthCtx, orderId: string) {
+  return emitFiscalDocument(auth, { serviceOrderId: orderId }, '65')
 }
 
 export async function emitFiscalDocumentForSalesOrder (
@@ -666,6 +674,7 @@ async function emitFiscalDocument (
       operationNature,
       series: numbering.series,
       number: numbering.number,
+      model,
     })
     : await buildNfceFromSalesOrder({
       supabase: auth.supabase,

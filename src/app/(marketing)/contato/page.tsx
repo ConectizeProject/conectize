@@ -51,7 +51,7 @@ export default function ContatoPage () {
               </div>
               <div>
                 <p className="font-bold text-foreground mb-1">WhatsApp</p>
-                <a href={business.whatsappUrl} target="_blank" rel="noopener noreferrer" className="text-foreground hover:text-primary-accessible transition-colors text-lg">
+                <a href={buildWhatsAppUrl()} target="_blank" rel="noopener noreferrer" className="text-foreground hover:text-primary-accessible transition-colors text-lg">
                   {business.phoneDisplay}
                 </a>
               </div>

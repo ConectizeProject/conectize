@@ -553,14 +553,29 @@ export async function processBlingWebhook (
         const manual = (costRow as { cost_price_manual_edited_at?: string | null } | null)
           ?.cost_price_manual_edited_at
         if (!manual) {
-          const { error: costUpErr } = await supabase
-            .from('products')
-            .update({
-              cost_price_cents: effect.costPriceCents,
-              updated_at: new Date().toISOString(),
+          const { fetchProductHasVirtualStock, persistDependentVirtualKitCosts } = await import(
+            '@/lib/products/virtual-stock-cost'
+          )
+          const isVirtual = await fetchProductHasVirtualStock({
+            supabase,
+            organizationId,
+            productId: productUuid,
+          })
+          if (!isVirtual) {
+            const { error: costUpErr } = await supabase
+              .from('products')
+              .update({
+                cost_price_cents: effect.costPriceCents,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', productUuid)
+            if (costUpErr) throw costUpErr
+            await persistDependentVirtualKitCosts({
+              supabase,
+              organizationId,
+              componentProductId: productUuid,
             })
-            .eq('id', productUuid)
-          if (costUpErr) throw costUpErr
+          }
         }
       }
     }

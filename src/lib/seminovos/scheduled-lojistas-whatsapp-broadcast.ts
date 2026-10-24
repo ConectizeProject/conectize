@@ -95,7 +95,7 @@ export async function runSeminovosLojistasWhatsappBroadcast (
     }
   }
 
-  const devices = await fetchSeminovosDevices(supabase, {
+  const { devices } = await fetchSeminovosDevices(supabase, {
     q: '',
     condition: '',
     storageGb: '',

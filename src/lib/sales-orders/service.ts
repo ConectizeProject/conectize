@@ -394,6 +394,17 @@ async function loadFifoStateForProducts (
     )
   }
 
+  const { resolveVirtualKitCostCentsByProductId } = await import('@/lib/products/virtual-stock-cost')
+  const virtualCosts = await resolveVirtualKitCostCentsByProductId({
+    supabase: auth.supabase,
+    organizationId: auth.organizationId,
+    productIds: uniqueIds,
+  })
+  for (const [productId, cents] of virtualCosts) {
+    fallbackCostByProduct.set(productId, Math.max(0, cents))
+    catalogPrevailsByProduct.set(productId, true)
+  }
+
   for (const productId of uniqueIds) {
     if (!fallbackCostByProduct.has(productId)) {
       const lastEntry = lastEntryByProduct.get(productId)
@@ -457,13 +468,36 @@ async function applySalesOrderStockExits (
   if (!skipLocal.ok) return { ok: false as const, error: 'db_error' as const }
   if (skipLocal.skip) return { ok: true as const }
 
+  const {
+    collectVirtualKitProductIds,
+    expandStockItemsThroughComponents,
+    loadProductStockComponents,
+    salesOrderComponentStockExternalReference,
+  } = await import('@/lib/products/virtual-stock')
+
+  const componentsByProductId = await loadProductStockComponents({
+    supabase: auth.supabase,
+    organizationId: auth.organizationId,
+    productIds: items.map((item) => item.product_id),
+  })
+  const kitProductIds = collectVirtualKitProductIds(componentsByProductId)
+
+  // Kits virtuais: baixa nos componentes. Produtos simples: fluxo normal.
+  const expandedItems = expandStockItemsThroughComponents({
+    items,
+    componentsByProductId,
+  })
+
   const stockless = await loadStocklessProductIds(
     auth,
-    items.map((item) => item.product_id),
+    [
+      ...expandedItems.map((item) => item.product_id),
+      ...kitProductIds,
+    ],
   )
   if (!stockless.ok) return { ok: false as const, error: 'db_error' as const }
 
-  const stockableItems = items.filter(
+  const stockableItems = expandedItems.filter(
     (item) => !stockless.stocklessIds.has(item.product_id),
   )
   const fifoState = await loadFifoStateForProducts(
@@ -481,9 +515,12 @@ async function applySalesOrderStockExits (
     creditByProduct.set(productId, Math.max(0, row.net_exit))
   }
 
-  for (const item of items) {
+  // Custo do kit = soma FIFO dos componentes consumidos nesta linha.
+  const kitCostAccumulator = new Map<string, { totalCents: number, units: number }>()
+
+  for (const item of expandedItems) {
     if (stockless.stocklessIds.has(item.product_id)) continue
-    const itemId = String(item.id || '')
+    const itemId = String(item.id || item.sourceItemId || '')
     if (!itemId) return { ok: false as const, error: 'db_error' as const }
     const quantity = toInt(item.quantity, 1)
     const productId = item.product_id
@@ -493,7 +530,10 @@ async function applySalesOrderStockExits (
     if (decision.skip) continue
 
     const exitQuantity = decision.exitQuantity
-    const baseRef = salesOrderItemStockExternalReference(orderId, itemId)
+    const isComponentExit = Boolean(item.kitProductId)
+    const baseRef = isComponentExit
+      ? salesOrderComponentStockExternalReference(orderId, itemId, productId)
+      : salesOrderItemStockExternalReference(orderId, itemId)
     const { data: existingExit, error: existingError } = await auth.supabase
       .from('product_stock_movements')
       .select('id')
@@ -507,7 +547,7 @@ async function applySalesOrderStockExits (
     // Saída base ainda no histórico após estorno: usa ciclo (fora do unique da base).
     // Shortfall parcial (crédito < qty) também usa ciclo se a base já existe.
     const ref = existingExit?.id
-      ? salesOrderItemStockExitCycleExternalReference(orderId, itemId)
+      ? `${baseRef}:cycle:${Date.now()}`
       : baseRef
 
     const layers = fifoState.layersByProduct.get(productId) ?? []
@@ -516,6 +556,36 @@ async function applySalesOrderStockExits (
     fifoState.layersByProduct.set(productId, consumed.layers)
     const unitCost = consumed.unitCostCents
 
+    if (!isComponentExit) {
+      const { error: costUpdError } = await auth.supabase
+        .from('sales_order_items')
+        .update({ unit_cost_cents: unitCost })
+        .eq('organization_id', auth.organizationId)
+        .eq('id', itemId)
+        .eq('sales_order_id', orderId)
+      if (costUpdError) return { ok: false as const, error: 'db_error' as const }
+    } else {
+      const acc = kitCostAccumulator.get(itemId) ?? { totalCents: 0, units: 0 }
+      acc.totalCents += unitCost * exitQuantity
+      // units do kit = qty da linha original (não a qty expandida do componente)
+      const sourceItem = items.find((row) => String(row.id || '') === itemId)
+      acc.units = Math.max(1, toInt(sourceItem?.quantity, 1))
+      kitCostAccumulator.set(itemId, acc)
+    }
+
+    const inserted = await insertSalesOrderStockMovement(auth, {
+      orderId,
+      productId,
+      type: 'exit',
+      quantity: exitQuantity,
+      unitValueCents: unitCost,
+      externalReference: ref,
+    })
+    if (!inserted.ok) return { ok: false as const, error: 'stock_apply_failed' as const }
+  }
+
+  for (const [itemId, acc] of kitCostAccumulator) {
+    const unitCost = Math.max(0, Math.round(acc.totalCents / Math.max(1, acc.units)))
     const { error: costUpdError } = await auth.supabase
       .from('sales_order_items')
       .update({ unit_cost_cents: unitCost })
@@ -523,10 +593,43 @@ async function applySalesOrderStockExits (
       .eq('id', itemId)
       .eq('sales_order_id', orderId)
     if (costUpdError) return { ok: false as const, error: 'db_error' as const }
+  }
+
+  // Histórico no SKU agrupador: a baixa física já saiu nos componentes.
+  for (const item of items) {
+    if (!kitProductIds.includes(item.product_id)) continue
+    if (stockless.stocklessIds.has(item.product_id)) continue
+    const itemId = String(item.id || '')
+    if (!itemId) return { ok: false as const, error: 'db_error' as const }
+    const quantity = toInt(item.quantity, 1)
+    const credit = creditByProduct.get(item.product_id) ?? 0
+    const decision = consumeSalesOrderStockExitCredit(quantity, credit)
+    creditByProduct.set(item.product_id, decision.nextCredit)
+    if (decision.skip) continue
+
+    const exitQuantity = decision.exitQuantity
+    const acc = kitCostAccumulator.get(itemId)
+    const unitCost = acc
+      ? Math.max(0, Math.round(acc.totalCents / Math.max(1, acc.units)))
+      : toInt(item.unit_cost_cents, 0)
+    const baseRef = salesOrderItemStockExternalReference(orderId, itemId)
+    const { data: existingExit, error: existingError } = await auth.supabase
+      .from('product_stock_movements')
+      .select('id')
+      .eq('organization_id', auth.organizationId)
+      .eq('source', 'sales_order')
+      .eq('type', 'exit')
+      .eq('external_reference', baseRef)
+      .maybeSingle()
+    if (existingError) return { ok: false as const, error: 'stock_apply_failed' as const }
+
+    const ref = existingExit?.id
+      ? `${baseRef}:cycle:${Date.now()}`
+      : baseRef
 
     const inserted = await insertSalesOrderStockMovement(auth, {
       orderId,
-      productId,
+      productId: item.product_id,
       type: 'exit',
       quantity: exitQuantity,
       unitValueCents: unitCost,

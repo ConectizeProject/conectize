@@ -24,7 +24,11 @@ import {
 } from '@/components/ui/dialog'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { portalFetch } from '@/lib/portal/portal-fetch'
-import { emitSalesOrderFiscalDocument } from '@/lib/fiscal/emit-sales-order-client'
+import {
+  emitSalesOrderFiscalDocument,
+  emitServiceOrderNfce,
+  emitServiceOrderNfe,
+} from '@/lib/fiscal/emit-sales-order-client'
 import { printPngBase64 } from '@/lib/vendas/print-label-image'
 import { formatMoneyInput, maskedFromCents, moneyToCentsFromMasked } from '@/lib/utils/money'
 import { toast } from '@/hooks/use-toast'
@@ -45,7 +49,7 @@ import {
   type SalesOrderListLine,
   type SalesOrderListRowData,
 } from '@/app/(portal)/portal/vendas/SalesOrderListRow'
-import { groupSoldItemsByCart } from '@/lib/vendas/group-sold-items-by-cart'
+import { groupSoldItemsByCart, mergeSameProductLines } from '@/lib/vendas/group-sold-items-by-cart'
 import {
   SalesOrdersCardListSkeleton,
   VendasListLoadingOverlay,
@@ -100,6 +104,12 @@ type SoldItem = {
     stockAfterSale?: number | null
     nfeStatus?: string | null
     nfeDocumentId?: string | null
+    nfceStatus?: string | null
+    nfceDocumentId?: string | null
+    hasFinancePosted?: boolean
+    hasStockPosted?: boolean
+    meliNfeAuthorized?: boolean | null
+    meliNfeId?: string | null
     mlItemId?: string | null
     mlItemUrl?: string | null
     shipmentId?: string | null
@@ -123,6 +133,57 @@ function nfeStatus (value: string | null | undefined): SalesOrderListRowData['nf
     || value === 'denied'
   ) return value
   return null
+}
+
+function mergeSoldItemDuplicates (kept: SoldItem, extra: SoldItem): SoldItem {
+  const quantity = kept.quantity + extra.quantity
+  const subtotalCents = kept.subtotalCents + extra.subtotalCents
+  const revenueCents = kept.margin.revenueCents + extra.margin.revenueCents
+  const contributionMarginCents =
+    kept.margin.contributionMarginCents + extra.margin.contributionMarginCents
+  const feeByLabel = new Map<string, number>()
+  for (const detail of [...kept.margin.feeDetails, ...extra.margin.feeDetails]) {
+    const label = String(detail.label || '').trim() || 'Tarifa'
+    feeByLabel.set(label, (feeByLabel.get(label) || 0) + Math.max(0, Number(detail.amountCents) || 0))
+  }
+  return {
+    ...kept,
+    quantity,
+    subtotalCents,
+    margin: {
+      ...kept.margin,
+      revenueCents,
+      shippingCents: kept.margin.shippingCents + extra.margin.shippingCents,
+      feeCents: kept.margin.feeCents + extra.margin.feeCents,
+      feeDetails: [...feeByLabel.entries()].map(([label, amountCents]) => ({
+        label,
+        amountCents,
+      })),
+      costTotalCents: kept.margin.costTotalCents + extra.margin.costTotalCents,
+      grossProfitCents: kept.margin.grossProfitCents + extra.margin.grossProfitCents,
+      taxCents: kept.margin.taxCents + extra.margin.taxCents,
+      contributionMarginCents,
+      contributionMarginPercent: revenueCents > 0
+        ? (contributionMarginCents / revenueCents) * 100
+        : null,
+      canEditCost: kept.margin.canEditCost || extra.margin.canEditCost,
+    },
+    card: kept.card || extra.card
+      ? {
+        ...extra.card,
+        ...kept.card,
+        shippingGrossCents: (Number(kept.card?.shippingGrossCents) || 0)
+          + (Number(extra.card?.shippingGrossCents) || 0),
+        shippingRefundCents: (Number(kept.card?.shippingRefundCents) || 0)
+          + (Number(extra.card?.shippingRefundCents) || 0),
+        saleFeeCents: (Number(kept.card?.saleFeeCents) || 0)
+          + (Number(extra.card?.saleFeeCents) || 0),
+        taxCents: (Number(kept.card?.taxCents) || 0) + (Number(extra.card?.taxCents) || 0),
+        costTotalCents: (Number(kept.card?.costTotalCents) || 0)
+          + (Number(extra.card?.costTotalCents) || 0),
+      }
+      : kept.card,
+  }
 }
 
 function productCardOrder (item: SoldItem): SalesOrderListRowData {
@@ -156,9 +217,14 @@ function productCardOrder (item: SoldItem): SalesOrderListRowData {
     tax_cents: card?.taxCents ?? item.margin.taxCents,
     nfe_status: nfeStatus(card?.nfeStatus),
     nfe_document_id: card?.nfeDocumentId ?? null,
+    nfce_status: nfeStatus(card?.nfceStatus),
+    nfce_document_id: card?.nfceDocumentId ?? null,
+    has_finance_posted: card?.hasFinancePosted === true,
+    has_stock_posted: card?.hasStockPosted === true,
+    meli_nfe_authorized: card?.meliNfeAuthorized === true,
     title: item.order.label || null,
     status_label: card?.statusLabel ?? null,
-    allow_nfe: card?.allowNfe !== false && item.source !== 'service_order',
+    allow_nfe: card?.allowNfe !== false,
     items: [{
       product_id: item.productId,
       name: item.productName,
@@ -412,9 +478,12 @@ export function SoldProductsList () {
       const marketplaceDigits = nextMarketplace.replace(/\D/g, '')
       if (marketplaceDigits) params.set('ml_order', marketplaceDigits)
       const res = await portalFetch(`/api/portal/sales-orders/sold-items?${params.toString()}`)
+      if (!res) {
+        throw new Error('Não foi possível carregar os produtos vendidos.')
+      }
       const data = await res.json().catch(() => null)
       if (!res.ok || !data?.ok) {
-        throw new Error(data?.error || 'Não foi possível carregar os produtos vendidos.')
+        throw new Error(data?.message || data?.error || 'Não foi possível carregar os produtos vendidos.')
       }
       setItems(Array.isArray(data.items) ? (data.items as SoldItem[]) : [])
       setTotal(typeof data.total === 'number' ? data.total : 0)
@@ -705,15 +774,21 @@ export function SoldProductsList () {
   }
 
   async function emitNfe (item: SoldItem) {
-    if (!item.order.id || item.source === 'service_order') return
+    if (!item.order.id) return
     setBusyOrderId(item.order.id)
     try {
-      const result = await emitSalesOrderFiscalDocument({
-        orderId: item.order.id,
-        model: '55',
-        paid: true,
-        navigate: (href) => router.push(href),
-      })
+      const result = item.source === 'service_order'
+        ? await emitServiceOrderNfe({
+          orderId: item.order.id,
+          displayNumber: item.order.orderNumber,
+          navigate: (href) => router.push(href),
+        })
+        : await emitSalesOrderFiscalDocument({
+          orderId: item.order.id,
+          model: '55',
+          paid: true,
+          navigate: (href) => router.push(href),
+        })
       const nextDocument = result.fiscalDocument
       if (nextDocument?.id) {
         setItems((prev) => prev.map((row) => (
@@ -724,6 +799,42 @@ export function SoldProductsList () {
                 ...row.card,
                 nfeStatus: nextDocument.status || row.card?.nfeStatus,
                 nfeDocumentId: nextDocument.id,
+              },
+            }
+            : row
+        )))
+      }
+    } finally {
+      setBusyOrderId(null)
+    }
+  }
+
+  async function emitNfce (item: SoldItem) {
+    if (!item.order.id) return
+    setBusyOrderId(item.order.id)
+    try {
+      const result = item.source === 'service_order'
+        ? await emitServiceOrderNfce({
+          orderId: item.order.id,
+          displayNumber: item.order.orderNumber,
+          navigate: (href) => router.push(href),
+        })
+        : await emitSalesOrderFiscalDocument({
+          orderId: item.order.id,
+          model: '65',
+          paid: true,
+          navigate: (href) => router.push(href),
+        })
+      const nextDocument = result.fiscalDocument
+      if (nextDocument?.id) {
+        setItems((prev) => prev.map((row) => (
+          row.order.id === item.order.id
+            ? {
+              ...row,
+              card: {
+                ...row.card,
+                nfceStatus: nextDocument.status || row.card?.nfceStatus,
+                nfceDocumentId: nextDocument.id,
               },
             }
             : row
@@ -810,7 +921,10 @@ export function SoldProductsList () {
           ) : (
             <TooltipProvider>
               {groupSoldItemsByCart(items).map((group, groupIndex, groups) => {
-                const lines: SalesOrderListLine[] = group.map((item) => {
+                const lines: SalesOrderListLine[] = mergeSameProductLines(
+                  group,
+                  mergeSoldItemDuplicates,
+                ).map((item) => {
                   const orderHref =
                     item.order.href
                     || (item.source === 'service_order' && item.order.orderNumber > 0
@@ -832,11 +946,23 @@ export function SoldProductsList () {
                     },
                     onViewNfe: () => {
                       const documentId = item.card?.nfeDocumentId
-                      if (!documentId) return
-                      router.push(`/portal/vendas/nfe/${encodeURIComponent(documentId)}`)
+                      if (documentId) {
+                        router.push(`/portal/vendas/nfe/${encodeURIComponent(documentId)}`)
+                        return
+                      }
+                      if (item.card?.meliNfeAuthorized && item.order.id) {
+                        window.open(
+                          `/api/portal/sales-orders/${encodeURIComponent(item.order.id)}/meli-nfe?format=danfe`,
+                          '_blank',
+                          'noopener,noreferrer',
+                        )
+                      }
                     },
                     onSendNfe: () => {
                       void sendToBling(item)
+                    },
+                    onEmitNfce: () => {
+                      void emitNfce(item)
                     },
                     onEditCost: item.margin.canEditCost
                       ? () => openCostEditor(item)

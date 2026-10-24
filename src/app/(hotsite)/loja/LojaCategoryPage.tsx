@@ -53,6 +53,12 @@ export type LojaCategoryHighlight = {
 	title: string
 	description: string
 	icon: HighlightIcon
+	featured?: boolean
+}
+
+export type LojaCategoryCallout = {
+	title: string
+	icon?: HighlightIcon
 }
 
 export type LojaCategoryFaq = {
@@ -89,6 +95,8 @@ type LojaCategoryPageProps = {
 	heroImage?: LojaHeroImage
 	afterHero?: ReactNode
 	heroAction?: ReactNode
+	heroCallouts?: readonly LojaCategoryCallout[]
+	reviewsAfterHero?: boolean
 }
 
 export function lojaCategoryMetadata (input: {
@@ -130,6 +138,8 @@ export function LojaCategoryPage ({
 	heroImage,
 	afterHero,
 	heroAction,
+	heroCallouts,
+	reviewsAfterHero = false,
 }: LojaCategoryPageProps) {
 	const href = whatsappLink(whatsappMessage)
 	const hasModels = Boolean(models?.length)
@@ -151,6 +161,21 @@ export function LojaCategoryPage ({
 				<span className={styles.heroLine}>{heroTitle}</span>
 			</h1>
 			<p className={styles.lead}>{heroSubtitle}</p>
+			{heroCallouts?.length ? (
+				<ul className={styles.heroCallouts}>
+					{heroCallouts.map((item) => {
+						const Icon: LucideIcon | undefined = item.icon
+							? highlightIcons[item.icon]
+							: undefined
+						return (
+							<li key={item.title}>
+								{Icon ? <Icon className="h-4 w-4" aria-hidden="true" /> : null}
+								{item.title}
+							</li>
+						)
+					})}
+				</ul>
+			) : null}
 			<div className={styles.actions}>
 				<LojaWhatsAppLink
 					className={styles.ctaWhatsapp}
@@ -216,10 +241,17 @@ export function LojaCategoryPage ({
 					{afterHero}
 				</div>
 
+				{reviewsAfterHero ? (
+					<LojaReviews
+						testimonials={testimonials}
+						className={heroImage ? styles.reviewsAfterHero : undefined}
+					/>
+				) : null}
+
 				{hasModels ? (
 					<section
 						id="modelos"
-						className={heroImage && !afterHero ? `${styles.section} ${styles.sectionCover}` : heroImage ? `${styles.section} ${styles.sectionAlt}` : styles.section}
+						className={heroImage && !afterHero && !reviewsAfterHero ? `${styles.section} ${styles.sectionCover}` : heroImage ? `${styles.section} ${styles.sectionAlt}` : styles.section}
 						aria-labelledby="modelos-titulo"
 					>
 						<div className={styles.wrap}>
@@ -253,7 +285,9 @@ export function LojaCategoryPage ({
 								return (
 									<article
 										key={item.title}
-										className={`${styles.card} ${styles.highlight}`}
+										className={item.featured
+											? `${styles.card} ${styles.highlight} ${styles.highlightFeatured}`
+											: `${styles.card} ${styles.highlight}`}
 									>
 										<div className={styles.icon}>
 											<Icon className="h-5 w-5" aria-hidden="true" />
@@ -267,7 +301,7 @@ export function LojaCategoryPage ({
 					</div>
 				</section>
 
-				<LojaReviews testimonials={testimonials} />
+				{reviewsAfterHero ? null : <LojaReviews testimonials={testimonials} />}
 
 				<LojaStoreSection
 					streetAddress={lojaCategoryAddress.streetAddress}

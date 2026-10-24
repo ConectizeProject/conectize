@@ -4,14 +4,15 @@ import {
 	lojaIndependentAnswer,
 	lojaPickupAnswer,
 	lojaTestimonials,
+	lojaWhatsAppMessages,
 } from '@/lib/data/hotsite-loja'
 import { LojaCategoryPage, lojaCategoryMetadata } from '../LojaCategoryPage'
 
 const description =
-	'Vidro traseiro para iPhone 11 ao 17, incluindo Pro e Pro Max. Peças novas com pronta entrega em Santa Efigênia, BH. Consulte pelo WhatsApp.'
+	'Vidro e tampa traseira para iPhone 11 ao 17, incluindo Pro e Pro Max. Pronto em cerca de 6 horas. Retire na loja em Santa Efigênia, BH. Consulte pelo WhatsApp.'
 
 export const metadata = lojaCategoryMetadata({
-	title: 'Vidro Traseiro para iPhone 11 ao 17 em Belo Horizonte | Conectize',
+	title: 'Vidro e Tampa Traseira para iPhone 11 ao 17 em BH | Conectize',
 	description,
 	path: lojaCategoryPaths.vidro,
 	keywords:
@@ -23,9 +24,27 @@ export default function LojaVidroTraseiroIphonePage () {
 		<LojaCategoryPage
 			path={lojaCategoryPaths.vidro}
 			description={description}
-			heroTitle="Vidro traseiro para iPhone"
-			heroSubtitle="Peças novas do iPhone 11 ao 17, incluindo Pro e Pro Max, com pronta entrega na loja. Vidro traseiro e tampa traseira são a mesma peça."
-			whatsappMessage="Olá! Vim pelo site e quero o preço do vidro traseiro para iPhone ___"
+			heroTitle="Vidro e tampa traseira para iPhone"
+			heroSubtitle="Peças novas do iPhone 11 ao 17, incluindo Pro e Pro Max. Vidro traseiro e tampa traseira são a mesma peça."
+			heroImage={{
+				src: '/loja/vidro-traseiro-iphone-hero.webp',
+				width: 768,
+				height: 1024,
+				alt: 'iPhone com o vidro traseiro trincado e tampa de reposição',
+			}}
+			heroCallouts={[
+				{ title: 'Pronto em cerca de 6 horas', icon: 'clock' },
+				{ title: 'Retire na loja em Santa Efigênia', icon: 'store' },
+			]}
+			reviewsAfterHero
+			nav={[
+				{ href: '#avaliacoes', label: 'Avaliações' },
+				{ href: '#modelos', label: 'Modelos' },
+				{ href: '#diferenciais', label: 'Diferenciais' },
+				{ href: '#unidade', label: 'Loja' },
+				{ href: '#contato', label: 'Contato' },
+			]}
+			whatsappMessage={lojaWhatsAppMessages.vidro}
 			models={iphoneModels}
 			modelsLead="Referência dos modelos com vidro traseiro / tampa traseira na loja. Envie o modelo e a cor no WhatsApp."
 			highlights={[
@@ -40,14 +59,16 @@ export default function LojaVidroTraseiroIphonePage () {
 					icon: 'palette',
 				},
 				{
-					title: 'Pronta entrega',
-					description: 'Retire na loja em Santa Efigênia.',
+					title: 'Pronto em cerca de 6 horas',
+					description: 'O serviço fica pronto no mesmo dia, em cerca de 6 horas.',
 					icon: 'clock',
+					featured: true,
 				},
 				{
-					title: 'Loja física em Santa Efigênia',
+					title: 'Retire na loja em Santa Efigênia',
 					description: 'R. Padre Rolim, 620.',
 					icon: 'store',
+					featured: true,
 				},
 			]}
 			faq={[

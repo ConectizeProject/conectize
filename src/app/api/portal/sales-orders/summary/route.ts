@@ -6,6 +6,7 @@ import {
   brazilPreviousMonthRange,
   brazilTodayDateString,
 } from '@/lib/dashboard/brazil-day'
+import { hasMarketplaceHubConnection } from '@/lib/integrations/marketplace-platforms'
 import { backfillMeliPurchaseDates } from '@/lib/integrations/mercado-livre/order-sync'
 import { buildMeliShippingBoard } from '@/lib/vendas/meli-shipping-board'
 
@@ -17,9 +18,11 @@ type DayTotals = {
 function emptyDays (startDate: string, endDate: string) {
   const days: string[] = []
   let cursor = startDate
-  while (cursor <= endDate) {
+  let guard = 0
+  while (cursor <= endDate && guard < 400) {
     days.push(cursor)
     cursor = addBrazilCalendarDays(cursor, 1)
+    guard += 1
   }
   return days
 }
@@ -30,13 +33,22 @@ function brazilDateKey (iso: string) {
   return brazilTodayDateString(parsed)
 }
 
+function sumDays (days: Array<{ count: number, totalCents: number }>) {
+  return days.reduce(
+    (acc, day) => ({
+      count: acc.count + day.count,
+      totalCents: acc.totalCents + day.totalCents,
+    }),
+    { count: 0, totalCents: 0 },
+  )
+}
+
 export async function GET () {
   const auth = await requireStaffOrAdmin()
   if (auth.ok === false) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 
-  // Alinha created_at dos pedidos MELI com a data da compra antes de montar o histórico.
   try {
     await backfillMeliPurchaseDates({
       supabase: auth.supabase,
@@ -52,10 +64,10 @@ export async function GET () {
   const previous = brazilPreviousMonthRange()
   const today = brazilTodayDateString()
   const currentEnd = today < current.endDate ? today : current.endDate
-  const rows: Array<{ created_at?: string, total_cents?: number }> = []
+  const rows: Array<{ created_at?: string | null, total_cents?: number | null }> = []
 
   for (let from = 0; from < 5000; from += 1000) {
-    const { data, error } = await auth.supabase
+    const listed = await auth.supabase
       .from('sales_orders')
       .select('created_at, total_cents')
       .eq('organization_id', auth.organizationId)
@@ -64,12 +76,15 @@ export async function GET () {
       .lte('created_at', current.endIso)
       .order('created_at', { ascending: true })
       .range(from, from + 999)
-    if (error) {
-      console.error('[sales-orders summary]', error.message)
-      return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
+
+    if (listed.error) {
+      console.error('[sales-orders summary]', listed.error.message)
+      // Nao derruba graficos/cards: segue com serie vazia.
+      break
     }
-    rows.push(...(data ?? []))
-    if (!data || data.length < 1000) break
+
+    rows.push(...(listed.data ?? []))
+    if (!listed.data || listed.data.length < 1000) break
   }
 
   const currentByDay = new Map<string, DayTotals>()
@@ -93,14 +108,10 @@ export async function GET () {
 
   const currentDays = series(current.startDate, currentEnd, currentByDay)
   const previousDays = series(previous.startDate, previous.endDate, previousByDay)
-  const sum = (days: Array<{ count: number, totalCents: number }>) => days.reduce(
-    (acc, day) => ({
-      count: acc.count + day.count,
-      totalCents: acc.totalCents + day.totalCents,
-    }),
-    { count: 0, totalCents: 0 },
-  )
 
+  const showShippingBoard = await hasMarketplaceHubConnection(auth.supabase)
+
+  // Select tipado (colunas literais) para evitar GenericStringError do supabase-js.
   const shippingRows: Array<{
     status?: string | null
     ml_order_id?: string | null
@@ -112,61 +123,61 @@ export async function GET () {
     ml_label_available_at?: string | null
     ml_shipping_method?: string | null
   }> = []
-  const shippingSelectFull =
-    'status, ml_order_id, ml_logistic_type, ml_fulfillment_stage, ml_shipment_status, ml_shipment_substatus, ml_posting_deadline, ml_label_available_at, ml_shipping_method'
-  const shippingSelectWithDates =
-    'status, ml_order_id, ml_logistic_type, ml_fulfillment_stage, ml_shipment_status, ml_shipment_substatus, ml_posting_deadline, ml_label_available_at'
-  const shippingSelectBasic =
-    'status, ml_order_id, ml_logistic_type, ml_fulfillment_stage, ml_shipment_status, ml_shipment_substatus'
-  let shippingSelect = shippingSelectFull
-  for (let from = 0; from < 3000; from += 1000) {
-    const { data, error } = await auth.supabase
-      .from('sales_orders')
-      .select(shippingSelect)
-      .eq('organization_id', auth.organizationId)
-      .not('ml_order_id', 'is', null)
-      .order('created_at', { ascending: false })
-      .range(from, from + 999)
-    if (error) {
-      if (
-        shippingSelect === shippingSelectFull
-        && /ml_shipping_method|does not exist|schema cache/i.test(error.message)
-      ) {
-        shippingSelect = shippingSelectWithDates
-        from -= 1000
-        continue
+
+  if (showShippingBoard) {
+    for (let from = 0; from < 3000; from += 1000) {
+      const listed = await auth.supabase
+        .from('sales_orders')
+        .select('status, ml_order_id, ml_logistic_type, ml_fulfillment_stage, ml_shipment_status, ml_shipment_substatus, ml_posting_deadline, ml_label_available_at, ml_shipping_method')
+        .eq('organization_id', auth.organizationId)
+        .not('ml_order_id', 'is', null)
+        .order('created_at', { ascending: false })
+        .range(from, from + 999)
+
+      if (listed.error) {
+        // Fallback sem colunas novas, se o schema ainda nao tiver migration.
+        if (/ml_shipping_method|ml_posting_deadline|ml_label_available_at|does not exist|schema cache/i.test(listed.error.message)) {
+          const basic = await auth.supabase
+            .from('sales_orders')
+            .select('status, ml_order_id, ml_logistic_type, ml_fulfillment_stage, ml_shipment_status, ml_shipment_substatus')
+            .eq('organization_id', auth.organizationId)
+            .not('ml_order_id', 'is', null)
+            .order('created_at', { ascending: false })
+            .range(from, from + 999)
+          if (basic.error) {
+            console.error('[sales-orders summary shipping]', basic.error.message)
+            break
+          }
+          shippingRows.push(...(basic.data ?? []))
+          if (!basic.data || basic.data.length < 1000) break
+          continue
+        }
+        console.error('[sales-orders summary shipping]', listed.error.message)
+        break
       }
-      if (
-        shippingSelect === shippingSelectWithDates
-        && /ml_posting_deadline|ml_label_available_at|does not exist|schema cache/i.test(error.message)
-      ) {
-        shippingSelect = shippingSelectBasic
-        from -= 1000
-        continue
-      }
-      console.error('[sales-orders summary shipping]', error.message)
-      break
+
+      shippingRows.push(...(listed.data ?? []))
+      if (!listed.data || listed.data.length < 1000) break
     }
-    shippingRows.push(...(data ?? []))
-    if (!data || data.length < 1000) break
   }
 
   return NextResponse.json({
     ok: true,
     current: {
-      ...sum(currentDays),
+      ...sumDays(currentDays),
       days: currentDays,
       startDate: current.startDate,
       endDate: currentEnd,
       label: current.displayLabel,
     },
     previous: {
-      ...sum(previousDays),
+      ...sumDays(previousDays),
       days: previousDays,
       startDate: previous.startDate,
       endDate: previous.endDate,
       label: previous.displayLabel,
     },
-    shippingBoard: buildMeliShippingBoard(shippingRows),
+    showShippingBoard,
+    shippingBoard: showShippingBoard ? buildMeliShippingBoard(shippingRows) : null,
   })
 }

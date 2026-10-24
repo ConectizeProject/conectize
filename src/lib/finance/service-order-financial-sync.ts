@@ -1096,6 +1096,35 @@ export async function mapSalesOrdersWithFinancePosted (
   return posted
 }
 
+/** OS com ao menos um lançamento financeiro ativo vinculado. */
+export async function mapServiceOrdersWithFinancePosted (
+  supabase: SupabaseClient,
+  organizationId: string,
+  orderIds: string[],
+): Promise<Set<string>> {
+  const uniqueIds = [...new Set(orderIds.filter(Boolean))]
+  if (uniqueIds.length === 0) return new Set()
+
+  const financeSupabase = getFinanceWriteClient(supabase)
+  const { data, error } = await financeSupabase
+    .from('financial_transactions')
+    .select('service_order_id')
+    .eq('organization_id', organizationId)
+    .in('service_order_id', uniqueIds)
+
+  if (error) {
+    console.error('[mapServiceOrdersWithFinancePosted] failed', error)
+    return new Set()
+  }
+
+  const posted = new Set<string>()
+  for (const row of data ?? []) {
+    const id = String((row as { service_order_id?: string | null }).service_order_id || '')
+    if (id) posted.add(id)
+  }
+  return posted
+}
+
 export async function syncSalesOrderFinancialTransactions ({
   supabase,
   organizationId,

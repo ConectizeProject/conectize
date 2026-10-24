@@ -1,6 +1,7 @@
 'use client'
 
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Handshake,
   Package,
@@ -9,12 +10,6 @@ import {
   Truck,
   Wallet,
 } from 'lucide-react'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
 import { maskedFromCents } from '@/lib/utils/money'
 import { cn } from '@/lib/utils'
 
@@ -83,12 +78,19 @@ export function MarginRow ({
   hoverTrailing?: ReactNode
 }) {
   const isClickable = Boolean(onClick)
+  const [cursor, setCursor] = useState<{ x: number, y: number } | null>(null)
+
+  function updateCursor (event: { clientX: number, clientY: number }) {
+    if (!tooltip) return
+    setCursor({ x: event.clientX, y: event.clientY })
+  }
+
   const main = (
-    <div className="flex min-w-0 flex-1 items-center gap-1.5 py-px">
+    <div className='flex min-w-0 flex-1 items-center gap-1.5 py-px'>
       <span className={cn('inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center', iconClassName)}>
         {icon}
       </span>
-      <div className="min-w-0 flex-1 text-right">
+      <div className='min-w-0 flex-1 text-right'>
         <p className={cn('text-[13px] font-semibold tabular-nums leading-tight', valueClassName)}>
           {value}
         </p>
@@ -101,7 +103,7 @@ export function MarginRow ({
       {hoverTrailing ? (
         <span
           aria-hidden
-          className="ml-0.5 hidden h-4 w-4 shrink-0 items-center justify-center text-muted-foreground group-hover:inline-flex group-focus-within:inline-flex"
+          className='ml-0.5 hidden h-4 w-4 shrink-0 items-center justify-center text-muted-foreground group-hover:inline-flex group-focus-within:inline-flex'
         >
           {hoverTrailing}
         </span>
@@ -109,45 +111,50 @@ export function MarginRow ({
     </div>
   )
 
-  const interactive = (
-    <div
-      role={isClickable ? 'button' : undefined}
-      tabIndex={isClickable || tooltip ? 0 : undefined}
-      aria-label={isClickable ? (clickLabel || 'Editar') : undefined}
-      className={cn(
-        'group min-w-0 w-full rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        isClickable ? 'cursor-pointer' : 'cursor-default',
-      )}
-      onClick={isClickable ? onClick : undefined}
-      onKeyDown={
-        isClickable
-          ? (e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault()
-              onClick?.()
-            }
-          }
-          : undefined
-      }
-    >
-      {main}
-    </div>
-  )
-
   return (
     <div className={cn('flex items-center', className)}>
-      {tooltip ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            {interactive}
-          </TooltipTrigger>
-          <TooltipContent side="left" className="max-w-xs space-y-1">
+      <div
+        role={isClickable ? 'button' : undefined}
+        tabIndex={isClickable || tooltip ? 0 : undefined}
+        aria-label={isClickable ? (clickLabel || 'Editar') : undefined}
+        className={cn(
+          'group min-w-0 w-full rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          isClickable ? 'cursor-pointer' : 'cursor-default',
+        )}
+        onClick={isClickable ? onClick : undefined}
+        onMouseEnter={updateCursor}
+        onMouseMove={updateCursor}
+        onMouseLeave={() => setCursor(null)}
+        onBlur={() => setCursor(null)}
+        onKeyDown={
+          isClickable
+            ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                onClick?.()
+              }
+            }
+            : undefined
+        }
+      >
+        {main}
+      </div>
+      {tooltip && cursor && typeof document !== 'undefined'
+        ? createPortal(
+          <div
+            role='tooltip'
+            className='pointer-events-none fixed z-[80] max-w-xs space-y-1 rounded-md border bg-popover px-3 py-1.5 text-sm text-popover-foreground shadow-md'
+            style={{
+              left: cursor.x - 10,
+              top: cursor.y,
+              transform: 'translate(-100%, -50%)',
+            }}
+          >
             {tooltip}
-          </TooltipContent>
-        </Tooltip>
-      ) : (
-        interactive
-      )}
+          </div>,
+          document.body,
+        )
+        : null}
     </div>
   )
 }
@@ -236,93 +243,91 @@ export function SoldItemMarginBreakdown ({ margin, quantity = 1, onEditCost }: P
       )
 
   return (
-    <TooltipProvider delayDuration={200}>
-      <div className="w-full min-w-[10.5rem] max-w-[13rem] space-y-0 text-sm leading-none">
+    <div className='w-full min-w-[10.5rem] max-w-[13rem] space-y-0 text-sm leading-none'>
+      <MarginRow
+        icon={<Handshake className='h-3.5 w-3.5' aria-hidden />}
+        iconClassName='text-emerald-600 dark:text-emerald-400'
+        value={formatSignedCents(margin.revenueCents)}
+        valueClassName='text-emerald-600 dark:text-emerald-400'
+      />
+
+      {margin.shippingCents > 0 ? (
         <MarginRow
-          icon={<Handshake className="h-3.5 w-3.5" aria-hidden />}
-          iconClassName="text-emerald-600 dark:text-emerald-400"
-          value={formatSignedCents(margin.revenueCents)}
-          valueClassName="text-emerald-600 dark:text-emerald-400"
+          icon={<Truck className='h-3.5 w-3.5' aria-hidden />}
+          iconClassName='text-muted-foreground'
+          value={formatDeduction(margin.shippingCents)}
+          valueClassName='text-muted-foreground'
+          tooltip={<p className='text-xs'>Frete: {formatBrl(margin.shippingCents)}</p>}
+        />
+      ) : null}
+
+      {margin.feeCents > 0 ? (
+        <MarginRow
+          icon={<Handshake className='h-3.5 w-3.5' aria-hidden />}
+          iconClassName='text-muted-foreground'
+          value={formatDeduction(margin.feeCents)}
+          valueClassName='text-muted-foreground'
+          tooltip={feeTooltip}
+        />
+      ) : null}
+
+      <div className='mt-0.5 border-t border-border/70 pt-0.5'>
+        <MarginRow
+          icon={<Wallet className='h-3.5 w-3.5' aria-hidden />}
+          iconClassName='text-teal-700 dark:text-teal-400'
+          value={formatSignedCents(margin.grossProfitCents)}
+          valueClassName='text-teal-700 dark:text-teal-400'
+          tooltip={<p className='text-xs'>Lucro bruto (após frete e tarifas)</p>}
+        />
+      </div>
+
+      <div className='mt-0.5 space-y-0 border-t border-border/70 pt-0.5'>
+        <MarginRow
+          icon={<Package className='h-3.5 w-3.5' aria-hidden />}
+          iconClassName='text-muted-foreground'
+          value={formatDeduction(margin.costTotalCents)}
+          valueClassName='text-muted-foreground'
+          tooltip={costTooltip}
+          onClick={
+            margin.canEditCost && onEditCost
+              ? onEditCost
+              : undefined
+          }
+          clickLabel='Editar custo do produto'
+          hoverTrailing={
+            margin.canEditCost && onEditCost
+              ? <Pencil className='h-3 w-3' />
+              : null
+          }
         />
 
-        {margin.shippingCents > 0 ? (
+        {margin.taxCents > 0 ? (
           <MarginRow
-            icon={<Truck className="h-3.5 w-3.5" aria-hidden />}
-            iconClassName="text-muted-foreground"
-            value={formatDeduction(margin.shippingCents)}
-            valueClassName="text-muted-foreground"
-            tooltip={<p className="text-xs">Frete: {formatBrl(margin.shippingCents)}</p>}
+            icon={<Scale className='h-3.5 w-3.5' aria-hidden />}
+            iconClassName='text-muted-foreground'
+            value={formatDeduction(margin.taxCents)}
+            valueClassName='text-muted-foreground'
+            tooltip={<p className='text-xs'>Imposto estimado (alíquota média da empresa)</p>}
           />
         ) : null}
-
-        {margin.feeCents > 0 ? (
-          <MarginRow
-            icon={<Handshake className="h-3.5 w-3.5" aria-hidden />}
-            iconClassName="text-muted-foreground"
-            value={formatDeduction(margin.feeCents)}
-            valueClassName="text-muted-foreground"
-            tooltip={feeTooltip}
-          />
-        ) : null}
-
-        <div className="border-t border-border/70 pt-0.5 mt-0.5">
-          <MarginRow
-            icon={<Wallet className="h-3.5 w-3.5" aria-hidden />}
-            iconClassName="text-teal-700 dark:text-teal-400"
-            value={formatSignedCents(margin.grossProfitCents)}
-            valueClassName="text-teal-700 dark:text-teal-400"
-            tooltip={<p className="text-xs">Lucro bruto (após frete e tarifas)</p>}
-          />
-        </div>
-
-        <div className="border-t border-border/70 pt-0.5 mt-0.5 space-y-0">
-          <MarginRow
-            icon={<Package className="h-3.5 w-3.5" aria-hidden />}
-            iconClassName="text-muted-foreground"
-            value={formatDeduction(margin.costTotalCents)}
-            valueClassName="text-muted-foreground"
-            tooltip={costTooltip}
-            onClick={
-              margin.canEditCost && onEditCost
-                ? onEditCost
-                : undefined
-            }
-            clickLabel="Editar custo do produto"
-            hoverTrailing={
-              margin.canEditCost && onEditCost
-                ? <Pencil className="h-3 w-3" />
-                : null
-            }
-          />
-
-          {margin.taxCents > 0 ? (
-            <MarginRow
-              icon={<Scale className="h-3.5 w-3.5" aria-hidden />}
-              iconClassName="text-muted-foreground"
-              value={formatDeduction(margin.taxCents)}
-              valueClassName="text-muted-foreground"
-              tooltip={<p className="text-xs">Imposto estimado (alíquota média da empresa)</p>}
-            />
-          ) : null}
-        </div>
-
-        <div className="border-t border-border/70 pt-0.5 mt-0.5">
-          <MarginRow
-            icon={<Wallet className="h-3.5 w-3.5" aria-hidden />}
-            iconClassName={cn(
-              contribPositive && 'text-emerald-600 dark:text-emerald-400',
-              contribNegative && 'text-red-600 dark:text-red-400',
-            )}
-            value={formatSignedCents(margin.contributionMarginCents)}
-            valueClassName={cn(
-              contribPositive && 'text-emerald-600 dark:text-emerald-400',
-              contribNegative && 'text-red-600 dark:text-red-400',
-            )}
-            subValue={percentLabel}
-            tooltip={contributionTooltip}
-          />
-        </div>
       </div>
-    </TooltipProvider>
+
+      <div className='mt-0.5 border-t border-border/70 pt-0.5'>
+        <MarginRow
+          icon={<Wallet className='h-3.5 w-3.5' aria-hidden />}
+          iconClassName={cn(
+            contribPositive && 'text-emerald-600 dark:text-emerald-400',
+            contribNegative && 'text-red-600 dark:text-red-400',
+          )}
+          value={formatSignedCents(margin.contributionMarginCents)}
+          valueClassName={cn(
+            contribPositive && 'text-emerald-600 dark:text-emerald-400',
+            contribNegative && 'text-red-600 dark:text-red-400',
+          )}
+          subValue={percentLabel}
+          tooltip={contributionTooltip}
+        />
+      </div>
+    </div>
   )
 }

@@ -241,7 +241,17 @@ export async function upsertBlingProductForOrganization (params: {
 			bling_sync_snapshot: payload.bling_sync_snapshot,
 			updated_at: new Date().toISOString(),
 		}
-		if (existing.cost_price_manual_edited_at) {
+		const { fetchProductHasVirtualStock, persistDependentVirtualKitCosts } = await import(
+			'@/lib/products/virtual-stock-cost'
+		)
+		const isVirtual = await fetchProductHasVirtualStock({
+			supabase,
+			organizationId,
+			productId: existing.id,
+		})
+		if (isVirtual) {
+			delete updatePayload.cost_price_cents
+		} else if (existing.cost_price_manual_edited_at) {
 			const keep = Number(existing.cost_price_cents)
 			updatePayload.cost_price_cents = Number.isFinite(keep) ? Math.round(keep) : null
 		}
@@ -275,6 +285,14 @@ export async function upsertBlingProductForOrganization (params: {
 			.eq('id', existing.id)
 		if (updateErr) {
 			throw new Error('db_error')
+		}
+
+		if (!isVirtual && Object.prototype.hasOwnProperty.call(updatePayload, 'cost_price_cents')) {
+			await persistDependentVirtualKitCosts({
+				supabase,
+				organizationId,
+				componentProductId: existing.id,
+			})
 		}
 
 		await mergeParentKeys()

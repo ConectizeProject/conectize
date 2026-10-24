@@ -15,8 +15,12 @@ import {
   computeSoldItemMargin,
 } from '@/lib/vendas/sold-item-margin'
 import { withLiveMeliFulfillment } from '@/lib/integrations/mercado-livre/fulfillment'
+import { withLiveMeliInvoices } from '@/lib/integrations/mercado-livre/api'
 import { matchMeliSaleItem, meliItemPublicUrl, taxCentsFromMargin } from '@/lib/vendas/meli-sale-display'
-import { loadSalesOrderListPresentation } from '@/lib/vendas/sales-order-list-details'
+import {
+  loadSalesOrderListPresentation,
+  loadServiceOrderSoldStockPresentation,
+} from '@/lib/vendas/sales-order-list-details'
 import { vendasListPage, vendasListRange } from '@/lib/vendas/list-pagination'
 import {
   fulfillmentStagesForLane,
@@ -34,6 +38,12 @@ import {
 } from '@/lib/vendas/sold-os-product-lines'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 import { keepSoldItemPacksTogether } from '@/lib/vendas/group-sold-items-by-cart'
+import {
+  mapSalesOrdersWithFinancePosted,
+  mapServiceOrdersWithFinancePosted,
+} from '@/lib/finance/service-order-financial-sync'
+import { mapServiceOrdersWithStockPosted } from '@/lib/orders/stock-by-status'
+import { mapSalesOrdersWithStockPosted } from '@/lib/sales-orders/service'
 
 type ProductJoin = {
   id?: string
@@ -166,6 +176,10 @@ function soldItemCard (
     } | null
     marginTaxPercent: number
     nfe: { id: string, status: string } | null
+    nfce: { id: string, status: string } | null
+    hasFinancePosted: boolean
+    hasStockPosted: boolean
+    meliInvoice?: { id: string, status: string | null, authorized: boolean } | null
     costTotalCents: number
     /** Frete já rateado no pack/pedido (evita repetir o valor cheio em cada produto). */
     sharedShipping?: {
@@ -208,7 +222,7 @@ function soldItemCard (
     statusLabel: isSale
       ? (isCanceled ? 'Pagamento Devolvido' : null)
       : 'Finalizada',
-    allowNfe: isSale && !isCanceled,
+    allowNfe: !isCanceled,
     buyerName: live?.ml_buyer_name || row.order.customerName,
     buyerNickname: live?.ml_buyer_nickname || null,
     logisticType,
@@ -231,8 +245,15 @@ function soldItemCard (
     // FULL: estoque é do ML, não exibir saldo local.
     stockCurrent: isFull || isCanceled ? null : (input.presented?.stockCurrent ?? null),
     stockAfterSale: isFull || isCanceled ? null : (input.presented?.stockAfterSale ?? null),
-    nfeStatus: input.nfe?.status ?? null,
+    nfeStatus: input.nfe?.status
+      ?? (input.meliInvoice?.authorized ? 'authorized' : input.meliInvoice?.status ?? null),
     nfeDocumentId: input.nfe?.id ?? null,
+    nfceStatus: input.nfce?.status ?? null,
+    nfceDocumentId: input.nfce?.id ?? null,
+    hasFinancePosted: input.hasFinancePosted,
+    hasStockPosted: input.hasStockPosted,
+    meliNfeAuthorized: input.meliInvoice?.authorized === true,
+    meliNfeId: input.meliInvoice?.id ?? null,
     mlItemId,
     mlItemUrl: listing?.url || (mlItemId ? meliItemPublicUrl(mlItemId) : null),
     shipmentId: live?.ml_shipment_id || null,
@@ -282,6 +303,7 @@ export async function GET (request: NextRequest) {
   if (auth.ok === false) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
+  const { supabase, organizationId } = auth
 
   const { searchParams } = new URL(request.url)
   const page = vendasListPage(searchParams.get('page'))
@@ -301,10 +323,10 @@ export async function GET (request: NextRequest) {
 
   let paymentOrderIds: string[] | null = null
   if (paymentMethodId) {
-    const { data: payRows, error: payError } = await auth.supabase
+    const { data: payRows, error: payError } = await supabase
       .from('sales_order_payments')
       .select('sales_order_id')
-      .eq('organization_id', auth.organizationId)
+      .eq('organization_id', organizationId)
       .eq('payment_method_id', paymentMethodId)
       .neq('status', 'canceled')
       .limit(8000)
@@ -351,7 +373,7 @@ export async function GET (request: NextRequest) {
           ml_shipment_id,
           customer_name
         `
-    let query = auth.supabase
+    let query = supabase
       .from('sales_order_items')
       .select(
         `
@@ -378,8 +400,9 @@ export async function GET (request: NextRequest) {
         )
       `,
       )
-      .eq('organization_id', auth.organizationId)
-      .order('created_at', { ascending: false })
+      .eq('organization_id', organizationId)
+      // Data da compra do pedido (sales_orders.created_at), não a criação da linha.
+      .order('created_at', { ascending: false, referencedTable: 'sales_orders' })
       .limit(oversample)
 
     if (lane === 'canceled') {
@@ -392,10 +415,10 @@ export async function GET (request: NextRequest) {
     }
 
     if (/^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) {
-      query = query.gte('created_at', brazilDayRangeUtc(dateFrom).startIso)
+      query = query.gte('sales_orders.created_at', brazilDayRangeUtc(dateFrom).startIso)
     }
     if (/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
-      query = query.lte('created_at', brazilDayRangeUtc(dateTo).endIso)
+      query = query.lte('sales_orders.created_at', brazilDayRangeUtc(dateTo).endIso)
     }
     if (sellerUserId) query = query.eq('sales_orders.seller_user_id', sellerUserId)
     if (mlOrder) {
@@ -433,10 +456,10 @@ export async function GET (request: NextRequest) {
   }
 
   function buildMarketplaceOrdersQuery (selectColumns: string) {
-    let next = auth.supabase
+    let next = supabase
       .from('sales_orders')
       .select(selectColumns)
-      .eq('organization_id', auth.organizationId)
+      .eq('organization_id', organizationId)
       .not('ml_order_id', 'is', null)
       .order('created_at', { ascending: false })
       .limit(mlOrder ? 20 : 60)
@@ -470,10 +493,10 @@ export async function GET (request: NextRequest) {
     }
     if (listed.error) return { error: listed.error.message, ids: [] as string[] }
     const orders = await withLiveMeliFulfillment({
-      supabase: auth.supabase,
-      organizationId: auth.organizationId,
+      supabase: supabase,
+      organizationId: organizationId,
       orders: (listed.data ?? []).map((row) => {
-        const record = row as Record<string, unknown>
+        const record = row as unknown as Record<string, unknown>
         const claimRaw = String(record.ml_claim_status || '').trim().toLowerCase()
         return {
           id: String(record.id || ''),
@@ -497,7 +520,7 @@ export async function GET (request: NextRequest) {
     }
   }
 
-  let osQuery = auth.supabase
+  let osQuery = supabase
     .from('service_orders')
     .select(
       `
@@ -518,7 +541,7 @@ export async function GET (request: NextRequest) {
         )
       `,
     )
-    .eq('organization_id', auth.organizationId)
+    .eq('organization_id', organizationId)
     .eq('status', 'finalizada')
     .order('closed_at', { ascending: false })
     .limit(Math.min(400, oversample))
@@ -535,10 +558,10 @@ export async function GET (request: NextRequest) {
     saleItemsFirst,
     osOrdersRes,
   ] = await Promise.all([
-    auth.supabase
+    supabase
       .from('organization_fiscal_profiles')
       .select('margin_tax_percent')
-      .eq('organization_id', auth.organizationId)
+      .eq('organization_id', organizationId)
       .maybeSingle(),
     buildSaleItemsQuery(null),
     includeServiceOrders
@@ -621,7 +644,7 @@ export async function GET (request: NextRequest) {
         return order && typeof order === 'object'
           ? String((order as { id?: unknown }).id || '')
           : ''
-      }).filter(Boolean),
+      }).filter((id): id is string => Boolean(id)),
     ),
   ]
   const osOrderIds = [...new Set(osOrders.map((o) => String(o.id || '')).filter(Boolean))]
@@ -653,44 +676,44 @@ export async function GET (request: NextRequest) {
     salePaymentsRes,
   ] = await Promise.all([
     productIds.length > 0
-      ? auth.supabase
+      ? supabase
         .from('product_stock_movements')
         .select('product_id, type, unit_value_cents, created_at')
-        .eq('organization_id', auth.organizationId)
+        .eq('organization_id', organizationId)
         .in('product_id', productIds)
         .eq('type', 'entry')
         .gt('unit_value_cents', 0)
       : Promise.resolve({ data: [] as unknown[] }),
     productIds.length > 0
-      ? auth.supabase
+      ? supabase
         .from('products')
         .select('id, name, sku, image_url, kind, cost_price_cents, cost_price_manual_edited_at, ml_item_id')
-        .eq('organization_id', auth.organizationId)
+        .eq('organization_id', organizationId)
         .in('id', productIds)
       : Promise.resolve({ data: [] as unknown[] }),
     saleOrderIds.length > 0
-      ? auth.supabase
+      ? supabase
         .from('fiscal_documents')
         .select('sales_order_id')
-        .eq('organization_id', auth.organizationId)
+        .eq('organization_id', organizationId)
         .eq('status', 'authorized')
         .in('model', ['55', '65'])
         .in('sales_order_id', saleOrderIds)
       : Promise.resolve({ data: [] as Array<{ sales_order_id?: string }> }),
     osOrderIds.length > 0
-      ? auth.supabase
+      ? supabase
         .from('fiscal_documents')
         .select('service_order_id')
-        .eq('organization_id', auth.organizationId)
+        .eq('organization_id', organizationId)
         .eq('status', 'authorized')
         .in('model', ['55', '65'])
         .in('service_order_id', osOrderIds)
       : Promise.resolve({ data: [] as Array<{ service_order_id?: string }> }),
     saleOrderIds.length > 0
-      ? auth.supabase
+      ? supabase
         .from('sales_order_payments')
         .select('sales_order_id, payment_method_id, amount_cents, status, metadata')
-        .eq('organization_id', auth.organizationId)
+        .eq('organization_id', organizationId)
         .in('sales_order_id', saleOrderIds)
         .neq('status', 'canceled')
       : Promise.resolve({ data: [] as unknown[] }),
@@ -785,10 +808,10 @@ export async function GET (request: NextRequest) {
 
   let paymentMethods: PaymentMethodRow[] = []
   if (pmIds.length > 0) {
-    const { data: pmRows } = await auth.supabase
+    const { data: pmRows } = await supabase
       .from('payment_methods')
       .select('id, description, fee_percent, type, credit_installment_fees')
-      .eq('organization_id', auth.organizationId)
+      .eq('organization_id', organizationId)
       .in('id', pmIds)
     paymentMethods = (pmRows ?? []).map((row) => ({
       id: String(row.id),
@@ -884,7 +907,8 @@ export async function GET (request: NextRequest) {
           amountCents: allocateProportion(d.amountCents, subtotalCents, orderTotalCents),
         })).filter((d) => d.amountCents > 0)
         : []
-    const createdAt = String((row as { created_at?: string }).created_at || '')
+    const orderCreatedAt = order ? String(order.created_at || '') : ''
+    const createdAt = orderCreatedAt || String((row as { created_at?: string }).created_at || '')
     const orderNumber = order ? Number(order.order_number) || 0 : 0
     const claimRaw = String(order?.ml_claim_status || '').trim().toLowerCase()
     const mlClaimStatus = claimRaw === 'opened' || claimRaw === 'closed' ? claimRaw : null
@@ -926,7 +950,7 @@ export async function GET (request: NextRequest) {
       order: {
         id: orderId,
         orderNumber,
-        createdAt: order ? String(order.created_at || '') : '',
+        createdAt: orderCreatedAt,
         totalCents: orderTotalCents,
         status: order ? String(order.status || 'paid') : 'paid',
         mlOrderId: order?.ml_order_id != null ? String(order.ml_order_id) : null,
@@ -1014,7 +1038,12 @@ export async function GET (request: NextRequest) {
     })
   }
 
-  unified.sort((a, b) => b.sortAt - a.sortAt || a.id.localeCompare(b.id))
+  // Mais recentes primeiro: data da compra; em empate, número do pedido.
+  unified.sort((a, b) => (
+    b.sortAt - a.sortAt
+    || b.order.orderNumber - a.order.orderNumber
+    || a.id.localeCompare(b.id)
+  ))
   const ordered = keepSoldItemPacksTogether(unified)
 
   const total = ordered.length
@@ -1036,37 +1065,117 @@ export async function GET (request: NextRequest) {
         }]
       }),
   ).values()]
-  const [liveOrders, presentation, fiscalRows] = await Promise.all([
-    withLiveMeliFulfillment({
-      supabase: auth.supabase,
-      organizationId: auth.organizationId,
-      orders: saleOrders,
-    }),
-    loadSalesOrderListPresentation({
-      supabase: auth.supabase,
-      organizationId: auth.organizationId,
-      orders: saleOrders,
-    }),
-    saleOrders.length > 0
-      ? auth.supabase
-        .from('fiscal_documents')
-        .select('id, sales_order_id, status, model')
-        .eq('organization_id', auth.organizationId)
-        .eq('model', '55')
-        .neq('status', 'canceled')
-        .in('sales_order_id', saleOrders.map((order) => order.id))
-      : Promise.resolve({ data: [], error: null }),
-  ])
+  const saleOrderIdsOnPage = saleOrders.map((order) => order.id)
+  const osOrderIdsOnPage = [...new Set(
+    pageRows
+      .filter((row) => row.source === 'service_order')
+      .map((row) => row.order.id)
+      .filter(Boolean),
+  )]
+  let liveOrders = saleOrders
+  let presentation = {
+    marginTaxPercent: 0,
+    itemsByOrderId: new Map() as Awaited<ReturnType<typeof loadSalesOrderListPresentation>>['itemsByOrderId'],
+  }
+  let fiscalRows: { data: Array<{ id?: string, sales_order_id?: string, status?: string, model?: string }> | null, error: unknown } = { data: [], error: null }
+  let osFiscalRows: { data: Array<{ id?: string, service_order_id?: string, status?: string, model?: string }> | null, error: unknown } = { data: [], error: null }
+  let financePostedIds = new Set<string>()
+  let stockPostedIds = new Set<string>()
+  let osFinancePostedIds = new Set<string>()
+  let osStockPostedIds = new Set<string>()
+  let osStockByKey = new Map<string, { stockCurrent: number | null, stockAfterSale: number | null }>()
+  const osStockRows = pageRows
+    .filter((row) => row.source === 'service_order' && row.productId)
+    .map((row) => ({
+      orderId: row.order.id,
+      productId: row.productId as string,
+      createdAt: row.createdAt,
+    }))
+  try {
+    const enriched = await Promise.all([
+      withLiveMeliFulfillment({
+        supabase: supabase,
+        organizationId: organizationId,
+        orders: saleOrders,
+      }),
+      loadSalesOrderListPresentation({
+        supabase: supabase,
+        organizationId: organizationId,
+        orders: saleOrders,
+      }),
+      saleOrderIdsOnPage.length > 0
+        ? supabase
+          .from('fiscal_documents')
+          .select('id, sales_order_id, status, model')
+          .eq('organization_id', organizationId)
+          .neq('status', 'canceled')
+          .in('sales_order_id', saleOrderIdsOnPage)
+        : Promise.resolve({ data: [], error: null }),
+      osOrderIdsOnPage.length > 0
+        ? supabase
+          .from('fiscal_documents')
+          .select('id, service_order_id, status, model')
+          .eq('organization_id', organizationId)
+          .neq('status', 'canceled')
+          .in('service_order_id', osOrderIdsOnPage)
+        : Promise.resolve({ data: [], error: null }),
+      mapSalesOrdersWithFinancePosted(supabase, organizationId, saleOrderIdsOnPage),
+      mapSalesOrdersWithStockPosted(auth, saleOrderIdsOnPage),
+      mapServiceOrdersWithFinancePosted(supabase, organizationId, osOrderIdsOnPage),
+      mapServiceOrdersWithStockPosted(supabase, organizationId, osOrderIdsOnPage),
+      loadServiceOrderSoldStockPresentation({
+        supabase,
+        organizationId,
+        rows: osStockRows,
+      }),
+    ])
+    liveOrders = enriched[0]
+    presentation = enriched[1]
+    fiscalRows = enriched[2]
+    osFiscalRows = enriched[3]
+    financePostedIds = enriched[4]
+    stockPostedIds = enriched[5]
+    osFinancePostedIds = enriched[6]
+    osStockPostedIds = enriched[7]
+    osStockByKey = enriched[8]
+  } catch (err) {
+    console.error('[sold-items] enrich page failed', err)
+  }
   const liveByOrderId = new Map(liveOrders.map((order) => [order.id, order]))
+  const meliInvoiceByOrderId = await withLiveMeliInvoices({
+    supabase: supabase,
+    organizationId: organizationId,
+    orders: liveOrders.map((order) => ({
+      id: order.id,
+      ml_order_id: order.ml_order_id,
+      ml_shipment_id: order.ml_shipment_id != null ? String(order.ml_shipment_id) : null,
+      ml_logistic_type: order.ml_logistic_type ?? null,
+    })),
+  })
   const nfeByOrderId = new Map<string, { id: string, status: string }>()
+  const nfceByOrderId = new Map<string, { id: string, status: string }>()
   if (!fiscalRows.error) {
     for (const row of fiscalRows.data ?? []) {
       const salesOrderId = String(row.sales_order_id || '')
       if (!salesOrderId) continue
-      nfeByOrderId.set(salesOrderId, {
+      const mapped = {
         id: String(row.id),
         status: String(row.status || 'pending'),
-      })
+      }
+      if (String(row.model) === '55') nfeByOrderId.set(salesOrderId, mapped)
+      else nfceByOrderId.set(salesOrderId, mapped)
+    }
+  }
+  if (!osFiscalRows.error) {
+    for (const row of osFiscalRows.data ?? []) {
+      const serviceOrderId = String((row as { service_order_id?: string }).service_order_id || '')
+      if (!serviceOrderId) continue
+      const mapped = {
+        id: String(row.id),
+        status: String(row.status || 'pending'),
+      }
+      if (String(row.model) === '55') nfeByOrderId.set(serviceOrderId, mapped)
+      else nfceByOrderId.set(serviceOrderId, mapped)
     }
   }
 
@@ -1149,11 +1258,31 @@ export async function GET (request: NextRequest) {
       },
       card: soldItemCard(row, {
         live: liveByOrderId.get(row.order.id),
-        presented: presentation.itemsByOrderId.get(row.order.id)?.find((item) => (
-          item.productId === row.productId
-        )) ?? null,
+        presented: row.source === 'service_order'
+          ? (() => {
+            const stock = row.productId
+              ? osStockByKey.get(`${row.order.id}:${row.productId}`)
+              : null
+            if (!stock) return null
+            return {
+              costTotalCents: margin.costTotalCents,
+              stockCurrent: stock.stockCurrent,
+              stockAfterSale: stock.stockAfterSale,
+            }
+          })()
+          : presentation.itemsByOrderId.get(row.order.id)?.find((item) => (
+            item.productId === row.productId
+          )) ?? null,
         marginTaxPercent: presentation.marginTaxPercent,
         nfe: nfeByOrderId.get(row.order.id) ?? null,
+        nfce: nfceByOrderId.get(row.order.id) ?? null,
+        hasFinancePosted: row.source === 'service_order'
+          ? osFinancePostedIds.has(row.order.id)
+          : financePostedIds.has(row.order.id),
+        hasStockPosted: row.source === 'service_order'
+          ? osStockPostedIds.has(row.order.id)
+          : stockPostedIds.has(row.order.id),
+        meliInvoice: meliInvoiceByOrderId.get(row.order.id) ?? null,
         costTotalCents: margin.costTotalCents,
         sharedShipping,
       }),

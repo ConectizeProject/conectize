@@ -37,6 +37,24 @@ export async function GET (
     getProductCompatibleModelsForForm(id, session),
   ])
 
+  if (result.ok && 'product' in result) {
+    const { persistVirtualProductCostFromComponents } = await import(
+      '@/lib/products/virtual-stock-cost'
+    )
+    const persisted = await persistVirtualProductCostFromComponents({
+      supabase: auth.supabase,
+      organizationId: auth.organizationId,
+      productId: result.product.id,
+    })
+    result.product = {
+      ...result.product,
+      isVirtualStock: persisted.isVirtual,
+      costPriceCents: persisted.isVirtual
+        ? persisted.costPriceCents
+        : result.product.costPriceCents,
+    }
+  }
+
   if (!result.ok) {
     const err = 'error' in result ? result.error : 'not_found'
     const status = err === 'not_authenticated' ? 401 : 404

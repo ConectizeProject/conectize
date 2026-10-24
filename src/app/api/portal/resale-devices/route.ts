@@ -1,12 +1,9 @@
 import { NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
-import {
-  applyResaleDevicesListFilters,
-  DEVICE_SELECT,
-  parseResaleDevicesPagination,
-  resaleDevicesListOrder,
-  type ResaleDevicesListFilterParams,
-} from '@/lib/resale/resale-devices-list-filters'
+import { moneyToCentsFromMasked } from '@/lib/utils/money'
+import { fetchSeminovosDevices } from '@/lib/seminovos/fetch-seminovos-data'
+import { attachResaleDeviceDisplayImage } from '@/lib/seminovos/resale-device-display-image'
+import { parseResaleDevicesPagination } from '@/lib/resale/resale-devices-list-filters'
 
 function cleanText(value: unknown): string {
   return String(value ?? '').trim()
@@ -47,84 +44,68 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url)
   const soldParam = searchParams.get('sold')
+  const includeSoldParam = searchParams.get('includeSold')
   const q = String(searchParams.get('q') || '').trim()
   const condition = String(searchParams.get('condition') || '').trim()
   const storageGb = String(searchParams.get('storageGb') || '').trim()
   const color = String(searchParams.get('color') || '').trim()
   const purchaseDateFrom = String(searchParams.get('purchaseDateFrom') || '').trim()
   const purchaseDateTo = String(searchParams.get('purchaseDateTo') || '').trim()
-  const stockType = String(searchParams.get('stockType') || '').trim()
+  const saleDateFrom = String(searchParams.get('saleDateFrom') || '').trim()
+  const saleDateTo = String(searchParams.get('saleDateTo') || '').trim()
+  const stockTypeRaw = String(searchParams.get('stockType') || 'all').trim()
+  const stockType =
+    stockTypeRaw === 'seminovo' || stockTypeRaw === 'lacrado' || stockTypeRaw === 'all'
+      ? stockTypeRaw
+      : 'all'
   const deviceName = String(searchParams.get('deviceName') || '').trim()
+  const valueMinParsed = moneyToCentsFromMasked(String(searchParams.get('valueMin') || '').trim())
+  const valueMaxParsed = moneyToCentsFromMasked(String(searchParams.get('valueMax') || '').trim())
 
-  const soldFilter = soldParam === 'true'
-  const listFilters: ResaleDevicesListFilterParams = {
-    soldFilter,
+  const soldOnly = soldParam === 'true'
+  const includeSold =
+    !soldOnly && (includeSoldParam === '1' || soldParam === '1')
+
+  const { limit, offset } = parseResaleDevicesPagination(
+    searchParams.get('limit'),
+    searchParams.get('offset'),
+  )
+
+  const result = await fetchSeminovosDevices(auth.supabase, {
     q,
     condition,
     storageGb,
     color,
     purchaseDateFrom,
     purchaseDateTo,
+    saleDateFrom,
+    saleDateTo,
     stockType,
     deviceName,
-  }
-  const { limit, offset } = parseResaleDevicesPagination(
-    searchParams.get('limit'),
-    searchParams.get('offset'),
+    includeSold,
+    soldOnly,
+    valueMinCents:
+      valueMinParsed != null && valueMinParsed > 0 ? valueMinParsed : null,
+    valueMaxCents:
+      valueMaxParsed != null && valueMaxParsed > 0 ? valueMaxParsed : null,
+    limit,
+    offset,
+  })
+
+  const withImages = await Promise.all(
+    result.devices.map((row) => attachResaleDeviceDisplayImage(auth.supabase, row)),
   )
 
-  let countQuery = applyResaleDevicesListFilters(
-    auth.supabase.from('resale_devices').select('id', { count: 'exact', head: true }),
-    listFilters,
+  const list = withImages.map((d) =>
+    redactPurchaseValue(d as unknown as Record<string, unknown>, auth.isAdmin),
   )
-  let dataQuery = applyResaleDevicesListFilters(
-    auth.supabase.from('resale_devices').select(DEVICE_SELECT),
-    listFilters,
-  )
-  dataQuery = resaleDevicesListOrder(dataQuery, soldFilter)
-  if (limit != null) {
-    dataQuery = dataQuery.range(offset, offset + limit - 1)
-  }
-
-  const [{ count: totalCount, error: countError }, { data: devices, error }] = await Promise.all([
-    limit != null ? countQuery : Promise.resolve({ count: null, error: null }),
-    dataQuery,
-  ])
-
-  if (error || countError) {
-    return NextResponse.json({ ok: false, error: 'db_error' }, { status: 500 })
-  }
-
-  const ids = (devices || []).map((d: { id: string }) => d.id)
-  const costsMap: Record<string, { id: string; description: string | null; value_cents: number }[]> = {}
-  if (ids.length > 0) {
-    const { data: costs } = await auth.supabase
-      .from('resale_device_costs')
-      .select('id, resale_device_id, description, value_cents')
-      .in('resale_device_id', ids)
-    for (const c of costs || []) {
-      const rid = (c as { resale_device_id: string }).resale_device_id
-      if (!costsMap[rid]) costsMap[rid] = []
-      costsMap[rid].push({
-        id: (c as { id: string }).id,
-        description: (c as { description: string | null }).description ?? null,
-        value_cents: (c as { value_cents: number }).value_cents ?? 0,
-      })
-    }
-  }
-
-  const list = (devices || []).map((d: Record<string, unknown>) => redactPurchaseValue({
-    ...d,
-    costs: costsMap[(d.id as string)] || [],
-  }, auth.isAdmin))
-
-  const total = limit != null && typeof totalCount === 'number' ? totalCount : list.length
-  const hasMore = limit != null && offset + list.length < total
 
   return NextResponse.json({
     ok: true,
     devices: list,
-    ...(limit != null ? { total, hasMore, limit, offset } : {}),
+    total: result.total,
+    hasMore: result.hasMore,
+    ...(limit != null ? { limit, offset } : {}),
   })
 }
 

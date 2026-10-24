@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 import { resolveListDisplayCostCents } from '@/lib/products/list-display-cost'
+import { resolveVirtualKitCostCentsByProductId } from '@/lib/products/virtual-stock-cost'
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -112,26 +113,38 @@ export async function POST (request: NextRequest) {
     rowById.set(String(row.id), row)
   }
 
+  const virtualCosts = await resolveVirtualKitCostCentsByProductId({
+    supabase: auth.supabase,
+    organizationId: auth.organizationId,
+    productIds: ids,
+  })
+
   const items = ids.map((id) => {
     const row = rowById.get(id)
     if (!row) {
       return { id, missing: true as const }
     }
     const st = stockByProduct.get(id)
-    const displayCostCents = resolveListDisplayCostCents({
-      costPriceCents: row.cost_price_cents,
-      costPriceManualEditedAt: row.cost_price_manual_edited_at,
-      lastEntryUnitValueCents: st?.lastCents ?? null,
-      lastEntryTimeMs: st?.lastMs ?? null,
-    })
+    const isVirtualStock = virtualCosts.has(id)
+    const composedCost = virtualCosts.get(id) ?? null
+    const displayCostCents = isVirtualStock
+      ? composedCost
+      : resolveListDisplayCostCents({
+        costPriceCents: row.cost_price_cents,
+        costPriceManualEditedAt: row.cost_price_manual_edited_at,
+        lastEntryUnitValueCents: st?.lastCents ?? null,
+        lastEntryTimeMs: st?.lastMs ?? null,
+      })
     return {
       id,
       name: row.name,
       kind: row.kind ?? null,
       salePriceCents: typeof row.sale_price_cents === 'number' ? row.sale_price_cents : null,
       costPriceCents: displayCostCents,
-      catalogCostPriceCents:
-        typeof row.cost_price_cents === 'number' ? row.cost_price_cents : null,
+      catalogCostPriceCents: isVirtualStock
+        ? composedCost
+        : typeof row.cost_price_cents === 'number' ? row.cost_price_cents : null,
+      isVirtualStock,
       pricingTagId: row.pricing_tag_id != null ? String(row.pricing_tag_id) : null,
       deviceModelIds: compatByProduct.get(id) ?? [],
       ncm: row.ncm != null ? String(row.ncm) : null,

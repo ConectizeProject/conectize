@@ -842,14 +842,29 @@ async function postProductsInbound (auth: AuthCtx, documentId: string, doc: Inbo
       }
 
       if (unitValueCents > 0) {
-        await service
-          .from('products')
-          .update({
-            cost_price_cents: unitValueCents,
-            updated_at: new Date().toISOString(),
+        const { fetchProductHasVirtualStock, persistDependentVirtualKitCosts } = await import(
+          '@/lib/products/virtual-stock-cost'
+        )
+        const isVirtual = await fetchProductHasVirtualStock({
+          supabase: service,
+          organizationId: auth.organizationId,
+          productId: item.product_id,
+        })
+        if (!isVirtual) {
+          await service
+            .from('products')
+            .update({
+              cost_price_cents: unitValueCents,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', item.product_id)
+            .eq('organization_id', auth.organizationId)
+          await persistDependentVirtualKitCosts({
+            supabase: service,
+            organizationId: auth.organizationId,
+            componentProductId: item.product_id,
           })
-          .eq('id', item.product_id)
-          .eq('organization_id', auth.organizationId)
+        }
       }
     }
 

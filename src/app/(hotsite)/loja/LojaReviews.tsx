@@ -9,13 +9,15 @@ type LojaReview = {
 
 export function LojaReviews ({
 	testimonials = lojaTestimonials,
+	className,
 }: {
 	testimonials?: readonly LojaReview[]
+	className?: string
 }) {
 	return (
 		<section
 			id="avaliacoes"
-			className={styles.reviews}
+			className={className ? `${styles.reviews} ${className}` : styles.reviews}
 			aria-labelledby="avaliacoes-titulo"
 		>
 			<div className={styles.wrap}>

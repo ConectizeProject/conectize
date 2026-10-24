@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { resolveDisplayedStockByProductId } from '@/lib/products/virtual-stock'
 import { resolveEffectiveUnitCostCents } from '@/lib/vendas/sold-item-margin'
 import {
   saleExitAt,
@@ -128,6 +129,19 @@ export async function loadSalesOrderListPresentation (params: {
     }
   }
 
+  // Overlay de estoque virtual (kits / composição).
+  if (productIds.length > 0) {
+    const displayed = await resolveDisplayedStockByProductId({
+      supabase: params.supabase,
+      organizationId: params.organizationId,
+      productIds,
+      physicalStockByProductId: stockByProduct,
+    })
+    for (const [productId, row] of displayed) {
+      if (row.isVirtual) stockByProduct.set(productId, row.currentStock)
+    }
+  }
+
   const movements: StockMovementSign[] = (movementsRes.error ? [] : (movementsRes.data ?? [])).map((row) => ({
     productId: String(row.product_id || ''),
     salesOrderId: row.sales_order_id != null ? String(row.sales_order_id) : null,
@@ -181,6 +195,108 @@ export async function loadSalesOrderListPresentation (params: {
   }
 
   return { marginTaxPercent, itemsByOrderId }
+}
+
+const SERVICE_ORDER_STOCK_REF_RE =
+  /^service_order:([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}):item:([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})/i
+
+/**
+ * Estoque atual e após a saída da OS, por chave `orderId:productId`.
+ * Usado na listagem por produtos (vendas + OS).
+ */
+export async function loadServiceOrderSoldStockPresentation (params: {
+  supabase: SupabaseClient
+  organizationId: string
+  rows: Array<{ orderId: string, productId: string, createdAt?: string | null }>
+}): Promise<Map<string, { stockCurrent: number | null, stockAfterSale: number | null }>> {
+  const out = new Map<string, { stockCurrent: number | null, stockAfterSale: number | null }>()
+  const productIds = [...new Set(params.rows.map((row) => row.productId).filter(Boolean))]
+  const orderIds = [...new Set(params.rows.map((row) => row.orderId).filter(Boolean))]
+  if (productIds.length === 0 || orderIds.length === 0) return out
+
+  const oldest = params.rows
+    .map((row) => String(row.createdAt || ''))
+    .filter(Boolean)
+    .sort()[0] || null
+
+  const [stockRes, movementsRes] = await Promise.all([
+    params.supabase.rpc('portal_products_list_stock_summary', { p_product_ids: productIds }),
+    params.supabase
+      .from('product_stock_movements')
+      .select('product_id, type, quantity, created_at, external_reference')
+      .eq('organization_id', params.organizationId)
+      .eq('source', 'service_order')
+      .in('product_id', productIds)
+      .gte('created_at', oldest || '1970-01-01T00:00:00.000Z')
+      .order('created_at', { ascending: true })
+      .limit(4000),
+  ])
+
+  const stockByProduct = new Map<string, number>()
+  if (!stockRes.error && Array.isArray(stockRes.data)) {
+    for (const row of stockRes.data as Array<{ product_id?: string, current_stock?: number | string }>) {
+      const productId = String(row.product_id || '')
+      if (!productId) continue
+      const stock = Number(row.current_stock)
+      stockByProduct.set(productId, Number.isFinite(stock) ? stock : 0)
+    }
+  }
+
+  const displayed = await resolveDisplayedStockByProductId({
+    supabase: params.supabase,
+    organizationId: params.organizationId,
+    productIds,
+    physicalStockByProductId: stockByProduct,
+  })
+  for (const [productId, row] of displayed) {
+    if (row.isVirtual) stockByProduct.set(productId, row.currentStock)
+  }
+
+  const movements: StockMovementSign[] = []
+  if (!movementsRes.error) {
+    for (const row of movementsRes.data ?? []) {
+      const ref = String((row as { external_reference?: string | null }).external_reference || '')
+      const match = SERVICE_ORDER_STOCK_REF_RE.exec(ref)
+      const serviceOrderId = match?.[1] ? match[1].toLowerCase() : null
+      const productId = String((row as { product_id?: string }).product_id || '').toLowerCase()
+      if (!productId) continue
+      movements.push({
+        productId,
+        salesOrderId: null,
+        serviceOrderId,
+        type: String((row as { type?: string }).type || ''),
+        quantity: toInt((row as { quantity?: number }).quantity),
+        createdAt: String((row as { created_at?: string }).created_at || ''),
+      })
+    }
+  }
+
+  for (const row of params.rows) {
+    const orderId = String(row.orderId || '')
+    const productId = String(row.productId || '')
+    if (!orderId || !productId) continue
+    const key = `${orderId}:${productId}`
+    const stockCurrent = stockByProduct.has(productId)
+      ? stockByProduct.get(productId) ?? null
+      : null
+    const productKey = productId.toLowerCase()
+    const saleAt = saleExitAt(movements, orderId.toLowerCase(), productKey, 'service')
+    const after = stockCurrent != null
+      ? stockAfterSale({
+        currentStock: stockCurrent,
+        saleAt,
+        movements,
+        productId: productKey,
+      })
+      : null
+    out.set(key, {
+      stockCurrent,
+      // Sem movimento de saída encontrado: ainda exibe o saldo atual.
+      stockAfterSale: after ?? stockCurrent,
+    })
+  }
+
+  return out
 }
 
 export function orderTaxCents (totalCents: number, marginTaxPercent: number): number {

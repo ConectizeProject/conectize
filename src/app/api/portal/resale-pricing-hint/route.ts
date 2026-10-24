@@ -17,7 +17,7 @@ export async function GET (request: NextRequest) {
     return NextResponse.json({ ok: true, hint: null })
   }
 
-  const devices = await fetchSeminovosDevices(auth.supabase, {
+  const { devices } = await fetchSeminovosDevices(auth.supabase, {
     q: '',
     condition,
     storageGb,

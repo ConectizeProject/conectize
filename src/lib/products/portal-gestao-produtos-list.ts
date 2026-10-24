@@ -12,6 +12,8 @@ import {
 } from '@/lib/products/produtos-flat-list'
 import { iphoneBatteryListVariationName } from '@/lib/products/iphone-battery-variation-title'
 import { resolveListDisplayCostCents } from '@/lib/products/list-display-cost'
+import { resolveDisplayedStockByProductId } from '@/lib/products/virtual-stock'
+import { resolveVirtualKitCostCentsByProductId } from '@/lib/products/virtual-stock-cost'
 import type { ProductRow } from '@/app/(portal)/portal/produtos/product-list-shared'
 
 export const GESTAO_LIST_CHUNK = 20
@@ -262,6 +264,7 @@ export async function enrichGestaoRawRowsToProductRows (
   const lastEntryCostByProductId: Record<string, number> = {}
   const lastEntryDateByProductId: Record<string, number> = {}
   const hasStockMovementsByProductId: Record<string, boolean> = {}
+  let virtualCostByProductId = new Map<string, number>()
 
   if (flatRows.length > 0) {
     const ids = flatRows.map((p) => p.id)
@@ -326,6 +329,26 @@ export async function enrichGestaoRawRowsToProductRows (
         }
       }
     }
+
+    const physical = new Map<string, number>()
+    for (const [pid, stock] of Object.entries(stockByProductId)) {
+      physical.set(pid, stock)
+    }
+    const displayed = await resolveDisplayedStockByProductId({
+      supabase,
+      productIds: ids,
+      physicalStockByProductId: physical,
+    })
+    for (const [pid, row] of displayed) {
+      if (!row.isVirtual) continue
+      stockByProductId[pid] = row.currentStock
+      // Kit virtual: trata como “com estoque” para exibir o saldo calculado.
+      hasStockMovementsByProductId[pid] = true
+    }
+    virtualCostByProductId = await resolveVirtualKitCostCentsByProductId({
+      supabase,
+      productIds: ids,
+    })
   }
 
   const parentIdsWithChildren = new Set<string>()
@@ -371,28 +394,34 @@ export async function enrichGestaoRawRowsToProductRows (
     }
   }
 
-  const normalize = (p: GestaoListRawRow) => ({
-    id: p.id,
-    bling_id: p.bling_id ?? null,
-    parent_bling_id: p.parent_bling_id ?? null,
-    bling_sync_pending: p.bling_sync_pending ?? false,
-    kind: p.kind ?? null,
-    name: p.name,
-    sku: p.sku ?? null,
-    barcode: p.barcode ?? null,
-    image_url: p.image_url ?? null,
-    sale_price_cents: p.sale_price_cents ?? null,
-    cost_price_cents: resolveListDisplayCostCents({
-      costPriceCents: p.cost_price_cents,
-      costPriceManualEditedAt: p.cost_price_manual_edited_at,
-      lastEntryUnitValueCents: lastEntryCostByProductId[p.id],
-      lastEntryTimeMs: lastEntryDateByProductId[p.id] ?? null,
-    }),
-    is_active: p.is_active ?? true,
-    created_at: p.created_at,
-    current_stock: stockByProductId[p.id] ?? 0,
-    has_stock_movements: hasStockMovementsByProductId[p.id] ?? false,
-  })
+  const normalize = (p: GestaoListRawRow) => {
+    const isVirtual = virtualCostByProductId.has(p.id)
+    return {
+      id: p.id,
+      bling_id: p.bling_id ?? null,
+      parent_bling_id: p.parent_bling_id ?? null,
+      bling_sync_pending: p.bling_sync_pending ?? false,
+      kind: p.kind ?? null,
+      name: p.name,
+      sku: p.sku ?? null,
+      barcode: p.barcode ?? null,
+      image_url: p.image_url ?? null,
+      sale_price_cents: p.sale_price_cents ?? null,
+      cost_price_cents: isVirtual
+        ? (virtualCostByProductId.get(p.id) ?? null)
+        : resolveListDisplayCostCents({
+          costPriceCents: p.cost_price_cents,
+          costPriceManualEditedAt: p.cost_price_manual_edited_at,
+          lastEntryUnitValueCents: lastEntryCostByProductId[p.id],
+          lastEntryTimeMs: lastEntryDateByProductId[p.id] ?? null,
+        }),
+      is_active: p.is_active ?? true,
+      created_at: p.created_at,
+      current_stock: stockByProductId[p.id] ?? 0,
+      has_stock_movements: hasStockMovementsByProductId[p.id] ?? false,
+      is_virtual: isVirtual,
+    }
+  }
 
   return flatRows.map((p) => {
     const normalized = normalize(p)

@@ -11,12 +11,14 @@ type QuickCostPriceCellProps = {
 	costPriceCents?: number | null
 	/** Padrão: direita (células de tabela). Use `left` no card mobile. */
 	align?: 'left' | 'right'
+	locked?: boolean
 }
 
 export const QuickCostPriceCell = memo(function QuickCostPriceCell ({
 	productId,
 	costPriceCents,
 	align = 'right',
+	locked = false,
 }: QuickCostPriceCellProps) {
 	const router = useRouter()
 
@@ -61,6 +63,8 @@ export const QuickCostPriceCell = memo(function QuickCostPriceCell ({
 			editAriaLabel="Editar preço de custo"
 			applyingAriaLabel="Aplicando preço de custo"
 			onCommit={persistCostPrice}
+			readOnly={locked}
+			readOnlyHint="Custo calculado pela composição virtual"
 		/>
 	)
 })

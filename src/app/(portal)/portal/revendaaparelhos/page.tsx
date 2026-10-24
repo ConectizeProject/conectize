@@ -3,8 +3,8 @@ import { fetchPaymentMethodsCatalogForPortal } from '@/lib/portal/payment-method
 import {
   fetchResaleDistinctDeviceNames,
   fetchSeminovosDevices,
+  REVENDA_LIST_PAGE_SIZE,
 } from '@/lib/seminovos/fetch-seminovos-data'
-import { groupDevicesByModel } from '@/lib/seminovos/group-devices-by-model'
 import { attachResaleDeviceDisplayImage } from '@/lib/seminovos/resale-device-display-image'
 import {
   createSupabaseServerClient,
@@ -116,6 +116,8 @@ async function RevendaListagemInner ({
     valueMinCents,
     valueMaxCents,
     includeSold,
+    limit: REVENDA_LIST_PAGE_SIZE,
+    offset: 0,
   }
 
   const filterInitialValues = {
@@ -135,28 +137,30 @@ async function RevendaListagemInner ({
   }
 
   const supabase = await createSupabaseServerClient()
-  const [devicesRaw, paymentMethods, distinctDeviceNames] = await Promise.all([
+  const [listResult, paymentMethods, distinctDeviceNames] = await Promise.all([
     fetchSeminovosDevices(supabase, filters),
     fetchPaymentMethodsCatalogForPortal(supabase),
     fetchResaleDistinctDeviceNames(supabase, 'all'),
   ])
 
-  const devices = isAdmin
-    ? devicesRaw
-    : devicesRaw.map((d) => ({
-        ...d,
-        purchase_value_cents: null,
-        costs: [],
-      }))
+  const devicesRaw = isAdmin
+    ? listResult.devices
+    : listResult.devices.map((d) => ({
+      ...d,
+      purchase_value_cents: null,
+      costs: [],
+    }))
 
-  const orderedDevices = groupDevicesByModel(devices).flatMap((g) => g.devices)
   const devicesWithDisplay = await Promise.all(
-    orderedDevices.map((d) => attachResaleDeviceDisplayImage(supabase, d)),
+    devicesRaw.map((d) => attachResaleDeviceDisplayImage(supabase, d)),
   )
 
   return (
     <RevendaListagemClient
       devices={devicesWithDisplay}
+      totalCount={listResult.total}
+      hasMoreInitial={listResult.hasMore}
+      listIncludeSold={includeSold}
       paymentMethods={paymentMethods}
       isRetailer={isRetailer}
       isAdmin={isAdmin}

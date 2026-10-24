@@ -106,10 +106,16 @@ export function applyResaleDevicesListFilters (
 
 export function resaleDevicesListOrder (
   query: QueryBuilder,
-  soldFilter: boolean,
+  soldFilter: boolean | 'all',
 ): QueryBuilder {
   if (soldFilter === true) {
     return query.order('sale_date', { ascending: false, nullsFirst: false })
+  }
+  if (soldFilter === 'all') {
+    return query
+      .order('sold', { ascending: true })
+      .order('sale_date', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false })
   }
   return query.order('created_at', { ascending: false })
 }

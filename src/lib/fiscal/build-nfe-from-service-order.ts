@@ -178,8 +178,11 @@ export async function buildNfeFromServiceOrder (input: {
   operationNature?: FiscalOperationNatureRow | null
   series: number
   number: number
+  model?: '55' | '65'
 }): Promise<BuildNfceResult> {
   const { supabase, organizationId, orderId, profile } = input
+  const model = input.model === '65' ? '65' : '55'
+  const kind = model === '65' ? 'NFC-e' : 'NF-e'
 
   const { data: order, error: orderError } = await supabase
     .from('service_orders')
@@ -195,7 +198,7 @@ export async function buildNfeFromServiceOrder (input: {
     return { ok: false, error: 'order_not_found', message: 'Ordem de serviço não encontrada.' }
   }
   if (String(order.status) === 'cancelada') {
-    return { ok: false, error: 'order_canceled', message: 'Não é possível emitir NF-e de uma OS cancelada.' }
+    return { ok: false, error: 'order_canceled', message: `Não é possível emitir ${kind} de uma OS cancelada.` }
   }
 
   const lines = parseServices(order.services)
@@ -204,7 +207,7 @@ export async function buildNfeFromServiceOrder (input: {
     return {
       ok: false,
       error: 'nfe_os_no_products',
-      message: 'A NF-e da OS inclui só peças/produtos. Adicione peças na ordem ou emita os serviços pela NFS-e.',
+      message: `A ${kind} da OS inclui só peças/produtos. Adicione peças na ordem ou emita os serviços pela NFS-e.`,
     }
   }
 
@@ -277,7 +280,7 @@ export async function buildNfeFromServiceOrder (input: {
   const displayNumber = order.display_number ?? order.id
   const skippedServices = lines.some((line) => line.kind === 'service' && line.valueCents > 0)
   const infoComplementar = skippedServices
-    ? `OS Conectize #${displayNumber}. NF-e das pecas; servicos nao inclusos.`
+    ? `OS Conectize #${displayNumber}. ${kind} das pecas; servicos nao inclusos.`
     : `OS Conectize #${displayNumber}`
 
   return buildNfceFromPreparedOrder({
@@ -287,7 +290,7 @@ export async function buildNfeFromServiceOrder (input: {
     operationNature: input.operationNature,
     series: input.series,
     number: input.number,
-    model: '55',
+    model,
     order: {
       order_number: displayNumber,
       customer_name: customerName,

@@ -33,9 +33,15 @@ export async function GET (
   const page = Number.isFinite(pageRaw) ? pageRaw : 1
   const pageSize = Number.isFinite(pageSizeRaw) ? pageSizeRaw : 20
 
-  const [stockRes, movementsRes] = await Promise.all([
+  const [stockRes, movementsRes, componentsRes] = await Promise.all([
     getProductCurrentStock(id),
     listStockMovements(id, { page, pageSize }),
+    auth.supabase
+      .from('product_stock_components')
+      .select('id, component_product_id, quantity_per_unit, products:component_product_id (id, sku, name, cost_price_cents)')
+      .eq('organization_id', auth.organizationId)
+      .eq('product_id', id)
+      .order('created_at', { ascending: true }),
   ])
 
   if (!stockRes.ok) {
@@ -45,12 +51,38 @@ export async function GET (
     return NextResponse.json({ error: 'db_error' }, { status: 500 })
   }
 
+  const componentsError = componentsRes.error
+  const componentsOk = !componentsError
+    || /product_stock_components|schema cache|does not exist/i.test(componentsError.message)
+
+  const components = componentsOk
+    ? (componentsRes.data ?? []).map((row) => {
+      const linked = Array.isArray((row as { products?: unknown }).products)
+        ? (row as { products: unknown[] }).products[0]
+        : (row as { products?: unknown }).products
+      const linkedRow = linked && typeof linked === 'object'
+      ? linked as { id?: string, sku?: string | null, name?: string | null, cost_price_cents?: number | null }
+      : null
+      const costRaw = Number(linkedRow?.cost_price_cents)
+      return {
+        id: String((row as { id?: string }).id || ''),
+        componentProductId: String((row as { component_product_id?: string }).component_product_id || ''),
+        quantityPerUnit: Math.max(1, Number((row as { quantity_per_unit?: number }).quantity_per_unit) || 1),
+        componentSku: linkedRow?.sku ? String(linkedRow.sku) : null,
+        componentName: linkedRow?.name ? String(linkedRow.name) : null,
+        componentCostCents: Number.isFinite(costRaw) ? Math.max(0, Math.round(costRaw)) : 0,
+      }
+    })
+    : []
+
   return NextResponse.json({
     currentStock: stockRes.currentStock ?? 0,
     movements: movementsRes.items,
     total: movementsRes.total,
     page: movementsRes.page,
     pageSize: movementsRes.pageSize,
+    stockMode: components.length > 0 ? 'virtual' : 'physical',
+    components,
   })
 }
 

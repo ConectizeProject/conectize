@@ -213,6 +213,7 @@ export const ProductListTableRow = memo(function ProductListTableRow ({
 						productId={product.id}
 						blingId={product.bling_id}
 						costPriceCents={product.cost_price_cents}
+						locked={Boolean(product.is_virtual)}
 					/>
 				</td>
 			)}

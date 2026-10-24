@@ -1187,3 +1187,204 @@ export async function getMeliItemsMultiget(
 
 	return out
 }
+
+export type MeliInvoiceSummary = {
+	id: string
+	status: string | null
+	authorized: boolean
+	danfeLocation: string | null
+	xmlLocation: string | null
+}
+
+function meliSellerIdFromConnection (connection: HubConnection): string | null {
+	const raw = connection.metadata?.user_id
+	if (raw == null) return null
+	const sellerId = String(raw).trim()
+	return sellerId || null
+}
+
+function asInvoiceRecord (value: unknown): Record<string, unknown> | null {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+	return value as Record<string, unknown>
+}
+
+function normalizeInvoicePath (value: unknown): string | null {
+	const raw = String(value || '').trim()
+	if (!raw) return null
+	if (raw.startsWith('/')) return raw
+	try {
+		const url = new URL(raw)
+		if (!url.pathname) return null
+		return `${url.pathname}${url.search}`
+	} catch {
+		return null
+	}
+}
+
+function parseMeliInvoicePayload (payload: unknown): MeliInvoiceSummary | null {
+	const candidates: unknown[] = []
+	if (Array.isArray(payload)) {
+		candidates.push(...payload)
+	} else {
+		const root = asInvoiceRecord(payload)
+		if (!root) return null
+		if (root.id != null || root.attributes != null || root.status != null) {
+			candidates.push(root)
+		}
+		const nested = root.invoice ?? root.data ?? root.result
+		if (Array.isArray(nested)) candidates.push(...nested)
+		else if (nested) candidates.push(nested)
+		const list = root.invoices
+		if (Array.isArray(list)) candidates.push(...list)
+	}
+
+	for (const entry of candidates) {
+		const row = asInvoiceRecord(entry)
+		if (!row) continue
+		const attributes = asInvoiceRecord(row.attributes) ?? {}
+		const id = String(row.id || attributes.invoice_id || '').trim()
+		if (!id) continue
+		const statusRaw = String(
+			row.status
+			|| row.transaction_status
+			|| attributes.status
+			|| '',
+		).trim().toLowerCase()
+		const authorized = statusRaw === 'authorized'
+		const danfeLocation = normalizeInvoicePath(
+			attributes.danfe_location ?? attributes.danfe ?? row.danfe_location ?? row.danfe,
+		)
+		const xmlLocation = normalizeInvoicePath(
+			attributes.xml_location ?? attributes.document ?? row.xml_location ?? row.document,
+		)
+		return {
+			id,
+			status: statusRaw || null,
+			authorized,
+			danfeLocation,
+			xmlLocation,
+		}
+	}
+	return null
+}
+
+export async function getMeliInvoiceByOrderId (
+	connection: HubConnection,
+	orderId: string,
+	supabase?: SupabaseClient,
+): Promise<MeliInvoiceSummary | null> {
+	const sellerId = meliSellerIdFromConnection(connection)
+	const id = String(orderId || '').trim()
+	if (!sellerId || !id) return null
+	const data = await meliRequestJson<unknown>(
+		connection,
+		{
+			path: `/users/${encodeURIComponent(sellerId)}/invoices/orders/${encodeURIComponent(id)}`,
+		},
+		supabase,
+	).catch(() => null)
+	return parseMeliInvoicePayload(data)
+}
+
+export async function getMeliInvoiceByShipmentId (
+	connection: HubConnection,
+	shipmentId: string,
+	supabase?: SupabaseClient,
+): Promise<MeliInvoiceSummary | null> {
+	const sellerId = meliSellerIdFromConnection(connection)
+	const id = String(shipmentId || '').trim()
+	if (!sellerId || !id) return null
+	const data = await meliRequestJson<unknown>(
+		connection,
+		{
+			path: `/users/${encodeURIComponent(sellerId)}/invoices/shipments/${encodeURIComponent(id)}`,
+		},
+		supabase,
+	).catch(() => null)
+	return parseMeliInvoicePayload(data)
+}
+
+export async function resolveMeliSaleInvoice (params: {
+	connection: HubConnection
+	mlOrderId?: string | null
+	mlShipmentId?: string | null
+	supabase?: SupabaseClient
+}): Promise<MeliInvoiceSummary | null> {
+	const orderId = String(params.mlOrderId || '').trim()
+	if (orderId) {
+		const byOrder = await getMeliInvoiceByOrderId(
+			params.connection,
+			orderId,
+			params.supabase,
+		)
+		if (byOrder) return byOrder
+	}
+	const shipmentId = String(params.mlShipmentId || '').trim()
+	if (shipmentId) {
+		return getMeliInvoiceByShipmentId(
+			params.connection,
+			shipmentId,
+			params.supabase,
+		)
+	}
+	return null
+}
+
+export async function getMeliInvoiceDocumentBinary (
+	connection: HubConnection,
+	documentPath: string,
+	supabase?: SupabaseClient,
+): Promise<{ bytes: Uint8Array, contentType: string | null }> {
+	const path = normalizeInvoicePath(documentPath)
+	if (!path) throw new Error('meli_invoice_path_missing')
+	return meliRequestBinary(
+		connection,
+		{ path },
+		supabase,
+	)
+}
+
+/** Busca NF-e autorizada no emissor do MELI (ex.: vendas FULL). */
+export async function withLiveMeliInvoices<T extends {
+	id: string
+	ml_order_id?: string | null
+	ml_shipment_id?: string | null
+	ml_logistic_type?: string | null
+}> (params: {
+	supabase: SupabaseClient
+	organizationId: string
+	orders: T[]
+}): Promise<Map<string, MeliInvoiceSummary>> {
+	const out = new Map<string, MeliInvoiceSummary>()
+	const pending = params.orders.filter((order) => {
+		const logistic = String(order.ml_logistic_type || '').trim().toLowerCase()
+		return logistic === 'fulfillment' && Boolean(String(order.ml_order_id || '').trim() || String(order.ml_shipment_id || '').trim())
+	})
+	if (pending.length === 0) return out
+
+	const connection = await getMeliConnectionByOrganizationId(
+		params.supabase,
+		params.organizationId,
+	)
+	if (!connection) return out
+
+	const concurrency = 4
+	for (let index = 0; index < pending.length; index += concurrency) {
+		const batch = pending.slice(index, index + concurrency)
+		const results = await Promise.all(
+			batch.map(async (order) => {
+				const invoice = await resolveMeliSaleInvoice({
+					connection,
+					mlOrderId: order.ml_order_id,
+					mlShipmentId: order.ml_shipment_id,
+					supabase: params.supabase,
+				})
+				return { orderId: order.id, invoice }
+			}),
+		)
+		for (const row of results) {
+			if (row.invoice) out.set(row.orderId, row.invoice)
+		}
+	}
+	return out
+}

@@ -193,14 +193,21 @@ function ComparisonTooltip ({
   const currentStart = currentDays[0]?.day
   const previousStart = previousDays[0]?.day
   const safeCount = Math.max(1, barCount)
-  const leftPercent = ((dayIndex + 0.5) / safeCount) * 100
+  const ratio = (dayIndex + 0.5) / safeCount
+  // Nas laterais, ancora a caixa pra dentro do grafico (evita corte na pagina).
+  const edgeAlign = ratio <= 0.22 ? 'start' : ratio >= 0.78 ? 'end' : 'center'
+  const positionStyle = edgeAlign === 'start'
+    ? { left: '0', transform: 'translateX(0)' }
+    : edgeAlign === 'end'
+      ? { left: '100%', transform: 'translateX(-100%)' }
+      : { left: `${ratio * 100}%`, transform: 'translateX(-50%)' }
 
   return (
     <div
       id={id}
       role='tooltip'
-      className='pointer-events-none absolute top-[calc(100%-0.25rem)] z-30 w-[min(17rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-lg'
-      style={{ left: `${leftPercent}%` }}
+      className='pointer-events-none absolute top-[calc(100%-0.25rem)] z-30 w-[min(17rem,100%)] rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-lg'
+      style={positionStyle}
     >
       <div className='space-y-2 text-sm'>
         {currentDay ? (
@@ -402,7 +409,14 @@ function ShippingBoard ({
   onTabChange: (tab: MeliShippingTabId) => void
   onCardSelect: (lane: SalesLane) => void
 }) {
-  if (loading || !board) return <ShippingBoardSkeleton />
+  if (loading) return <ShippingBoardSkeleton />
+  if (!board) {
+    return (
+      <p className='py-6 text-center text-sm text-muted-foreground'>
+        Não foi possível carregar o painel de envios.
+      </p>
+    )
+  }
 
   const tabs = board.tabs
   const cards = board.cardsByTab[activeTab] ?? []
@@ -546,6 +560,7 @@ export function VendasRealizadasHeader ({
 }) {
   const [summary, setSummary] = useState<Summary | null>(null)
   const [shippingBoard, setShippingBoard] = useState<MeliShippingBoard | null>(null)
+  const [showShippingBoard, setShowShippingBoard] = useState(false)
   const [shippingLoading, setShippingLoading] = useState(true)
   const [shippingTab, setShippingTab] = useState<MeliShippingTabId>(() => tabFromLane(lane))
 
@@ -584,8 +599,12 @@ export function VendasRealizadasHeader ({
           label: data.previous?.label,
         },
       })
-      if (data.shippingBoard?.tabs && data.shippingBoard?.cardsByTab) {
+      const showBoard = data.showShippingBoard === true
+      setShowShippingBoard(showBoard)
+      if (showBoard && data.shippingBoard?.tabs && data.shippingBoard?.cardsByTab) {
         setShippingBoard(data.shippingBoard as MeliShippingBoard)
+      } else {
+        setShippingBoard(null)
       }
       setShippingLoading(false)
     }
@@ -610,21 +629,23 @@ export function VendasRealizadasHeader ({
         />
       </div>
 
-      <Card className='overflow-visible border-0 bg-muted/50 shadow-none'>
-        <CardContent className='space-y-3 p-4'>
-          <ShippingBoard
-            board={shippingBoard}
-            loading={shippingLoading}
-            activeTab={shippingTab}
-            onTabChange={(tab) => {
-              setShippingTab(tab)
-              const match = shippingBoard?.tabs.find((item) => item.id === tab)
-              onLaneChange(match?.lane ?? 'all')
-            }}
-            onCardSelect={onLaneChange}
-          />
-        </CardContent>
-      </Card>
+      {showShippingBoard ? (
+        <Card className='overflow-visible border-0 bg-muted/50 shadow-none'>
+          <CardContent className='space-y-3 p-4'>
+            <ShippingBoard
+              board={shippingBoard}
+              loading={shippingLoading}
+              activeTab={shippingTab}
+              onTabChange={(tab) => {
+                setShippingTab(tab)
+                const match = shippingBoard?.tabs.find((item) => item.id === tab)
+                onLaneChange(match?.lane ?? 'all')
+              }}
+              onCardSelect={onLaneChange}
+            />
+          </CardContent>
+        </Card>
+      ) : null}
 
       <div className='flex items-center overflow-x-auto pb-1'>
         <button

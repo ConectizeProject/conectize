@@ -1403,7 +1403,10 @@ export function ProductsListClient({
 					router.refresh()
 				}}
 				onStockChange={(id, currentStock) => {
-					setStockOverrides((prev) => ({ ...prev, [id]: currentStock }))
+					setStockOverrides((prev) => {
+						if (prev[id] === currentStock) return prev
+						return { ...prev, [id]: currentStock }
+					})
 				}}
 				onNavigateToProductId={(id) => {
 					setCreateDialogOpen(false)

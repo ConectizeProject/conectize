@@ -260,6 +260,31 @@
 	animation: fadeUp 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.32s both;
 }
 
+.heroCallouts {
+	display: grid;
+	gap: 0.55rem;
+	max-width: 28rem;
+	margin: 1.15rem 0 0;
+	padding: 0;
+	list-style: none;
+	animation: fadeUp 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.36s both;
+}
+
+.heroCallouts li {
+	display: flex;
+	align-items: center;
+	gap: 0.55rem;
+	font-size: 1rem;
+	font-weight: 700;
+	line-height: 1.35;
+	color: var(--loja-ink);
+}
+
+.heroFlush .heroCallouts {
+	margin-left: auto;
+	margin-right: auto;
+}
+
 .actions {
 	display: flex;
 	flex-wrap: wrap;
@@ -1341,12 +1366,28 @@ a.bookingChoice {
 	padding: 1.35rem 1.25rem;
 }
 
+.highlightFeatured {
+	border-color: rgb(100 206 251 / 0.55);
+	background: linear-gradient(
+		180deg,
+		rgb(100 206 251 / 0.18),
+		#fff 62%
+	);
+	box-shadow: 0 12px 30px rgb(100 206 251 / 0.14);
+}
+
 .reviews {
 	padding: 5rem 0;
 	background:
 		radial-gradient(ellipse at 20% 0%, rgb(100 206 251 / 0.16), transparent 45%),
 		var(--loja-dark);
 	color: #fff;
+}
+
+.reviewsAfterHero {
+	position: relative;
+	z-index: 2;
+	padding-top: 4.25rem;
 }
 
 .reviewsHead {
@@ -1856,6 +1897,11 @@ a.bookingChoice {
 		justify-content: flex-start;
 	}
 
+	.heroFlush .heroCallouts {
+		margin-left: 0;
+		margin-right: 0;
+	}
+
 	.heroFlush .phonePortrait.phoneStage {
 		justify-self: end;
 		min-height: 0;
@@ -1910,6 +1956,10 @@ a.bookingChoice {
 
 	.reviewsGrid {
 		grid-template-columns: repeat(3, minmax(0, 1fr));
+	}
+
+	.reviewsAfterHero {
+		padding-top: 6rem;
 	}
 
 	.storeGrid {
