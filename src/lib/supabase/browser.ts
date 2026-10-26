@@ -1,9 +1,13 @@
 import { createBrowserClient } from '@supabase/ssr'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { browserAuthCookieOptions } from './auth-cookie-domain'
 import { getSupabaseEnv } from './env'
 
 /**
  * Cliente singleton (createBrowserClient usa cache interno no browser).
+ * Em www, apex e app.conectize.com.br o cookie usa Domain=.conectize.com.br
+ * para a sessão sobreviver ao redirect www → app. Localhost e preview
+ * continuam host-only.
  * Usado para parar o auto-refresh quando a rede/DNS falha e evitar loop de
  * tentativas ao host do projeto (logs em cascata no console).
  */
@@ -55,7 +59,13 @@ export function createSupabaseBrowserClient () {
   const { url, anonKey } = getSupabaseEnv()
   attachOnlineListenerOnce()
 
+  const cookieOptions =
+    typeof window === 'undefined'
+      ? undefined
+      : browserAuthCookieOptions(window.location.hostname, window.location.protocol)
+
   const client = createBrowserClient(url, anonKey, {
+    ...(cookieOptions ? { cookieOptions } : {}),
     global: {
       fetch: buildFetchForSupabase(),
     },
