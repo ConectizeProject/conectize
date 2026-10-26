@@ -60,6 +60,7 @@ export type ProductFormProduct = {
   cofinsCst?: string | null
   variationAttributeKeys?: string[]
   variationAttributeValues?: Record<string, string>
+  isVirtualStock?: boolean
 }
 
 export type ProductFormSubmitPayload = {
@@ -297,6 +298,8 @@ type Props = {
    * sem depender do Salvar da aba Dados.
    */
   onPersistVariationAttributeKeys?: (keys: string[]) => Promise<boolean>
+  /** Custo calculado pela composição virtual: campo somente leitura. */
+  costLockedByVirtualStock?: boolean
 }
 
 export function ProductForm ({
@@ -321,6 +324,7 @@ export function ProductForm ({
   fiscalPortalEl = null,
   onRequestFiscalTab,
   onPersistVariationAttributeKeys,
+  costLockedByVirtualStock = false,
 }: Props) {
   const nameInputRef = useRef<HTMLInputElement>(null)
   const [submitErrors, setSubmitErrors] = useState<{
@@ -365,6 +369,15 @@ export function ProductForm ({
       ? maskedFromCents(product.costPriceCents)
       : '',
   )
+
+  useEffect(() => {
+    if (!costLockedByVirtualStock) return
+    setCostReais(
+      typeof product?.costPriceCents === 'number'
+        ? maskedFromCents(product.costPriceCents)
+        : '',
+    )
+  }, [costLockedByVirtualStock, product?.costPriceCents])
 
   const [compatibleModels, setCompatibleModels] = useState<CompatibleEntry[]>(() =>
     Array.isArray(initialCompatibleModels) ? [...initialCompatibleModels] : [],
@@ -766,7 +779,9 @@ export function ProductForm ({
     }
     const salePrice = saleCentsParsed == null ? 0 : saleCentsParsed / 100
 
-    const costCentsParsed = parseMaskedMoneyToCents(costReais)
+    const costCentsParsed = costLockedByVirtualStock
+      ? (typeof product?.costPriceCents === 'number' ? product.costPriceCents : 0)
+      : parseMaskedMoneyToCents(costReais)
     if (costCentsParsed === 'invalid') {
       setSubmitErrors({ costPrice: 'Valor de preço de custo inválido. Use o formato 0,00.' })
       return
@@ -1345,13 +1360,15 @@ export function ProductForm ({
               placeholder="0,00"
               value={costReais}
               onChange={(e) => {
+                if (costLockedByVirtualStock) return
                 setCostReais(formatMoneyInput(e.target.value))
                 if (submitErrors.costPrice) setSubmitErrors((s) => ({ ...s, costPrice: undefined }))
               }}
-              disabled={pending}
+              disabled={pending || costLockedByVirtualStock}
+              readOnly={costLockedByVirtualStock}
               className={cn('tabular-nums', submitErrors.costPrice && 'border-destructive')}
               aria-invalid={submitErrors.costPrice ? true : undefined}
-              aria-describedby={submitErrors.costPrice ? 'costPrice-error' : undefined}
+              aria-describedby={submitErrors.costPrice ? 'costPrice-error' : costLockedByVirtualStock ? 'costPrice-virtual-hint' : undefined}
             />
             {submitErrors.costPrice
               ? (
@@ -1359,7 +1376,13 @@ export function ProductForm ({
                   {submitErrors.costPrice}
                 </p>
               )
-              : null}
+              : costLockedByVirtualStock
+                ? (
+                  <p id="costPrice-virtual-hint" className="text-sm text-muted-foreground">
+                    Soma da composição virtual. Altere o custo nos componentes.
+                  </p>
+                )
+                : null}
           </div>
           <div className="space-y-2">
             <Label htmlFor="salePrice">Preço de venda</Label>

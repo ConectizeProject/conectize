@@ -332,6 +332,7 @@ export const ProductListCard = memo(function ProductListCard({
 											productId={product.id}
 											blingId={product.bling_id}
 											costPriceCents={product.cost_price_cents}
+											locked={Boolean(product.is_virtual)}
 										/>
 									</dd>
 								</div>

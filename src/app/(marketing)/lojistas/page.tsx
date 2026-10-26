@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Building2, Wrench, Smartphone, TrendingUp, Users, Award } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { buildWhatsAppUrl } from '@/lib/data/business'
 import { publicPageSeo } from '@/lib/utils/site-url'
 
 const title = 'Peças e conserto para lojistas em BH | Conectize'
@@ -189,7 +190,7 @@ export default function LojistasPage () {
           </p>
           <Button variant="hero" size="lg" asChild>
             <a
-              href="https://wa.me/5531986140889?text=Olá! Sou lojista e gostaria de conhecer as condições especiais para parceiros."
+              href={buildWhatsAppUrl('Olá! Sou lojista e gostaria de conhecer as condições especiais para parceiros.')}
               target="_blank"
               rel="noopener noreferrer"
             >

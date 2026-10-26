@@ -80,6 +80,20 @@ export async function emitServiceOrderNfe (input: {
   })
 }
 
+export async function emitServiceOrderNfce (input: {
+  orderId: string
+  displayNumber: string | number
+  navigate: (href: string) => void
+}): Promise<EmitSalesOrderFiscalResult> {
+  return emitSalesOrderFiscalDocument({
+    orderId: input.orderId,
+    model: '65',
+    navigate: input.navigate,
+    emitApiBase: `/api/portal/ordens/${encodeURIComponent(input.orderId)}`,
+    customerHref: `/portal/ordens/${encodeURIComponent(String(input.displayNumber))}`,
+  })
+}
+
 export async function emitSalesOrderFiscalDocument (input: {
   orderId: string
   model: '55' | '65'

@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { VendasListKeepAlive } from '@/app/(portal)/portal/vendas/VendasListKeepAlive'
 import { VendasModuleTabs } from '@/app/(portal)/portal/vendas/VendasModuleTabs'
 
@@ -8,9 +9,13 @@ export default function VendasLayout ({
 }) {
   return (
     <div className='space-y-4 py-4'>
-      <VendasModuleTabs />
+      <Suspense fallback={<p className='text-sm text-muted-foreground'>Carregando…</p>}>
+        <VendasModuleTabs />
+      </Suspense>
       <div>
-        <VendasListKeepAlive />
+        <Suspense fallback={<p className='p-4 text-sm text-muted-foreground'>Carregando…</p>}>
+          <VendasListKeepAlive />
+        </Suspense>
         {children}
       </div>
     </div>

@@ -31,6 +31,21 @@ function createStockSupabaseMock (seed: MovementRow[]) {
         }
       }
 
+      if (table === 'product_stock_components') {
+        const chain = {
+          select () { return chain },
+          in () { return chain },
+          eq () { return chain },
+          then (
+            onFulfilled: (value: { data: unknown[], error: null }) => unknown,
+            onRejected?: (reason: unknown) => unknown,
+          ) {
+            return Promise.resolve({ data: [], error: null }).then(onFulfilled, onRejected)
+          },
+        }
+        return chain
+      }
+
       if (table !== 'product_stock_movements') {
         throw new Error(`Tabela não mockada: ${table}`)
       }

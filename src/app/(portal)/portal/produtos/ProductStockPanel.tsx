@@ -10,7 +10,9 @@ import {
   Loader2,
   Package,
   Pencil,
+  Plus,
   Scale,
+  Search,
   Trash2,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -32,6 +34,7 @@ import { useToast } from '@/hooks/use-toast'
 import { appConfirm } from '@/lib/ui/app-dialogs'
 import { getOrdemPortalPath } from '@/lib/orders/ordem-portal-path'
 import { parseInboundNfeAccessKeyFromStockRef } from '@/lib/fiscal/inbound-nfe-stock-ref'
+import { computeVirtualKitCostCents } from '@/lib/products/virtual-stock'
 
 const PAGE_SIZE = 20
 
@@ -53,12 +56,34 @@ type Movement = {
   createdAt: string
 }
 
+type StockMode = 'physical' | 'virtual'
+
+type StockComponentRow = {
+  id?: string
+  componentProductId: string
+  quantityPerUnit: number
+  componentSku: string | null
+  componentName: string | null
+  componentStock?: number | null
+  componentCostCents?: number | null
+}
+
+type ProductSearchHit = {
+  id: string
+  name: string
+  sku: string | null
+  currentStock?: number | null
+  costPriceCents?: number | null
+}
+
 type StockData = {
   currentStock: number
   movements: Movement[]
   total: number
   page: number
   pageSize: number
+  stockMode: StockMode
+  components: StockComponentRow[]
 }
 
 const MOVEMENT_TYPE_OPTIONS: Array<{
@@ -178,8 +203,16 @@ function movementKey (id: string) {
   return String(id || '').trim().toLowerCase()
 }
 
-function originCell (m: Movement) {
+function originCell (m: Movement, stockMode: StockMode) {
   const ref = String(m.externalReference || '')
+  const kitSaleDetail = stockMode === 'virtual'
+    && (m.source === 'sales_order' || m.salesOrderId || m.source === 'service_order' || m.serviceOrderId)
+    ? (
+      <span className="mt-0.5 block text-[11px] text-muted-foreground">
+        Venda do SKU agrupador (baixa no produto real)
+      </span>
+    )
+    : null
   if (m.source === 'sales_order' || m.salesOrderId) {
     const orderId = m.salesOrderId || (ref.startsWith('sales_order') ? ref.split(':')[1] : '')
     const numberLabel = typeof m.salesOrderNumber === 'number'
@@ -190,15 +223,23 @@ function originCell (m: Movement) {
       : 'Pedido de venda'
     if (orderId) {
       return (
-        <Link
-          href={`/portal/vendas/${orderId}`}
-          className="font-medium text-primary underline-offset-2 hover:underline"
-        >
-          {label}
-        </Link>
+        <span className="block">
+          <Link
+            href={`/portal/vendas/${orderId}`}
+            className="font-medium text-primary underline-offset-2 hover:underline"
+          >
+            {label}
+          </Link>
+          {kitSaleDetail}
+        </span>
       )
     }
-    return <span className="text-muted-foreground">{label}</span>
+    return (
+      <span className="block text-muted-foreground">
+        {label}
+        {kitSaleDetail}
+      </span>
+    )
   }
   if (m.source === 'pdv_sale' && ref.startsWith('pdv_sale:')) {
     const saleId = ref.split(':')[1] || ''
@@ -218,15 +259,23 @@ function originCell (m: Movement) {
       : 'Ordem de serviço'
     if (orderId) {
       return (
-        <Link
-          href={getOrdemPortalPath({ id: orderId, display_number: numberLabel })}
-          className="font-medium text-primary underline-offset-2 hover:underline"
-        >
-          {label}
-        </Link>
+        <span className="block">
+          <Link
+            href={getOrdemPortalPath({ id: orderId, display_number: numberLabel })}
+            className="font-medium text-primary underline-offset-2 hover:underline"
+          >
+            {label}
+          </Link>
+          {kitSaleDetail}
+        </span>
       )
     }
-    return <span className="text-muted-foreground">{label}</span>
+    return (
+      <span className="block text-muted-foreground">
+        {label}
+        {kitSaleDetail}
+      </span>
+    )
   }
   if (m.source === 'bling') return <span className="text-muted-foreground">Bling</span>
   if (m.source === 'system') return <span className="text-muted-foreground">Sistema</span>
@@ -250,6 +299,8 @@ type Props = {
   active?: boolean
   /** Saldo após criar/excluir movimento — sem recarregar a página. */
   onStockChange?: (currentStock: number) => void
+  /** Após salvar ou remover a composição virtual. */
+  onVirtualCostChange?: (next: { isVirtual: boolean, costPriceCents: number | null }) => void
 }
 
 export function ProductStockPanel ({
@@ -259,6 +310,7 @@ export function ProductStockPanel ({
   initialStock = 0,
   active = true,
   onStockChange,
+  onVirtualCostChange,
 }: Props) {
   const { toast } = useToast()
   const [data, setData] = useState<StockData | null>(null)
@@ -273,7 +325,47 @@ export function ProductStockPanel ({
   const [quantity, setQuantity] = useState('1')
   const [unitValue, setUnitValue] = useState('')
   const [page, setPage] = useState(1)
+  const [stockMode, setStockMode] = useState<StockMode>('physical')
+  const [components, setComponents] = useState<StockComponentRow[]>([])
+  const [componentsDirty, setComponentsDirty] = useState(false)
+  const [savingComponents, setSavingComponents] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchHits, setSearchHits] = useState<ProductSearchHit[]>([])
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [addQty, setAddQty] = useState('1')
   const fetchGenRef = useRef(0)
+  const componentsDirtyRef = useRef(false)
+  const onStockChangeRef = useRef(onStockChange)
+  const onVirtualCostChangeRef = useRef(onVirtualCostChange)
+  const lastReportedStockRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    componentsDirtyRef.current = componentsDirty
+  }, [componentsDirty])
+
+  useEffect(() => {
+    onStockChangeRef.current = onStockChange
+  }, [onStockChange])
+
+  useEffect(() => {
+    onVirtualCostChangeRef.current = onVirtualCostChange
+  }, [onVirtualCostChange])
+
+  function reportStock (nextStock: number) {
+    if (lastReportedStockRef.current === nextStock) return
+    lastReportedStockRef.current = nextStock
+    onStockChangeRef.current?.(nextStock)
+  }
+
+  const emptyStock = useCallback((stock = initialStock): StockData => ({
+    currentStock: stock,
+    movements: [],
+    total: 0,
+    page: 1,
+    pageSize: PAGE_SIZE,
+    stockMode: 'physical',
+    components: [],
+  }), [initialStock])
 
   const fetchStock = useCallback(async (pageToLoad = 1, options?: { silent?: boolean }) => {
     if (!productId || !active) return
@@ -292,33 +384,225 @@ export function ProductStockPanel ({
           total?: number
           page?: number
           pageSize?: number
+          stockMode?: StockMode
+          components?: StockComponentRow[]
         }
+        const nextMode = json.stockMode === 'virtual' ? 'virtual' : 'physical'
+        const nextComponents = Array.isArray(json.components) ? json.components : []
+        const nextStock = json.currentStock ?? 0
         setData({
-          currentStock: json.currentStock ?? 0,
+          currentStock: nextStock,
           movements: json.movements ?? [],
           total: json.total ?? 0,
           page: json.page ?? pageToLoad,
           pageSize: json.pageSize ?? PAGE_SIZE,
+          stockMode: nextMode,
+          components: nextComponents,
         })
+        if (!componentsDirtyRef.current) {
+          setStockMode(nextMode)
+          setComponents(nextComponents)
+        }
         setPage(json.page ?? pageToLoad)
+        reportStock(nextStock)
       } else if (!options?.silent) {
-        setData({ currentStock: initialStock, movements: [], total: 0, page: 1, pageSize: PAGE_SIZE })
+        setData(emptyStock())
       }
     } catch {
       if (gen !== fetchGenRef.current) return
       if (!options?.silent) {
-        setData({ currentStock: initialStock, movements: [], total: 0, page: 1, pageSize: PAGE_SIZE })
+        setData(emptyStock())
       }
     } finally {
       if (!options?.silent && gen === fetchGenRef.current) setLoading(false)
     }
-  }, [productId, initialStock, active])
+  }, [productId, active, emptyStock])
 
   useEffect(() => {
     if (!active || !productId) return
     setPage(1)
+    setComponentsDirty(false)
+    componentsDirtyRef.current = false
+    setSearchQuery('')
+    setSearchHits([])
+    lastReportedStockRef.current = null
     void fetchStock(1)
   }, [active, productId, fetchStock])
+
+  useEffect(() => {
+    if (stockMode !== 'virtual') {
+      setSearchHits([])
+      return
+    }
+    const q = searchQuery.trim()
+    if (q.length < 2) {
+      setSearchHits([])
+      return
+    }
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        setSearchLoading(true)
+        try {
+          const params = new URLSearchParams({ q, kind: 'product' })
+          const res = await fetch(`/api/portal/produtos/search?${params.toString()}`, {
+            cache: 'no-store',
+          })
+          if (!res.ok || cancelled) return
+          const json = await res.json() as { items?: Array<{
+            id?: string
+            name?: string
+            sku?: string | null
+            currentStock?: number | null
+            costPriceCents?: number | null
+            hasVariations?: boolean
+          }> }
+          const hits = (json.items ?? [])
+            .filter((row) => {
+              const id = String(row.id || '')
+              if (!id || id === productId) return false
+              if (row.hasVariations) return false
+              return !components.some((c) => c.componentProductId === id)
+            })
+            .map((row) => ({
+              id: String(row.id),
+              name: String(row.name || 'Produto'),
+              sku: row.sku ? String(row.sku) : null,
+              currentStock: typeof row.currentStock === 'number' ? row.currentStock : null,
+              costPriceCents: typeof row.costPriceCents === 'number' ? row.costPriceCents : 0,
+            }))
+          if (!cancelled) setSearchHits(hits)
+        } finally {
+          if (!cancelled) setSearchLoading(false)
+        }
+      })()
+    }, 250)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [searchQuery, stockMode, productId, components])
+
+  async function saveComponents (nextComponents: StockComponentRow[], nextMode: StockMode) {
+    setSavingComponents(true)
+    try {
+      const res = await fetch(`/api/portal/produtos/${encodeURIComponent(productId)}/stock-components`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          components: nextMode === 'virtual'
+            ? nextComponents.map((row) => ({
+              componentProductId: row.componentProductId,
+              quantityPerUnit: row.quantityPerUnit,
+            }))
+            : [],
+        }),
+      })
+      const json = await res.json().catch(() => null) as {
+        ok?: boolean
+        error?: string
+        message?: string
+        isVirtual?: boolean
+        costPriceCents?: number | null
+      } | null
+      if (!res.ok || !json?.ok) {
+        toast({
+          variant: 'destructive',
+          title: 'Não foi possível salvar o estoque virtual',
+          description: json?.message || json?.error || 'Tente novamente.',
+        })
+        return false
+      }
+      setComponentsDirty(false)
+      setStockMode(nextMode)
+      setComponents(nextMode === 'virtual' ? nextComponents : [])
+      await fetchStock(1, { silent: true })
+      onVirtualCostChangeRef.current?.({
+        isVirtual: nextMode === 'virtual',
+        costPriceCents: nextMode === 'virtual'
+          ? (typeof json.costPriceCents === 'number' ? json.costPriceCents : 0)
+          : costPriceCents ?? null,
+      })
+      toast({
+        title: nextMode === 'virtual' ? 'Estoque virtual salvo' : 'Estoque físico restaurado',
+        description: nextMode === 'virtual'
+          ? 'O saldo e o custo passam a ser calculados pelos componentes.'
+          : 'Movimentações manuais voltaram a valer neste produto.',
+      })
+      return true
+    } catch {
+      toast({
+        variant: 'destructive',
+        title: 'Erro de rede',
+        description: 'Não foi possível salvar a composição.',
+      })
+      return false
+    } finally {
+      setSavingComponents(false)
+    }
+  }
+
+  async function handleStockModeChange (nextMode: StockMode) {
+    if (nextMode === stockMode) return
+    if (nextMode === 'physical' && (components.length > 0 || data?.stockMode === 'virtual')) {
+      const confirmed = await appConfirm({
+        title: 'Usar estoque físico?',
+        description: 'A composição virtual será removida e este produto voltará a ter saldo próprio.',
+        confirmLabel: 'Usar físico',
+      })
+      if (!confirmed) return
+      await saveComponents([], 'physical')
+      return
+    }
+    setStockMode(nextMode)
+    setComponentsDirty(true)
+  }
+
+  async function handleSaveVirtualComposition () {
+    if (components.length === 0) {
+      toast({
+        variant: 'destructive',
+        title: 'Adicione componentes',
+        description: 'Informe ao menos um produto e a quantidade usada por unidade.',
+      })
+      return
+    }
+    await saveComponents(components, 'virtual')
+  }
+
+  function addComponent (hit: ProductSearchHit) {
+    const qty = Math.max(1, Math.trunc(Number(addQty) || 1))
+    setComponents((prev) => [
+      ...prev,
+      {
+        componentProductId: hit.id,
+        quantityPerUnit: qty,
+        componentSku: hit.sku,
+        componentName: hit.name,
+        componentStock: hit.currentStock ?? null,
+        componentCostCents: typeof hit.costPriceCents === 'number' ? hit.costPriceCents : 0,
+      },
+    ])
+    setComponentsDirty(true)
+    setSearchQuery('')
+    setSearchHits([])
+    setAddQty('1')
+  }
+
+  function updateComponentQty (componentProductId: string, raw: string) {
+    const qty = Math.max(1, Math.trunc(Number(raw) || 1))
+    setComponents((prev) => prev.map((row) => (
+      row.componentProductId === componentProductId
+        ? { ...row, quantityPerUnit: qty }
+        : row
+    )))
+    setComponentsDirty(true)
+  }
+
+  function removeComponent (componentProductId: string) {
+    setComponents((prev) => prev.filter((row) => row.componentProductId !== componentProductId))
+    setComponentsDirty(true)
+  }
 
   useEffect(() => {
     const defaultCents = typeof costPriceCents === 'number' ? costPriceCents : 0
@@ -409,6 +693,8 @@ export function ProductStockPanel ({
               total: (prev?.total ?? 0) + 1,
               page: 1,
               pageSize,
+              stockMode: prev?.stockMode ?? 'physical',
+              components: prev?.components ?? [],
             }
           })
           setPage(1)
@@ -421,7 +707,7 @@ export function ProductStockPanel ({
               : prev
           ))
         }
-        if (nextStock != null) onStockChange?.(nextStock)
+        if (nextStock != null) reportStock(nextStock)
       } else {
         let description = 'Não foi possível salvar o movimento.'
         try {
@@ -498,11 +784,13 @@ export function ProductStockPanel ({
             movements: nextMovements,
             total: Math.max(0, prev.total - (removed ? 1 : 0)),
             page: nextPage,
+            stockMode: prev.stockMode,
+            components: prev.components,
           }
         })
         setPage(nextPage)
         await fetchStock(nextPage, { silent: true })
-        if (nextStock != null) onStockChange?.(nextStock)
+        if (nextStock != null) reportStock(nextStock)
       } else {
         let description = 'Não foi possível excluir o lançamento.'
         try {
@@ -604,7 +892,7 @@ export function ProductStockPanel ({
         } else if (nextStock != null) {
           setData((prev) => (prev ? { ...prev, currentStock: nextStock } : prev))
         }
-        if (nextStock != null) onStockChange?.(nextStock)
+        if (nextStock != null) reportStock(nextStock)
         setEditing(null)
       } else {
         let description = 'Não foi possível salvar a alteração.'
@@ -659,132 +947,374 @@ export function ProductStockPanel ({
             <p className="text-sm text-muted-foreground">
               {productName}
               <span className="mx-1.5 text-border">·</span>
-              unidade(s) em saldo
+              {stockMode === 'virtual'
+                ? 'saldo virtual (pelo menor componente)'
+                : 'unidade(s) em saldo'}
             </p>
           </div>
-          <div className="flex items-center gap-2 text-muted-foreground">
-            {currentStock < 0 ? (
-              <ArrowDownLeft className="h-5 w-5 text-destructive" aria-hidden />
-            ) : currentStock === 0 ? (
-              <Scale className="h-5 w-5 text-amber-600 dark:text-amber-400" aria-hidden />
-            ) : (
-              <Package className="h-5 w-5" aria-hidden />
-            )}
+          <div className="flex items-center gap-2">
+            {stockMode === 'virtual' ? (
+              <Badge variant="secondary">Virtual</Badge>
+            ) : null}
+            <div className="text-muted-foreground">
+              {currentStock < 0 ? (
+                <ArrowDownLeft className="h-5 w-5 text-destructive" aria-hidden />
+              ) : currentStock === 0 ? (
+                <Scale className="h-5 w-5 text-amber-600 dark:text-amber-400" aria-hidden />
+              ) : (
+                <Package className="h-5 w-5" aria-hidden />
+              )}
+            </div>
           </div>
         </div>
       </div>
 
       <StockSection
-        title="Registrar movimento"
-        description={selectedType.hint}
+        title="Tipo de estoque"
+        description="Físico usa saldo próprio. Virtual calcula o saldo a partir de outros produtos."
       >
-        <form onSubmit={handleSubmit} noValidate className="space-y-4">
-          <div className="space-y-2">
-            <Label id="product-stock-type-label">Tipo</Label>
-            <div
-              role="radiogroup"
-              aria-labelledby="product-stock-type-label"
-              className="grid grid-cols-2 gap-2 sm:grid-cols-4"
-            >
-              {MOVEMENT_TYPE_OPTIONS.map((option) => {
-                const isSelected = type === option.value
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    role="radio"
-                    aria-checked={isSelected}
-                    onClick={() => setType(option.value)}
-                    className={cn(
-                      'rounded-md border px-3 py-2.5 text-left transition-colors',
-                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-                      isSelected
-                        ? 'border-primary/40 bg-primary/10 text-foreground shadow-sm'
-                        : 'border-border/80 bg-background text-muted-foreground hover:bg-muted/40 hover:text-foreground',
-                    )}
-                  >
-                    <span className="block text-sm font-medium">{option.label}</span>
-                    <span className="mt-0.5 block text-[11px] leading-snug opacity-80">
-                      {option.hint}
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
+        <div className="space-y-4">
+          <div
+            role="radiogroup"
+            aria-label="Tipo de estoque"
+            className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+          >
+            {([
+              {
+                value: 'physical' as const,
+                label: 'Físico',
+                hint: 'Entradas, saídas e balanço neste produto.',
+              },
+              {
+                value: 'virtual' as const,
+                label: 'Virtual',
+                hint: 'Composição de produtos e quantidades por unidade.',
+              },
+            ]).map((option) => {
+              const isSelected = stockMode === option.value
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={isSelected}
+                  disabled={savingComponents}
+                  onClick={() => void handleStockModeChange(option.value)}
+                  className={cn(
+                    'rounded-md border px-3 py-2.5 text-left transition-colors',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+                    'disabled:cursor-not-allowed disabled:opacity-60',
+                    isSelected
+                      ? 'border-primary/40 bg-primary/10 text-foreground shadow-sm'
+                      : 'border-border/80 bg-background text-muted-foreground hover:bg-muted/40 hover:text-foreground',
+                  )}
+                >
+                  <span className="block text-sm font-medium">{option.label}</span>
+                  <span className="mt-0.5 block text-[11px] leading-snug opacity-80">
+                    {option.hint}
+                  </span>
+                </button>
+              )
+            })}
           </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="product-stock-qty">
-                {type === 'balance' ? 'Saldo final' : 'Quantidade'}
-              </Label>
-              <Input
-                id="product-stock-qty"
-                type="number"
-                inputMode="numeric"
-                step={1}
-                min={type === 'balance' ? 0 : 1}
-                value={quantity}
-                onChange={(e) => setQuantity(e.target.value)}
-                className="tabular-nums"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="product-stock-unit">Valor unitário (R$)</Label>
-              <Input
-                id="product-stock-unit"
-                type="number"
-                step="0.01"
-                min={0}
-                value={unitValue}
-                onChange={(e) => setUnitValue(e.target.value)}
-                className="tabular-nums"
-                placeholder="0,00"
-              />
-            </div>
-          </div>
+          {stockMode === 'virtual' ? (
+            <div className="space-y-4 border-t border-border/60 pt-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_7rem_auto]">
+                <div className="space-y-1.5">
+                  <Label htmlFor="product-stock-component-search">Produto componente</Label>
+                  <div className="relative">
+                    <Search
+                      className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                      aria-hidden
+                    />
+                    <Input
+                      id="product-stock-component-search"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Buscar por nome ou SKU"
+                      className="pl-8"
+                      autoComplete="off"
+                      disabled={savingComponents}
+                    />
+                    {searchQuery.trim().length >= 2 ? (
+                      <div className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-md border border-border bg-popover shadow-md">
+                        {searchLoading ? (
+                          <div className="flex items-center gap-2 px-3 py-2.5 text-sm text-muted-foreground">
+                            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                            Buscando...
+                          </div>
+                        ) : searchHits.length === 0 ? (
+                          <p className="px-3 py-2.5 text-sm text-muted-foreground">
+                            Nenhum produto encontrado.
+                          </p>
+                        ) : (
+                          <ul role="listbox" aria-label="Resultados da busca">
+                            {searchHits.map((hit) => (
+                              <li key={hit.id}>
+                                <button
+                                  type="button"
+                                  className="flex w-full items-start justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-muted/60"
+                                  onClick={() => addComponent(hit)}
+                                >
+                                  <span className="min-w-0">
+                                    <span className="block truncate font-medium text-foreground">
+                                      {hit.name}
+                                    </span>
+                                    <span className="block truncate text-xs text-muted-foreground">
+                                      {hit.sku || 'Sem SKU'}
+                                      {typeof hit.currentStock === 'number'
+                                        ? ` · estoque ${hit.currentStock}`
+                                        : ''}
+                                    </span>
+                                  </span>
+                                  <Plus className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="product-stock-component-qty">Qtd / un.</Label>
+                  <Input
+                    id="product-stock-component-qty"
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    step={1}
+                    value={addQty}
+                    onChange={(e) => setAddQty(e.target.value)}
+                    className="tabular-nums"
+                    disabled={savingComponents}
+                  />
+                </div>
+                <div className="flex items-end">
+                  <p className="pb-2 text-xs text-muted-foreground sm:max-w-[9rem]">
+                    Escolha o produto na busca para adicionar.
+                  </p>
+                </div>
+              </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/60 pt-4">
-            <p className="text-xs text-muted-foreground">
-              {type === 'balance'
-                ? 'O sistema cria entrada ou saída automática até o saldo informado.'
-                : 'O valor unitário entra no custo médio das movimentações.'}
-            </p>
-            <Button type="submit" disabled={submitting} className="min-w-[10rem]">
-              {submitting ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
-                  Salvando...
-                </>
-              ) : type === 'entry' ? (
-                <>
-                  <ArrowDownLeft className="mr-2 h-4 w-4" aria-hidden />
-                  Registrar entrada
-                </>
-              ) : type === 'exit' ? (
-                <>
-                  <ArrowUpRight className="mr-2 h-4 w-4" aria-hidden />
-                  Registrar saída
-                </>
-              ) : type === 'loss' ? (
-                <>
-                  <CircleAlert className="mr-2 h-4 w-4" aria-hidden />
-                  Registrar perda
-                </>
+              {components.length === 0 ? (
+                <div className="rounded-md border border-dashed border-border/80 bg-muted/20 px-4 py-8 text-center">
+                  <Package className="mx-auto h-5 w-5 text-muted-foreground" aria-hidden />
+                  <p className="mt-2 text-sm font-medium text-foreground">
+                    Nenhum componente ainda
+                  </p>
+                  <p className="mx-auto mt-1 max-w-sm text-xs text-muted-foreground">
+                    Busque produtos físicos e informe quantas unidades entram em cada unidade deste item.
+                  </p>
+                </div>
               ) : (
-                <>
-                  <Scale className="mr-2 h-4 w-4" aria-hidden />
-                  Aplicar balanço
-                </>
+                <div className="overflow-x-auto rounded-md border border-border/70">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/40 text-xs text-muted-foreground">
+                        <th className="px-3 py-2.5 text-left font-medium">Produto</th>
+                        <th className="px-3 py-2.5 text-right font-medium">Qtd / un.</th>
+                        <th className="px-3 py-2.5 text-right font-medium">Estoque</th>
+                        <th className="px-3 py-2.5 text-right font-medium">
+                          <span className="sr-only">Ações</span>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {components.map((row) => (
+                        <tr key={row.componentProductId} className="border-b last:border-0">
+                          <td className="px-3 py-2.5 align-middle">
+                            <p className="font-medium text-foreground">
+                              {row.componentName || 'Produto'}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {row.componentSku || 'Sem SKU'}
+                            </p>
+                          </td>
+                          <td className="px-3 py-2.5 text-right align-middle">
+                            <Input
+                              type="number"
+                              inputMode="numeric"
+                              min={1}
+                              step={1}
+                              value={row.quantityPerUnit}
+                              onChange={(e) => updateComponentQty(row.componentProductId, e.target.value)}
+                              className="ml-auto h-8 w-20 text-right tabular-nums"
+                              disabled={savingComponents}
+                              aria-label={`Quantidade de ${row.componentName || 'componente'}`}
+                            />
+                          </td>
+                          <td className="px-3 py-2.5 text-right align-middle tabular-nums text-muted-foreground">
+                            {typeof row.componentStock === 'number' ? row.componentStock : '-'}
+                          </td>
+                          <td className="px-3 py-2.5 text-right align-middle">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                              aria-label="Remover componente"
+                              disabled={savingComponents}
+                              onClick={() => removeComponent(row.componentProductId)}
+                            >
+                              <Trash2 className="h-4 w-4" aria-hidden />
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
-            </Button>
-          </div>
-        </form>
+
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-xs text-muted-foreground">
+                  O saldo virtual é o mínimo entre os componentes (estoque ÷ quantidade).
+                  O preço de custo deste produto é {formatCurrency(computeVirtualKitCostCents(components.map((row) => ({
+                    quantityPerUnit: row.quantityPerUnit,
+                    unitCostCents: row.componentCostCents,
+                  }))) / 100)}, soma da composição, e não pode ser editado no cadastro.
+                </p>
+                <Button
+                  type="button"
+                  disabled={savingComponents || (!componentsDirty && data?.stockMode === 'virtual')}
+                  onClick={() => void handleSaveVirtualComposition()}
+                  className="min-w-[10rem]"
+                >
+                  {savingComponents ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                      Salvando...
+                    </>
+                  ) : (
+                    'Salvar composição'
+                  )}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </div>
       </StockSection>
+
+      {stockMode === 'physical' ? (
+        <StockSection
+          title="Registrar movimento"
+          description={selectedType.hint}
+        >
+          <form onSubmit={handleSubmit} noValidate className="space-y-4">
+            <div className="space-y-2">
+              <Label id="product-stock-type-label">Tipo</Label>
+              <div
+                role="radiogroup"
+                aria-labelledby="product-stock-type-label"
+                className="grid grid-cols-2 gap-2 sm:grid-cols-4"
+              >
+                {MOVEMENT_TYPE_OPTIONS.map((option) => {
+                  const isSelected = type === option.value
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={isSelected}
+                      onClick={() => setType(option.value)}
+                      className={cn(
+                        'rounded-md border px-3 py-2.5 text-left transition-colors',
+                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+                        isSelected
+                          ? 'border-primary/40 bg-primary/10 text-foreground shadow-sm'
+                          : 'border-border/80 bg-background text-muted-foreground hover:bg-muted/40 hover:text-foreground',
+                      )}
+                    >
+                      <span className="block text-sm font-medium">{option.label}</span>
+                      <span className="mt-0.5 block text-[11px] leading-snug opacity-80">
+                        {option.hint}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="product-stock-qty">
+                  {type === 'balance' ? 'Saldo final' : 'Quantidade'}
+                </Label>
+                <Input
+                  id="product-stock-qty"
+                  type="number"
+                  inputMode="numeric"
+                  step={1}
+                  min={type === 'balance' ? 0 : 1}
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                  className="tabular-nums"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="product-stock-unit">Valor unitário (R$)</Label>
+                <Input
+                  id="product-stock-unit"
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  value={unitValue}
+                  onChange={(e) => setUnitValue(e.target.value)}
+                  className="tabular-nums"
+                  placeholder="0,00"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/60 pt-4">
+              <p className="text-xs text-muted-foreground">
+                {type === 'balance'
+                  ? 'O sistema cria entrada ou saída automática até o saldo informado.'
+                  : 'O valor unitário entra no custo médio das movimentações.'}
+              </p>
+              <Button type="submit" disabled={submitting} className="min-w-[10rem]">
+                {submitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                    Salvando...
+                  </>
+                ) : type === 'entry' ? (
+                  <>
+                    <ArrowDownLeft className="mr-2 h-4 w-4" aria-hidden />
+                    Registrar entrada
+                  </>
+                ) : type === 'exit' ? (
+                  <>
+                    <ArrowUpRight className="mr-2 h-4 w-4" aria-hidden />
+                    Registrar saída
+                  </>
+                ) : type === 'loss' ? (
+                  <>
+                    <CircleAlert className="mr-2 h-4 w-4" aria-hidden />
+                    Registrar perda
+                  </>
+                ) : (
+                  <>
+                    <Scale className="mr-2 h-4 w-4" aria-hidden />
+                    Aplicar balanço
+                  </>
+                )}
+              </Button>
+            </div>
+          </form>
+        </StockSection>
+      ) : null}
 
       <StockSection
         title="Histórico"
-        description="Movimentações mais recentes deste produto."
+        description={
+          stockMode === 'virtual'
+            ? 'Vendas deste SKU agrupador. A baixa física segue nos componentes.'
+            : 'Movimentações mais recentes deste produto.'
+        }
         action={
           total > 0 ? (
             <Badge variant="secondary" className="tabular-nums">
@@ -803,7 +1333,9 @@ export function ProductStockPanel ({
             <History className="h-5 w-5 text-muted-foreground" aria-hidden />
             <p className="text-sm font-medium text-foreground">Nenhum movimento ainda</p>
             <p className="max-w-sm text-xs text-muted-foreground">
-              Registre uma entrada, saída, perda ou balanço para começar o histórico deste produto.
+              {stockMode === 'virtual'
+                ? 'As vendas deste SKU agrupador aparecem aqui. A baixa física é feita nos produtos da composição.'
+                : 'Registre uma entrada, saída, perda ou balanço para começar o histórico deste produto.'}
             </p>
           </div>
         ) : (
@@ -862,7 +1394,7 @@ export function ProductStockPanel ({
                           {m.totalValueCents ? formatCurrency(m.totalValueCents / 100) : '—'}
                         </td>
                         <td className="px-3 py-2.5 align-middle">
-                          {originCell(m)}
+                          {originCell(m, stockMode)}
                         </td>
                         <td className="px-3 py-2.5 text-right align-middle">
                           <div className="flex items-center justify-end gap-0.5">

@@ -49,7 +49,7 @@ export function ProductListNameImageBlock ({
 							loading="lazy"
 							decoding="async"
 							referrerPolicy="no-referrer"
-							className="h-full w-full object-cover"
+							className="max-h-full max-w-full object-contain"
 						/>
 					)
 				})() || (

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  catalogCostPrevailsOverLastEntry,
   resolveDisplayCostCentsFromHints,
   resolveListDisplayCostCents,
   trackLastEntryCost,
@@ -51,5 +52,24 @@ describe('list-display-cost', () => {
     expect(displayCents).toBe(8000)
     expect(displayCents).not.toBe(cadastroCents)
   })
-})
 
+  it('ajuste manual mais recente prevalece sobre entrada antiga', () => {
+    expect(
+      catalogCostPrevailsOverLastEntry({
+        costPriceManualEditedAt: '2026-10-15T12:00:00Z',
+        lastEntryUnitValueCents: 450,
+        lastEntryTimeMs: Date.parse('2026-09-01T00:00:00Z'),
+      }),
+    ).toBe(true)
+  })
+
+  it('entrada mais nova que o ajuste manual volta a prevalecer', () => {
+    expect(
+      catalogCostPrevailsOverLastEntry({
+        costPriceManualEditedAt: '2026-09-01T12:00:00Z',
+        lastEntryUnitValueCents: 450,
+        lastEntryTimeMs: Date.parse('2026-10-15T00:00:00Z'),
+      }),
+    ).toBe(false)
+  })
+})

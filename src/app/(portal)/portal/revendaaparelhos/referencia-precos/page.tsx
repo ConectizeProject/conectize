@@ -26,7 +26,7 @@ export default async function RevendaReferenciaPrecosPage () {
   ) redirect('/portal')
 
   const supabase = await createSupabaseServerClient()
-  const devices = await fetchSeminovosDevices(supabase, {
+  const { devices } = await fetchSeminovosDevices(supabase, {
     q: '',
     condition: '',
     storageGb: '',

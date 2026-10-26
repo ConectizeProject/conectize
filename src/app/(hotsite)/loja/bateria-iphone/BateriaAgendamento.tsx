@@ -6,7 +6,7 @@ import * as Yup from 'yup'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { BOOKING_DISCOUNT_PERCENT, discountedPriceCents } from '@/lib/appointments/battery-prices'
-import { trackAgendamentoConcluido, trackBookingFunnel } from '@/lib/analytics/loja-conversions'
+import { sanitizeBookingError, trackAgendamentoConcluido, trackBookingFunnel } from '@/lib/analytics/loja-conversions'
 import { formatSlotLabel, lastBookableDateKey, listSlotStarts } from '@/lib/appointments/slots'
 import { whatsappLink } from '@/lib/data/hotsite-loja'
 import { formatCpf } from '@/lib/utils/format-cpf-cnpj'
@@ -117,6 +117,7 @@ const ERRORS: Record<string, string> = {
 	ja_agendado: 'Você já tem um agendamento marcado. Confirme se quer criar outro.',
 	nao_editavel: 'Esse agendamento não pode mais ser alterado. A equipe já revisou ou falta menos de 1 hora.',
 	nao_encontrado: 'Não encontramos um agendamento aberto nesta conta.',
+	ocupado: 'Esse horário acabou de ser ocupado. Escolha outro.',
 	config: 'Não foi possível concluir. Tente de novo em instantes.',
 }
 
@@ -463,12 +464,21 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 					},
 				}),
 			})
-			const payload = await response.json() as {
+			let payload: {
 				ok?: boolean
 				error?: string
 				displayNumber?: number | null
 				shareToken?: string
 				appointments?: ExistingAppointment[]
+			} = {}
+			try {
+				payload = await response.json() as typeof payload
+			} catch (err) {
+				trackBookingFunnel('booking_error', funnelDetail({
+					error: sanitizeBookingError(err, `http_${response.status}_json`),
+				}))
+				setError(ERRORS.config)
+				return
 			}
 			if (!response.ok || !payload.ok) {
 				const appointments = payload.appointments ?? []
@@ -483,7 +493,9 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 					setError(ERRORS[payload.error] || ERRORS.config)
 					return
 				}
-				trackBookingFunnel('booking_error', funnelDetail({ error: payload.error || 'config' }))
+				trackBookingFunnel('booking_error', funnelDetail({
+					error: sanitizeBookingError(payload.error || `http_${response.status}`, 'config'),
+				}))
 				setError(ERRORS[payload.error || ''] || ERRORS.config)
 				return
 			}
@@ -499,8 +511,10 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 				shareToken: payload.shareToken || '',
 			})
 			setPanel('success')
-		} catch {
-			trackBookingFunnel('booking_error', funnelDetail({ error: 'config' }))
+		} catch (err) {
+			trackBookingFunnel('booking_error', funnelDetail({
+				error: sanitizeBookingError(err, 'rede'),
+			}))
 			setError(ERRORS.config)
 		} finally {
 			submitLockRef.current = false

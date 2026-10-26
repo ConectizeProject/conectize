@@ -1,3 +1,44 @@
+function lastEntryHint (args: {
+  lastEntryUnitValueCents: number | null | undefined
+  lastEntryTimeMs: number | null | undefined
+}): { cents: number, timeMs: number } | null {
+  const entryCents = args.lastEntryUnitValueCents
+  const entryMs =
+    typeof args.lastEntryTimeMs === 'number' && Number.isFinite(args.lastEntryTimeMs)
+      ? args.lastEntryTimeMs
+      : 0
+  if (
+    typeof entryCents !== 'number'
+    || entryCents <= 0
+    || !Number.isFinite(entryMs)
+    || entryMs <= 0
+  ) {
+    return null
+  }
+  return { cents: entryCents, timeMs: entryMs }
+}
+
+function manualEditedAtMs (value: string | null | undefined): number {
+  if (!value) return 0
+  const ms = new Date(value).getTime()
+  return Number.isFinite(ms) ? ms : 0
+}
+
+/**
+ * True quando o custo do cadastro (ajuste manual ou `cost_price`) deve prevalecer
+ * sobre camadas FIFO: não há entrada de estoque mais recente que o ajuste manual.
+ * Assim, editar o custo do produto passa a valer nas próximas vendas.
+ */
+export function catalogCostPrevailsOverLastEntry (args: {
+  costPriceManualEditedAt: string | null | undefined
+  lastEntryUnitValueCents: number | null | undefined
+  lastEntryTimeMs: number | null | undefined
+}): boolean {
+  const entry = lastEntryHint(args)
+  if (!entry) return true
+  return !(entry.timeMs > manualEditedAtMs(args.costPriceManualEditedAt))
+}
+
 /**
  * Mesma regra da coluna "Custo" na gestão de produtos: prioriza última entrada de estoque
  * com valor quando é mais recente que o último ajuste manual de custo no cadastro;
@@ -12,25 +53,13 @@ export function resolveListDisplayCostCents (args: {
 }): number | null {
   const rowCost =
     typeof args.costPriceCents === 'number' ? args.costPriceCents : null
-  const manualMs = args.costPriceManualEditedAt
-    ? new Date(args.costPriceManualEditedAt).getTime()
-    : 0
-  const entryCents = args.lastEntryUnitValueCents
-  const entryMs =
-    typeof args.lastEntryTimeMs === 'number' && Number.isFinite(args.lastEntryTimeMs)
-      ? args.lastEntryTimeMs
-      : 0
-  const hasEntry =
-    typeof entryCents === 'number' &&
-    entryCents > 0 &&
-    Number.isFinite(entryMs) &&
-    entryMs > 0
+  const entry = lastEntryHint(args)
 
-  if (hasEntry && entryMs > manualMs) {
-    return entryCents
+  if (entry && entry.timeMs > manualEditedAtMs(args.costPriceManualEditedAt)) {
+    return entry.cents
   }
   if (rowCost != null) return rowCost
-  if (typeof entryCents === 'number' && entryCents > 0) return entryCents
+  if (entry) return entry.cents
   return null
 }
 
@@ -67,6 +96,17 @@ export function resolveDisplayCostCentsFromHints (args: {
 }): number | null {
   return resolveListDisplayCostCents({
     costPriceCents: args.costPriceCents,
+    costPriceManualEditedAt: args.costPriceManualEditedAt,
+    lastEntryUnitValueCents: args.lastEntry?.unitValueCents ?? null,
+    lastEntryTimeMs: args.lastEntry?.timeMs ?? null,
+  })
+}
+
+export function catalogCostPrevailsFromHints (args: {
+  costPriceManualEditedAt: string | null | undefined
+  lastEntry: LastEntryCostHint | null | undefined
+}): boolean {
+  return catalogCostPrevailsOverLastEntry({
     costPriceManualEditedAt: args.costPriceManualEditedAt,
     lastEntryUnitValueCents: args.lastEntry?.unitValueCents ?? null,
     lastEntryTimeMs: args.lastEntry?.timeMs ?? null,

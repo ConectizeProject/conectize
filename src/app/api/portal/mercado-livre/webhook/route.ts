@@ -3,6 +3,7 @@ import { MELI_PLATFORM_ID } from '@/lib/integrations/mercado-livre/constants'
 import { resolveMeliWebhookOrganizationId } from '@/lib/integrations/mercado-livre/resolve-meli-webhook-org'
 import {
 	isMeliOrdersTopic,
+	isMeliShipmentsTopic,
 	parseMeliWebhook,
 } from '@/lib/integrations/mercado-livre/webhooks'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
@@ -164,14 +165,14 @@ export async function POST(request: Request) {
 
 	const parsed = parseMeliWebhook(payload)
 
-	if (!isMeliOrdersTopic(parsed.topic)) {
+	if (!isMeliOrdersTopic(parsed.topic) && !isMeliShipmentsTopic(parsed.topic)) {
 		return NextResponse.json(
 			{ ok: true, ignored: true, topic: parsed.topic },
 			{ status: 200 },
 		)
 	}
 
-	const externalId = parsed.orderId
+	const externalId = parsed.orderId || parsed.shipmentId
 	const routingReason: MeliRoutingRejectReason | null = !parsed.userId
 		? 'missing_user_id'
 		: null

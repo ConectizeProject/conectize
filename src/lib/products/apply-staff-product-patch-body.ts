@@ -8,6 +8,7 @@ import {
 import {
   getParentProductForVariation,
   getProductById,
+  productHasVirtualStock,
   recomputeVariationDisplayNamesForParent,
   replaceProductCompatibleDeviceModels,
   type Product,
@@ -21,6 +22,7 @@ import { validateCestNcmPair } from '@/lib/fiscal/cest-lookup'
 import { normalizeOptionalFci, originRequiresFci } from '@/lib/fiscal/fci'
 import { normalizeOptionalGtin } from '@/lib/fiscal/gtin'
 import { normalizeOptionalCest, normalizeOptionalNcm } from '@/lib/fiscal/ncm'
+import { VIRTUAL_COST_LOCKED_MESSAGE } from '@/lib/products/virtual-stock-cost'
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -115,8 +117,12 @@ export async function applyStaffProductPatchFromBody (
   if ('error' in costPriceField) {
     return { ok: false, error: costPriceField.error, status: 400 }
   }
+  let costLocked = false
   if (costPriceField.hasValue) {
-    patch.costPriceCents = costPriceField.value
+    costLocked = await productHasVirtualStock(id)
+    if (!costLocked) {
+      patch.costPriceCents = costPriceField.value
+    }
   }
 
   const nameField = parseTextField(body, 'name')
@@ -364,6 +370,14 @@ export async function applyStaffProductPatchFromBody (
   const hasCompatUpdate = compatibleIds !== null
 
   if (!hasProductPatch && !hasCompatUpdate) {
+    if (costLocked) {
+      return {
+        ok: false,
+        error: 'virtual_cost_locked',
+        status: 400,
+        message: VIRTUAL_COST_LOCKED_MESSAGE,
+      }
+    }
     return { ok: false, error: 'nothing_to_update', status: 400 }
   }
 

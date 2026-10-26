@@ -1,4 +1,4 @@
-import { business } from '@/lib/data/business'
+import { business, buildWhatsAppUrl, WHATSAPP_ORIGIN_MESSAGE, whatsappMessageForPath } from '@/lib/data/business'
 import { googleAggregateRatingJsonLd, googleReviews } from '@/lib/data/site-facts'
 import { getSiteUrl } from '@/lib/utils/site-url'
 
@@ -58,8 +58,14 @@ export const lojaPickupAnswer =
 export const lojaIndependentAnswer =
 	'Não. Somos uma loja independente em Belo Horizonte.'
 
+export const lojaWhatsAppMessages = {
+	default: WHATSAPP_ORIGIN_MESSAGE,
+	bateria: whatsappMessageForPath(lojaCategoryPaths.bateria),
+	vidro: whatsappMessageForPath(lojaCategoryPaths.vidro),
+} as const
+
 export function whatsappLink (message: string) {
-	return `https://wa.me/5531986140889?text=${encodeURIComponent(message)}`
+	return buildWhatsAppUrl(message)
 }
 
 export const lojaCopy = {
@@ -70,8 +76,7 @@ export const lojaCopy = {
 		'Loja física em Belo Horizonte com peças, telas, baterias, capinhas, películas e carregadores para iPhone, Android e tablets. Orçamento pelo WhatsApp.',
 	keywords:
 		'loja de celular belo horizonte, pecas iphone bh, acessorios celular bh, pelicula celular bh, capinha iphone bh, bateria celular bh, tela celular bh, carregador iphone bh',
-	whatsappMessage:
-		'Olá! Quero um orçamento de peças e acessórios para o meu aparelho.',
+	whatsappMessage: WHATSAPP_ORIGIN_MESSAGE,
 	heroIntro: 'Loja em Santa Efigênia, Belo Horizonte.',
 	heroLine: 'Loja de peças e acessórios',
 	heroShine: 'para iPhone em BH',

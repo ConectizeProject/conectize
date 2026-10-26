@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildFifoLayers,
   consumeFifoCost,
+  repriceFifoLayers,
   resolveFifoUnitCostCents,
 } from '@/lib/products/fifo-stock-cost'
 
@@ -58,5 +59,15 @@ describe('fifo-stock-cost', () => {
         2500,
       ),
     ).toBe(2500)
+  })
+
+  it('repriceFifoLayers mantém quantidades e aplica o custo do cadastro', () => {
+    const layers = buildFifoLayers([
+      { type: 'entry', quantity: 10, unitValueCents: 450 },
+      { type: 'exit', quantity: 3, unitValueCents: 0 },
+    ])
+    expect(repriceFifoLayers(layers, 580)).toEqual([
+      { qty: 7, unitCostCents: 580 },
+    ])
   })
 })

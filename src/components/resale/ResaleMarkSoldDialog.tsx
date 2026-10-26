@@ -1,7 +1,18 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Loader2, Plus, Search, Trash2 } from 'lucide-react'
+import {
+  ArrowLeftRight,
+  Check,
+  Loader2,
+  Plus,
+  Search,
+  Trash2,
+} from 'lucide-react'
+import {
+  CreateCustomerDialog,
+  type CustomerHit,
+} from '@/components/customers'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -41,6 +52,12 @@ import {
   maskedFromCents,
   moneyToCentsFromMasked,
 } from '@/lib/utils/money'
+import { onlyDigits } from '@/lib/utils/strings'
+import {
+  getCustomerDisplayName,
+  getCustomerDocumentDigits,
+  useNovaOrdemCustomerSearch,
+} from '@/app/(portal)/portal/ordens/nova/use-nova-ordem-customer-search'
 import {
   ResaleSellAdminProfitCard,
   ResaleSellCommissionFields,
@@ -175,6 +192,34 @@ export type ResaleMarkSoldDevice = {
   sale_commission_user_id?: string | null
 }
 
+function buyerHitFromDevice (d: ResaleMarkSoldDevice): CustomerHit | null {
+  const name = String(d.buyer_name || '').trim()
+  const doc = onlyDigits(String(d.buyer_cpf || '')).slice(0, 14)
+  if (!name && !doc) return null
+  const isCompany = doc.length === 14
+  return {
+    id: `local:buyer-${d.id}`,
+    full_name: isCompany ? null : (name || null),
+    company_name: isCompany ? (name || null) : null,
+    is_company: isCompany,
+    cpf: doc.length === 11 ? doc : null,
+    cnpj: doc.length === 14 ? doc : null,
+  }
+}
+
+function applyBuyerFromCustomer (customer: CustomerHit | null): {
+  name: string
+  cpf: string
+} {
+  if (!customer) return { name: '', cpf: '' }
+  const name = getCustomerDisplayName(customer)
+  const doc = getCustomerDocumentDigits(customer)
+  return {
+    name,
+    cpf: doc ? formatCpfCnpj(doc) : '',
+  }
+}
+
 export type ResaleMarkSoldDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -219,11 +264,41 @@ export function ResaleMarkSoldDialog ({
   const [sellGenerateWarrantyTerm, setSellGenerateWarrantyTerm] = useState(false)
   const [sellBuyerName, setSellBuyerName] = useState('')
   const [sellBuyerCpf, setSellBuyerCpf] = useState('')
+  const [selectedBuyer, setSelectedBuyer] = useState<CustomerHit | null>(null)
+  const [isCreateBuyerOpen, setIsCreateBuyerOpen] = useState(false)
   const [sellSaleDetails, setSellSaleDetails] = useState('')
   const [sellTradeInEnabled, setSellTradeInEnabled] = useState(false)
   const [sellTradeInLines, setSellTradeInLines] = useState<SellTradeInLine[]>([])
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([])
   const initKeyRef = useRef<string | null>(null)
+
+  const {
+    customerSearchInput,
+    setCustomerSearchInput,
+    documentDigits,
+    isDocumentMode,
+    isNameMode,
+    isSearchingDocument,
+    documentSearchError,
+    hasFetched,
+    customersFiltered,
+    isCpfPopoverOpen,
+    setIsCpfPopoverOpen,
+  } = useNovaOrdemCustomerSearch({ selectedCustomer: selectedBuyer })
+
+  function selectBuyer (customer: CustomerHit | null, opts?: { clearFields?: boolean }) {
+    setSelectedBuyer(customer)
+    if (customer) {
+      const fields = applyBuyerFromCustomer(customer)
+      setSellBuyerName(fields.name)
+      setSellBuyerCpf(fields.cpf)
+    } else if (opts?.clearFields) {
+      setSellBuyerName('')
+      setSellBuyerCpf('')
+    }
+    setIsCpfPopoverOpen(false)
+    if (!customer) setCustomerSearchInput('')
+  }
 
   const loadPaymentMethods = useCallback(async () => {
     const res = await portalFetch('/api/portal/payment-methods')
@@ -247,6 +322,9 @@ export function ResaleMarkSoldDialog ({
     setSellGenerateWarrantyTerm(false)
     setSellBuyerName('')
     setSellBuyerCpf('')
+    setSelectedBuyer(null)
+    setCustomerSearchInput('')
+    setIsCreateBuyerOpen(false)
     setSellSaleDetails('')
     setSellTradeInEnabled(false)
     setSellTradeInLines([])
@@ -265,8 +343,7 @@ export function ResaleMarkSoldDialog ({
     setSellPaymentMethods(buildPaymentRowsFromDevice(d, { defaultValueCents: null }))
     setSellDate(new Date().toISOString().slice(0, 10))
     setSellGenerateWarrantyTerm(false)
-    setSellBuyerName('')
-    setSellBuyerCpf('')
+    selectBuyer(null, { clearFields: true })
     setSellSaleDetails('')
     setSellTradeInEnabled(false)
     setSellTradeInLines([])
@@ -291,9 +368,15 @@ export function ResaleMarkSoldDialog ({
       (d.buyer_cpf && d.buyer_cpf.trim()) ||
       (d.sale_details && d.sale_details.trim()),
     )
-    setSellGenerateWarrantyTerm(hasTermData)
-    setSellBuyerName(d.buyer_name ?? '')
-    setSellBuyerCpf(formatCpfCnpj(d.buyer_cpf ?? ''))
+    setSellGenerateWarrantyTerm(Boolean(d.sale_details && d.sale_details.trim()) || hasTermData)
+    const existingBuyer = buyerHitFromDevice(d)
+    if (existingBuyer) {
+      selectBuyer(existingBuyer)
+    } else {
+      selectBuyer(null, { clearFields: true })
+      setSellBuyerName(d.buyer_name ?? '')
+      setSellBuyerCpf(formatCpfCnpj(d.buyer_cpf ?? ''))
+    }
     setSellSaleDetails(d.sale_details ?? (hasTermData ? (d.info ?? '') : ''))
     const commLine = (d.costs || []).find((c) =>
       isCommissionCostDescription(c.description),
@@ -588,6 +671,15 @@ export function ResaleMarkSoldDialog ({
       return
     }
 
+    if (sellGenerateWarrantyTerm && !sellBuyerName.trim()) {
+      toast({
+        title: 'Comprador',
+        description: 'Selecione o comprador para gerar o termo de garantia.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     if (sellPaymentMethods.length > 1) {
       const anyEmpty = sellPaymentMethods.some(
         (e) => !e.payment_method_id?.trim(),
@@ -737,10 +829,8 @@ export function ResaleMarkSoldDialog ({
       sale_commission_user_id: sellCommissionEnabled
         ? commissionUserIdForDb
         : null,
-      buyer_name: sellGenerateWarrantyTerm
-        ? sellBuyerName.trim() || null
-        : null,
-      buyer_cpf: sellGenerateWarrantyTerm ? sellBuyerCpf.trim() || null : null,
+      buyer_name: sellBuyerName.trim() || null,
+      buyer_cpf: sellBuyerCpf.trim() || null,
       sale_details: sellGenerateWarrantyTerm
         ? sellSaleDetails.trim() || null
         : null,
@@ -874,6 +964,125 @@ export function ResaleMarkSoldDialog ({
                   onLinesChange={setSellTradeInLines}
                 />
                 <div className="space-y-3 rounded-md border p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium">Comprador</p>
+                      <p className="text-xs text-muted-foreground">
+                        Busque por nome ou CPF/CNPJ e escolha o cliente.
+                      </p>
+                    </div>
+                  </div>
+                  {selectedBuyer ? (
+                    <div className="flex items-start justify-between gap-2 rounded-md border border-border/70 bg-muted/20 px-3 py-2.5">
+                      <div className="min-w-0">
+                        <p className="font-medium break-words text-sm">
+                          {getCustomerDisplayName(selectedBuyer)}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {formatCpfCnpj(getCustomerDocumentDigits(selectedBuyer)) ||
+                            'Sem documento'}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 shrink-0"
+                        aria-label="Trocar comprador"
+                        onClick={() => selectBuyer(null, { clearFields: true })}
+                      >
+                        <ArrowLeftRight className="h-4 w-4" aria-hidden />
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <Label htmlFor="sell-buyer-search">Buscar cliente</Label>
+                      <div className="relative">
+                        <Search
+                          className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                          aria-hidden
+                        />
+                        <Input
+                          id="sell-buyer-search"
+                          value={customerSearchInput}
+                          onChange={(e) => {
+                            const value = e.target.value
+                            setIsCpfPopoverOpen(true)
+                            if (/[a-zA-Z\u00C0-\u024F]/.test(value)) {
+                              setCustomerSearchInput(value)
+                              return
+                            }
+                            setCustomerSearchInput(
+                              formatCpfCnpj(value.replace(/\D/g, '')),
+                            )
+                          }}
+                          onFocus={() => setIsCpfPopoverOpen(true)}
+                          placeholder="Nome ou CPF/CNPJ (mín. 2 letras ou 5 números)"
+                          autoComplete="off"
+                          className="pl-8"
+                        />
+                        {isCpfPopoverOpen && (isDocumentMode || isNameMode || customerSearchInput.trim().length > 0) ? (
+                          <div className="absolute left-0 right-0 top-full z-[90] mt-1 overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md">
+                            <div className="max-h-56 overflow-auto p-1">
+                              {customersFiltered.length === 0 ? (
+                                <p className="px-3 py-2.5 text-sm text-muted-foreground">
+                                  {!isDocumentMode && !isNameMode
+                                    ? 'Digite pelo menos 2 letras (nome) ou 5 números (CPF/CNPJ).'
+                                    : documentSearchError
+                                      ? documentSearchError
+                                      : hasFetched
+                                        ? 'Nenhum cliente encontrado.'
+                                        : isSearchingDocument
+                                          ? 'Buscando…'
+                                          : 'Aguarde…'}
+                                </p>
+                              ) : (
+                                <ul role="listbox" aria-label="Clientes encontrados">
+                                  {customersFiltered.map((customer) => (
+                                    <li key={customer.id}>
+                                      <button
+                                        type="button"
+                                        className="flex w-full items-start gap-2 rounded-sm px-3 py-2 text-left text-sm hover:bg-accent"
+                                        onClick={() => selectBuyer(customer)}
+                                      >
+                                        <Check className="mt-0.5 h-4 w-4 shrink-0 opacity-0" aria-hidden />
+                                        <span className="min-w-0">
+                                          <span className="block font-medium">
+                                            {getCustomerDisplayName(customer)}
+                                          </span>
+                                          <span className="block text-xs text-muted-foreground">
+                                            {formatCpfCnpj(
+                                              getCustomerDocumentDigits(customer),
+                                            )}
+                                          </span>
+                                        </span>
+                                      </button>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                            <div className="flex items-center justify-end gap-2 border-t p-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => {
+                                  setIsCpfPopoverOpen(false)
+                                  setIsCreateBuyerOpen(true)
+                                }}
+                              >
+                                <Plus className="mr-1 h-4 w-4" aria-hidden />
+                                Cadastrar cliente
+                              </Button>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-3 rounded-md border p-3">
                   <div className="flex items-start space-x-2">
                     <Checkbox
                       id="sell-generate-term"
@@ -900,25 +1109,21 @@ export function ResaleMarkSoldDialog ({
                   </div>
                   {sellGenerateWarrantyTerm ? (
                     <div className="space-y-3 border-t pt-3 pl-1">
-                      <div className="space-y-2">
-                        <Label>Nome completo do comprador</Label>
-                        <Input
-                          value={sellBuyerName}
-                          onChange={(e) => setSellBuyerName(e.target.value)}
-                          placeholder="Nome completo"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>CPF/CNPJ do comprador</Label>
-                        <Input
-                          value={sellBuyerCpf}
-                          onChange={(e) =>
-                            setSellBuyerCpf(formatCpfCnpj(e.target.value))
-                          }
-                          placeholder="CPF ou CNPJ"
-                          inputMode="numeric"
-                        />
-                      </div>
+                      {!selectedBuyer && !sellBuyerName.trim() ? (
+                        <p className="text-xs text-amber-700 dark:text-amber-400">
+                          Selecione o comprador acima para preencher o termo.
+                        </p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          Comprador no termo:{' '}
+                          <span className="font-medium text-foreground">
+                            {sellBuyerName.trim() || '-'}
+                          </span>
+                          {sellBuyerCpf.trim()
+                            ? ` · ${sellBuyerCpf.trim()}`
+                            : ''}
+                        </p>
+                      )}
                       <div className="space-y-2">
                         <Label>Detalhes do aparelho no termo</Label>
                         <Textarea
@@ -931,6 +1136,16 @@ export function ResaleMarkSoldDialog ({
                     </div>
                   ) : null}
                 </div>
+
+                <CreateCustomerDialog
+                  open={isCreateBuyerOpen}
+                  onOpenChange={setIsCreateBuyerOpen}
+                  initialDocumentDigits={documentDigits}
+                  onCreated={(customer) => {
+                    selectBuyer(customer)
+                    setIsCreateBuyerOpen(false)
+                  }}
+                />
                 <div className="space-y-2">
                   <Label htmlFor="sell-date">Data da venda</Label>
                   <Input

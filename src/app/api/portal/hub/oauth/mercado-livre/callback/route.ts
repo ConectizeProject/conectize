@@ -1,6 +1,8 @@
 import { cookies } from 'next/headers'
-import { NextRequest, NextResponse } from 'next/server'
+import { after, NextRequest, NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth/portal-api'
+import { importMeliOrdersFromLastWeek } from '@/lib/integrations/mercado-livre/recent-orders'
+import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { getMeliUserMe } from '@/lib/integrations/mercado-livre/api'
 import {
   MELI_API_BASE_URL,
@@ -221,6 +223,18 @@ export async function GET(request: NextRequest) {
       ),
     )
   }
+
+  const organizationId = auth.organizationId
+  after(async () => {
+    try {
+      await importMeliOrdersFromLastWeek({
+        supabase: createSupabaseServiceClient(),
+        organizationId,
+      })
+    } catch (err) {
+      console.error('[meli recent orders]', err)
+    }
+  })
 
   return NextResponse.redirect(
     new URL(`${redirectTo}?toast=meli_connected`, getAppBaseUrl(request)),

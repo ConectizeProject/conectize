@@ -12,14 +12,17 @@ import { nfeXmlText, NFE_XNOME_MAX } from '@/lib/fiscal/xml-strings'
 import {
   buildFifoLayers,
   consumeFifoCost,
+  repriceFifoLayers,
   type FifoLayer,
   type FifoMovementInput,
 } from '@/lib/products/fifo-stock-cost'
 import {
+  catalogCostPrevailsFromHints,
   resolveDisplayCostCentsFromHints,
   trackLastEntryCost,
   type LastEntryCostHint,
 } from '@/lib/products/list-display-cost'
+import { isMeliFullLogistic } from '@/lib/vendas/sales-lane'
 
 function salesOrderCustomerName (value: unknown) {
   return nfeXmlText(value, NFE_XNOME_MAX) || 'Consumidor Final'
@@ -50,6 +53,8 @@ export type SalesOrderDraftInput = {
   surcharge_cents?: number
   ml_order_id?: string | null
   ml_pack_id?: string | null
+  /** Data da compra (ex.: date_created do MELI). Quando omitido, o banco usa now(). */
+  created_at?: string | null
 }
 
 type AuthCtx = {
@@ -315,14 +320,16 @@ async function loadFifoStateForProducts (
       ok: true
       layersByProduct: Map<string, FifoLayer[]>
       fallbackCostByProduct: Map<string, number>
+      catalogPrevailsByProduct: Map<string, boolean>
     }
   | { ok: false, error: 'db_error' }
 > {
   const uniqueIds = [...new Set(productIds.filter(Boolean))]
   const layersByProduct = new Map<string, FifoLayer[]>()
   const fallbackCostByProduct = new Map<string, number>()
+  const catalogPrevailsByProduct = new Map<string, boolean>()
   if (uniqueIds.length === 0) {
-    return { ok: true, layersByProduct, fallbackCostByProduct }
+    return { ok: true, layersByProduct, fallbackCostByProduct, catalogPrevailsByProduct }
   }
 
   const [{ data: products, error: productsError }, { data: movements, error: movError }] =
@@ -369,31 +376,87 @@ async function loadFifoStateForProducts (
   for (const row of products ?? []) {
     const id = String((row as { id?: string }).id || '')
     if (!id) continue
+    const manualEditedAt =
+      (row as { cost_price_manual_edited_at?: string | null }).cost_price_manual_edited_at ?? null
+    const lastEntry = lastEntryByProduct.get(id)
     const displayCost = resolveDisplayCostCentsFromHints({
       costPriceCents: (row as { cost_price_cents?: number | null }).cost_price_cents,
-      costPriceManualEditedAt:
-        (row as { cost_price_manual_edited_at?: string | null }).cost_price_manual_edited_at,
-      lastEntry: lastEntryByProduct.get(id),
+      costPriceManualEditedAt: manualEditedAt,
+      lastEntry,
     })
     fallbackCostByProduct.set(id, Math.max(0, toInt(displayCost, 0)))
+    catalogPrevailsByProduct.set(
+      id,
+      catalogCostPrevailsFromHints({
+        costPriceManualEditedAt: manualEditedAt,
+        lastEntry,
+      }),
+    )
+  }
+
+  const { resolveVirtualKitCostCentsByProductId } = await import('@/lib/products/virtual-stock-cost')
+  const virtualCosts = await resolveVirtualKitCostCentsByProductId({
+    supabase: auth.supabase,
+    organizationId: auth.organizationId,
+    productIds: uniqueIds,
+  })
+  for (const [productId, cents] of virtualCosts) {
+    fallbackCostByProduct.set(productId, Math.max(0, cents))
+    catalogPrevailsByProduct.set(productId, true)
   }
 
   for (const productId of uniqueIds) {
     if (!fallbackCostByProduct.has(productId)) {
+      const lastEntry = lastEntryByProduct.get(productId)
       const displayCost = resolveDisplayCostCentsFromHints({
         costPriceCents: null,
         costPriceManualEditedAt: null,
-        lastEntry: lastEntryByProduct.get(productId),
+        lastEntry,
       })
       fallbackCostByProduct.set(productId, Math.max(0, toInt(displayCost, 0)))
+      catalogPrevailsByProduct.set(
+        productId,
+        catalogCostPrevailsFromHints({
+          costPriceManualEditedAt: null,
+          lastEntry,
+        }),
+      )
     }
-    layersByProduct.set(
-      productId,
-      buildFifoLayers(movByProduct.get(productId) ?? []),
-    )
+    let layers = buildFifoLayers(movByProduct.get(productId) ?? [])
+    if (catalogPrevailsByProduct.get(productId)) {
+      layers = repriceFifoLayers(layers, fallbackCostByProduct.get(productId) ?? 0)
+    }
+    layersByProduct.set(productId, layers)
   }
 
-  return { ok: true, layersByProduct, fallbackCostByProduct }
+  return { ok: true, layersByProduct, fallbackCostByProduct, catalogPrevailsByProduct }
+}
+
+async function loadSalesOrderLogisticType (
+  auth: AuthCtx,
+  orderId: string,
+): Promise<{ ok: true, logisticType: string | null } | { ok: false }> {
+  const { data, error } = await auth.supabase
+    .from('sales_orders')
+    .select('ml_logistic_type')
+    .eq('organization_id', auth.organizationId)
+    .eq('id', orderId)
+    .maybeSingle()
+  if (error) return { ok: false }
+  return {
+    ok: true,
+    logisticType: data?.ml_logistic_type != null ? String(data.ml_logistic_type) : null,
+  }
+}
+
+/** FULL (fulfillment): estoque sai do depósito do ML, sem baixa local. */
+async function salesOrderSkipsLocalStock (
+  auth: AuthCtx,
+  orderId: string,
+): Promise<{ ok: true, skip: boolean } | { ok: false }> {
+  const logistic = await loadSalesOrderLogisticType(auth, orderId)
+  if (!logistic.ok) return { ok: false }
+  return { ok: true, skip: isMeliFullLogistic(logistic.logisticType) }
 }
 
 async function applySalesOrderStockExits (
@@ -401,13 +464,40 @@ async function applySalesOrderStockExits (
   orderId: string,
   items: SalesOrderStockItem[],
 ) {
+  const skipLocal = await salesOrderSkipsLocalStock(auth, orderId)
+  if (!skipLocal.ok) return { ok: false as const, error: 'db_error' as const }
+  if (skipLocal.skip) return { ok: true as const }
+
+  const {
+    collectVirtualKitProductIds,
+    expandStockItemsThroughComponents,
+    loadProductStockComponents,
+    salesOrderComponentStockExternalReference,
+  } = await import('@/lib/products/virtual-stock')
+
+  const componentsByProductId = await loadProductStockComponents({
+    supabase: auth.supabase,
+    organizationId: auth.organizationId,
+    productIds: items.map((item) => item.product_id),
+  })
+  const kitProductIds = collectVirtualKitProductIds(componentsByProductId)
+
+  // Kits virtuais: baixa nos componentes. Produtos simples: fluxo normal.
+  const expandedItems = expandStockItemsThroughComponents({
+    items,
+    componentsByProductId,
+  })
+
   const stockless = await loadStocklessProductIds(
     auth,
-    items.map((item) => item.product_id),
+    [
+      ...expandedItems.map((item) => item.product_id),
+      ...kitProductIds,
+    ],
   )
   if (!stockless.ok) return { ok: false as const, error: 'db_error' as const }
 
-  const stockableItems = items.filter(
+  const stockableItems = expandedItems.filter(
     (item) => !stockless.stocklessIds.has(item.product_id),
   )
   const fifoState = await loadFifoStateForProducts(
@@ -425,9 +515,12 @@ async function applySalesOrderStockExits (
     creditByProduct.set(productId, Math.max(0, row.net_exit))
   }
 
-  for (const item of items) {
+  // Custo do kit = soma FIFO dos componentes consumidos nesta linha.
+  const kitCostAccumulator = new Map<string, { totalCents: number, units: number }>()
+
+  for (const item of expandedItems) {
     if (stockless.stocklessIds.has(item.product_id)) continue
-    const itemId = String(item.id || '')
+    const itemId = String(item.id || item.sourceItemId || '')
     if (!itemId) return { ok: false as const, error: 'db_error' as const }
     const quantity = toInt(item.quantity, 1)
     const productId = item.product_id
@@ -437,7 +530,10 @@ async function applySalesOrderStockExits (
     if (decision.skip) continue
 
     const exitQuantity = decision.exitQuantity
-    const baseRef = salesOrderItemStockExternalReference(orderId, itemId)
+    const isComponentExit = Boolean(item.kitProductId)
+    const baseRef = isComponentExit
+      ? salesOrderComponentStockExternalReference(orderId, itemId, productId)
+      : salesOrderItemStockExternalReference(orderId, itemId)
     const { data: existingExit, error: existingError } = await auth.supabase
       .from('product_stock_movements')
       .select('id')
@@ -451,7 +547,7 @@ async function applySalesOrderStockExits (
     // Saída base ainda no histórico após estorno: usa ciclo (fora do unique da base).
     // Shortfall parcial (crédito < qty) também usa ciclo se a base já existe.
     const ref = existingExit?.id
-      ? salesOrderItemStockExitCycleExternalReference(orderId, itemId)
+      ? `${baseRef}:cycle:${Date.now()}`
       : baseRef
 
     const layers = fifoState.layersByProduct.get(productId) ?? []
@@ -460,6 +556,36 @@ async function applySalesOrderStockExits (
     fifoState.layersByProduct.set(productId, consumed.layers)
     const unitCost = consumed.unitCostCents
 
+    if (!isComponentExit) {
+      const { error: costUpdError } = await auth.supabase
+        .from('sales_order_items')
+        .update({ unit_cost_cents: unitCost })
+        .eq('organization_id', auth.organizationId)
+        .eq('id', itemId)
+        .eq('sales_order_id', orderId)
+      if (costUpdError) return { ok: false as const, error: 'db_error' as const }
+    } else {
+      const acc = kitCostAccumulator.get(itemId) ?? { totalCents: 0, units: 0 }
+      acc.totalCents += unitCost * exitQuantity
+      // units do kit = qty da linha original (não a qty expandida do componente)
+      const sourceItem = items.find((row) => String(row.id || '') === itemId)
+      acc.units = Math.max(1, toInt(sourceItem?.quantity, 1))
+      kitCostAccumulator.set(itemId, acc)
+    }
+
+    const inserted = await insertSalesOrderStockMovement(auth, {
+      orderId,
+      productId,
+      type: 'exit',
+      quantity: exitQuantity,
+      unitValueCents: unitCost,
+      externalReference: ref,
+    })
+    if (!inserted.ok) return { ok: false as const, error: 'stock_apply_failed' as const }
+  }
+
+  for (const [itemId, acc] of kitCostAccumulator) {
+    const unitCost = Math.max(0, Math.round(acc.totalCents / Math.max(1, acc.units)))
     const { error: costUpdError } = await auth.supabase
       .from('sales_order_items')
       .update({ unit_cost_cents: unitCost })
@@ -467,10 +593,43 @@ async function applySalesOrderStockExits (
       .eq('id', itemId)
       .eq('sales_order_id', orderId)
     if (costUpdError) return { ok: false as const, error: 'db_error' as const }
+  }
+
+  // Histórico no SKU agrupador: a baixa física já saiu nos componentes.
+  for (const item of items) {
+    if (!kitProductIds.includes(item.product_id)) continue
+    if (stockless.stocklessIds.has(item.product_id)) continue
+    const itemId = String(item.id || '')
+    if (!itemId) return { ok: false as const, error: 'db_error' as const }
+    const quantity = toInt(item.quantity, 1)
+    const credit = creditByProduct.get(item.product_id) ?? 0
+    const decision = consumeSalesOrderStockExitCredit(quantity, credit)
+    creditByProduct.set(item.product_id, decision.nextCredit)
+    if (decision.skip) continue
+
+    const exitQuantity = decision.exitQuantity
+    const acc = kitCostAccumulator.get(itemId)
+    const unitCost = acc
+      ? Math.max(0, Math.round(acc.totalCents / Math.max(1, acc.units)))
+      : toInt(item.unit_cost_cents, 0)
+    const baseRef = salesOrderItemStockExternalReference(orderId, itemId)
+    const { data: existingExit, error: existingError } = await auth.supabase
+      .from('product_stock_movements')
+      .select('id')
+      .eq('organization_id', auth.organizationId)
+      .eq('source', 'sales_order')
+      .eq('type', 'exit')
+      .eq('external_reference', baseRef)
+      .maybeSingle()
+    if (existingError) return { ok: false as const, error: 'stock_apply_failed' as const }
+
+    const ref = existingExit?.id
+      ? `${baseRef}:cycle:${Date.now()}`
+      : baseRef
 
     const inserted = await insertSalesOrderStockMovement(auth, {
       orderId,
-      productId,
+      productId: item.product_id,
       type: 'exit',
       quantity: exitQuantity,
       unitValueCents: unitCost,
@@ -503,7 +662,7 @@ async function applySalesOrderStockExits (
 async function reverseSalesOrderStockNets (
   auth: AuthCtx,
   orderId: string,
-  reason: 'cancel' | 'manual' | 'edit',
+  reason: 'cancel' | 'manual' | 'edit' | 'full_skip',
   editToken?: number,
 ) {
   const nets = await loadSalesOrderStockNets(auth, orderId)
@@ -519,7 +678,9 @@ async function reverseSalesOrderStockNets (
       ? `sales_order_cancel:${orderId}:product:${row.product_id}:${token}`
       : reason === 'edit'
         ? `sales_order_edit_rev:${orderId}:product:${row.product_id}:${token}`
-        : `sales_order_stock_reverse:${orderId}:product:${row.product_id}:${token}`
+        : reason === 'full_skip'
+          ? `sales_order_full_skip:${orderId}:product:${row.product_id}:${token}`
+          : `sales_order_stock_reverse:${orderId}:product:${row.product_id}:${token}`
 
     const inserted = await insertSalesOrderStockMovement(auth, {
       orderId,
@@ -721,6 +882,11 @@ export async function createSalesOrder (
   const totals = calcSalesOrderTotals(items, discountTotalCents, surchargeCents)
   const clientMutationId = String(options?.clientMutationId || '').trim() || null
 
+  const purchasedAt = String(draft.created_at || '').trim()
+  const purchasedAtIso = purchasedAt && Number.isFinite(Date.parse(purchasedAt))
+    ? new Date(purchasedAt).toISOString()
+    : null
+
   const { data: order, error: orderError } = await auth.supabase
     .from('sales_orders')
     .insert({
@@ -740,6 +906,7 @@ export async function createSalesOrder (
       ml_order_id: draft.ml_order_id ?? null,
       ml_pack_id: draft.ml_pack_id ?? null,
       client_mutation_id: clientMutationId,
+      ...(purchasedAtIso ? { created_at: purchasedAtIso } : {}),
     })
     .select('id')
     .single()
@@ -884,6 +1051,12 @@ export async function updateSalesOrderDraft (
   if (draft.customer_document !== undefined) patch.customer_document = draft.customer_document
   if (draft.ml_order_id !== undefined) patch.ml_order_id = draft.ml_order_id
   if (draft.ml_pack_id !== undefined) patch.ml_pack_id = draft.ml_pack_id
+  if (draft.created_at !== undefined) {
+    const purchasedAt = String(draft.created_at || '').trim()
+    if (purchasedAt && Number.isFinite(Date.parse(purchasedAt))) {
+      patch.created_at = new Date(purchasedAt).toISOString()
+    }
+  }
 
   if (draft.discount_total_cents !== undefined) {
     patch.discount_total_cents = discountTotalCents
@@ -1648,6 +1821,12 @@ export async function postSalesOrderStock (
   const existing = await assertPaidSalesOrder(auth, orderId)
   if (!existing.ok) return { ok: false as const, error: existing.error }
 
+  const skipLocal = await salesOrderSkipsLocalStock(auth, orderId)
+  if (!skipLocal.ok) return { ok: false as const, error: 'db_error' as const }
+  if (skipLocal.skip) {
+    return { ok: false as const, error: 'full_skips_local_stock' as const }
+  }
+
   const nets = await loadSalesOrderStockNets(auth, orderId)
   if (!nets.ok) return { ok: false as const, error: 'db_error' as const }
   if (nets.rows.length > 0) {
@@ -1663,6 +1842,27 @@ export async function postSalesOrderStock (
   const applied = await applySalesOrderStockExits(auth, orderId, itemsRes.items)
   if (!applied.ok) return { ok: false as const, error: 'stock_apply_failed' as const }
   return { ok: true as const }
+}
+
+/**
+ * Se a venda for FULL e ainda tiver baixa local ativa, estorna.
+ * Útil após sync do MELI descobrir fulfillment em pedido já finalizado.
+ */
+export async function reverseSalesOrderStockIfFull (
+  auth: AuthCtx,
+  orderId: string,
+): Promise<{ ok: true, reversed: boolean } | { ok: false, error: string }> {
+  const skipLocal = await salesOrderSkipsLocalStock(auth, orderId)
+  if (!skipLocal.ok) return { ok: false as const, error: 'db_error' as const }
+  if (!skipLocal.skip) return { ok: true as const, reversed: false }
+
+  const nets = await loadSalesOrderStockNets(auth, orderId)
+  if (!nets.ok) return { ok: false as const, error: 'db_error' as const }
+  if (nets.rows.length === 0) return { ok: true as const, reversed: false }
+
+  const reversed = await reverseSalesOrderStockNets(auth, orderId, 'full_skip')
+  if (!reversed.ok) return { ok: false as const, error: reversed.error }
+  return { ok: true as const, reversed: reversed.hadReversal }
 }
 
 /** Estorna apenas a baixa de estoque vinculada à venda (sem cancelar a venda). */

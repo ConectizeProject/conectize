@@ -83,6 +83,7 @@ function mapProductToForm (p: Product): ProductFormProduct {
     cofinsCst: p.cofinsCst,
     variationAttributeKeys: p.variationAttributeKeys,
     variationAttributeValues: p.variationAttributeValues,
+    isVirtualStock: Boolean(p.isVirtualStock),
   }
 }
 
@@ -104,6 +105,23 @@ export function ProductFormDialog ({
   onCreateVariationFromParent,
 }: Props) {
   const { toast } = useToast()
+  const onStockChangeRef = useRef(onStockChange)
+  onStockChangeRef.current = onStockChange
+  const handleStockChange = useCallback((currentStock: number) => {
+    if (!productId) return
+    onStockChangeRef.current?.(productId, currentStock)
+  }, [productId])
+  const handleVirtualCostChange = useCallback((next: {
+    isVirtual: boolean
+    costPriceCents: number | null
+  }) => {
+    setLoadedProduct((prev) => prev
+      ? { ...prev, isVirtualStock: next.isVirtual, costPriceCents: next.costPriceCents }
+      : prev)
+    setFormProduct((prev) => prev
+      ? { ...prev, isVirtualStock: next.isVirtual, costPriceCents: next.costPriceCents }
+      : prev)
+  }, [])
   const [formProduct, setFormProduct] = useState<ProductFormProduct | null>(null)
   /** Dados completos da API (Bling, parentBlingId, etc.) — não duplicados em ProductFormProduct */
   const [loadedProduct, setLoadedProduct] = useState<Product | null>(null)
@@ -433,7 +451,7 @@ export function ProductFormDialog ({
           description: payload.description,
           imageUrl: payload.imageUrl,
           salePrice: payload.salePrice,
-          costPrice: payload.costPrice,
+          ...(formProduct?.isVirtualStock ? {} : { costPrice: payload.costPrice }),
           isActive: payload.isActive,
           pricingTagId: payload.pricingTagId,
           ncm: payload.ncm,
@@ -986,6 +1004,7 @@ export function ProductFormDialog ({
                       key={`${formProduct.id}-${reloadKey}`}
                       mode="edit"
                       product={formProduct}
+                      costLockedByVirtualStock={Boolean(formProduct.isVirtualStock)}
                       initialCompatibleModels={compatibleModels}
                       defaultKind={defaultKind}
                       embed
@@ -1221,9 +1240,8 @@ export function ProductFormDialog ({
                           costPriceCents={loadedProduct.costPriceCents}
                           initialStock={0}
                           active={editTab === 'estoque'}
-                          onStockChange={(currentStock) => {
-                            onStockChange?.(productId, currentStock)
-                          }}
+                          onStockChange={handleStockChange}
+                          onVirtualCostChange={handleVirtualCostChange}
                         />
                       ) : null}
                     </TabsContent>

@@ -62,6 +62,8 @@ export type SeminovosFilters = {
   stockType: 'seminovo' | 'lacrado' | 'all'
   /** Quando true, inclui aparelhos vendidos na consulta (default: false). */
   includeSold?: boolean
+  /** Quando true, retorna só vendidos (ignora includeSold). */
+  soldOnly?: boolean
   /** Filtro exato pelo nome do aparelho (device_name). */
   deviceName?: string
   /** Catálogo revenda: faixa sobre o menor preço cadastrado (varejo/atacado), em centavos. */
@@ -69,48 +71,76 @@ export type SeminovosFilters = {
   valueMaxCents?: number | null
   /** Cron / service role: filtra por organização (RLS bypass). */
   organizationId?: string
+  /** Paginação (omitir para trazer todos). */
+  limit?: number | null
+  offset?: number | null
+}
+
+export type FetchSeminovosDevicesResult = {
+  devices: ResaleDeviceRow[]
+  total: number
+  hasMore: boolean
+}
+
+/** Tamanho padrão da página na listagem de revenda (infinite scroll). */
+export const REVENDA_LIST_PAGE_SIZE = 24
+
+const DEVICE_LIST_SELECT = `
+  id,
+  device_model_id,
+  device_name,
+  model,
+  color,
+  storage_gb,
+  battery,
+  condition,
+  info,
+  imei,
+  imei2,
+  serial,
+  purchase_value_cents,
+  wholesale_value_cents,
+  expected_profit_wholesale_cents,
+  sale_value_cents,
+  expected_profit_sale_cents,
+  sold_for_cents,
+  advertised,
+  tested,
+  label,
+  stock_type,
+  image_url,
+  image_storage_path,
+  image_gallery_paths,
+  sold,
+  actual_profit_cents,
+  purchase_date,
+  sale_date,
+  created_at,
+  updated_at
+`
+
+function applySeminovosListOrder (
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  query: any,
+  opts: { soldOnly: boolean, includeSoldOrSaleDate: boolean },
+) {
+  if (opts.soldOnly) {
+    return query.order('sale_date', { ascending: false, nullsFirst: false })
+  }
+  if (opts.includeSoldOrSaleDate) {
+    // Disponíveis primeiro; vendidos em seguida por data de venda (mais recentes primeiro).
+    return query
+      .order('sold', { ascending: true })
+      .order('sale_date', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false })
+  }
+  return query.order('created_at', { ascending: false })
 }
 
 export async function fetchSeminovosDevices(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   filters: SeminovosFilters
-): Promise<ResaleDeviceRow[]> {
-  let query = supabase
-    .from('resale_devices')
-    .select(`
-      id,
-      device_model_id,
-      device_name,
-      model,
-      color,
-      storage_gb,
-      battery,
-      condition,
-      info,
-      imei,
-      imei2,
-      serial,
-      purchase_value_cents,
-      wholesale_value_cents,
-      expected_profit_wholesale_cents,
-      sale_value_cents,
-      expected_profit_sale_cents,
-      sold_for_cents,
-      advertised,
-      tested,
-      label,
-      stock_type,
-      image_url,
-      image_storage_path,
-      image_gallery_paths,
-      sold,
-      actual_profit_cents,
-      purchase_date,
-      sale_date,
-      created_at,
-      updated_at
-    `)
-
+): Promise<FetchSeminovosDevicesResult> {
   const {
     q,
     condition,
@@ -122,68 +152,108 @@ export async function fetchSeminovosDevices(
     saleDateTo,
     stockType,
     includeSold,
+    soldOnly,
     deviceName,
     valueMinCents,
     valueMaxCents,
     organizationId,
+    limit: limitRaw,
+    offset: offsetRaw,
   } = filters
-
-  const orgId = (organizationId || '').trim()
-  if (orgId) {
-    query = query.eq('organization_id', orgId)
-  }
 
   const hasSaleDateFilter = Boolean(
     (saleDateFrom && /^\d{4}-\d{2}-\d{2}$/.test(saleDateFrom)) ||
     (saleDateTo && /^\d{4}-\d{2}-\d{2}$/.test(saleDateTo)),
   )
+  const includeSoldOrSaleDate = Boolean(includeSold || hasSaleDateFilter)
+  const onlySold = Boolean(soldOnly)
 
-  if (!includeSold && !hasSaleDateFilter) {
-    query = query.eq('sold', false)
+  const limit =
+    limitRaw == null || limitRaw === undefined
+      ? null
+      : Math.min(100, Math.max(1, Math.trunc(Number(limitRaw)) || 24))
+  const offset = Math.max(0, Math.trunc(Number(offsetRaw) || 0))
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function applyCommonFilters (query: any) {
+    let next = query
+    const orgId = (organizationId || '').trim()
+    if (orgId) {
+      next = next.eq('organization_id', orgId)
+    }
+
+    if (onlySold) {
+      next = next.eq('sold', true)
+    } else if (!includeSoldOrSaleDate) {
+      next = next.eq('sold', false)
+    }
+
+    if (stockType === 'all') {
+      next = next.in('stock_type', ['seminovo', 'lacrado'])
+    } else {
+      next = next.eq('stock_type', stockType)
+    }
+
+    const deviceNameTrim = (deviceName || '').trim()
+    if (deviceNameTrim) {
+      next = next.eq('device_name', deviceNameTrim)
+    }
+
+    if (q) {
+      const escaped = q.replace(/%/g, '\\%').replace(/_/g, '\\_')
+      next = next.or(
+        `device_name.ilike.%${escaped}%,model.ilike.%${escaped}%,color.ilike.%${escaped}%,imei.ilike.%${escaped}%,info.ilike.%${escaped}%`,
+      )
+    }
+    if (condition) {
+      next = next.eq('condition', condition)
+    }
+    if (storageGb) {
+      next = next.ilike('storage_gb', `%${storageGb}%`)
+    }
+    if (color) {
+      next = next.ilike('color', `%${color}%`)
+    }
+    if (purchaseDateFrom && /^\d{4}-\d{2}-\d{2}$/.test(purchaseDateFrom)) {
+      next = next.gte('purchase_date', purchaseDateFrom)
+    }
+    if (purchaseDateTo && /^\d{4}-\d{2}-\d{2}$/.test(purchaseDateTo)) {
+      next = next.lte('purchase_date', purchaseDateTo)
+    }
+    if (saleDateFrom && /^\d{4}-\d{2}-\d{2}$/.test(saleDateFrom)) {
+      next = next.gte('sale_date', saleDateFrom)
+    }
+    if (saleDateTo && /^\d{4}-\d{2}-\d{2}$/.test(saleDateTo)) {
+      next = next.lte('sale_date', saleDateTo)
+    }
+    return next
   }
 
-  if (stockType === 'all') {
-    query = query.in('stock_type', ['seminovo', 'lacrado'])
-  } else {
-    query = query.eq('stock_type', stockType)
+  let dataQuery = applyCommonFilters(
+    supabase.from('resale_devices').select(DEVICE_LIST_SELECT),
+  )
+  dataQuery = applySeminovosListOrder(dataQuery, {
+    soldOnly: onlySold,
+    includeSoldOrSaleDate,
+  })
+  if (limit != null) {
+    dataQuery = dataQuery.range(offset, offset + limit - 1)
   }
 
-  const deviceNameTrim = (deviceName || '').trim()
-  if (deviceNameTrim) {
-    query = query.eq('device_name', deviceNameTrim)
-  }
-
-  if (q) {
-    const escaped = q.replace(/%/g, '\\%').replace(/_/g, '\\_')
-    query = query.or(
-      `device_name.ilike.%${escaped}%,model.ilike.%${escaped}%,color.ilike.%${escaped}%,imei.ilike.%${escaped}%,info.ilike.%${escaped}%`
+  const countPromise = limit != null
+    ? applyCommonFilters(
+      supabase.from('resale_devices').select('id', { count: 'exact', head: true }),
     )
-  }
-  if (condition) {
-    query = query.eq('condition', condition)
-  }
-  if (storageGb) {
-    query = query.ilike('storage_gb', `%${storageGb}%`)
-  }
-  if (color) {
-    query = query.ilike('color', `%${color}%`)
-  }
-  if (purchaseDateFrom && /^\d{4}-\d{2}-\d{2}$/.test(purchaseDateFrom)) {
-    query = query.gte('purchase_date', purchaseDateFrom)
-  }
-  if (purchaseDateTo && /^\d{4}-\d{2}-\d{2}$/.test(purchaseDateTo)) {
-    query = query.lte('purchase_date', purchaseDateTo)
-  }
-  if (saleDateFrom && /^\d{4}-\d{2}-\d{2}$/.test(saleDateFrom)) {
-    query = query.gte('sale_date', saleDateFrom)
-  }
-  if (saleDateTo && /^\d{4}-\d{2}-\d{2}$/.test(saleDateTo)) {
-    query = query.lte('sale_date', saleDateTo)
-  }
+    : Promise.resolve({ count: null, error: null })
 
-  const { data: devices, error } = await query.order('created_at', { ascending: false })
+  const [{ data: devices, error }, countRes] = await Promise.all([
+    dataQuery,
+    countPromise,
+  ])
 
-  if (error) return []
+  if (error) {
+    return { devices: [], total: 0, hasMore: false }
+  }
 
   const ids = (devices || []).map((d: { id: string }) => d.id)
   const costsMap: Record<string, { id: string; description: string | null; value_cents: number }[]> = {}
@@ -228,7 +298,13 @@ export async function fetchSeminovosDevices(
     })
   }
 
-  return list
+  const total =
+    limit != null && typeof countRes.count === 'number'
+      ? countRes.count
+      : list.length
+  const hasMore = limit != null && offset + (devices?.length ?? 0) < total
+
+  return { devices: list, total, hasMore }
 }
 
 /** Nomes distintos de aparelho (device_name) no estoque, para filtro. */

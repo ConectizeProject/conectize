@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   allocateOrderFeeToItems,
   allocateOrderShippingToItems,
+  allocateSharedShippingToRows,
   computeSoldItemMargin,
   computeTaxCents,
+  dedupeSharedShippingCents,
   resolveEffectiveUnitCostCents,
 } from '@/lib/vendas/sold-item-margin'
 
@@ -146,5 +148,52 @@ describe('sold-item-margin', () => {
 
   it('aloca frete com a mesma regra', () => {
     expect(allocateOrderShippingToItems(50, [8000, 2000])).toEqual([40, 10])
+  })
+
+  it('deduplica frete repetido do pack e rateia entre produtos', () => {
+    expect(dedupeSharedShippingCents([
+      { shipmentId: 'ship-1', amountCents: 799 },
+      { shipmentId: 'ship-1', amountCents: 799 },
+    ])).toBe(799)
+    expect(dedupeSharedShippingCents([
+      { shipmentId: null, amountCents: 799 },
+      { shipmentId: null, amountCents: 799 },
+    ])).toBe(799)
+
+    const shares = allocateSharedShippingToRows(
+      [
+        {
+          id: 'item-a',
+          subtotalCents: 10000,
+          order: { id: 'order-a', mlPackId: 'pack-1' },
+        },
+        {
+          id: 'item-b',
+          subtotalCents: 10000,
+          order: { id: 'order-b', mlPackId: 'pack-1' },
+        },
+      ],
+      new Map([
+        ['order-a', {
+          shipmentId: 'ship-1',
+          shippingGrossCents: 799,
+          shippingRefundCents: 799,
+        }],
+        ['order-b', {
+          shipmentId: 'ship-1',
+          shippingGrossCents: 799,
+          shippingRefundCents: 799,
+        }],
+      ]),
+    )
+
+    expect(shares.get('item-a')).toEqual({
+      shippingGrossCents: 400,
+      shippingRefundCents: 400,
+    })
+    expect(shares.get('item-b')).toEqual({
+      shippingGrossCents: 399,
+      shippingRefundCents: 399,
+    })
   })
 })

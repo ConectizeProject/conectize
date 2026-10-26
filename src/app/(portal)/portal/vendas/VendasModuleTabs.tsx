@@ -2,7 +2,7 @@
 
 import { ChevronDown, Download, Plus } from 'lucide-react'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useState } from 'react'
 import { AccountingXmlExportDialog } from '@/app/(portal)/portal/vendas/AccountingXmlExportDialog'
 import { Button } from '@/components/ui/button'
@@ -17,6 +17,11 @@ import {
   createStandaloneSalesOrder,
   salesOrderNfeEmitHref,
 } from '@/lib/sales-orders/create-standalone-client'
+import { parseSalesLane, type SalesLane } from '@/lib/vendas/sales-lane'
+import {
+  salesListSectionFromPath,
+  writeSalesListSession,
+} from '@/lib/vendas/sales-list-session'
 import { cn } from '@/lib/utils'
 
 const TABS = [
@@ -31,9 +36,16 @@ function activeTab (pathname: string) {
   return 'pedidos'
 }
 
+function tabHref (href: string, lane: SalesLane) {
+  if (lane === 'all') return href
+  return `${href}?lane=${encodeURIComponent(lane)}`
+}
+
 export function VendasModuleTabs () {
   const pathname = usePathname() || '/portal/vendas'
+  const searchParams = useSearchParams()
   const router = useRouter()
+  const lane = parseSalesLane(searchParams.get('lane')) ?? 'all'
   const isCheckout = pathname === '/portal/vendas/checkout' || pathname.startsWith('/portal/vendas/checkout/')
   const current = activeTab(pathname)
   const [isCreating, setIsCreating] = useState(false)
@@ -76,7 +88,12 @@ export function VendasModuleTabs () {
             {TABS.map((tab) => (
               <Link
                 key={tab.id}
-                href={tab.href}
+                href={tabHref(tab.href, lane)}
+                onClick={() => {
+                  const section = salesListSectionFromPath(tab.href)
+                  if (!section) return
+                  writeSalesListSession({ section, lane })
+                }}
                 className={cn(
                   'inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all',
                   current === tab.id

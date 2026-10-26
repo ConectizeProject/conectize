@@ -2,8 +2,12 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import {
 	getMeliConnectionByOrganizationId,
 	getMeliOrder,
+	getMeliShipment,
+	pickMeliClaimForDisplay,
+	searchMeliClaimsByOrderId,
 	type HubConnection,
 } from '@/lib/integrations/mercado-livre/api'
+import { persistMeliFulfillment } from '@/lib/integrations/mercado-livre/fulfillment'
 import { resolveMeliProductId } from '@/lib/integrations/mercado-livre/product-resolve'
 import { extractMeliOrderIdFromResource } from '@/lib/integrations/mercado-livre/webhooks'
 import {
@@ -11,6 +15,7 @@ import {
 	createSalesOrder,
 	finalizeSalesOrder,
 	replaceSalesOrderPayments,
+	reverseSalesOrderStockIfFull,
 	type SalesOrderDraftInput,
 	type SalesOrderItemInput,
 	type SalesOrderPaymentInput,
@@ -250,9 +255,12 @@ export async function upsertSalesOrderFromMeliOrder(params: {
 	}
 
 	const mlStatus = mapMeliOrderStatus(params.order)
+	const purchasedAt =
+		trimText(params.order.date_created) || trimText(params.order.date_closed)
 	const draft: SalesOrderDraftInput = {
 		...mapBuyerDraft(params.order),
 		ml_order_id: mlOrderId,
+		created_at: purchasedAt,
 	}
 
 	let existing = await findSalesOrderByMlId(
@@ -277,8 +285,30 @@ export async function upsertSalesOrderFromMeliOrder(params: {
 					throw new Error(`meli_cancel_failed: ${canceled.error}`)
 				}
 			}
+			await attachMeliFulfillment({
+				supabase: params.supabase,
+				organizationId: params.organizationId,
+				userId: actorUserId,
+				connection: params.connection,
+				salesOrderId: existing.id,
+				order: params.order,
+			})
 			return { orderId: existing.id, action: 'canceled' }
 		}
+		await syncMeliPurchaseDate({
+			supabase: params.supabase,
+			organizationId: params.organizationId,
+			salesOrderId: existing.id,
+			purchasedAt,
+		})
+		await attachMeliFulfillment({
+			supabase: params.supabase,
+			organizationId: params.organizationId,
+			userId: actorUserId,
+			connection: params.connection,
+			salesOrderId: existing.id,
+			order: params.order,
+		})
 		return { orderId: existing.id, action: 'skipped' }
 	}
 
@@ -338,10 +368,26 @@ export async function upsertSalesOrderFromMeliOrder(params: {
 		if (canceled.ok === false && canceled.error !== 'already_canceled') {
 			throw new Error(`meli_cancel_failed: ${canceled.error}`)
 		}
+		await attachMeliFulfillment({
+			supabase: params.supabase,
+			organizationId: params.organizationId,
+			userId: actorUserId,
+			connection: params.connection,
+			salesOrderId: existing.id,
+			order: params.order,
+		})
 		return { orderId: existing.id, action: 'canceled' }
 	}
 
 	if (mlStatus !== 'paid') {
+		await attachMeliFulfillment({
+			supabase: params.supabase,
+			organizationId: params.organizationId,
+			userId: actorUserId,
+			connection: params.connection,
+			salesOrderId: existing.id,
+			order: params.order,
+		})
 		return {
 			orderId: existing.id,
 			action: existing.status === 'in_progress' ? 'updated' : 'created',
@@ -357,12 +403,139 @@ export async function upsertSalesOrderFromMeliOrder(params: {
 		throw new Error(`meli_payments_failed: ${payResult.error}`)
 	}
 
+	// Persist logistic type before finalize so FULL skips local stock exit.
+	await attachMeliFulfillment({
+		supabase: params.supabase,
+		organizationId: params.organizationId,
+		userId: actorUserId,
+		connection: params.connection,
+		salesOrderId: existing.id,
+		order: params.order,
+	})
+
 	const finalized = await finalizeSalesOrder(auth, existing.id)
 	if (finalized.ok === false) {
 		throw new Error(`meli_finalize_failed: ${finalized.error}`)
 	}
 
 	return { orderId: existing.id, action: 'finalized' }
+}
+
+async function syncMeliPurchaseDate(params: {
+	supabase: ServiceClient
+	organizationId: string
+	salesOrderId: string
+	purchasedAt: string | null
+}): Promise<void> {
+	const raw = String(params.purchasedAt || '').trim()
+	if (!raw || !Number.isFinite(Date.parse(raw))) return
+	const purchasedAtIso = new Date(raw).toISOString()
+	const { data } = await params.supabase
+		.from('sales_orders')
+		.select('created_at')
+		.eq('organization_id', params.organizationId)
+		.eq('id', params.salesOrderId)
+		.maybeSingle()
+	const current = String(data?.created_at || '').trim()
+	if (current && Math.abs(Date.parse(current) - Date.parse(purchasedAtIso)) < 1000) {
+		return
+	}
+	const { error } = await params.supabase
+		.from('sales_orders')
+		.update({ created_at: purchasedAtIso })
+		.eq('organization_id', params.organizationId)
+		.eq('id', params.salesOrderId)
+	if (error) {
+		console.error('[meli purchase date]', error.message)
+	}
+}
+
+async function attachMeliFulfillment(params: {
+	supabase: ServiceClient
+	organizationId: string
+	userId: string
+	connection: HubConnection
+	salesOrderId: string
+	order: Record<string, unknown>
+}): Promise<void> {
+	const shipping = asRecord(params.order.shipping)
+	const shipmentId = trimText(shipping?.id)
+	let shipment: Record<string, unknown> | null = null
+	if (shipmentId) {
+		try {
+			shipment = await getMeliShipment(
+				params.connection,
+				shipmentId,
+				params.supabase,
+			)
+		} catch (err) {
+			const message = err instanceof Error ? err.message : 'unknown_error'
+			console.error('[meli shipment]', message)
+		}
+	}
+	await syncMeliPurchaseDate({
+		supabase: params.supabase,
+		organizationId: params.organizationId,
+		salesOrderId: params.salesOrderId,
+		purchasedAt:
+			trimText(params.order.date_created) || trimText(params.order.date_closed),
+	})
+	const mlOrderId = trimText(params.order.id)
+	const packId = trimText(params.order.pack_id)
+	const claims = mlOrderId
+		? await searchMeliClaimsByOrderId(
+			params.connection,
+			mlOrderId,
+			params.supabase,
+			{ packId },
+		).catch(() => [])
+		: []
+	const claim = pickMeliClaimForDisplay(claims)
+
+	await persistMeliFulfillment({
+		supabase: params.supabase,
+		organizationId: params.organizationId,
+		salesOrderId: params.salesOrderId,
+		order: params.order,
+		shipment,
+		claimStatus: claim?.status ?? null,
+	})
+
+	const auth: AuthCtx = {
+		organizationId: params.organizationId,
+		userId: params.userId,
+		supabase: params.supabase,
+	}
+	const fullStock = await reverseSalesOrderStockIfFull(auth, params.salesOrderId)
+	if (fullStock.ok === false) {
+		console.error('[meli full stock reverse]', fullStock.error)
+	}
+}
+
+export async function syncMeliShipmentById(params: {
+	supabase: ServiceClient
+	organizationId: string
+	shipmentId: string
+}): Promise<{ orderId: string; action: string }> {
+	const connection = await getMeliConnectionByOrganizationId(
+		params.supabase,
+		params.organizationId,
+	)
+	if (!connection) throw new Error('meli_not_connected')
+
+	const shipment = await getMeliShipment(
+		connection,
+		params.shipmentId,
+		params.supabase,
+	)
+	const orderId = trimText(shipment.order_id)
+	if (!orderId) throw new Error('meli_shipment_without_order')
+
+	return syncMeliOrderById({
+		supabase: params.supabase,
+		organizationId: params.organizationId,
+		orderId,
+	})
 }
 
 export async function syncMeliOrderById(params: {
@@ -383,6 +556,80 @@ export async function syncMeliOrderById(params: {
 		order,
 		connection,
 	})
+}
+
+const purchaseBackfillAtByOrg = new Map<string, number>()
+const PURCHASE_BACKFILL_TTL_MS = 60 * 60 * 1000
+
+/** Corrige created_at dos pedidos MELI para a data da compra (date_created). */
+export async function backfillMeliPurchaseDates(params: {
+	supabase: ServiceClient
+	organizationId: string
+	limit?: number
+	force?: boolean
+}): Promise<{ updated: number, failed: number, skipped: boolean }> {
+	const now = Date.now()
+	const lastAt = purchaseBackfillAtByOrg.get(params.organizationId) ?? 0
+	if (!params.force && now - lastAt < PURCHASE_BACKFILL_TTL_MS) {
+		return { updated: 0, failed: 0, skipped: true }
+	}
+
+	const connection = await getMeliConnectionByOrganizationId(
+		params.supabase,
+		params.organizationId,
+	)
+	if (!connection) return { updated: 0, failed: 0, skipped: false }
+
+	const limit = Math.min(200, Math.max(1, Math.trunc(params.limit ?? 100)))
+	const { data: rows, error } = await params.supabase
+		.from('sales_orders')
+		.select('id, ml_order_id, created_at')
+		.eq('organization_id', params.organizationId)
+		.not('ml_order_id', 'is', null)
+		.order('updated_at', { ascending: false })
+		.limit(limit)
+
+	if (error || !rows?.length) {
+		if (error) console.error('[meli purchase backfill]', error.message)
+		return { updated: 0, failed: 0, skipped: false }
+	}
+
+	let updated = 0
+	let failed = 0
+	let cursor = 0
+	const workers = Math.min(4, rows.length)
+
+	async function worker () {
+		for (;;) {
+			const index = cursor
+			cursor += 1
+			const row = rows[index]
+			if (!row) return
+			const mlOrderId = String(row.ml_order_id || '').trim()
+			const salesOrderId = String(row.id || '').trim()
+			if (!mlOrderId || !salesOrderId) continue
+			try {
+				const order = await getMeliOrder(connection, mlOrderId, params.supabase)
+				const purchasedAt =
+					trimText(order.date_created) || trimText(order.date_closed)
+				await syncMeliPurchaseDate({
+					supabase: params.supabase,
+					organizationId: params.organizationId,
+					salesOrderId,
+					purchasedAt,
+				})
+				updated += 1
+			} catch (err) {
+				failed += 1
+				const message = err instanceof Error ? err.message : 'unknown_error'
+				console.error('[meli purchase backfill]', mlOrderId, message)
+			}
+		}
+	}
+
+	await Promise.all(Array.from({ length: workers }, () => worker()))
+	purchaseBackfillAtByOrg.set(params.organizationId, Date.now())
+	return { updated, failed, skipped: false }
 }
 
 export function orderIdFromMeliResource(

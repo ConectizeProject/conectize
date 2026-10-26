@@ -17,6 +17,7 @@ export type ProductRow = {
 	created_at?: string
 	current_stock?: number
 	has_stock_movements?: boolean
+	is_virtual?: boolean
 	is_variation?: boolean
 	has_variations?: boolean
 	parent_name?: string | null
@@ -37,6 +38,7 @@ export function productRowPatchFromApiProduct (product: {
 	isActive?: boolean
 	parentBlingId?: string | null
 	parentProductId?: string | null
+	isVirtualStock?: boolean
 }): Partial<ProductRow> & { id: string } {
 	return {
 		id: product.id,
@@ -52,6 +54,7 @@ export function productRowPatchFromApiProduct (product: {
 		is_active: product.isActive !== false,
 		parent_bling_id: product.parentBlingId ?? null,
 		parent_product_id: product.parentProductId ?? null,
+		is_virtual: Boolean(product.isVirtualStock),
 	}
 }
 

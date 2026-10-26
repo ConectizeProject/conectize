@@ -1,9 +1,9 @@
 'use client'
 
-import { Eye, Plus, Smartphone } from 'lucide-react'
+import { Eye, Loader2, Plus, Smartphone } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ResaleAddCostDialog } from '@/components/resale/ResaleAddCostDialog'
 import { ResaleBulkEditTable } from '@/components/resale/ResaleBulkEditTable'
 import { ResaleCoverPhotoPreview } from '@/components/resale/ResaleCoverPhotoPreview'
@@ -26,7 +26,10 @@ import { portalFetch } from '@/lib/portal/portal-fetch'
 import { getInstallmentRowForCount } from '@/lib/resale/credit-installment-max-fee'
 import { revendaPath } from '@/lib/revenda/revenda-paths'
 import { getSeminovosColorEmoji } from '@/lib/seminovos/colors'
-import type { ResaleDeviceRow } from '@/lib/seminovos/fetch-seminovos-data'
+import {
+	REVENDA_LIST_PAGE_SIZE,
+	type ResaleDeviceRow,
+} from '@/lib/seminovos/fetch-seminovos-data'
 import { groupDevicesByModel } from '@/lib/seminovos/group-devices-by-model'
 import {
 	copyImeiWithPortalToast,
@@ -77,6 +80,10 @@ type Props = {
 			display_image_full_url?: string | null
 		}
 	>
+	totalCount: number
+	hasMoreInitial: boolean
+	/** Inclui vendidos na query (filtro sold=1, data de venda ou busca por IMEI). */
+	listIncludeSold: boolean
 	paymentMethods: PaymentMethod[]
 	isRetailer: boolean
 	isAdmin?: boolean
@@ -110,6 +117,9 @@ function moneyOrEmpty (cents: number | null | undefined) {
 
 export function RevendaListagemClient({
 	devices,
+	totalCount,
+	hasMoreInitial,
+	listIncludeSold,
 	paymentMethods,
 	isRetailer,
 	isAdmin = false,
@@ -142,11 +152,182 @@ export function RevendaListagemClient({
 	)
 	const [showTermsDialog, setShowTermsDialog] = useState(false)
 	const [isBulkEdit, setIsBulkEdit] = useState(false)
+	const [extraDevices, setExtraDevices] = useState<CatalogDeviceRow[]>([])
+	const [loadMoreBusy, setLoadMoreBusy] = useState(false)
+	const [hasMore, setHasMore] = useState(hasMoreInitial)
+	const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null)
+	const loadMoreInFlightRef = useRef(false)
+	const loadMoreCooldownUntilRef = useRef(0)
 
-	const orderedDevices = useMemo(
-		() => groupDevicesByModel(devices).flatMap((g) => g.devices),
-		[devices],
+	const listFilterKey = useMemo(
+		() =>
+			[
+				filterInitialValues.q,
+				filterInitialValues.condition,
+				filterInitialValues.storageGb,
+				filterInitialValues.color,
+				filterInitialValues.purchaseDateFrom,
+				filterInitialValues.purchaseDateTo,
+				filterInitialValues.saleDateFrom || '',
+				filterInitialValues.saleDateTo || '',
+				filterInitialValues.deviceName || '',
+				filterInitialValues.stockType,
+				filterInitialValues.valueMin || '',
+				filterInitialValues.valueMax || '',
+				listIncludeSold ? '1' : '0',
+			].join('|'),
+		[filterInitialValues, listIncludeSold],
 	)
+
+	useEffect(() => {
+		setExtraDevices([])
+		setHasMore(hasMoreInitial)
+	}, [listFilterKey, hasMoreInitial, devices])
+
+	const orderedDevices = useMemo(() => {
+		const seen = new Set(devices.map((d) => d.id))
+		const merged = [
+			...devices,
+			...extraDevices.filter((d) => !seen.has(d.id)),
+		]
+		if (!listIncludeSold) {
+			return groupDevicesByModel(merged).flatMap((g) => g.devices)
+		}
+		const available = merged.filter((d) => !d.sold)
+		const sold = merged
+			.filter((d) => d.sold)
+			.slice()
+			.sort((a, b) => {
+				const saleA = a.sale_date || ''
+				const saleB = b.sale_date || ''
+				if (saleA !== saleB) return saleB.localeCompare(saleA)
+				return String(b.created_at || '').localeCompare(String(a.created_at || ''))
+			})
+		return [
+			...groupDevicesByModel(available).flatMap((g) => g.devices),
+			...sold,
+		]
+	}, [devices, extraDevices, listIncludeSold])
+
+	const canLoadMore = hasMore && orderedDevices.length < totalCount
+
+	const loadNextChunk = useCallback(async () => {
+		if (loadMoreInFlightRef.current || loadMoreBusy || !canLoadMore) return
+		if (Date.now() < loadMoreCooldownUntilRef.current) return
+		loadMoreInFlightRef.current = true
+		setLoadMoreBusy(true)
+		try {
+			const params = new URLSearchParams()
+			params.set('offset', String(orderedDevices.length))
+			params.set('limit', String(REVENDA_LIST_PAGE_SIZE))
+			params.set('stockType', 'all')
+			const q = filterInitialValues.q.trim()
+			if (q) params.set('q', q)
+			if (filterInitialValues.condition) {
+				params.set('condition', filterInitialValues.condition)
+			}
+			if (filterInitialValues.storageGb) {
+				params.set('storageGb', filterInitialValues.storageGb)
+			}
+			if (filterInitialValues.color) {
+				params.set('color', filterInitialValues.color)
+			}
+			if (filterInitialValues.purchaseDateFrom) {
+				params.set('purchaseDateFrom', filterInitialValues.purchaseDateFrom)
+			}
+			if (filterInitialValues.purchaseDateTo) {
+				params.set('purchaseDateTo', filterInitialValues.purchaseDateTo)
+			}
+			if (filterInitialValues.saleDateFrom) {
+				params.set('saleDateFrom', filterInitialValues.saleDateFrom)
+			}
+			if (filterInitialValues.saleDateTo) {
+				params.set('saleDateTo', filterInitialValues.saleDateTo)
+			}
+			if (filterInitialValues.deviceName) {
+				params.set('deviceName', filterInitialValues.deviceName)
+			}
+			if (filterInitialValues.valueMin) {
+				params.set('valueMin', filterInitialValues.valueMin)
+			}
+			if (filterInitialValues.valueMax) {
+				params.set('valueMax', filterInitialValues.valueMax)
+			}
+			if (listIncludeSold) {
+				params.set('includeSold', '1')
+			}
+
+			const res = await portalFetch(`/api/portal/resale-devices?${params.toString()}`)
+			const data = await res?.json().catch(() => null) as {
+				ok?: boolean
+				devices?: CatalogDeviceRow[]
+				hasMore?: boolean
+				error?: string
+			} | null
+			if (!res?.ok || !data?.ok) {
+				toast({
+					variant: 'destructive',
+					title: 'Erro ao carregar mais aparelhos',
+					description:
+						typeof data?.error === 'string' ? data.error : 'Tente novamente.',
+				})
+				return
+			}
+			const rawItems = Array.isArray(data.devices) ? data.devices : []
+			if (rawItems.length === 0) {
+				setHasMore(false)
+				return
+			}
+			const items = isAdmin
+				? rawItems
+				: rawItems.map((d) => ({
+					...d,
+					purchase_value_cents: null,
+					costs: [],
+				}))
+			setExtraDevices((prev) => [...prev, ...items])
+			setHasMore(Boolean(data.hasMore))
+			loadMoreCooldownUntilRef.current = Date.now() + 400
+		} catch (err) {
+			const message = err instanceof Error ? err.message : ''
+			toast({
+				variant: 'destructive',
+				title: 'Erro ao carregar mais aparelhos',
+				description: message || 'Falha de rede.',
+			})
+		} finally {
+			loadMoreInFlightRef.current = false
+			setLoadMoreBusy(false)
+		}
+	}, [
+		canLoadMore,
+		filterInitialValues,
+		isAdmin,
+		listIncludeSold,
+		loadMoreBusy,
+		orderedDevices.length,
+	])
+
+	useEffect(() => {
+		const el = loadMoreSentinelRef.current
+		if (!el || !canLoadMore || loadMoreBusy) return
+
+		let cancelled = false
+		const obs = new IntersectionObserver(
+			(entries) => {
+				const [en] = entries
+				if (!en?.isIntersecting || cancelled) return
+				if (Date.now() < loadMoreCooldownUntilRef.current) return
+				void loadNextChunk()
+			},
+			{ root: null, rootMargin: '160px 0px', threshold: 0 },
+		)
+		obs.observe(el)
+		return () => {
+			cancelled = true
+			obs.disconnect()
+		}
+	}, [canLoadMore, loadMoreBusy, loadNextChunk, orderedDevices.length])
 
 	const buildWhatsAppTexts = useCallback(() => {
 		const available = orderedDevices.filter((d) => !d.sold)
@@ -490,6 +671,7 @@ export function RevendaListagemClient({
 					) : null}
 				</div>
 			) : (
+				<>
 				<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
 					{orderedDevices.map((d) => {
 						const title =
@@ -671,6 +853,23 @@ export function RevendaListagemClient({
 						)
 					})}
 				</div>
+				{canLoadMore || loadMoreBusy ? (
+					<div
+						ref={loadMoreSentinelRef}
+						className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground"
+						aria-live="polite"
+					>
+						{loadMoreBusy ? (
+							<>
+								<Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+								Carregando mais aparelhos…
+							</>
+						) : (
+							<span className="sr-only">Rolando para carregar mais</span>
+						)}
+					</div>
+				) : null}
+				</>
 			)}
 			<ResaleSimulatePaymentDialog
 				device={

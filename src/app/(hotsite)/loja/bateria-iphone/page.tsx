@@ -5,6 +5,7 @@ import {
 	lojaCategoryPaths,
 	lojaIndependentAnswer,
 	lojaPickupAnswer,
+	lojaWhatsAppMessages,
 	whatsappLink,
 } from '@/lib/data/hotsite-loja'
 import { serviceWarranty } from '@/lib/data/site-facts'
@@ -42,7 +43,7 @@ export default async function LojaBateriaIphonePage () {
 		<BatteryBooking
 			models={iphoneModels}
 			prices={prices}
-			whatsappHref={whatsappLink('Olá! Vim pelo site e quero agendar a troca de bateria do iPhone.')}
+			whatsappHref={whatsappLink(lojaWhatsAppMessages.bateria)}
 			loggedIn={loggedIn}
 			appointment={appointment}
 		>
@@ -68,12 +69,12 @@ export default async function LojaBateriaIphonePage () {
 				</>
 			)}
 			heroImage={{
-				src: '/loja/bateria-iphone-hero-branco.webp',
+				src: '/loja/bateria-iphone-hero.webp',
 				width: 640,
 				height: 1024,
 				alt: 'iPhone e bateria de reposição Li-ion',
 			}}
-			whatsappMessage="Olá! Vim pelo site e quero o preço da bateria para iPhone ___"
+			whatsappMessage={lojaWhatsAppMessages.bateria}
 			models={iphoneModels}
 			modelsLead="Referência dos modelos de iPhone com bateria na loja. Envie o seu no WhatsApp para confirmar disponibilidade e preço."
 			highlights={[

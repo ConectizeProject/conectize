@@ -17,6 +17,7 @@ import {
 import { createProductSyncSnapshot } from "@/lib/products/bling-sync";
 import { fetchProductHasVariationChildren } from "@/lib/products/parent-has-variations";
 import { isStockMovementEditable } from "@/lib/products/stock-movement-editable";
+import { repriceProductStockEntryUnitValues } from "@/lib/products/reprice-stock-entry-costs";
 import {
 	ensurePortalOrganizationContext,
 	getPortalOrganizationId,
@@ -70,6 +71,8 @@ export type Product = {
 	pisCst: string | null;
 	cofinsCst: string | null;
 	isActive: boolean;
+	/** True quando o saldo vem de `product_stock_components`. */
+	isVirtualStock?: boolean;
 	/** Ordenação do catálogo: raiz (12 dígitos) ou variação `raiz` + `.` + sufixo (6 dígitos). */
 	catalogSortKey: string | null;
 	createdAt: string;
@@ -1157,8 +1160,19 @@ export async function updateProduct(
 	if (input.pricingTagId !== undefined) {
 		patch.pricing_tag_id = normalizeOptionalUuid(input.pricingTagId) ?? null;
 	}
+	let skipVirtualCostEdit = false;
 	if (input.costPriceCents !== undefined) {
-		patch.cost_price_cents = normalizeMoney(input.costPriceCents);
+		const { fetchProductHasVirtualStock } = await import(
+			"@/lib/products/virtual-stock-cost"
+		);
+		skipVirtualCostEdit = await fetchProductHasVirtualStock({
+			supabase: auth.supabase,
+			organizationId: auth.organizationId,
+			productId: id,
+		});
+		if (!skipVirtualCostEdit) {
+			patch.cost_price_cents = normalizeMoney(input.costPriceCents);
+		}
 	}
 	if (input.ncm !== undefined) patch.ncm = normalizeFiscalDigits(input.ncm, 8);
 	if (input.cest !== undefined) patch.cest = normalizeFiscalDigits(input.cest, 7);
@@ -1188,7 +1202,8 @@ export async function updateProduct(
 		patch.cofins_cst = normalizeFiscalDigits(input.cofinsCst, 2);
 	if (
 		input.costPriceManuallyEdited === true &&
-		input.costPriceCents !== undefined
+		input.costPriceCents !== undefined &&
+		!skipVirtualCostEdit
 	) {
 		patch.cost_price_manual_edited_at = new Date().toISOString();
 	}
@@ -1240,7 +1255,51 @@ export async function updateProduct(
 		return { ok: false as const, error: "db_error" as const };
 	}
 
-	return { ok: true as const, product: mapRowToProduct(data) };
+	if (
+		input.costPriceManuallyEdited === true &&
+		input.costPriceCents !== undefined &&
+		!skipVirtualCostEdit
+	) {
+		const unitValueCents = normalizeMoney(input.costPriceCents) ?? 0;
+		const repriced = await repriceProductStockEntryUnitValues({
+			supabase: auth.supabase,
+			organizationId: auth.organizationId,
+			productId: id,
+			unitValueCents,
+		});
+		if (repriced.ok === false) {
+			console.error("[products] reprice stock entries", repriced.error);
+		}
+	}
+
+	if (input.costPriceCents !== undefined && !skipVirtualCostEdit) {
+		const { persistDependentVirtualKitCosts } = await import(
+			"@/lib/products/virtual-stock-cost"
+		);
+		await persistDependentVirtualKitCosts({
+			supabase: auth.supabase,
+			organizationId: auth.organizationId,
+			componentProductId: id,
+		});
+	}
+
+	const product = mapRowToProduct(data);
+	let isVirtualStock = skipVirtualCostEdit;
+	if (input.costPriceCents === undefined) {
+		const { fetchProductHasVirtualStock } = await import(
+			"@/lib/products/virtual-stock-cost"
+		);
+		isVirtualStock = await fetchProductHasVirtualStock({
+			supabase: auth.supabase,
+			organizationId: auth.organizationId,
+			productId: id,
+		});
+	}
+
+	return {
+		ok: true as const,
+		product: { ...product, isVirtualStock },
+	};
 }
 
 export async function getParentProductForVariation(
@@ -1535,6 +1594,19 @@ export async function getProductById(id: string): Promise<GetProductResult> {
 	return { ok: true as const, product: mapRowToProduct(data) };
 }
 
+export async function productHasVirtualStock(productId: string): Promise<boolean> {
+	const auth = await requireAuth();
+	if (!auth.ok) return false;
+	const { fetchProductHasVirtualStock } = await import(
+		"@/lib/products/virtual-stock-cost"
+	);
+	return fetchProductHasVirtualStock({
+		supabase: auth.supabase,
+		organizationId: auth.organizationId,
+		productId,
+	});
+}
+
 export async function listProducts(
 	params: {
 		search?: string;
@@ -1611,6 +1683,17 @@ export async function addStockMovement(
 		return { ok: false as const, error: "parent_product_no_stock" as const };
 	}
 
+	{
+		const { data: virtualRows } = await auth.supabase
+			.from("product_stock_components")
+			.select("id")
+			.eq("product_id", productId)
+			.limit(1);
+		if ((virtualRows ?? []).length > 0) {
+			return { ok: false as const, error: "parent_product_no_stock" as const };
+		}
+	}
+
 	const unitValueCents = normalizeMoney(input.unitValueCents ?? 0) ?? 0;
 	const totalValueCents = unitValueCents * quantity;
 
@@ -1659,12 +1742,16 @@ export async function listStockMovements(
 	const from = (page - 1) * pageSize;
 	const to = from + pageSize - 1;
 
+	const overlays = await loadVirtualKitSaleHistoryOverlays(auth, productId);
+	const movementFrom = overlays.length > 0 ? 0 : from;
+	const movementTo = to;
+
 	const { data, error, count } = await auth.supabase
 		.from("product_stock_movements")
 		.select("*", { count: "exact" })
 		.eq("product_id", productId)
 		.order("created_at", { ascending: false })
-		.range(from, to);
+		.range(movementFrom, movementTo);
 
 	if (error || !data) {
 		return { ok: false as const, error: "db_error" as const };
@@ -1672,12 +1759,28 @@ export async function listStockMovements(
 
 	const mapped = data.map(mapRowToMovement);
 	const withSales = await enrichStockMovementsWithSalesOrders(auth.supabase, mapped);
-	const items = await enrichStockMovementsWithServiceOrders(auth.supabase, withSales);
+	const withService = await enrichStockMovementsWithServiceOrders(auth.supabase, withSales);
+
+	if (overlays.length === 0) {
+		return {
+			ok: true as const,
+			items: withService,
+			total: count ?? withService.length,
+			page,
+			pageSize,
+		};
+	}
+
+	const {
+		mergeStockMovementsByCreatedAtDesc,
+	} = await import("@/lib/products/virtual-stock");
+	const merged = mergeStockMovementsByCreatedAtDesc(withService, overlays);
+	const items = merged.slice(from, from + pageSize);
 
 	return {
 		ok: true as const,
 		items,
-		total: count ?? items.length,
+		total: (count ?? mapped.length) + overlays.length,
 		page,
 		pageSize,
 	};
@@ -1818,6 +1921,19 @@ export async function getProductCurrentStock(
 ): Promise<GetProductCurrentStockResult> {
 	const auth = await requireAuth();
 	if (!auth.ok) return { ok: false, error: "not_authenticated" };
+
+	const { resolveDisplayedStockByProductId } = await import(
+		"@/lib/products/virtual-stock"
+	);
+	const displayed = await resolveDisplayedStockByProductId({
+		supabase: auth.supabase,
+		organizationId: auth.organizationId,
+		productIds: [productId],
+	});
+	const row = displayed.get(productId);
+	if (row) {
+		return { ok: true as const, currentStock: row.currentStock };
+	}
 
 	const { data, error } = await auth.supabase
 		.from("product_stock_movements")
@@ -1969,6 +2085,7 @@ function mapRowToProduct(row: Record<string, unknown>): Product {
 		pisCst: row.pis_cst ? String(row.pis_cst).trim() : null,
 		cofinsCst: row.cofins_cst ? String(row.cofins_cst).trim() : null,
 		isActive: Boolean(row.is_active ?? true),
+		isVirtualStock: false,
 		catalogSortKey: rawCatalogSort,
 		createdAt,
 		updatedAt,
@@ -2014,6 +2131,97 @@ function parseServiceOrderIdFromReference(ref: string | null): string | null {
 	const match = ref.match(/^service_order:([0-9a-fA-F-]{36})(?::|$)/);
 	const id = match?.[1]?.toLowerCase() ?? "";
 	return UUID_RE.test(id) ? id : null;
+}
+
+async function loadVirtualKitSaleHistoryOverlays(
+	auth: AuthSuccess,
+	productId: string,
+): Promise<StockMovement[]> {
+	const {
+		buildVirtualKitSaleHistoryOverlays,
+		loadProductStockComponents,
+	} = await import("@/lib/products/virtual-stock");
+
+	const componentsByProductId = await loadProductStockComponents({
+		supabase: auth.supabase,
+		organizationId: auth.organizationId,
+		productIds: [productId],
+	});
+	if ((componentsByProductId.get(productId)?.length ?? 0) === 0) return [];
+
+	const { data: postedRows, error: postedError } = await auth.supabase
+		.from("product_stock_movements")
+		.select("sales_order_id")
+		.eq("organization_id", auth.organizationId)
+		.eq("product_id", productId)
+		.eq("source", "sales_order")
+		.not("sales_order_id", "is", null);
+
+	if (postedError) {
+		console.error("[virtual-kit-sale-history] posted", postedError.message);
+		return [];
+	}
+
+	const { data: itemRows, error: itemError } = await auth.supabase
+		.from("sales_order_items")
+		.select(`
+			id,
+			quantity,
+			unit_cost_cents,
+			sales_order_id,
+			created_at,
+			sales_orders!inner (
+				id,
+				order_number,
+				status,
+				created_at
+			)
+		`)
+		.eq("organization_id", auth.organizationId)
+		.eq("product_id", productId)
+		.eq("sales_orders.status", "paid");
+
+	if (itemError) {
+		console.error("[virtual-kit-sale-history] items", itemError.message);
+		return [];
+	}
+
+	type OrderJoin = {
+		id?: string;
+		order_number?: number | null;
+		created_at?: string | null;
+	};
+
+	const overlays = buildVirtualKitSaleHistoryOverlays({
+		productId,
+		postedSalesOrderIds: (postedRows ?? []).map((row) =>
+			String((row as { sales_order_id?: string }).sales_order_id || ""),
+		),
+		items: (itemRows ?? []).map((row) => {
+			const joined = (row as { sales_orders?: OrderJoin | OrderJoin[] }).sales_orders;
+			const order = Array.isArray(joined) ? joined[0] : joined;
+			const salesOrderId = String(
+				order?.id || (row as { sales_order_id?: string }).sales_order_id || "",
+			);
+			const orderNumber = Number(order?.order_number);
+			return {
+				id: String((row as { id?: string }).id || ""),
+				quantity: Number((row as { quantity?: number }).quantity) || 1,
+				unitCostCents: Number((row as { unit_cost_cents?: number }).unit_cost_cents) || 0,
+				salesOrderId,
+				createdAt: String(
+					order?.created_at || (row as { created_at?: string }).created_at || "",
+				),
+				orderNumber: Number.isFinite(orderNumber) ? orderNumber : null,
+			};
+		}),
+	});
+
+	return overlays.map((overlay) => ({
+		...overlay,
+		serviceOrderId: null,
+		serviceOrderNumber: null,
+	}));
 }
 
 async function enrichStockMovementsWithSalesOrders(

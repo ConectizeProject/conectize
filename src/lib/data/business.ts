@@ -15,6 +15,7 @@ export const business = {
   description: `Assistência técnica especializada em conserto de celulares e produtos Apple em Belo Horizonte, com coleta em domicílio, ${serviceWarranty.phrase} e atendimento por WhatsApp.`,
   phone: '+5531986140889',
   phoneDisplay: '(31) 9 8614-0889',
+  whatsappNumber: '5531986140889',
   whatsappUrl: 'https://wa.me/5531986140889',
   email: 'contato@conectize.com.br',
   cnpj: '44.957.050/0001-37',
@@ -88,8 +89,42 @@ export const business = {
   ]
 } as const
 
-export function buildWhatsAppUrl(message: string) {
-  return `${business.whatsappUrl}?text=${encodeURIComponent(message)}`
+export const WHATSAPP_ORIGIN_MESSAGE = 'Olá! Vim pelo site da Conectize. '
+
+export function whatsappMessageForPath (path: string) {
+  const normalized = String(path || '').split('?')[0].replace(/\/+$/, '') || '/'
+  if (normalized === '/loja/bateria-iphone') {
+    return 'Olá! Vim pelo site, página de bateria para iPhone. Meu modelo é: '
+  }
+  if (normalized === '/loja/vidro-traseiro-iphone') {
+    return 'Olá! Vim pelo site, página de tampa/vidro traseiro para iPhone. Meu modelo é: '
+  }
+  return WHATSAPP_ORIGIN_MESSAGE
+}
+
+export function buildWhatsAppUrl (message = WHATSAPP_ORIGIN_MESSAGE) {
+  return `https://wa.me/${business.whatsappNumber}?text=${encodeURIComponent(message)}`
+}
+
+/** Garante `text` nos links públicos wa.me/5531986140889. Não altera números de cliente. */
+export function ensureWhatsAppOriginText (href: string, pagePath: string) {
+  try {
+    const url = new URL(href, 'https://conectize.com.br')
+    const host = url.hostname.replace(/^www\./, '')
+    const isWhatsApp =
+      host === 'wa.me' ||
+      host === 'api.whatsapp.com' ||
+      (host === 'whatsapp.com' && url.pathname.startsWith('/send'))
+    if (!isWhatsApp) return href
+    if (url.searchParams.get('text')) return href
+    const phone = host === 'wa.me'
+      ? url.pathname.replace(/^\//, '').split('/')[0]
+      : url.searchParams.get('phone') || ''
+    if (phone !== business.whatsappNumber) return href
+    return buildWhatsAppUrl(whatsappMessageForPath(pagePath))
+  } catch {
+    return href
+  }
 }
 
 export function getFormattedOpeningHours() {

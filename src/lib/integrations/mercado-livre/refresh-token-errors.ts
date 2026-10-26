@@ -25,6 +25,10 @@ const KNOWN_MESSAGES: Record<string, string> = {
     'O token de atualização do Mercado Livre expirou ou foi revogado. Desconecte e conecte a conta de novo no HUB.',
   invalid_client:
     'Client ID ou Client Secret do Mercado Livre incorretos nas variáveis de ambiente.',
+  meli_orders_permission_missing:
+    'O aplicativo do Mercado Livre não tem a permissão Vendas e envios. Ative leitura e escrita dessa permissão no painel de desenvolvedores e reconecte a conta no HUB.',
+  meli_seller_blocked:
+    'A conta do Mercado Livre está bloqueada para esta operação. Confira no painel do vendedor se há restrição, pendência ou suspensão e tente de novo depois.',
 }
 
 function looksLikeInvalidGrant (raw: string) {
@@ -58,6 +62,14 @@ export function meliRefreshTokenErrorToMessage (error: string | null | undefined
 
   if (looksLikeInvalidClient(raw)) {
     return KNOWN_MESSAGES.invalid_client
+  }
+
+  if (/PA_UNAUTHORIZED|policy returned UNAUTHORIZED/i.test(raw)) {
+    return KNOWN_MESSAGES.meli_orders_permission_missing
+  }
+
+  if (/blocked for this operation|\bforbidden\b/i.test(raw)) {
+    return KNOWN_MESSAGES.meli_seller_blocked
   }
 
   if (raw.startsWith('db_update_failed')) {

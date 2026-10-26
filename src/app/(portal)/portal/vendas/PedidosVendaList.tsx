@@ -2,12 +2,15 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { Ban, ExternalLink, FileCheck2, FileText, MoreHorizontal, Package, Printer, Send, Undo2, Wallet } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { Ban, ExternalLink, FileCheck2, FileText, Loader2, MoreHorizontal, Package, Printer, Send, Undo2, Wallet } from 'lucide-react'
+import {
+  PedidosVendaTableBodySkeleton,
+  VendasListLoadingOverlay,
+} from '@/app/(portal)/portal/vendas/VendasListLoading'
+import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -57,8 +60,16 @@ import {
   openSalesOrderCupomPrint,
   salesOrderCupomPrintLabel,
 } from '@/app/(portal)/portal/vendas/SalesOrderAfterSaleActions'
+import { VendasListFilters } from '@/app/(portal)/portal/vendas/VendasListFilters'
 import { VendasListPagination } from '@/app/(portal)/portal/vendas/VendasListPagination'
+import { VendasRealizadasHeader } from '@/app/(portal)/portal/vendas/VendasRealizadasHeader'
 import { VENDAS_LIST_PAGE_SIZE } from '@/lib/vendas/list-pagination'
+import { parseSalesLane, type SalesLane } from '@/lib/vendas/sales-lane'
+import {
+  salesListSectionFromPath,
+  salesListSessionRedirectTarget,
+  writeSalesListSession,
+} from '@/lib/vendas/sales-list-session'
 
 type SalesOrder = {
   id: string
@@ -78,6 +89,19 @@ type SalesOrder = {
   nfce_document_id?: string | null
   nfe_status?: 'pending' | 'authorized' | 'rejected' | 'canceled' | 'denied' | null
   nfe_document_id?: string | null
+  ml_order_id?: string | null
+  ml_pack_id?: string | null
+  ml_logistic_type?: string | null
+  ml_fulfillment_stage?: string | null
+  ml_buyer_name?: string | null
+  ml_buyer_nickname?: string | null
+  ml_shipping_gross_cents?: number | null
+  ml_shipping_refund_cents?: number | null
+  ml_posting_deadline?: string | null
+  ml_delivery_estimate?: string | null
+  ml_shipping_method?: string | null
+  ml_label_status?: string | null
+  tax_cents?: number | null
 }
 
 type PaymentMethodOption = {
@@ -141,16 +165,6 @@ const CONFIRM_COPY: Record<Exclude<ConfirmKind, 'cancel_paid'>, {
   },
 }
 
-function statusLabel (status: SalesOrder['status']) {
-  if (status === 'in_progress') return 'Em andamento'
-  if (status === 'paid') return 'Pago'
-  return 'Cancelado'
-}
-
-function teamUserLabel (user: TeamUser) {
-  return String(user.full_name || user.email || 'Usuário').trim()
-}
-
 function blingViewUrl (order: SalesOrder) {
   if (order.bling_nfce_id) {
     return `https://www.bling.com.br/notas.fiscais.php#edit/${order.bling_nfce_id}`
@@ -168,6 +182,12 @@ function nfceStatusLabel (status?: SalesOrder['nfce_status']) {
   if (status === 'denied') return 'NFC-e denegada'
   if (status === 'canceled') return 'NFC-e cancelada'
   return 'NFC-e vinculada'
+}
+
+function statusLabel (status: SalesOrder['status']) {
+  if (status === 'in_progress') return 'Em andamento'
+  if (status === 'paid') return 'Pago'
+  return 'Cancelado'
 }
 
 function nfeStatusLabel (status?: SalesOrder['nfe_status']) {
@@ -199,29 +219,25 @@ function withFiscalDocument (
   }
 }
 
-const SALES_STATUS_VALUES = new Set(['in_progress', 'paid', 'canceled'])
-
 function parseSalesDateParam (value: string | null): string {
   const v = String(value || '').trim()
   return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : ''
 }
 
-function parseSalesStatusParam (value: string | null): string {
-  const v = String(value || '').trim()
-  return SALES_STATUS_VALUES.has(v) ? v : ''
-}
-
 export function PedidosVendaList () {
   const router = useRouter()
+  const pathname = usePathname() || '/portal/vendas'
   const searchParams = useSearchParams()
+  const isActiveList = salesListSectionFromPath(pathname) === 'pedidos'
   const urlFrom = parseSalesDateParam(searchParams.get('from'))
   const urlTo = parseSalesDateParam(searchParams.get('to'))
-  const urlStatus = parseSalesStatusParam(searchParams.get('status'))
+  const urlLane = parseSalesLane(searchParams.get('lane')) ?? 'all'
   const [from, setFrom] = useState(urlFrom)
   const [to, setTo] = useState(urlTo)
-  const [status, setStatus] = useState(urlStatus)
+  const [lane, setLane] = useState<SalesLane>(urlLane)
   const [sellerUserId, setSellerUserId] = useState('')
   const [paymentMethodId, setPaymentMethodId] = useState('')
+  const [marketplaceOrder, setMarketplaceOrder] = useState('')
   const [teamUsers, setTeamUsers] = useState<TeamUser[]>([])
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodOption[]>([])
   const [orders, setOrders] = useState<SalesOrder[]>([])
@@ -232,6 +248,7 @@ export function PedidosVendaList () {
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null)
   const [cancelReason, setCancelReason] = useState('')
   const [isConfirming, setIsConfirming] = useState(false)
+  const [filtersOpen, setFiltersOpen] = useState(false)
 
   async function loadCatalogs () {
     const [teamRes, methodsRes] = await Promise.all([
@@ -264,25 +281,29 @@ export function PedidosVendaList () {
     overrides?: {
       from?: string
       to?: string
-      status?: string
+      lane?: SalesLane
       sellerUserId?: string
       paymentMethodId?: string
+      marketplaceOrder?: string
     },
   ) {
     setIsLoading(true)
     try {
       const nextFrom = overrides?.from ?? from
       const nextTo = overrides?.to ?? to
-      const nextStatus = overrides?.status ?? status
+      const nextLane = overrides?.lane ?? lane
       const nextSeller = overrides?.sellerUserId ?? sellerUserId
       const nextPayment = overrides?.paymentMethodId ?? paymentMethodId
+      const nextMarketplace = overrides?.marketplaceOrder ?? marketplaceOrder
       const params = new URLSearchParams()
       params.set('page', String(nextPage))
       if (nextFrom) params.set('from', nextFrom)
       if (nextTo) params.set('to', nextTo)
-      if (nextStatus) params.set('status', nextStatus)
+      params.set('lane', nextLane)
       if (nextSeller) params.set('seller_user_id', nextSeller)
       if (nextPayment) params.set('payment_method_id', nextPayment)
+      const marketplaceDigits = nextMarketplace.replace(/\D/g, '')
+      if (marketplaceDigits) params.set('ml_order', marketplaceDigits)
       const res = await portalFetch(`/api/portal/sales-orders?${params.toString()}`)
       const data = await res?.json().catch(() => null)
       if (data?.ok && Array.isArray(data.orders)) {
@@ -298,22 +319,43 @@ export function PedidosVendaList () {
     }
   }
 
+  function selectLane (next: SalesLane) {
+    setLane(next)
+    writeSalesListSession({ section: 'pedidos', lane: next })
+    const params = new URLSearchParams(searchParams.toString())
+    if (next === 'all') params.delete('lane')
+    else params.set('lane', next)
+    params.delete('status')
+    const qs = params.toString()
+    router.replace(qs ? `/portal/vendas?${qs}` : '/portal/vendas')
+  }
+
   function clearFilters () {
     setFrom('')
     setTo('')
-    setStatus('')
+    setLane('all')
     setSellerUserId('')
     setPaymentMethodId('')
+    setMarketplaceOrder('')
+    writeSalesListSession({ section: 'pedidos', lane: 'all' })
+    const params = new URLSearchParams(searchParams.toString())
+    params.delete('from')
+    params.delete('to')
+    params.delete('lane')
+    params.delete('status')
+    const qs = params.toString()
+    router.replace(qs ? `/portal/vendas?${qs}` : '/portal/vendas')
     void load(1, {
       from: '',
       to: '',
-      status: '',
+      lane: 'all',
       sellerUserId: '',
       paymentMethodId: '',
+      marketplaceOrder: '',
     })
   }
 
-  const hasActiveFilters = Boolean(from || to || status || sellerUserId || paymentMethodId)
+  const hasActiveFilters = Boolean(from || to || lane !== 'all' || sellerUserId || paymentMethodId || marketplaceOrder.trim())
 
   useEffect(() => {
     void loadCatalogs()
@@ -321,16 +363,18 @@ export function PedidosVendaList () {
   }, [])
 
   useEffect(() => {
+    if (!isActiveList) return
+    if (salesListSessionRedirectTarget(pathname, searchParams.toString())) return
     setFrom(urlFrom)
     setTo(urlTo)
-    setStatus(urlStatus)
+    setLane(urlLane)
     void load(1, {
       from: urlFrom,
       to: urlTo,
-      status: urlStatus,
+      lane: urlLane,
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [urlFrom, urlTo, urlStatus])
+  }, [isActiveList, pathname, searchParams, urlFrom, urlTo, urlLane])
 
   function openConfirm (kind: ConfirmKind, order: SalesOrder) {
     setCancelReason('')
@@ -593,95 +637,65 @@ export function PedidosVendaList () {
 
   return (
     <TooltipProvider>
+      <div className='space-y-4'>
+      <VendasRealizadasHeader
+        lane={lane}
+        onLaneChange={selectLane}
+        filtersOpen={filtersOpen}
+        onToggleFilters={() => setFiltersOpen((open) => !open)}
+      />
       <div className='flex flex-col gap-4 lg:flex-row lg:items-start'>
-        <Card className='lg:w-72 lg:shrink-0'>
-          <CardHeader className='pb-3'>
-            <CardTitle>Filtros</CardTitle>
-          </CardHeader>
-          <CardContent className='grid gap-3'>
-            <div className='space-y-1.5'>
-              <Label htmlFor='pedidos-filter-from'>Data inicial</Label>
-              <Input
-                id='pedidos-filter-from'
-                type='date'
-                value={from}
-                onChange={(e) => setFrom(e.target.value)}
-              />
-            </div>
-            <div className='space-y-1.5'>
-              <Label htmlFor='pedidos-filter-to'>Data final</Label>
-              <Input
-                id='pedidos-filter-to'
-                type='date'
-                value={to}
-                onChange={(e) => setTo(e.target.value)}
-              />
-            </div>
-            <div className='space-y-1.5'>
-              <Label htmlFor='pedidos-filter-status'>Status</Label>
-              <select
-                id='pedidos-filter-status'
-                className='h-10 w-full rounded-md border border-input bg-background px-3 text-sm'
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-              >
-                <option value=''>Todos os status</option>
-                <option value='in_progress'>Em andamento</option>
-                <option value='paid'>Pago</option>
-                <option value='canceled'>Cancelado</option>
-              </select>
-            </div>
-            <div className='space-y-1.5'>
-              <Label htmlFor='pedidos-filter-seller'>Vendedor</Label>
-              <select
-                id='pedidos-filter-seller'
-                className='h-10 w-full rounded-md border border-input bg-background px-3 text-sm'
-                value={sellerUserId}
-                onChange={(e) => setSellerUserId(e.target.value)}
-              >
-                <option value=''>Todos os vendedores</option>
-                {teamUsers.map((user) => (
-                  <option key={user.id} value={user.id}>{teamUserLabel(user)}</option>
-                ))}
-              </select>
-            </div>
-            <div className='space-y-1.5'>
-              <Label htmlFor='pedidos-filter-payment'>Método de pagamento</Label>
-              <select
-                id='pedidos-filter-payment'
-                className='h-10 w-full rounded-md border border-input bg-background px-3 text-sm'
-                value={paymentMethodId}
-                onChange={(e) => setPaymentMethodId(e.target.value)}
-              >
-                <option value=''>Todos os métodos</option>
-                {paymentMethods.map((method) => (
-                  <option key={method.id} value={method.id}>{method.description}</option>
-                ))}
-              </select>
-            </div>
-            <div className='grid gap-2 pt-1'>
-              <Button
-                type='button'
-                onClick={() => {
-                  void load(1)
-                }}
-                disabled={isLoading}
-              >
-                {isLoading ? 'Carregando...' : 'Aplicar'}
-              </Button>
-              <Button
-                type='button'
-                variant='outline'
-                onClick={clearFilters}
-                disabled={isLoading || !hasActiveFilters}
-              >
-                Limpar filtros
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        {filtersOpen ? (
+          <VendasListFilters
+            idPrefix='pedidos-filter'
+            from={from}
+            to={to}
+            sellerUserId={sellerUserId}
+            paymentMethodId={paymentMethodId}
+            marketplaceOrder={marketplaceOrder}
+            teamUsers={teamUsers}
+            paymentMethods={paymentMethods}
+            isLoading={isLoading}
+            canClear={hasActiveFilters}
+            onFromChange={setFrom}
+            onToChange={setTo}
+            onSellerChange={setSellerUserId}
+            onPaymentChange={setPaymentMethodId}
+            onMarketplaceOrderChange={setMarketplaceOrder}
+            onApply={() => {
+              void load(1)
+            }}
+            onClear={clearFilters}
+          />
+        ) : null}
         <Card className='min-w-0 flex-1'>
           <CardContent className='p-0'>
+            <div className='relative min-h-48' aria-busy={isLoading || undefined}>
+            {isLoading ? (
+              <>
+                <div className='pointer-events-none select-none opacity-70'>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Número do pedido</TableHead>
+                        <TableHead>Data e hora</TableHead>
+                        <TableHead>Cliente</TableHead>
+                        <TableHead>Total</TableHead>
+                        <TableHead>Situação</TableHead>
+                        <TableHead className='w-12 text-right'>
+                          <span className='sr-only'>Opções</span>
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      <PedidosVendaTableBodySkeleton count={10} />
+                    </TableBody>
+                  </Table>
+                </div>
+                <VendasListLoadingOverlay label='Carregando vendas…' />
+                <span className='sr-only'>Carregando vendas</span>
+              </>
+            ) : (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -696,13 +710,7 @@ export function PedidosVendaList () {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {isLoading && orders.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className='py-6 text-center text-muted-foreground'>
-                      Carregando vendas...
-                    </TableCell>
-                  </TableRow>
-                ) : orders.length === 0 ? (
+                {orders.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} className='py-6 text-center text-muted-foreground'>
                       Nenhum pedido encontrado.
@@ -838,7 +846,7 @@ export function PedidosVendaList () {
                                           Abrir NFC-e
                                         </Link>
                                       </DropdownMenuItem>
-                                    ) : order.status === 'paid' ? (
+                                    ) : order.status === 'paid' && order.ml_logistic_type !== 'fulfillment' ? (
                                       <DropdownMenuItem
                                         disabled={isBusy}
                                         onSelect={(event) => {
@@ -857,7 +865,7 @@ export function PedidosVendaList () {
                                           Abrir NF-e
                                         </Link>
                                       </DropdownMenuItem>
-                                    ) : order.status === 'paid' ? (
+                                    ) : order.status === 'paid' && order.ml_logistic_type !== 'fulfillment' ? (
                                       <DropdownMenuItem
                                         disabled={isBusy}
                                         onSelect={(event) => {
@@ -890,7 +898,9 @@ export function PedidosVendaList () {
                                         </DropdownMenuItem>
                                       )
                                     ) : null}
-                                    {order.status === 'paid' && !order.has_stock_posted ? (
+                                    {order.status === 'paid'
+                                      && !order.has_stock_posted
+                                      && order.ml_logistic_type !== 'fulfillment' ? (
                                       <DropdownMenuItem
                                         disabled={isBusy}
                                         onSelect={(event) => {
@@ -969,6 +979,8 @@ export function PedidosVendaList () {
                 )}
               </TableBody>
             </Table>
+            )}
+            </div>
             <VendasListPagination
               page={page}
               pageSize={VENDAS_LIST_PAGE_SIZE}
@@ -980,6 +992,7 @@ export function PedidosVendaList () {
             />
           </CardContent>
         </Card>
+      </div>
       </div>
 
       <AlertDialog

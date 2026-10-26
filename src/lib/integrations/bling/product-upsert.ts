@@ -37,6 +37,8 @@ type ExistingBlingProductRow = {
 	barcode?: string | null
 	ncm?: string | null
 	bling_detail_synced_at?: string | null
+	cost_price_cents?: number | string | null
+	cost_price_manual_edited_at?: string | null
 }
 
 function getCurrentStock (
@@ -217,7 +219,7 @@ export async function upsertBlingProductForOrganization (params: {
 
 	const { data: existingRow } = await supabase
 		.from('products')
-		.select('id, barcode, ncm, bling_detail_synced_at')
+		.select('id, barcode, ncm, bling_detail_synced_at, cost_price_cents, cost_price_manual_edited_at')
 		.eq('organization_id', organizationId)
 		.eq('bling_id', blingId)
 		.maybeSingle()
@@ -238,6 +240,20 @@ export async function upsertBlingProductForOrganization (params: {
 			bling_sync_pending: false,
 			bling_sync_snapshot: payload.bling_sync_snapshot,
 			updated_at: new Date().toISOString(),
+		}
+		const { fetchProductHasVirtualStock, persistDependentVirtualKitCosts } = await import(
+			'@/lib/products/virtual-stock-cost'
+		)
+		const isVirtual = await fetchProductHasVirtualStock({
+			supabase,
+			organizationId,
+			productId: existing.id,
+		})
+		if (isVirtual) {
+			delete updatePayload.cost_price_cents
+		} else if (existing.cost_price_manual_edited_at) {
+			const keep = Number(existing.cost_price_cents)
+			updatePayload.cost_price_cents = Number.isFinite(keep) ? Math.round(keep) : null
 		}
 		let skippedExistingDetail = false
 		if (mode === 'list') {
@@ -269,6 +285,14 @@ export async function upsertBlingProductForOrganization (params: {
 			.eq('id', existing.id)
 		if (updateErr) {
 			throw new Error('db_error')
+		}
+
+		if (!isVirtual && Object.prototype.hasOwnProperty.call(updatePayload, 'cost_price_cents')) {
+			await persistDependentVirtualKitCosts({
+				supabase,
+				organizationId,
+				componentProductId: existing.id,
+			})
 		}
 
 		await mergeParentKeys()

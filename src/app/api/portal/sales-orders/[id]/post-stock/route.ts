@@ -19,6 +19,7 @@ export async function POST (_request: Request, { params }: { params: Params }) {
         : result.error === 'order_not_paid'
           || result.error === 'stock_already_posted'
           || result.error === 'empty_order'
+          || result.error === 'full_skips_local_stock'
           ? 400
           : 500
 
@@ -29,9 +30,11 @@ export async function POST (_request: Request, { params }: { params: Params }) {
           ? 'Esta venda já possui estoque lançado.'
           : result.error === 'empty_order'
             ? 'Pedido sem itens para baixar estoque.'
-            : result.error === 'stock_apply_failed'
-              ? 'Não foi possível lançar o estoque.'
-              : result.error
+            : result.error === 'full_skips_local_stock'
+              ? 'Venda FULL: o estoque sai do Mercado Livre, sem baixa local.'
+              : result.error === 'stock_apply_failed'
+                ? 'Não foi possível lançar o estoque.'
+                : result.error
 
     return NextResponse.json({ ok: false, error: result.error, message }, { status })
   }

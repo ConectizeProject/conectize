@@ -13,6 +13,8 @@ type QuickPriceEditorProps = {
 	editAriaLabel: string
 	applyingAriaLabel: string
 	onCommit: (cents: number | null) => Promise<boolean>
+	readOnly?: boolean
+	readOnlyHint?: string
 }
 
 export function QuickPriceEditor ({
@@ -23,6 +25,8 @@ export function QuickPriceEditor ({
 	editAriaLabel,
 	applyingAriaLabel,
 	onCommit,
+	readOnly = false,
+	readOnlyHint,
 }: QuickPriceEditorProps) {
 	const justify = align === 'left' ? 'justify-start' : 'justify-end'
 	const inputAlign = align === 'left' ? 'text-left' : 'text-right'
@@ -141,6 +145,18 @@ export function QuickPriceEditor ({
 						}
 					}}
 				/>
+			</div>
+		)
+	}
+
+	if (readOnly) {
+		return (
+			<div
+				className={`flex items-center gap-1 ${justify}`}
+				onClick={(event) => event.stopPropagation()}
+				title={readOnlyHint}
+			>
+				<span className="tabular-nums">{formatDisplay(displayCents)}</span>
 			</div>
 		)
 	}

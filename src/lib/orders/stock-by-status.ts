@@ -276,14 +276,34 @@ export async function applyOrderStatusStockTransition (input: ApplyOrderStatusSt
   if (!enterConsuming && !reconcileWhileConsuming && !returnOnFinalNoRepair) return
 
   const lines = getProductLines(input.services)
+  const {
+    collectVirtualKitProductIds,
+    expandServiceOrderLinesThroughComponents,
+    loadProductStockComponents,
+  } = await import('@/lib/products/virtual-stock')
+  const componentsByProductId = await loadProductStockComponents({
+    supabase: input.supabase,
+    productIds: lines.map((line) => line.productId),
+  })
+  const expanded = expandServiceOrderLinesThroughComponents({
+    lines,
+    componentsByProductId,
+  })
   const desiredByProduct = new Map(
-    lines.map((line) => [line.productId, line] as const),
+    expanded.lines.map((line) => [line.productId, line] as const),
   )
 
   const existingNets = await loadServiceOrderProductNetExits(
     input.supabase,
     input.orderId,
   )
+  const netKitIds = collectVirtualKitProductIds(
+    await loadProductStockComponents({
+      supabase: input.supabase,
+      productIds: [...existingNets.keys()],
+    }),
+  )
+  for (const id of netKitIds) expanded.kitProductIds.add(id)
 
   const productIds = new Set<string>([
     ...desiredByProduct.keys(),
@@ -329,7 +349,9 @@ export async function applyOrderStatusStockTransition (input: ApplyOrderStatusSt
         unitValueCents: unit,
         externalReference: ref,
         actorUserId: input.actorUserId,
-        productBlingId: blingByProductId.get(productId),
+        productBlingId: expanded.kitProductIds.has(productId)
+          ? undefined
+          : blingByProductId.get(productId),
       })
     }
     return
@@ -342,6 +364,9 @@ export async function applyOrderStatusStockTransition (input: ApplyOrderStatusSt
     const unit = Math.max(0, Number(line?.unitCostCents) || 0)
     const net = existingNets.get(productId)
       ?? await loadServiceOrderProductNetExit(input.supabase, input.orderId, productId)
+    const productBlingId = expanded.kitProductIds.has(productId)
+      ? undefined
+      : blingByProductId.get(productId)
 
     const exitQty = remainingStockExitQuantity(desired, net)
     if (exitQty > 0) {
@@ -361,7 +386,7 @@ export async function applyOrderStatusStockTransition (input: ApplyOrderStatusSt
         unitValueCents: unit,
         externalReference: ref,
         actorUserId: input.actorUserId,
-        productBlingId: blingByProductId.get(productId),
+        productBlingId,
       })
       continue
     }
@@ -385,7 +410,63 @@ export async function applyOrderStatusStockTransition (input: ApplyOrderStatusSt
       unitValueCents: unit,
       externalReference: ref,
       actorUserId: input.actorUserId,
-      productBlingId: blingByProductId.get(productId),
+      productBlingId,
     })
   }
+}
+
+const SERVICE_ORDER_STOCK_REF_RE =
+  /^service_order:([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}):/i
+
+/** OS com saída líquida de estoque já lançada. */
+export async function mapServiceOrdersWithStockPosted (
+  supabase: SupabaseClient,
+  organizationId: string,
+  orderIds: string[],
+): Promise<Set<string>> {
+  const uniqueIds = [...new Set(orderIds.filter(Boolean))]
+  if (uniqueIds.length === 0) return new Set()
+
+  const wanted = new Set(uniqueIds.map((id) => id.toLowerCase()))
+  const netByOrder = new Map<string, number>()
+
+  // Consulta por OS (evita `.or()` com `:` no valor, que quebra o parser do PostgREST).
+  const chunkSize = 8
+  for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+    const chunk = uniqueIds.slice(i, i + chunkSize)
+    const results = await Promise.all(chunk.map(async (orderId) => {
+      const { data, error } = await supabase
+        .from('product_stock_movements')
+        .select('external_reference, type, quantity')
+        .eq('organization_id', organizationId)
+        .eq('source', 'service_order')
+        .like('external_reference', `service_order:${orderId}:%`)
+      if (error) {
+        console.error('[mapServiceOrdersWithStockPosted] failed', error)
+        return [] as Array<{ external_reference?: string | null, type?: string, quantity?: number }>
+      }
+      return data ?? []
+    }))
+
+    for (const rows of results) {
+      for (const row of rows) {
+        const ref = String(row.external_reference || '')
+        const match = SERVICE_ORDER_STOCK_REF_RE.exec(ref)
+        if (!match) continue
+        const orderId = match[1].toLowerCase()
+        if (!wanted.has(orderId)) continue
+        const quantity = Math.abs(Number(row.quantity) || 0)
+        if (!Number.isFinite(quantity) || quantity <= 0) continue
+        const current = netByOrder.get(orderId) ?? 0
+        if (row.type === 'exit') netByOrder.set(orderId, current + quantity)
+        else if (row.type === 'entry') netByOrder.set(orderId, current - quantity)
+      }
+    }
+  }
+
+  const posted = new Set<string>()
+  for (const [orderId, net] of netByOrder.entries()) {
+    if (net > 0) posted.add(orderId)
+  }
+  return posted
 }

@@ -1,4 +1,4 @@
-﻿import { hasBlingHubConnection } from '@/lib/integrations/bling/api'
+import { hasBlingHubConnection } from '@/lib/integrations/bling/api'
 import { getPortalOrganizationId } from '@/lib/organizations/portal-organization-context'
 import { createSupabaseServerClient, getPortalAuth } from '@/lib/supabase/server'
 import { PdvClient } from './PdvClient'
