@@ -5,9 +5,14 @@ import {
 	PORTAL_SIMULATED_ROLE_COOKIE_OPTIONS,
 } from '@/lib/auth/portal-role-simulation'
 import {
+	applyAuthCookieToResponse,
+	expireAuthCookieHeaders,
+} from '@/lib/supabase/auth-cookie-domain'
+import {
 	createSupabaseRouteHandlerClient,
 	getAuthUser,
 } from '@/lib/supabase/server'
+import { publicHostnameFromHeaders } from '@/lib/utils/canonical-host'
 
 export async function POST(request: NextRequest) {
 	const { supabase, applyCookies } = createSupabaseRouteHandlerClient(request)
@@ -36,9 +41,20 @@ export async function POST(request: NextRequest) {
 	const body = await request.json().catch(() => null)
 	const role = String(body?.role || '').trim()
 
+	const hostname = publicHostnameFromHeaders(
+		request.headers,
+		request.nextUrl.hostname,
+	)
+
 	if (!role || role === 'platform_admin') {
 		const response = NextResponse.json({ ok: true })
-		response.cookies.delete(PORTAL_SIMULATED_ROLE_COOKIE)
+		for (const line of expireAuthCookieHeaders(
+			hostname,
+			PORTAL_SIMULATED_ROLE_COOKIE,
+			PORTAL_SIMULATED_ROLE_COOKIE_OPTIONS,
+		)) {
+			response.headers.append('Set-Cookie', line)
+		}
 		return applyCookies(response)
 	}
 
@@ -49,7 +65,9 @@ export async function POST(request: NextRequest) {
 	}
 
 	const response = NextResponse.json({ ok: true })
-	response.cookies.set(
+	applyAuthCookieToResponse(
+		response,
+		hostname,
 		PORTAL_SIMULATED_ROLE_COOKIE,
 		role,
 		PORTAL_SIMULATED_ROLE_COOKIE_OPTIONS,

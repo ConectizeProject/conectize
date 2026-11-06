@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 import { parseOptionalUuid } from '@/lib/utils/optional-uuid'
 import { requestOriginFromNext } from '@/lib/orders/fetch-order-for-print-html'
+import { publicSaasOrigin } from '@/lib/utils/site-url'
 
 export async function GET (
   request: NextRequest,
@@ -46,7 +47,7 @@ export async function GET (
     }
   }
 
-  const origin = requestOriginFromNext(request)
+  const origin = publicSaasOrigin(requestOriginFromNext(request))
   const url = `${origin}/os/${token}`
   return NextResponse.json({ ok: true, url })
 }

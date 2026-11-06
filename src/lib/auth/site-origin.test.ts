@@ -32,6 +32,12 @@ describe('resolveAuthSiteOrigin', () => {
     expect(resolveAuthSiteOrigin('not-a-url', 'https://ok.com')).toBe('https://ok.com')
   })
 
+  it('usa o host do app quando o env ainda aponta para www', () => {
+    expect(
+      resolveAuthSiteOrigin('https://www.conectize.com.br', 'https://app.conectize.com.br')
+    ).toBe('https://app.conectize.com.br')
+  })
+
   it('diferencia www e apex (hosts diferentes)', () => {
     expect(
       resolveAuthSiteOrigin('https://www.example.com', 'https://example.com')

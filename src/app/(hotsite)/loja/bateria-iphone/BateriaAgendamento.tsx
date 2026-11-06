@@ -12,6 +12,7 @@ import { whatsappLink } from '@/lib/data/hotsite-loja'
 import { formatCpf } from '@/lib/utils/format-cpf-cnpj'
 import { formatPhoneBr } from '@/lib/utils/format-phone'
 import { isEmailFormat, isValidCpf, onlyDigits } from '@/lib/utils/strings'
+import { appHref } from '@/lib/utils/site-url'
 import { LojaWhatsAppLink } from '../LojaWhatsAppLink'
 import { WhatsAppIcon } from '../WhatsAppIcon'
 import styles from '../loja.module.css'
@@ -563,7 +564,9 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 		}
 	}
 
-	const accountHref = created?.shareToken ? '/portal/cadastro?origem=agendamento' : ''
+	const accountHref = created?.shareToken
+		? appHref('/portal/cadastro?origem=agendamento')
+		: ''
 	const selectedLabel = slots.find((slot) => slot.startsAt === formik.values.startsAt)?.label || ''
 	const [bookingYear, bookingMonth, bookingDay] = date.split('-')
 	const whatsappChangeHref = whatsappLink(
@@ -1011,7 +1014,7 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 								</LojaWhatsAppLink>
 							</div>
 							{created.shareToken ? (
-								<a className={styles.ctaGhost} href={`/os/${created.shareToken}`}>Acompanhar a OS</a>
+								<a className={styles.ctaGhost} href={appHref(`/os/${created.shareToken}`)}>Acompanhar a OS</a>
 							) : null}
 						</div>
 					) : null}
