@@ -49,7 +49,7 @@ import {
   type SalesOrderListLine,
   type SalesOrderListRowData,
 } from '@/app/(portal)/portal/vendas/SalesOrderListRow'
-import { groupSoldItemsByCart, mergeSameProductLines } from '@/lib/vendas/group-sold-items-by-cart'
+import { groupSoldItemsByOrder, mergeSameProductLines } from '@/lib/vendas/group-sold-items-by-cart'
 import {
   SalesOrdersCardListSkeleton,
   VendasListLoadingOverlay,
@@ -920,7 +920,7 @@ export function SoldProductsList () {
             </p>
           ) : (
             <TooltipProvider>
-              {groupSoldItemsByCart(items).map((group, groupIndex, groups) => {
+              {groupSoldItemsByOrder(items).map((group, groupIndex, groups) => {
                 const lines: SalesOrderListLine[] = mergeSameProductLines(
                   group,
                   mergeSoldItemDuplicates,
