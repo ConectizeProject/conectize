@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   groupSoldItemsByCart,
+  groupSoldItemsByOrder,
   keepSoldItemPacksTogether,
   mergeSameProductLines,
 } from '@/lib/vendas/group-sold-items-by-cart'
@@ -78,6 +79,21 @@ describe('mergeSameProductLines', () => {
     }))).toEqual([
       { id: 'a', productId: 'p1', quantity: 2 },
       { id: 'b', productId: 'p2', quantity: 1 },
+    ])
+  })
+})
+
+describe('groupSoldItemsByOrder', () => {
+  it('mantém pedidos individuais de um mesmo pack em grupos separados', () => {
+    const items = [
+      { id: 'line-1', productId: 'p1', order: { id: 'o1', mlPackId: 'pack-1' } },
+      { id: 'line-2', productId: 'p1', order: { id: 'o2', mlPackId: 'pack-1' } },
+      { id: 'line-3', productId: 'p2', order: { id: 'o1', mlPackId: 'pack-1' } },
+    ]
+
+    expect(groupSoldItemsByOrder(items).map((group) => group.map((item) => item.id))).toEqual([
+      ['line-1', 'line-3'],
+      ['line-2'],
     ])
   })
 })

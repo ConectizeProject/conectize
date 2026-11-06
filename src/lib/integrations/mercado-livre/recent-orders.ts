@@ -1,8 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
 	getMeliConnectionByOrganizationId,
-	searchMeliOrdersByCreatedAt,
 	type HubConnection,
+	searchMeliOrdersByCreatedAt,
 } from '@/lib/integrations/mercado-livre/api'
 import { syncMeliOrderById } from '@/lib/integrations/mercado-livre/order-sync'
 
@@ -125,7 +125,11 @@ export async function importMeliOrdersFromLastWeek(params: {
 				orderId,
 			})
 			imported += 1
-			if (result.action === 'skipped' || result.action === 'updated' || result.action === 'canceled') {
+			if (
+				result.action === 'skipped' ||
+				result.action === 'updated' ||
+				result.action === 'canceled'
+			) {
 				// Já existia: só confere data da compra, fulfillment, etc.
 				verified += 1
 			} else {
@@ -139,4 +143,88 @@ export async function importMeliOrdersFromLastWeek(params: {
 	}
 
 	return { imported, failed, created, verified }
+}
+export async function reconcileRecentMeliOrders(params: {
+	supabase: SupabaseClient
+	organizationId: string
+	now?: Date
+}): Promise<{
+	imported: number
+	failed: number
+	created: number
+	verified: number
+	ordersFound: number
+}> {
+	const connection = await getMeliConnectionByOrganizationId(
+		params.supabase,
+		params.organizationId,
+	)
+	if (!connection) throw new Error('meli_not_connected')
+	const sellerId = sellerIdFromConnection(connection)
+	if (!sellerId) throw new Error('meli_user_id_missing_in_connection')
+
+	const window = meliRecentOrdersWindow(params.now)
+	const ids: string[] = []
+	const seen = new Set<string>()
+	for (const status of MELI_RECENT_ORDER_STATUSES) {
+		let offset = 0
+		for (;;) {
+			const page = await searchMeliOrdersByCreatedAt(
+				connection,
+				{
+					sellerId,
+					from: window.from,
+					to: window.to,
+					status,
+					offset,
+					limit: MELI_RECENT_ORDERS_PAGE_LIMIT,
+				},
+				params.supabase,
+			)
+			const batch = meliOrderIdsFromSearch(page)
+			for (const id of batch) {
+				if (!seen.has(id)) {
+					seen.add(id)
+					ids.push(id)
+				}
+			}
+			offset += batch.length
+			const total = pagingTotal(page)
+			if (
+				batch.length < MELI_RECENT_ORDERS_PAGE_LIMIT ||
+				(total != null && offset >= total)
+			)
+				break
+		}
+	}
+
+	let imported = 0,
+		failed = 0,
+		created = 0,
+		verified = 0
+	for (const orderId of ids) {
+		try {
+			const result = await syncMeliOrderById({
+				supabase: params.supabase,
+				organizationId: params.organizationId,
+				orderId,
+			})
+			imported++
+			if (
+				result.action === 'skipped' ||
+				result.action === 'updated' ||
+				result.action === 'canceled'
+			)
+				verified++
+			else created++
+		} catch (err) {
+			failed++
+			console.error(
+				'[meli order reconciliation]',
+				orderId,
+				err instanceof Error ? err.message : 'unknown_error',
+			)
+		}
+	}
+	return { imported, failed, created, verified, ordersFound: ids.length }
 }

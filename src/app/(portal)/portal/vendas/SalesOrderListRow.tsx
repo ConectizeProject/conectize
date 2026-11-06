@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, type MouseEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type MouseEvent, type ReactNode } from 'react'
 import {
   Bike,
   ChevronDown,
@@ -8,10 +8,12 @@ import {
   FileCheck2,
   FileText,
   Handshake,
+  LoaderCircle,
   Package,
   Pencil,
   Scale,
   Truck,
+  UserRound,
   Wallet,
   Zap,
 } from 'lucide-react'
@@ -19,6 +21,13 @@ import { meliClaimStatusLabel, saleProfitBreakdown } from '@/lib/vendas/meli-sal
 import { MarginRow } from '@/app/(portal)/portal/vendas/SoldItemMarginBreakdown'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -154,6 +163,18 @@ function dateParts (iso: string | null | undefined) {
     hour: pick('hour'),
     minute: pick('minute'),
   }
+}
+
+const lowercaseNameWords = new Set(['da', 'das', 'de', 'do', 'dos', 'e', 'conexões'])
+
+function formatPersonName (value: string) {
+  return value.trim().split(/\s+/).filter(Boolean).map((word, index) => {
+    const normalized = word.toLocaleLowerCase('pt-BR')
+    if (lowercaseNameWords.has(normalized) && (index > 0 || normalized === 'conexões')) {
+      return normalized
+    }
+    return normalized.charAt(0).toLocaleUpperCase('pt-BR') + normalized.slice(1)
+  }).join(' ')
 }
 
 function formatPurchaseDate (iso: string) {
@@ -412,15 +433,12 @@ function mergeDuplicateOrderItems (items: SalesOrderListItem[]): SalesOrderListI
 function ProductColumn ({
   order,
   showIndividualOrderId,
-  showLogisticLine,
   onEditProduct,
 }: {
   order: SalesOrderListRowData
   showIndividualOrderId: boolean
-  showLogisticLine: boolean
   onEditProduct?: (item: SalesOrderListItem) => void
 }) {
-  const isFlex = order.ml_logistic_type === 'self_service'
   const isFull = order.ml_logistic_type === 'fulfillment'
   const isCanceled = order.status === 'canceled'
   const copyClass = canceledCopyClass(isCanceled)
@@ -438,8 +456,6 @@ function ProductColumn ({
       {items.map((item) => {
         // FULL: estoque no depósito do ML, saldo local não se aplica.
         const stock = isFull ? null : (item.stock_after_sale ?? item.stock_current)
-        const shippingMethod = showLogisticLine ? String(order.ml_shipping_method || '').trim() : ''
-        const showLogistic = showLogisticLine && (isFlex || isFull || Boolean(shippingMethod))
         const itemOrderId = String(item.ml_order_id || lineOrderId || '').trim()
         const canEditProduct = Boolean(item.product_id && onEditProduct)
         return (
@@ -544,28 +560,6 @@ function ProductColumn ({
                     </>
                   ) : null}
                 </p>
-                {showLogistic ? (
-                  <p className='flex items-center gap-1 text-xs'>
-                    {isFlex ? (
-                      <>
-                        <Bike className='h-3.5 w-3.5 shrink-0 text-emerald-600' aria-hidden='true' />
-                        <span className='italic font-semibold text-emerald-600'>Flex</span>
-                      </>
-                    ) : null}
-                    {isFull ? (
-                      <>
-                        <Zap className='h-3.5 w-3.5 shrink-0 text-emerald-600' aria-hidden='true' />
-                        <span className='font-bold text-emerald-600'>FULL</span>
-                      </>
-                    ) : null}
-                    {(isFlex || isFull) && shippingMethod ? (
-                      <span className='mx-0.5 text-muted-foreground' aria-hidden='true'>·</span>
-                    ) : null}
-                    {shippingMethod ? (
-                      <span className={copyClass}>{shippingMethod}</span>
-                    ) : null}
-                  </p>
-                ) : null}
               </div>
             </div>
           </div>
@@ -877,6 +871,94 @@ function ActionsColumn ({
   )
 }
 
+type MeliBuyerDetails = {
+  id: string | null
+  name: string | null
+  nickname: string | null
+  cpf: string | null
+  cep: string | null
+  address: string | null
+}
+
+function BuyerDetailsButton ({ orderId, fallbackName }: { orderId: string, fallbackName: string }) {
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [buyer, setBuyer] = useState<MeliBuyerDetails | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open || buyer) return
+    const controller = new AbortController()
+    setLoading(true)
+    setError(null)
+    fetch(`/api/portal/sales-orders/${encodeURIComponent(orderId)}/buyer`, {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const body = await response.json().catch(() => null)
+        if (!response.ok || !body?.ok) throw new Error('buyer_unavailable')
+        setBuyer(body.buyer as MeliBuyerDetails)
+      })
+      .catch((requestError) => {
+        if (requestError instanceof Error && requestError.name === 'AbortError') return
+        setError('Não foi possível carregar os dados do comprador.')
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
+    return () => controller.abort()
+  }, [buyer, open, orderId])
+
+  const fields = [
+    ['ID do cliente', buyer?.id],
+    ['Nome', formatPersonName(buyer?.name || fallbackName)],
+    ['Nickname', buyer?.nickname],
+    ['CPF', buyer?.cpf],
+    ['CEP', buyer?.cep],
+    ['Endereço', buyer?.address],
+  ] as const
+
+  return (
+    <>
+      <button
+        type='button'
+        className='min-w-0 truncate text-left underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+        onClick={(event) => { stopRowClick(event); setOpen(true) }}
+      >
+        {fallbackName}
+      </button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent onClick={(event) => event.stopPropagation()}>
+          <DialogHeader>
+            <DialogTitle>Dados do comprador</DialogTitle>
+            <DialogDescription>Informações associadas à venda no Mercado Livre.</DialogDescription>
+          </DialogHeader>
+          {loading ? (
+            <div className='flex items-center gap-2 py-4 text-sm text-muted-foreground'>
+              <LoaderCircle className='h-4 w-4 animate-spin' aria-hidden='true' />
+              Carregando dados…
+            </div>
+          ) : error ? (
+            <p className='py-4 text-sm text-destructive' role='alert'>{error}</p>
+          ) : (
+            <dl className='grid gap-3 sm:grid-cols-2'>
+              {fields.map(([label, value]) => (
+                <div key={label} className={label === 'Endereço' ? 'sm:col-span-2' : ''}>
+                  <dt className='text-xs text-muted-foreground'>{label}</dt>
+                  <dd className='flex min-w-0 items-start gap-1 text-sm font-medium'>
+                    <span className='min-w-0 break-words'>{value || '—'}</span>
+                    {value ? <CopyIconButton value={value} label={`Copiar ${label.toLowerCase()}`} /> : null}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
 function CartHeader ({
   order,
 }: {
@@ -885,9 +967,15 @@ function CartHeader ({
   const isCanceled = order.status === 'canceled'
   const copyClass = canceledCopyClass(isCanceled)
   const mutedCopyClass = canceledCopyClass(isCanceled, 'text-muted-foreground')
-  const buyerName = String(order.ml_buyer_name || order.customer_name || '').trim() || 'Consumidor'
-  const nickname = String(order.ml_buyer_nickname || '').trim()
-  const showNickname = Boolean(nickname) && nickname.toLowerCase() !== buyerName.toLowerCase()
+  const buyerName = formatPersonName(String(order.ml_buyer_name || order.customer_name || '').trim() || 'Consumidor')
+  const isFull = order.ml_logistic_type === 'fulfillment'
+  const isFlex = order.ml_logistic_type === 'self_service'
+  const shippingMethod = String(order.ml_shipping_method || '').trim()
+  const logisticsLabel = isFull
+    ? ['FULL', shippingMethod].filter(Boolean).join(' - ')
+    : isFlex
+      ? ['Flex', shippingMethod].filter(Boolean).join(' - ')
+      : shippingMethod
   const mlOrderId = String(order.ml_order_id || '').trim()
   const mlPackId = String(order.ml_pack_id || '').trim()
   const mlTargetId = (mlPackId || mlOrderId).trim()
@@ -925,19 +1013,20 @@ function CartHeader ({
           <CopyIconButton value={displayMlId} label='Copiar número da venda no MELI' />
         </p>
       ) : null}
-      <p className={cn('flex items-center gap-1', copyClass)}>
-        <span className='truncate'>{buyerName}</span>
-        <CopyIconButton value={buyerName} label='Copiar nome do comprador' />
+      <p className={cn('flex min-w-0 items-center gap-1', copyClass)}>
+        <UserRound className='h-3.5 w-3.5 shrink-0' aria-hidden='true' />
+        <BuyerDetailsButton orderId={order.id} fallbackName={buyerName} />
       </p>
-      {showNickname ? (
-        <p className={cn('flex items-center gap-1', mutedCopyClass)}>
-          <span className='truncate'>{nickname}</span>
-          <CopyIconButton value={nickname} label='Copiar apelido do comprador' />
-        </p>
-      ) : null}
       <p className={cn('text-xs', mutedCopyClass)}>
         Data da compra: {formatPurchaseDate(order.created_at)}
       </p>
+      {logisticsLabel ? (
+        <p className={cn('flex items-center gap-1 text-xs font-medium', mutedCopyClass)}>
+          {isFull ? <Zap className='h-3.5 w-3.5 text-emerald-600' aria-hidden='true' /> : null}
+          {isFlex ? <Bike className='h-3.5 w-3.5 text-emerald-600' aria-hidden='true' /> : null}
+          <span>{logisticsLabel}</span>
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -1021,7 +1110,6 @@ export function SalesOrderListRow ({
               <ProductColumn
                 order={line.order}
                 showIndividualOrderId={isPackGroup}
-                showLogisticLine={index === 0}
                 onEditProduct={line.onEditProduct}
               />
               <MarginColumn order={line.order} onEditCost={line.onEditCost} />

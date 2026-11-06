@@ -1,12 +1,16 @@
 {
-  "crons": [
-    {
-      "path": "/api/cron/bling-refresh-tokens",
-      "schedule": "0 5 * * *"
-    },
-    {
-      "path": "/api/cron/meli-refresh-tokens",
-      "schedule": "0 6 * * *"
-    }
-  ]
+	"crons": [
+		{
+			"path": "/api/cron/bling-refresh-tokens",
+			"schedule": "0 5 * * *"
+		},
+		{
+			"path": "/api/cron/meli-refresh-tokens",
+			"schedule": "0 6 * * *"
+		},
+		{
+			"path": "/api/cron/meli-reconcile-orders",
+			"schedule": "0 7 * * *"
+		}
+	]
 }

@@ -52,6 +52,28 @@ export function keepSoldItemPacksTogether <T extends {
   )
 }
 
+/** Agrupa linhas para exibição pelo pedido individual, mantendo packs separados na interface. */
+export function groupSoldItemsByOrder <T extends {
+  id: string
+  order: { id?: string | null }
+}> (items: T[]): T[][] {
+  const groups: T[][] = []
+  const groupIndex = new Map<string, number>()
+
+  for (const item of items) {
+    const orderId = String(item.order.id || '').trim()
+    const key = orderId ? `order:${orderId}` : `item:${item.id}`
+    const existing = groupIndex.get(key)
+    if (existing != null) {
+      groups[existing].push(item)
+      continue
+    }
+    groupIndex.set(key, groups.length)
+    groups.push([item])
+  }
+
+  return groups
+}
 function sameProductKey (item: {
   productId?: string | null
   productSku?: string | null
@@ -64,7 +86,7 @@ function sameProductKey (item: {
   return `name:${String(item.productName || '').trim()}`
 }
 
-/** Junta linhas do mesmo produto no carrinho (1x + 1x vira 2x). */
+/** Junta linhas do mesmo produto dentro do mesmo pedido (1x + 1x vira 2x). */
 export function mergeSameProductLines <T extends {
   productId?: string | null
   productSku?: string | null

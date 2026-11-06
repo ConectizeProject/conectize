@@ -1,11 +1,12 @@
+import { randomUUID } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
 	getMeliConnectionByOrganizationId,
 	getMeliOrder,
 	getMeliShipment,
+	type HubConnection,
 	pickMeliClaimForDisplay,
 	searchMeliClaimsByOrderId,
-	type HubConnection,
 } from '@/lib/integrations/mercado-livre/api'
 import { persistMeliFulfillment } from '@/lib/integrations/mercado-livre/fulfillment'
 import { resolveMeliProductId } from '@/lib/integrations/mercado-livre/product-resolve'
@@ -14,6 +15,7 @@ import {
 	cancelSalesOrder,
 	createSalesOrder,
 	finalizeSalesOrder,
+	listSalesOrderItems,
 	replaceSalesOrderPayments,
 	reverseSalesOrderStockIfFull,
 	type SalesOrderDraftInput,
@@ -21,6 +23,7 @@ import {
 	type SalesOrderPaymentInput,
 	updateSalesOrderDraft,
 } from '@/lib/sales-orders/service'
+import { isValidCpf } from '@/lib/utils/strings'
 
 type ServiceClient = SupabaseClient
 
@@ -104,6 +107,147 @@ function mapBuyerDraft(order: Record<string, unknown>): SalesOrderDraftInput {
 		discount_total_cents: discountTotalCents,
 		ml_pack_id: packId,
 	}
+}
+
+function nestedText(value: unknown): string | null {
+	const record = asRecord(value)
+	return (
+		trimText(record?.name) ||
+		trimText(record?.value_name) ||
+		trimText(record?.value)
+	)
+}
+
+async function upsertMeliCustomer(params: {
+	supabase: ServiceClient
+	organizationId: string
+	connection: HubConnection
+	order: Record<string, unknown>
+}): Promise<string | null> {
+	const buyer = asRecord(params.order.buyer) ?? {}
+	const billing = asRecord(buyer.billing_info) ?? {}
+	const document = trimText(buyer.doc_number) || trimText(billing.doc_number)
+	const cpf = document ? digitsOnly(document) : ''
+	const docType = String(buyer.doc_type || billing.doc_type || '').toUpperCase()
+	if (cpf.length !== 11 || docType.includes('CNPJ')) return null
+
+	const firstName = trimText(buyer.first_name)
+	const lastName = trimText(buyer.last_name)
+	const fullName = [firstName, lastName].filter(Boolean).join(' ').trim()
+	const shipping = asRecord(params.order.shipping) ?? {}
+	let receiver = asRecord(shipping.receiver_address) ?? {}
+	if (
+		!trimText(receiver.zip_code) &&
+		!trimText(receiver.street_name) &&
+		trimText(shipping.id)
+	) {
+		try {
+			const shipment = await getMeliShipment(
+				params.connection,
+				String(shipping.id),
+				params.supabase,
+			)
+			receiver = asRecord(shipment.receiver_address) ?? receiver
+		} catch (error) {
+			console.error(
+				'[meli customer address]',
+				error instanceof Error ? error.message : 'shipment_lookup_failed',
+			)
+		}
+	}
+
+	const city = nestedText(receiver.city)
+	const state = nestedText(receiver.state)
+	const neighborhood = nestedText(receiver.neighborhood)
+	const street =
+		trimText(receiver.street_name) || trimText(receiver.address_line)
+	const streetNumber = trimText(receiver.street_number)
+	const streetComplement =
+		trimText(receiver.floor) || trimText(receiver.apartment)
+	const addressFull = [
+		street && streetNumber
+			? street + ', ' + streetNumber
+			: street || streetNumber,
+		streetComplement,
+		neighborhood,
+		[city, state].filter(Boolean).join(' - ') || null,
+		trimText(receiver.comment),
+	]
+		.filter((part): part is string => Boolean(part))
+		.join(', ')
+
+	const customerFields: Record<string, unknown> = { cpf }
+	if (fullName) customerFields.full_name = fullName
+	if (trimText(receiver.zip_code))
+		customerFields.zip_code = trimText(receiver.zip_code)
+	if (addressFull) customerFields.address_full = addressFull
+	if (city) customerFields.city = city
+	if (state) customerFields.state = state
+	if (neighborhood) customerFields.neighborhood = neighborhood
+	if (street) customerFields.street = street
+	if (streetNumber) customerFields.street_number = streetNumber
+	if (streetComplement) customerFields.street_complement = streetComplement
+
+	const { data: existing, error: lookupError } = await params.supabase
+		.from('customers')
+		.select('id')
+		.eq('organization_id', params.organizationId)
+		.eq('cpf', cpf)
+		.maybeSingle()
+	if (lookupError) throw new Error('meli_customer_lookup_failed')
+
+	if (existing?.id) {
+		const { error } = await params.supabase
+			.from('customers')
+			.update(customerFields)
+			.eq('organization_id', params.organizationId)
+			.eq('id', existing.id)
+		if (error) throw new Error('meli_customer_update_failed')
+		return String(existing.id)
+	}
+
+	const { data: inserted, error: insertError } = await params.supabase
+		.from('customers')
+		.insert({
+			organization_id: params.organizationId,
+			is_company: false,
+			...customerFields,
+			full_name: fullName || 'Cliente Mercado Livre',
+		})
+		.select('id')
+		.single()
+	if (!insertError && inserted?.id) return String(inserted.id)
+
+	// Uma venda pode chegar pelo webhook e pelo reconciliador ao mesmo tempo.
+	const { data: racedCustomer } = await params.supabase
+		.from('customers')
+		.select('id')
+		.eq('organization_id', params.organizationId)
+		.eq('cpf', cpf)
+		.maybeSingle()
+	if (!racedCustomer?.id) throw new Error('meli_customer_create_failed')
+	const { error: updateError } = await params.supabase
+		.from('customers')
+		.update(customerFields)
+		.eq('organization_id', params.organizationId)
+		.eq('id', racedCustomer.id)
+	if (updateError) throw new Error('meli_customer_update_failed')
+	return String(racedCustomer.id)
+}
+
+async function linkSalesOrderCustomer(params: {
+	supabase: ServiceClient
+	organizationId: string
+	salesOrderId: string
+	customerId: string | null
+}): Promise<void> {
+	if (!params.customerId) return
+	const { error } = await params.supabase
+		.from('sales_orders')
+		.update({ customer_id: params.customerId })
+		.eq('organization_id', params.organizationId)
+		.eq('id', params.salesOrderId)
+	if (error) throw new Error('meli_customer_link_failed')
 }
 
 function mapPayments(
@@ -262,6 +406,23 @@ export async function upsertSalesOrderFromMeliOrder(params: {
 		ml_order_id: mlOrderId,
 		created_at: purchasedAt,
 	}
+	const items = await mapOrderItems({
+		supabase: params.supabase,
+		organizationId: params.organizationId,
+		createdBy: actorUserId,
+		connection: params.connection,
+		order: params.order,
+	})
+	const canonicalItems = canonicalizeMeliItems(items)
+	const customerId =
+		mlStatus === 'paid'
+			? await upsertMeliCustomer({
+					supabase: params.supabase,
+					organizationId: params.organizationId,
+					connection: params.connection,
+					order: params.order,
+				})
+			: null
 
 	let existing = await findSalesOrderByMlId(
 		params.supabase,
@@ -274,6 +435,12 @@ export async function upsertSalesOrderFromMeliOrder(params: {
 	}
 
 	if (existing?.status === 'paid') {
+		await linkSalesOrderCustomer({
+			supabase: params.supabase,
+			organizationId: params.organizationId,
+			salesOrderId: existing.id,
+			customerId,
+		})
 		if (mlStatus === 'canceled') {
 			const canceled = await cancelSalesOrder(
 				auth,
@@ -295,6 +462,20 @@ export async function upsertSalesOrderFromMeliOrder(params: {
 			})
 			return { orderId: existing.id, action: 'canceled' }
 		}
+		const currentItems = await listSalesOrderItems(auth, existing.id)
+		if (!currentItems.ok) throw new Error('meli_order_items_load_failed')
+		let itemsUpdated = false
+		if (!sameMeliItems(currentItems.items, canonicalItems)) {
+			itemsUpdated = true
+			const repaired = await updateSalesOrderDraft(
+				auth,
+				existing.id,
+				draft,
+				canonicalItems,
+			)
+			if (repaired.ok === false)
+				throw new Error(`meli_paid_order_repair_failed: ${repaired.error}`)
+		}
 		await syncMeliPurchaseDate({
 			supabase: params.supabase,
 			organizationId: params.organizationId,
@@ -309,16 +490,11 @@ export async function upsertSalesOrderFromMeliOrder(params: {
 			salesOrderId: existing.id,
 			order: params.order,
 		})
-		return { orderId: existing.id, action: 'skipped' }
+		return {
+			orderId: existing.id,
+			action: itemsUpdated ? 'updated' : 'skipped',
+		}
 	}
-
-	const items = await mapOrderItems({
-		supabase: params.supabase,
-		organizationId: params.organizationId,
-		createdBy: actorUserId,
-		connection: params.connection,
-		order: params.order,
-	})
 
 	const itemsSubtotal = items.reduce(
 		(acc, item) => acc + item.unit_price_cents * item.quantity,
@@ -336,7 +512,7 @@ export async function upsertSalesOrderFromMeliOrder(params: {
 	)
 
 	if (!existing) {
-		const created = await createSalesOrder(auth, items, draft, {
+		const created = await createSalesOrder(auth, canonicalItems, draft, {
 			attachCashSession: false,
 		})
 		if (created.ok === false) {
@@ -353,11 +529,22 @@ export async function upsertSalesOrderFromMeliOrder(params: {
 			existing = { id: created.orderId, status: 'in_progress' }
 		}
 	} else {
-		const updated = await updateSalesOrderDraft(auth, existing.id, draft, items)
+		const updated = await updateSalesOrderDraft(
+			auth,
+			existing.id,
+			draft,
+			canonicalItems,
+		)
 		if (updated.ok === false) {
 			throw new Error(`meli_update_sales_order_failed: ${updated.error}`)
 		}
 	}
+	await linkSalesOrderCustomer({
+		supabase: params.supabase,
+		organizationId: params.organizationId,
+		salesOrderId: existing.id,
+		customerId,
+	})
 
 	if (mlStatus === 'canceled') {
 		const canceled = await cancelSalesOrder(
@@ -421,6 +608,98 @@ export async function upsertSalesOrderFromMeliOrder(params: {
 	return { orderId: existing.id, action: 'finalized' }
 }
 
+function canonicalizeMeliItems(
+	items: SalesOrderItemInput[],
+): SalesOrderItemInput[] {
+	const grouped = new Map<string, SalesOrderItemInput>()
+	for (const item of items) {
+		const key = [
+			item.product_id,
+			item.unit_price_cents,
+			item.discount_cents ?? 0,
+		].join(':')
+		const previous = grouped.get(key)
+		if (previous) previous.quantity += item.quantity
+		else grouped.set(key, { ...item })
+	}
+	return [...grouped.values()].sort((a, b) =>
+		[a.product_id, a.unit_price_cents, a.discount_cents ?? 0]
+			.join(':')
+			.localeCompare(
+				[b.product_id, b.unit_price_cents, b.discount_cents ?? 0].join(':'),
+			),
+	)
+}
+
+function sameMeliItems(
+	current: Array<
+		Pick<
+			SalesOrderItemInput,
+			'product_id' | 'quantity' | 'unit_price_cents' | 'discount_cents'
+		>
+	>,
+	expected: SalesOrderItemInput[],
+): boolean {
+	const normalized = canonicalizeMeliItems(current.map((item) => ({ ...item })))
+	return (
+		normalized.length === expected.length &&
+		normalized.every((item, index) => {
+			const wanted = expected[index]
+			return (
+				item.product_id === wanted.product_id &&
+				item.quantity === wanted.quantity &&
+				item.unit_price_cents === wanted.unit_price_cents &&
+				(item.discount_cents ?? 0) === (wanted.discount_cents ?? 0)
+			)
+		})
+	)
+}
+
+async function withMeliOrderLock<T>(
+	supabase: ServiceClient,
+	organizationId: string,
+	orderId: string,
+	work: () => Promise<T>,
+): Promise<T> {
+	const token = randomUUID()
+	let acquired = false
+	for (let attempt = 0; attempt < 60; attempt += 1) {
+		const { data, error } = await supabase.rpc(
+			'try_acquire_meli_order_sync_lock',
+			{
+				p_organization_id: organizationId,
+				p_ml_order_id: orderId,
+				p_lock_token: token,
+			},
+		)
+		if (error) {
+			if (error.code === 'PGRST202' || error.code === '42883') {
+				console.error(
+					'[meli order lock] migration 20261026120000_meli_order_sync_lock.sql must be applied',
+				)
+				return work()
+			}
+			throw new Error(`meli_order_lock_failed: ${error.message}`)
+		}
+		if (data === true) {
+			acquired = true
+			break
+		}
+		await new Promise((resolve) => setTimeout(resolve, 500))
+	}
+	if (!acquired) throw new Error('meli_order_sync_lock_timeout')
+	try {
+		return await work()
+	} finally {
+		const { error } = await supabase.rpc('release_meli_order_sync_lock', {
+			p_organization_id: organizationId,
+			p_ml_order_id: orderId,
+			p_lock_token: token,
+		})
+		if (error) console.error('[meli order lock release]', error.message)
+	}
+}
+
 async function syncMeliPurchaseDate(params: {
 	supabase: ServiceClient
 	organizationId: string
@@ -437,7 +716,10 @@ async function syncMeliPurchaseDate(params: {
 		.eq('id', params.salesOrderId)
 		.maybeSingle()
 	const current = String(data?.created_at || '').trim()
-	if (current && Math.abs(Date.parse(current) - Date.parse(purchasedAtIso)) < 1000) {
+	if (
+		current &&
+		Math.abs(Date.parse(current) - Date.parse(purchasedAtIso)) < 1000
+	) {
 		return
 	}
 	const { error } = await params.supabase
@@ -484,11 +766,11 @@ async function attachMeliFulfillment(params: {
 	const packId = trimText(params.order.pack_id)
 	const claims = mlOrderId
 		? await searchMeliClaimsByOrderId(
-			params.connection,
-			mlOrderId,
-			params.supabase,
-			{ packId },
-		).catch(() => [])
+				params.connection,
+				mlOrderId,
+				params.supabase,
+				{ packId },
+			).catch(() => [])
 		: []
 	const claim = pickMeliClaimForDisplay(claims)
 
@@ -506,7 +788,10 @@ async function attachMeliFulfillment(params: {
 		userId: params.userId,
 		supabase: params.supabase,
 	}
-	const fullStock = await reverseSalesOrderStockIfFull(auth, params.salesOrderId)
+	const fullStock = await reverseSalesOrderStockIfFull(
+		auth,
+		params.salesOrderId,
+	)
 	if (fullStock.ok === false) {
 		console.error('[meli full stock reverse]', fullStock.error)
 	}
@@ -543,19 +828,29 @@ export async function syncMeliOrderById(params: {
 	organizationId: string
 	orderId: string
 }): Promise<{ orderId: string; action: string }> {
-	const connection = await getMeliConnectionByOrganizationId(
+	return withMeliOrderLock(
 		params.supabase,
 		params.organizationId,
+		params.orderId,
+		async () => {
+			const connection = await getMeliConnectionByOrganizationId(
+				params.supabase,
+				params.organizationId,
+			)
+			if (!connection) throw new Error('meli_not_connected')
+			const order = await getMeliOrder(
+				connection,
+				params.orderId,
+				params.supabase,
+			)
+			return upsertSalesOrderFromMeliOrder({
+				supabase: params.supabase,
+				organizationId: params.organizationId,
+				order,
+				connection,
+			})
+		},
 	)
-	if (!connection) throw new Error('meli_not_connected')
-
-	const order = await getMeliOrder(connection, params.orderId, params.supabase)
-	return upsertSalesOrderFromMeliOrder({
-		supabase: params.supabase,
-		organizationId: params.organizationId,
-		order,
-		connection,
-	})
 }
 
 const purchaseBackfillAtByOrg = new Map<string, number>()
@@ -567,7 +862,7 @@ export async function backfillMeliPurchaseDates(params: {
 	organizationId: string
 	limit?: number
 	force?: boolean
-}): Promise<{ updated: number, failed: number, skipped: boolean }> {
+}): Promise<{ updated: number; failed: number; skipped: boolean }> {
 	const now = Date.now()
 	const lastAt = purchaseBackfillAtByOrg.get(params.organizationId) ?? 0
 	if (!params.force && now - lastAt < PURCHASE_BACKFILL_TTL_MS) {
@@ -599,7 +894,7 @@ export async function backfillMeliPurchaseDates(params: {
 	let cursor = 0
 	const workers = Math.min(4, rows.length)
 
-	async function worker () {
+	async function worker() {
 		for (;;) {
 			const index = cursor
 			cursor += 1

@@ -401,7 +401,9 @@ export async function GET (request: NextRequest) {
       `,
       )
       .eq('organization_id', organizationId)
-      // Data da compra do pedido (sales_orders.created_at), não a criação da linha.
+      // Ordena as linhas antes do limite para garantir que os itens mais recentes sejam carregados.
+      .order('created_at', { ascending: false })
+      // A apresentação continua ordenada pela data da compra do pedido.
       .order('created_at', { ascending: false, referencedTable: 'sales_orders' })
       .limit(oversample)
 
