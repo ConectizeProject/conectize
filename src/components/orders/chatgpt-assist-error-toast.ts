@@ -10,9 +10,17 @@ export function toastChatgptAssistFailure (
     String(data?.message || '').trim() ||
     (code === 'chatgpt_not_connected'
       ? 'Conecte o ChatGPT no HUB de integrações para usar esta função.'
-      : 'Erro ao usar a IA')
+      : code === 'empty_response'
+        ? 'A IA não retornou texto. Tente novamente ou use outro modelo no HUB.'
+        : 'Erro ao usar a IA')
+  const title =
+    code === 'chatgpt_not_connected'
+      ? 'IA não conectada'
+      : code === 'empty_response'
+        ? 'IA sem resposta'
+        : 'Erro na IA'
   toast({
-    title: code === 'chatgpt_not_connected' ? 'IA não conectada' : 'Erro na IA',
+    title,
     description: msg,
     variant: 'destructive',
   })

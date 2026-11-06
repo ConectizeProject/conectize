@@ -1,5 +1,12 @@
 import { NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import {
+  DEFAULT_OPENAI_CHAT_MODEL,
+  applyChatCompletionModelParams,
+  emptyChatCompletionMessage,
+  extractChatCompletionText,
+  chatCompletionFinishReason,
+} from '@/lib/openai/chat-completion-params'
 import { resolveHubSecretsReader } from '@/lib/supabase/hub-secrets'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import {
@@ -183,7 +190,7 @@ export async function POST(request: Request) {
   }
 
   const metadata = (connection?.metadata as { model?: string } | null) || {}
-  const model = metadata.model || 'gpt-4o-mini'
+  const model = metadata.model || DEFAULT_OPENAI_CHAT_MODEL
 
   const [orderStats, customerStats, ordersForSummary] = await Promise.all([
     fetchOrderStats(auth.supabase),
@@ -219,7 +226,6 @@ Quando existir "ordens_para_resumo", use esses dados para resumir ou detalhar a(
 Dados atuais:
 ${JSON.stringify(dataContext, null, 2)}`
 
-  const isNewModel = /^gpt-5|^o\d|^o\d-/.test(model)
   const apiBody: Record<string, unknown> = {
     model,
     messages: [
@@ -227,12 +233,11 @@ ${JSON.stringify(dataContext, null, 2)}`
       { role: 'user', content: message },
     ],
   }
-  if (isNewModel) {
-    apiBody.max_completion_tokens = 1200
-  } else {
-    apiBody.max_tokens = 1200
-    apiBody.temperature = 0.3
-  }
+  applyChatCompletionModelParams(apiBody, {
+    model,
+    tokenBudget: 1200,
+    temperature: 0.3,
+  })
 
   try {
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -255,21 +260,14 @@ ${JSON.stringify(dataContext, null, 2)}`
       }, { status: 502 })
     }
 
-    const msg = data?.choices?.[0]?.message
-    let text = ''
-    if (typeof msg?.content === 'string') text = msg.content.trim()
-    else if (Array.isArray(msg?.content)) {
-      const parts = (msg.content as Array<{ type?: string; text?: string }>)
-        .filter((p) => p?.type === 'text' && p.text)
-        .map((p) => p.text)
-      text = parts.join('\n').trim()
-    }
+    const text = extractChatCompletionText(data)
 
     if (!text) {
+      const finishReason = chatCompletionFinishReason(data)
       return NextResponse.json({
         ok: false,
         error: 'empty_response',
-        reply: 'A IA não retornou resposta. Tente reformular a pergunta.',
+        reply: emptyChatCompletionMessage(finishReason),
       }, { status: 502 })
     }
 

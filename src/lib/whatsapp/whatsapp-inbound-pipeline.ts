@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { DEFAULT_OPENAI_CHAT_MODEL } from '@/lib/openai/chat-completion-params'
 import { resolveHubSecretsReader } from '@/lib/supabase/hub-secrets'
 import { runWhatsappAiReply } from '@/lib/whatsapp/whatsapp-ai-orchestrator'
 import type { SendTextMessageResult } from '@/lib/whatsapp/whatsapp-cloud-client'
@@ -25,12 +26,15 @@ export async function getChatgptForWhatsapp(
 			.maybeSingle()
 		if (data?.api_key) {
 			const meta = (data.metadata as { model?: string } | null) || {}
-			return { apiKey: data.api_key as string, model: meta.model || 'gpt-5-mini' }
+			return {
+				apiKey: data.api_key as string,
+				model: meta.model || DEFAULT_OPENAI_CHAT_MODEL,
+			}
 		}
 	}
 	const envKey = String(process.env.OPENAI_API_KEY || '').trim()
 	if (!envKey) return null
-	return { apiKey: envKey, model: 'gpt-5-mini' }
+	return { apiKey: envKey, model: DEFAULT_OPENAI_CHAT_MODEL }
 }
 
 async function loadRecentHistory(

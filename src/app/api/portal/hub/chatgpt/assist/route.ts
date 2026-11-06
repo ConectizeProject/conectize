@@ -1,5 +1,12 @@
 import { NextResponse } from 'next/server'
 import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
+import {
+  DEFAULT_OPENAI_CHAT_MODEL,
+  applyChatCompletionModelParams,
+  chatCompletionFinishReason,
+  emptyChatCompletionMessage,
+  extractChatCompletionText,
+} from '@/lib/openai/chat-completion-params'
 import { resolveHubSecretsReader } from '@/lib/supabase/hub-secrets'
 
 function buildAssistSystemPrompt (organizationLabel: string) {
@@ -18,7 +25,7 @@ type Action =
   | 'suggest_services'
   | 'assist_assistance_comment'
 
-export async function POST(request: Request) {
+export async function POST (request: Request) {
   const auth = await requireStaffOrAdmin()
   if (auth.ok === false) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
@@ -49,12 +56,12 @@ export async function POST(request: Request) {
   if (!connection?.api_key) {
     return NextResponse.json(
       { ok: false, error: 'chatgpt_not_connected', message: 'Conecte o ChatGPT no HUB de integrações.' },
-      { status: 503 }
+      { status: 503 },
     )
   }
 
   const metadata = (connection.metadata as { model?: string } | null) || {}
-  const model = metadata.model || 'gpt-5-mini'
+  const model = metadata.model || DEFAULT_OPENAI_CHAT_MODEL
 
   const { data: orgRow } = await auth.supabase
     .from('organizations')
@@ -94,9 +101,6 @@ export async function POST(request: Request) {
     }
   }
 
-  // GPT-5 e modelos o-series usam max_completion_tokens e não suportam temperature customizado.
-  // Modelos antigos (gpt-4o-mini, gpt-3.5-turbo) usam max_tokens e aceitam temperature.
-  const isNewModel = /^gpt-5|^o\d|^o\d-/.test(model)
   const apiBody: Record<string, unknown> = {
     model,
     messages: [
@@ -105,12 +109,7 @@ export async function POST(request: Request) {
     ],
   }
   const tokenBudget = action === 'assist_assistance_comment' ? 900 : 500
-  if (isNewModel) {
-    apiBody.max_completion_tokens = tokenBudget
-  } else {
-    apiBody.max_tokens = tokenBudget
-    apiBody.temperature = 0.3
-  }
+  applyChatCompletionModelParams(apiBody, { model, tokenBudget, temperature: 0.3 })
 
   try {
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -128,44 +127,20 @@ export async function POST(request: Request) {
       const errMsg = data?.error?.message || data?.error?.code || 'Erro na API OpenAI'
       return NextResponse.json(
         { ok: false, error: 'openai_error', message: errMsg },
-        { status: 502 }
+        { status: 502 },
       )
     }
 
-    const message = data?.choices?.[0]?.message
-    const rawContent = message?.content
-    const text = (() => {
-      if (typeof rawContent === 'string') return rawContent.trim()
-      if (Array.isArray(rawContent)) {
-        const texts: string[] = []
-        for (const p of rawContent) {
-          const part = p as { type?: string; text?: string } | null
-          if (!part) continue
-          const isTextPart = part.type === 'text' || part.type === 'output_text'
-          if (isTextPart && part.text) texts.push(String(part.text))
-        }
-        return texts.join('\n').trim()
-      }
-      if (message && typeof (message as { text?: string }).text === 'string') {
-        return String((message as { text: string }).text).trim()
-      }
-      return ''
-    })()
-
+    const text = extractChatCompletionText(data)
     if (!text) {
-      if (action === 'improve_description') {
-        const fallback = customerDescription || ''
-        return NextResponse.json({ ok: true, text: fallback })
-      }
-      if (action === 'assist_assistance_comment') {
-        const fallback = assistanceDraft || ''
-        if (fallback) {
-          return NextResponse.json({ ok: true, text: fallback })
-        }
-      }
+      const finishReason = chatCompletionFinishReason(data)
       return NextResponse.json(
-        { ok: false, error: 'empty_response', message: 'A IA não retornou texto. Tente novamente ou use outro modelo no HUB.' },
-        { status: 502 }
+        {
+          ok: false,
+          error: 'empty_response',
+          message: emptyChatCompletionMessage(finishReason),
+        },
+        { status: 502 },
       )
     }
 

@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
 import { redirectToPortalLogin } from '@/lib/auth/redirect-to-portal-login'
 import { blingOAuthRedirectUri, blingOriginFromHeaders } from '@/lib/integrations/bling/oauth-redirect'
+import { DEFAULT_OPENAI_CHAT_MODEL } from '@/lib/openai/chat-completion-params'
 import { getPortalOrganizationId } from '@/lib/organizations/portal-organization-context'
 import { resolveHubSecretsReader } from '@/lib/supabase/hub-secrets'
 import { createSupabaseServerClient, getAuthUser } from '@/lib/supabase/server'
@@ -42,7 +43,8 @@ export default async function HubPage() {
   const connectionRows = connections || []
   const connectedPlatforms = new Set(connectionRows.map((c: { platform_id: string }) => c.platform_id))
   const chatgptConnection = connectionRows.find((c: { platform_id: string }) => c.platform_id === 'chatgpt')
-  const chatgptModel = (chatgptConnection?.metadata as { model?: string } | null)?.model || 'gpt-5-mini'
+  const chatgptModel =
+    (chatgptConnection?.metadata as { model?: string } | null)?.model || DEFAULT_OPENAI_CHAT_MODEL
   const blingRows = connectionRows.filter(
     (c: { platform_id: string }) => c.platform_id === 'bling'
   )
