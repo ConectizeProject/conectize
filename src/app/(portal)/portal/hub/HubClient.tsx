@@ -42,6 +42,10 @@ import { toast } from '@/hooks/use-toast'
 import { runBlingCatalogSync } from '@/lib/integrations/bling/catalog-sync-client'
 import { blingRefreshTokenErrorToMessage } from '@/lib/integrations/bling/refresh-token-errors'
 import { meliSyncFailureMessage } from '@/lib/integrations/mercado-livre/refresh-token-errors'
+import {
+  DEFAULT_OPENAI_CHAT_MODEL,
+  OPENAI_HUB_MODELS,
+} from '@/lib/openai/chat-completion-params'
 import { usePortalOrganizationName } from '@/lib/portal/portal-branding-context'
 import { appConfirm } from '@/lib/ui/app-dialogs'
 import { cn } from '@/lib/utils'
@@ -151,13 +155,7 @@ const integrations: Integration[] = [
   },
 ]
 
-const OPENAI_MODELS = [
-  { value: 'gpt-5-mini', label: 'GPT-5 Mini (recomendado - mais econômico)' },
-  { value: 'gpt-5.2', label: 'GPT-5.2 (mais preciso)' },
-  { value: 'gpt-5.2-pro', label: 'GPT-5.2 Pro (máxima precisão)' },
-  { value: 'gpt-4o-mini', label: 'GPT-4o Mini (alternativa econômica)' },
-  { value: 'gpt-4o', label: 'GPT-4o (versão anterior)' },
-] as const
+const OPENAI_MODELS = OPENAI_HUB_MODELS
 
 type WhatsappConfig = {
   connected: boolean
@@ -752,7 +750,7 @@ function IntegrationCard({
   )
 }
 
-export function HubClient({ initialConnections, blingConnections: initialBlingConnections = [], meliConnections: initialMeliConnections = [], isAdmin = false, chatgptModel = 'gpt-5-mini', blingRedirectUri = '' }: Props) {
+export function HubClient({ initialConnections, blingConnections: initialBlingConnections = [], meliConnections: initialMeliConnections = [], isAdmin = false, chatgptModel = DEFAULT_OPENAI_CHAT_MODEL, blingRedirectUri = '' }: Props) {
   const organizationName = usePortalOrganizationName()
   const brandLabel = String(organizationName || '').trim()
   const router = useRouter()
@@ -1973,7 +1971,7 @@ export function HubClient({ initialConnections, blingConnections: initialBlingCo
                     setConnectDialog(integration)
                     return
                   }
-                  setSelectedModel('gpt-5-mini')
+                  setSelectedModel(DEFAULT_OPENAI_CHAT_MODEL)
                   setConnectDialog(integration)
                 }}
               />

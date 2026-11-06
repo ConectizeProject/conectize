@@ -1,4 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import {
+	applyChatCompletionModelParams,
+	extractChatCompletionText,
+} from '@/lib/openai/chat-completion-params'
 
 export type ChatTurn = { role: 'user' | 'assistant'; content: string }
 
@@ -136,17 +140,15 @@ export async function runWhatsappAiReply(opts: {
 			...history.slice(-12).map((h) => ({ role: h.role, content: h.content })),
 			{ role: 'user', content: userMessage },
 		]
-	const isNewModel = /^gpt-5|^o\d|^o\d-/.test(model)
 	const apiBody: Record<string, unknown> = {
 		model,
 		messages,
 	}
-	if (isNewModel) {
-		apiBody.max_completion_tokens = 900
-	} else {
-		apiBody.max_tokens = 900
-		apiBody.temperature = 0.4
-	}
+	applyChatCompletionModelParams(apiBody, {
+		model,
+		tokenBudget: 900,
+		temperature: 0.4,
+	})
 	try {
 		const res = await fetch('https://api.openai.com/v1/chat/completions', {
 			method: 'POST',
@@ -161,20 +163,7 @@ export async function runWhatsappAiReply(opts: {
 			const errMsg = data?.error?.message || data?.error?.code || 'openai_error'
 			return { error: String(errMsg) }
 		}
-		const message = data?.choices?.[0]?.message
-		const rawContent = message?.content
-		let text = ''
-		if (typeof rawContent === 'string') text = rawContent.trim()
-		else if (Array.isArray(rawContent)) {
-			const texts: string[] = []
-			for (const p of rawContent) {
-				const part = p as { type?: string; text?: string } | null
-				if (!part) continue
-				if ((part.type === 'text' || part.type === 'output_text') && part.text)
-					texts.push(String(part.text))
-			}
-			text = texts.join('\n').trim()
-		}
+		const text = extractChatCompletionText(data)
 		if (!text) return { error: 'empty_response' }
 		const draftPatch = parseDraftLine(text)
 		const replyText = stripDraftLine(text) || 'Olá! Como podemos ajudar?'

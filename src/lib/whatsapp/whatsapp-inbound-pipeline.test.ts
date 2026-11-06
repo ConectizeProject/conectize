@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { DEFAULT_OPENAI_CHAT_MODEL } from '@/lib/openai/chat-completion-params'
 import { getChatgptForWhatsapp } from '@/lib/whatsapp/whatsapp-inbound-pipeline'
 
 type HubRow = {
@@ -129,6 +130,9 @@ describe('getChatgptForWhatsapp', () => {
 
 		const result = await getChatgptForWhatsapp(supabase, 'org-a')
 
-		expect(result).toEqual({ apiKey: 'sk-platform', model: 'gpt-5-mini' })
+		expect(result).toEqual({
+			apiKey: 'sk-platform',
+			model: DEFAULT_OPENAI_CHAT_MODEL,
+		})
 	})
 })
