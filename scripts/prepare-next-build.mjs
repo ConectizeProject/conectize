@@ -3,10 +3,11 @@
  * corrompe no Windows e não existe no CI). O typecheck do `next build`
  * precisa do caminho de produção.
  *
- * Também corrige o flight manifest do Next 16.2: `getModuleId()` pode
- * devolver `0` para um ConcatenatedModule, e `if (concatenatedModId)`
- * descarta esse id. O client reference (ex.: PortalShell) some do
- * manifesto e o /portal responde 500 em produção.
+ * Também corrige o flight manifest quando a build ainda usa o check
+ * truthy `if (concatenatedModId)`: `getModuleId()` pode devolver `0` e
+ * o client reference some do manifesto (/portal 500).
+ * No Next 16.4+ o upstream já usa `!== null` (PR #97936), então o patch
+ * vira no-op.
  * https://github.com/vercel/next.js/pull/97936
  */
 import { readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -18,10 +19,16 @@ const flightManifestPlugins = [
 
 const concatenatedIdCheck = 'if (concatenatedModId) {'
 const concatenatedIdCheckFixed = 'if (concatenatedModId != null) {'
+const concatenatedIdCheckUpstream = 'if (concatenatedModId !== null) {'
 
 for (const file of flightManifestPlugins) {
   const source = readFileSync(file, 'utf8')
-  if (source.includes(concatenatedIdCheckFixed)) continue
+  if (
+    source.includes(concatenatedIdCheckFixed) ||
+    source.includes(concatenatedIdCheckUpstream)
+  ) {
+    continue
+  }
   if (!source.includes(concatenatedIdCheck)) {
     throw new Error(
       `Não achei o check de concatenatedModId em ${file}. O patch do client manifest não pode ser aplicado.`,

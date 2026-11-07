@@ -95,11 +95,12 @@ async function refreshPortalApiSession(request: NextRequest) {
  * Valida sessão via getClaims. Com JWT HS256 isso ainda chama /auth/v1/user.
  * Middleware/proxy roda em Node.js (Next.js 16+).
  *
- * Nota: mantemos `middleware.ts` (não `proxy.ts`) por bug do Turbopack no Next 16.2.4
- * que faz rotas do matcher retornarem 404 em `next dev` com proxy.ts.
+ * Nota: mantemos `middleware.ts` (não `proxy.ts`). No Next 16.2–16.4 o rename
+ * para `proxy.ts` ainda é frágil no Turbopack (`next dev`: 404 / manifest vazio).
  * O arquivo fica em `src/`, no mesmo nível de `app`, para o build de produção
  * incluí-lo. Na raiz, com `src/app`, o Next 16 ignora o middleware.
  * Ver: https://github.com/vercel/next.js/issues/92921
+ * e https://github.com/vercel/next.js/issues/93328
  */
 async function getUserRole(supabase: SupabaseClient, request: NextRequest) {
 	const { data: claimsData } = await supabase.auth.getClaims()
