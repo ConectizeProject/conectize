@@ -31,10 +31,17 @@ function buildSecurityHeaders() {
 const nextConfig = {
 	reactStrictMode: true,
 	experimental: {
-		// Desligado: no Safari/iOS as View Transitions escondiam o header do portal
-		// em rotas como OS e aparelhos e não restauravam a visibilidade.
-		viewTransition: false,
+		// Next 16.4: limpa cache de compilação órfão em sessões longas de `next dev`.
+		turbopackGc: true,
+		// Next 16.4: compila `import()` dinâmico no cliente só quando a rota pede.
+		turbopackLazyDynamicImports: true,
 	},
+	// `experimental.viewTransition` foi removido no Next 16.3: View Transitions
+	// funcionam sem flag. No Safari/iOS ainda evite VT no chrome do portal
+	// (header sumia em OS/aparelhos); isso fica no uso de <ViewTransition>, não na config.
+	// Cache Components (`cacheComponents` + `partialPrefetching`) fica opt-in:
+	// o portal tem muita UI autenticada e personalizada; migrar exige `use cache`
+	// e revisão de shells estáticos antes de ligar o modelo padrão do Next 17.
 	// A barra final é resolvida no middleware junto com o destino canônico,
 	// para não criar uma cadeia (slash → path antigo → URL final).
 	skipTrailingSlashRedirect: true,

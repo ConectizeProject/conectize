@@ -224,15 +224,17 @@ async function saveRun (
 	patch: Record<string, unknown>,
 	options?: { matchLastPage?: boolean },
 ) {
-	let query = supabase
+	const updatedAt = new Date().toISOString()
+	const base = supabase
 		.from('bling_catalog_sync_runs')
-		.update({ ...patch, updated_at: new Date().toISOString() })
+		.update({ ...patch, updated_at: updatedAt })
 		.eq('id', run.id)
 		.eq('organization_id', run.organization_id)
-	if (options?.matchLastPage) {
-		query = query.eq('last_page', run.last_page)
-	}
-	const { data, error } = await query.select('*').maybeSingle()
+	const { data, error } = await (
+		options?.matchLastPage
+			? base.eq('last_page', run.last_page)
+			: base
+	).select('*').maybeSingle()
 	if (error) {
 		console.error('[bling-catalog-sync] save_run', error.message)
 		return null
@@ -408,30 +410,40 @@ async function detailTick (params: {
 	onlyFailed: boolean
 }): Promise<BlingCatalogSyncView> {
 	const { supabase, organizationId, actorUserId, client, run, onlyFailed } = params
-	let query = supabase
+	type DetailListResult = {
+		data: DetailRow[] | null
+		error: { message: string } | null
+	}
+	type DetailFilterBuilder = {
+		not: (column: string, operator: string, value: null) => PromiseLike<DetailListResult>
+		is: (column: string, value: null) => {
+			is: (column: string, value: null) => PromiseLike<DetailListResult>
+		}
+	}
+	// Escapa o builder tipado: filtros condicionais no supabase-js 2.119+
+	// estouram TS2589 (instanciação infinita no PostgREST filter chain).
+	const detailBase = supabase
 		.from('products')
 		.select('id, bling_id')
 		.eq('organization_id', organizationId)
 		.not('bling_id', 'is', null)
 		.neq('bling_id', '')
 		.order('created_at', { ascending: true })
-		.limit(DETAIL_BATCH)
-	query = onlyFailed
-		? query.not('bling_detail_error', 'is', null)
-		: query.is('bling_detail_synced_at', null).is('bling_detail_error', null)
-
-	const { data, error } = await query
-	if (error) {
-		console.error('[bling-catalog-sync] detail_query', error.message)
+		.limit(DETAIL_BATCH) as unknown as DetailFilterBuilder
+	const listed = onlyFailed
+		? await detailBase.not('bling_detail_error', 'is', null)
+		: await detailBase.is('bling_detail_synced_at', null).is('bling_detail_error', null)
+	if (listed.error) {
+		console.error('[bling-catalog-sync] detail_query', listed.error.message)
 		if (!run) {
 			return toView(null, countsFromRun(null), {
 				advanced: false,
 				message: blingCatalogSyncErrorMessage('db_error'),
 			})
 		}
-		return failRun(supabase, run, countsFromRun(run), error)
+		return failRun(supabase, run, countsFromRun(run), listed.error)
 	}
-	const rows = (Array.isArray(data) ? data : []) as DetailRow[]
+	const rows = Array.isArray(listed.data) ? listed.data : []
 
 	if (rows.length === 0) {
 		const counts = countsFromRun(run)
