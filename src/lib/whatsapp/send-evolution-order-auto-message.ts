@@ -5,7 +5,7 @@ import { getOrderStatusLabel } from '@/lib/orders/order-status'
 import { formatDateTimeBr } from '@/lib/utils/format-date'
 import { formatCentsBr } from '@/lib/utils/format-money'
 import { formatPhoneForWhatsApp } from '@/lib/utils/format-phone'
-import { getSiteUrl } from '@/lib/utils/site-url'
+import { getAppSiteUrl } from '@/lib/utils/site-url'
 import {
 	type EvolutionAutoMessageEvent,
 	pickEvolutionHubForAutoMessages,
@@ -200,7 +200,7 @@ export async function loadOrderWhatsappContext(
 		orderId,
 		order.share_token != null ? String(order.share_token) : null,
 	)
-	const origin = getSiteUrl().replace(/\/$/, '')
+	const origin = getAppSiteUrl().replace(/\/$/, '')
 	const link = shareToken ? `${origin}/os/${shareToken}` : ''
 
 	const deviceModel = firstRel(

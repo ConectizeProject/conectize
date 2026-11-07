@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { randomUUID } from 'crypto'
 import { formatPhoneForWhatsApp } from '@/lib/utils/format-phone'
-import { getSiteUrl } from '@/lib/utils/site-url'
+import { getAppSiteUrl } from '@/lib/utils/site-url'
 import {
   listEvolutionHubsForOrganization,
   resolveEvolutionApiBaseUrl,
@@ -129,7 +129,7 @@ export async function loadQuoteWhatsappContext (
     quoteId,
     quote.share_token != null ? String(quote.share_token) : null,
   )
-  const origin = getSiteUrl().replace(/\/$/, '')
+  const origin = getAppSiteUrl().replace(/\/$/, '')
   const link = shareToken ? `${origin}/orcamento/${shareToken}` : ''
 
   const { data: org } = await supabase

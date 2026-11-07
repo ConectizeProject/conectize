@@ -6,6 +6,7 @@ import { Menu, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useState } from 'react'
 import { SERVICES_HUB_PATH } from '@/lib/utils/services-hub'
+import { appHref } from '@/lib/utils/site-url'
 
 const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -45,7 +46,7 @@ const Header = () => {
               Lojistas
             </Link>
             <Button variant="outline" size="sm" asChild>
-              <Link href="/portal">
+              <Link href={appHref('/portal')}>
                 Área do cliente
               </Link>
             </Button>
@@ -109,7 +110,7 @@ const Header = () => {
                 Lojistas
               </Link>
               <Link
-                href="/portal"
+                href={appHref('/portal')}
                 onClick={() => setIsMenuOpen(false)}
                 className="text-foreground hover:text-primary-accessible transition-colors font-medium text-left py-2"
               >
