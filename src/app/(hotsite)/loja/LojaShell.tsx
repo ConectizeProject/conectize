@@ -1,5 +1,6 @@
 import Image from 'next/image'
 import Link from 'next/link'
+import type { ReactNode } from 'react';
 import { business } from '@/lib/data/business'
 import {
 	lojaCopy,
@@ -16,11 +17,15 @@ export function LojaShell({
 	navBase = lojaPath,
 	whatsappHref = lojaWhatsAppHref,
 	nav = lojaNav,
+	headerAction,
+	fab,
 }: {
 	children: React.ReactNode
 	navBase?: string
 	whatsappHref?: string
 	nav?: readonly { href: string; label: string }[]
+	headerAction?: ReactNode
+	fab?: ReactNode
 }) {
 	return (
 		<div className={styles.page}>
@@ -58,14 +63,16 @@ export function LojaShell({
 						))}
 					</nav>
 
-					<LojaWhatsAppLink
-						className={`${styles.ctaWhatsapp} ${styles.headerCta}`}
-						href={whatsappHref}
-						placement="header"
-					>
-						<WhatsAppIcon className="h-4 w-4" />
-						WhatsApp
-					</LojaWhatsAppLink>
+					{headerAction ?? (
+						<LojaWhatsAppLink
+							className={`${styles.ctaWhatsapp} ${styles.headerCta}`}
+							href={whatsappHref}
+							placement="header"
+						>
+							<WhatsAppIcon className="h-4 w-4" />
+							WhatsApp
+						</LojaWhatsAppLink>
+					)}
 				</div>
 			</header>
 
@@ -97,15 +104,17 @@ export function LojaShell({
 				</div>
 			</footer>
 
-			<LojaWhatsAppLink
-				className={styles.fab}
-				href={whatsappHref}
-				placement="fab"
-				aria-label="Falar no WhatsApp"
-			>
-				<WhatsAppIcon className="h-5 w-5" />
-				<span>Orçamento</span>
-			</LojaWhatsAppLink>
+			{fab ?? (
+				<LojaWhatsAppLink
+					className={styles.fab}
+					href={whatsappHref}
+					placement="fab"
+					aria-label="Falar no WhatsApp"
+				>
+					<WhatsAppIcon className="h-5 w-5" />
+					<span>Orçamento</span>
+				</LojaWhatsAppLink>
+			)}
 		</div>
 	)
 }

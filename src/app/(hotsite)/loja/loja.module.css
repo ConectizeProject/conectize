@@ -10,6 +10,7 @@
 	--loja-dark-muted: rgb(255 255 255 / 0.68);
 	--loja-whatsapp: #25d366;
 	--loja-whatsapp-hover: #1ebe57;
+	--loja-price: #087a38;
 
 	min-height: 100dvh;
 	color: var(--loja-ink);
@@ -99,6 +100,27 @@
 
 .headerCta {
 	flex-shrink: 0;
+}
+
+.headerActions {
+	display: flex;
+	flex-shrink: 0;
+	align-items: center;
+	gap: 0.2rem;
+}
+
+.headerWhatsapp {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 2.25rem;
+	height: 2.25rem;
+	border-radius: 999px;
+	color: var(--loja-whatsapp);
+}
+
+.headerWhatsapp:hover {
+	background: rgb(37 211 102 / 0.12);
 }
 
 .hero {
@@ -295,6 +317,34 @@
 	animation: fadeUp 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.42s both;
 }
 
+.heroBookingActions {
+	flex-direction: column;
+	align-items: stretch;
+	width: 100%;
+	max-width: 24rem;
+}
+
+.heroFlush .heroBookingActions {
+	margin-right: auto;
+	margin-left: auto;
+}
+
+.heroActionNote {
+	margin: 0;
+	color: var(--loja-muted);
+	font-size: 0.82rem;
+	font-weight: 500;
+	line-height: 1.4;
+}
+
+.heroFlush .heroActionNote {
+	text-align: center;
+}
+
+.whatsappGlyph {
+	color: var(--loja-whatsapp);
+}
+
 .heroBookOff {
 	font-size: 0.62rem;
 	font-weight: 600;
@@ -314,8 +364,10 @@
 	min-height: 3.1rem;
 	padding: 0.75rem 1.35rem;
 	border-radius: 999px;
+	font: inherit;
 	font-size: 0.95rem;
 	font-weight: 650;
+	cursor: pointer;
 	transition:
 		transform 100ms ease-out,
 		background-color 200ms ease,
@@ -330,6 +382,12 @@
 
 .ctaPrimary:hover {
 	background: #1a1a1a;
+}
+
+.ctaPrimary:disabled,
+.ctaWhatsapp:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
 }
 
 .ctaWhatsapp {
@@ -732,22 +790,30 @@ a.bookingChoice {
 
 .bookingPick {
 	display: grid;
+	min-width: 0;
 	gap: 0.2rem;
 	margin: 0;
 	padding: 0.7rem 0.75rem;
+	border: 1px solid transparent;
 	border-radius: 0.85rem;
-	background: #0a0a0a;
-	color: #fff;
+	background: var(--loja-bg-soft);
+	color: var(--loja-ink);
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
 }
 
-.bookingPick dt {
-	color: rgb(255 255 255 / 0.62);
+.bookingPick:hover {
+	border-color: var(--loja-accent);
+}
+
+.bookingPickLabel {
+	color: var(--loja-muted);
 	font-size: 0.72rem;
-	font-weight: 650;
+	font-weight: 500;
 }
 
-.bookingPick dd {
-	margin: 0;
+.bookingPickValue {
 	font-size: 0.95rem;
 	font-weight: 700;
 	line-height: 1.25;
@@ -777,8 +843,9 @@ a.bookingChoice {
 }
 
 .bookingPriceNow {
-	font-size: 1.45rem;
-	font-weight: 750;
+	color: var(--loja-price);
+	font-size: 1.6rem;
+	font-weight: 850;
 	letter-spacing: -0.03em;
 	line-height: 1;
 }
@@ -791,6 +858,53 @@ a.bookingChoice {
 	font-size: 0.75rem;
 	font-style: normal;
 	font-weight: 750;
+}
+
+.bookingOffer {
+	display: grid;
+	gap: 0.3rem;
+	margin: 0;
+	padding: 0.7rem 0.8rem;
+	border-radius: 0.85rem;
+	background: var(--loja-bg-soft);
+	color: var(--loja-ink);
+	font-size: 0.92rem;
+	font-weight: 400;
+	line-height: 1.35;
+	overflow-wrap: anywhere;
+}
+
+.bookingOfferTitle {
+	display: block;
+	font-size: 1rem;
+	font-weight: 750;
+}
+
+.bookingOfferWas {
+	display: block;
+	color: var(--loja-muted);
+	font-weight: 400;
+}
+
+.bookingOffer strong {
+	color: var(--loja-price);
+	font-size: 1.15em;
+	font-weight: 850;
+	letter-spacing: -0.02em;
+}
+
+.bookingOfferNow {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 0.2rem 0.45rem;
+}
+
+.bookingOfferNow small {
+	color: var(--loja-muted);
+	font-size: 0.78rem;
+	font-weight: 400;
+	line-height: 1.35;
 }
 
 .bookingOsNumber {
@@ -884,8 +998,103 @@ a.bookingChoice {
 	line-height: 1.4;
 }
 
+.bookingStoreAddress {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 0.75rem;
+	margin: 0;
+	padding: 0.8rem 0.9rem;
+	border-radius: 0.85rem;
+	background: var(--loja-bg-soft);
+	color: var(--loja-ink);
+	font-size: 0.88rem;
+	font-style: normal;
+	line-height: 1.4;
+}
+
+.bookingStoreAddressText {
+	display: grid;
+	gap: 0.2rem;
+}
+
+.bookingStoreAddressText span {
+	color: var(--loja-muted);
+}
+
+.bookingStoreAddressLine {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+}
+
+.bookingCopyAddress {
+	display: inline-grid;
+	flex: 0 0 auto;
+	width: 1.35rem;
+	height: 1.35rem;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--loja-muted);
+	cursor: pointer;
+	place-items: center;
+}
+
+.bookingCopyAddress svg {
+	width: 0.95rem;
+	height: 0.95rem;
+}
+
+.bookingStoreAddressActions {
+	display: grid;
+	justify-items: stretch;
+	gap: 0.35rem;
+}
+
+.bookingStoreAddressActions a {
+	min-height: 2rem;
+	padding: 0.3rem 0.65rem;
+	border: 1px solid var(--loja-border);
+	border-radius: 999px;
+	background: #fff;
+	color: var(--loja-ink);
+	font: inherit;
+	font-size: 0.75rem;
+	font-style: normal;
+	font-weight: 700;
+	line-height: 1;
+	text-align: center;
+	text-decoration: none;
+	cursor: pointer;
+}
+
+.bookingStoreAddressActions a {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	background: var(--loja-whatsapp);
+	color: #fff;
+}
+
+.bookingAccountActions {
+	display: flex;
+	gap: 0.75rem;
+}
+
+.bookingAccountActions .ctaPrimary,
+.bookingAccountActions .ctaGhost {
+	flex: 1 1 0;
+	width: auto;
+	min-width: 0;
+}
+
 .bookingSuccess .ctaGhost {
 	width: 100%;
+}
+
+.bookingSuccess .bookingAccountActions .ctaGhost {
+	width: auto;
 }
 
 .bookingSuccess .bookingPrice {
@@ -1001,8 +1210,20 @@ a.bookingChoice {
 	--loja-bg-soft: #f5f7fa;
 	--loja-whatsapp: #25d366;
 	--loja-whatsapp-hover: #1ebe57;
-	max-width: 42rem;
+	--loja-price: #087a38;
+	width: min(42rem, calc(100% - 1rem));
+	max-width: calc(100% - 1rem);
 	gap: 1rem;
+	overflow-x: hidden;
+}
+
+.bookingDialog .ctaPrimary {
+	background: var(--loja-whatsapp);
+	color: #fff;
+}
+
+.bookingDialog .ctaPrimary:hover {
+	background: var(--loja-whatsapp-hover);
 }
 
 .bookingDialog .bookingDialogHead {
@@ -1011,10 +1232,12 @@ a.bookingChoice {
 }
 
 .bookingDialogTitle {
-	font-size: clamp(1.45rem, 2.4vw, 1.85rem);
+	padding-inline: 1.5rem;
+	font-size: clamp(1.25rem, 2.4vw, 1.85rem);
 	letter-spacing: -0.03em;
 	line-height: 1.15;
 	text-align: center;
+	overflow-wrap: anywhere;
 }
 
 .bookingDialogHidden {
@@ -1049,6 +1272,11 @@ a.bookingChoice {
 	text-align: center;
 }
 
+.bookingStepLabel {
+	display: block;
+	overflow-wrap: anywhere;
+}
+
 .bookingStep::before {
 	content: '';
 	height: 0.28rem;
@@ -1079,35 +1307,62 @@ a.bookingChoice {
 	display: grid;
 	grid-template-columns: repeat(2, minmax(0, 1fr));
 	gap: 0.45rem;
-	max-height: 16rem;
+	max-height: clamp(6.5rem, calc(100dvh - 30rem), 16rem);
 	overflow: auto;
+	overscroll-behavior: contain;
 }
 
 .bookingModels .bookingSlot {
 	width: 100%;
+	min-width: 0;
+	overflow-wrap: anywhere;
 }
 
 .bookingNav {
 	display: flex;
 	flex-wrap: wrap;
+	justify-content: flex-end;
 	gap: 0.75rem;
 }
 
 .bookingNav .ctaGhost,
 .bookingNav .ctaPrimary {
-	flex: 1 1 8rem;
+	flex: 1 1 calc(50% - 0.375rem);
+	max-width: calc(50% - 0.375rem);
 }
 
 .bookingSubmit {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
+	justify-content: flex-end;
 	gap: 0.75rem;
 }
 
 .bookingSubmit .ctaWhatsapp,
 .bookingSubmit .ctaPrimary {
 	flex: 1 1 14rem;
+}
+
+.bookingFinalActions {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+}
+
+.bookingFinalActions > .ctaGhost {
+	flex: 1 1 0;
+}
+
+.bookingFinalActions .bookingSubmit {
+	flex: 1 1 0;
+	min-width: 0;
+}
+
+.bookingFinalActions .bookingSubmit .ctaPrimary {
+	flex-basis: 0;
+	width: 100%;
 }
 
 .bookingModes {
@@ -1139,15 +1394,20 @@ a.bookingChoice {
 }
 
 .calendarHead {
-	display: flex;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
 	align-items: center;
-	justify-content: space-between;
 	gap: 0.75rem;
 }
 
 .calendarHead strong {
 	font-size: 1rem;
 	letter-spacing: -0.02em;
+	text-align: center;
+}
+
+.calendarHead > :last-child {
+	justify-self: end;
 }
 
 .calendarNav {
@@ -1598,6 +1858,43 @@ a.bookingChoice {
 	box-shadow: 0 6px 18px rgb(10 10 10 / 0.03);
 }
 
+.modelChips li:has(.modelChip) {
+	padding: 0;
+	border: 0;
+	background: transparent;
+	box-shadow: none;
+}
+
+.modelChip {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0.55rem 0.9rem;
+	border: 1px solid var(--loja-border);
+	border-radius: 999px;
+	background: #fff;
+	color: var(--loja-ink);
+	font: inherit;
+	font-size: 0.9rem;
+	font-weight: 550;
+	line-height: 1.2;
+	box-shadow: 0 6px 18px rgb(10 10 10 / 0.03);
+	cursor: pointer;
+}
+
+.modelChip:hover {
+	border-color: rgb(10 10 10 / 0.22);
+}
+
+.modelChip:focus-visible {
+	outline: 2px solid var(--loja-accent);
+	outline-offset: 2px;
+}
+
+.modelChip:active {
+	transform: scale(0.97);
+}
+
 .faqDetails {
 	border: 1px solid var(--loja-border);
 	border-radius: 1.15rem;
@@ -1758,6 +2055,47 @@ a.bookingChoice {
 	background: var(--loja-whatsapp-hover);
 }
 
+.fabStack {
+	position: fixed;
+	right: 1rem;
+	bottom: 1rem;
+	z-index: 50;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 0.5rem;
+}
+
+.fabStack .fab {
+	position: static;
+	border: 0;
+	font: inherit;
+	font-weight: 700;
+	cursor: pointer;
+}
+
+.fabIcon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 2.65rem;
+	height: 2.65rem;
+	border: 1px solid var(--loja-border);
+	border-radius: 999px;
+	background: #fff;
+	color: var(--loja-whatsapp);
+	box-shadow: 0 8px 18px rgb(10 10 10 / 0.12);
+}
+
+.fabIcon:active,
+.fabStack .fab:active {
+	transform: scale(0.97);
+}
+
+.page:has(.fabStack) .footer {
+	padding-bottom: 8.5rem;
+}
+
 .legal {
 	max-width: 42rem;
 	padding: 7.5rem 1.25rem 4rem;
@@ -1897,6 +2235,14 @@ a.bookingChoice {
 		justify-content: flex-start;
 	}
 
+	.heroFlush .heroBookingActions {
+		margin-left: 0;
+	}
+
+	.heroFlush .heroActionNote {
+		text-align: left;
+	}
+
 	.heroFlush .heroCallouts {
 		margin-left: 0;
 		margin-right: 0;
@@ -2026,7 +2372,9 @@ a.bookingChoice {
 	.ctaWhatsapp,
 	.ctaGhost,
 	.ctaNeon,
-	.fab {
+	.fab,
+	.fabIcon,
+	.modelChip {
 		transition: none;
 	}
 

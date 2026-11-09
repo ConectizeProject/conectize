@@ -33,11 +33,20 @@ export type BookingFunnelStep =
 	| 'account_start'
 	| 'account_created'
 
+export type BookingCtaLocation =
+	| 'hero'
+	| 'header'
+	| 'floating'
+	| 'modelos'
+	| 'secao_5off'
+	| 'url'
+
 export type BookingFunnelDetail = {
 	model?: string
 	date?: string
 	slot?: string
 	error?: string
+	ctaLocation?: BookingCtaLocation
 }
 
 const concludedBookingKeys = new Set<string>()
@@ -102,6 +111,7 @@ export function trackBookingFunnel (step: BookingFunnelStep, detail?: BookingFun
 	const date = String(detail?.date || '').trim()
 	const slot = String(detail?.slot || '').trim()
 	const error = sanitizeBookingError(detail?.error, '')
+	const ctaLocation = detail?.ctaLocation
 	window.gtag('event', step, {
 		event_category: 'agendamento',
 		event_label: error || model || 'troca-de-bateria',
@@ -110,6 +120,7 @@ export function trackBookingFunnel (step: BookingFunnelStep, detail?: BookingFun
 		booking_date: date || undefined,
 		booking_slot: slot || undefined,
 		error: error || undefined,
+		...(ctaLocation ? { cta_location: ctaLocation } : {}),
 	})
 }
 

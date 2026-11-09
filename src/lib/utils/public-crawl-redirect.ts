@@ -60,6 +60,8 @@ function isStorefrontPath (pathname: string): boolean {
 
 function catalogFilterDestination (pathname: string, params: URLSearchParams): string | null {
   if (!isStorefrontPath(pathname)) return null
+  // Agendamento da bateria usa ?agendar=1&modelo=iphone-13. Não é filtro de catálogo.
+  if (pathname === '/loja/bateria-iphone' && params.get('agendar') === '1') return null
   const hasFilter = CATALOG_FILTER_KEYS.some((key) => params.has(key))
   if (!hasFilter) return null
 

@@ -91,6 +91,33 @@ describe('trackBookingFunnel', () => {
 		])
 		expect(events[1]?.[1]).toBe('submit_booking')
 		expect(events.some((item) => item[1] === 'conversion')).toBe(false)
+		expect(events[0]?.[2]).not.toHaveProperty('cta_location')
+	})
+
+	it('acrescenta cta_location e o modelo no start_booking', () => {
+		vi.stubGlobal('window', {
+			gtag (...args: unknown[]) {
+				events.push(args)
+			},
+			location: { pathname: '/loja/bateria-iphone' },
+		})
+
+		trackBookingFunnel('start_booking', { ctaLocation: 'modelos', model: 'iPhone 13' })
+
+		expect(events).toEqual([[
+			'event',
+			'start_booking',
+			{
+				event_category: 'agendamento',
+				event_label: 'iPhone 13',
+				page_path: '/loja/bateria-iphone',
+				booking_model: 'iPhone 13',
+				booking_date: undefined,
+				booking_slot: undefined,
+				error: undefined,
+				cta_location: 'modelos',
+			},
+		]])
 	})
 })
 

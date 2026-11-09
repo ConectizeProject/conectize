@@ -95,25 +95,28 @@ export function publicBookingCanAttachToCustomer (
 	return Boolean(stored && submitted && stored === submitted)
 }
 
-/**
- * Endpoint público: nunca sobrescreve e-mail/telefone já preenchidos.
- * Quem conhece o CPF não pode sequestrar o contato do cadastro.
- */
-export function buildPublicBookingCustomerPatch (
+export function buildBookingContactNotes (
 	existing: {
+		full_name?: string | null
 		email?: string | null
 		mobile_phone?: string | null
 		phone?: string | null
-		referral_source?: string | null
 	},
-	input: { email: string, phone: string },
-): Record<string, string> {
-	const patch: Record<string, string> = {}
-	if (!String(existing.email || '').trim()) patch.email = input.email
-	if (!String(existing.mobile_phone || '').trim()) patch.mobile_phone = input.phone
-	if (!String(existing.phone || '').trim()) patch.phone = input.phone
-	if (!String(existing.referral_source || '').trim()) patch.referral_source = 'google'
-	return patch
+	input: { fullName: string, email: string, phone: string },
+) {
+	const lines: string[] = []
+	if (String(existing.full_name || '').trim().toLocaleLowerCase('pt-BR') !== input.fullName.trim().toLocaleLowerCase('pt-BR')) {
+		lines.push(`Nome: ${input.fullName.trim()}`)
+	}
+	if (normalizeBookingEmail(String(existing.email || '')) !== normalizeBookingEmail(input.email)) {
+		lines.push(`E-mail: ${normalizeBookingEmail(input.email)}`)
+	}
+	const storedPhone = onlyDigits(String(existing.mobile_phone || existing.phone || ''))
+	if (storedPhone !== onlyDigits(input.phone)) {
+		lines.push(`Celular: ${input.phone.trim()}`)
+	}
+	if (!lines.length) return ''
+	return ['Informações de contato informadas no agendamento:', ...lines].join('\n')
 }
 
 export type CreateAppointmentInput = {
@@ -443,16 +446,13 @@ export async function createBatteryAppointment (
 	const existing = pickCustomerRowByCpf(matchedRows ?? [], cpf)
 	let customerId = existing?.id ? String(existing.id) : ''
 	let nameNote = ''
+	let contactNotes = ''
+	let canExposeCustomerData = true
 	if (customerId && existing) {
-		if (!publicBookingCanAttachToCustomer(existing, email)) {
-			return { ok: false as const, error: 'dados_invalidos' as const }
-		}
+		canExposeCustomerData = publicBookingCanAttachToCustomer(existing, email)
+		contactNotes = buildBookingContactNotes(existing, { fullName, email, phone })
 		if (String(existing.full_name || '').trim() && String(existing.full_name || '').trim() !== fullName) {
 			nameNote = `Nome informado no agendamento: ${fullName}. Cadastro existente mantido.`
-		}
-		const patch = buildPublicBookingCustomerPatch(existing, { email, phone })
-		if (Object.keys(patch).length) {
-			await supabase.from('customers').update(patch).eq('id', customerId)
 		}
 	} else {
 		const { data: created, error } = await supabase
@@ -479,10 +479,9 @@ export async function createBatteryAppointment (
 					.limit(5)
 				const raced = pickCustomerRowByCpf(racedRows ?? [], cpf)
 				if (raced?.id) {
-					if (!publicBookingCanAttachToCustomer(raced, email)) {
-						return { ok: false as const, error: 'dados_invalidos' as const }
-					}
 					customerId = String(raced.id)
+					canExposeCustomerData = publicBookingCanAttachToCustomer(raced, email)
+					contactNotes = buildBookingContactNotes(raced, { fullName, email, phone })
 					if (String(raced.full_name || '').trim() && String(raced.full_name || '').trim() !== fullName) {
 						nameNote = `Nome informado no agendamento: ${fullName}. Cadastro existente mantido.`
 					}
@@ -499,9 +498,15 @@ export async function createBatteryAppointment (
 
 	const active = await listActiveAppointments(supabase, customerId)
 	if (!active) return { ok: false as const, error: 'config' as const }
-	const decision = nextAppointmentDecision(active.length, Boolean(input.confirmExtra))
+	const decision = canExposeCustomerData
+		? nextAppointmentDecision(active.length, Boolean(input.confirmExtra))
+		: active.length >= SIMULTANEOUS_APPOINTMENT_LIMIT ? 'limite' : 'criar'
 	if (decision === 'limite') {
-		return { ok: false as const, error: 'limite' as const, appointments: active }
+		return {
+			ok: false as const,
+			error: 'limite' as const,
+			appointments: canExposeCustomerData ? active : [],
+		}
 	}
 	if (decision === 'ja_agendado') {
 		return { ok: false as const, error: 'ja_agendado' as const, appointments: active }
@@ -531,7 +536,7 @@ export async function createBatteryAppointment (
 			device_model_id: deviceModelId,
 			estimated_ready_at: null,
 			customer_description: BOOKING_CUSTOMER_DESCRIPTION,
-			receiving_notes: null,
+			receiving_notes: contactNotes || null,
 			services: services.items,
 			services_total_cents: services.totalValueCents,
 			services_cost_total_cents: services.totalCostCents,
@@ -573,7 +578,7 @@ export async function createBatteryAppointment (
 		ok: true as const,
 		orderId: String(inserted.id),
 		displayNumber: inserted.display_number ?? null,
-		shareToken: inserted.share_token ? String(inserted.share_token) : '',
+		shareToken: canExposeCustomerData && inserted.share_token ? String(inserted.share_token) : '',
 	}
 }
 
