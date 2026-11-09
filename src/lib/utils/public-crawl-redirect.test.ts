@@ -106,6 +106,16 @@ describe('resolvePublicCrawlRedirect', () => {
       host: 'www.conectize.com.br',
     })).toEqual({ pathname: '/contato', search: '' })
     expect(resolvePublicCrawlRedirect({
+      pathname: '/loja/bateria-iphone',
+      searchParams: new URLSearchParams('agendar=1&modelo=iphone-13&utm_source=google'),
+      host: 'www.conectize.com.br',
+    })).toBeNull()
+    expect(resolvePublicCrawlRedirect({
+      pathname: '/loja/bateria-iphone',
+      searchParams: new URLSearchParams('modelo=iphone-13'),
+      host: 'www.conectize.com.br',
+    })).toEqual({ pathname: '/loja/bateria-iphone', search: '' })
+    expect(resolvePublicCrawlRedirect({
       pathname: '/portal/vendas',
       searchParams: new URLSearchParams('page=2'),
       host: 'www.conectize.com.br',

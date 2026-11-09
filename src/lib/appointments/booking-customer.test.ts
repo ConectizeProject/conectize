@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
 	bookingCustomerCpfCandidates,
-	buildPublicBookingCustomerPatch,
+	buildBookingContactNotes,
 	pickCustomerRowByCpf,
 	publicBookingCanAttachToCustomer,
 } from './service'
@@ -38,16 +38,25 @@ describe('cliente no agendamento público', () => {
 		expect(picked?.id).toBe('masked')
 	})
 
-	it('não sobrescreve e-mail nem telefone já preenchidos', () => {
-		expect(buildPublicBookingCustomerPatch(
+	it('registra na OS somente os dados de contato diferentes', () => {
+		expect(buildBookingContactNotes(
 			{
+				full_name: 'Cliente Atual',
 				email: 'cliente@empresa.com',
 				mobile_phone: '31988887777',
 				phone: '31988887777',
-				referral_source: 'instagram',
 			},
-			{ email: 'atacante@evil.test', phone: '31911112222' },
-		)).toEqual({})
+			{
+				fullName: 'Nome informado',
+				email: 'novo@empresa.com',
+				phone: '(31) 9 1111-2222',
+			},
+		)).toBe([
+			'Informações de contato informadas no agendamento:',
+			'Nome: Nome informado',
+			'E-mail: novo@empresa.com',
+			'Celular: (31) 9 1111-2222',
+		].join('\n'))
 	})
 
 	it('só reutiliza cadastro existente quando o e-mail confere', () => {
@@ -69,19 +78,18 @@ describe('cliente no agendamento público', () => {
 		)).toBe(false)
 	})
 
-	it('preenche só campos vazios e a origem quando faltam', () => {
-		expect(buildPublicBookingCustomerPatch(
+	it('não cria observação quando os dados conferem', () => {
+		expect(buildBookingContactNotes(
 			{
-				email: null,
-				mobile_phone: '',
-				phone: '3133334444',
-				referral_source: null,
+				full_name: 'Cliente Atual',
+				email: 'CLIENTE@empresa.com',
+				mobile_phone: '31999998888',
 			},
-			{ email: 'novo@cliente.com', phone: '31999998888' },
-		)).toEqual({
-			email: 'novo@cliente.com',
-			mobile_phone: '31999998888',
-			referral_source: 'google',
-		})
+			{
+				fullName: 'cliente atual',
+				email: 'cliente@empresa.com',
+				phone: '(31) 9 9999-8888',
+			},
+		)).toBe('')
 	})
 })

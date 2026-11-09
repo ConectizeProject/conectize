@@ -12,7 +12,7 @@ import { serviceWarranty } from '@/lib/data/site-facts'
 import { getAuthUser } from '@/lib/supabase/server'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { LojaCategoryPage, lojaCategoryMetadata } from '../LojaCategoryPage'
-import { BatteryBooking, BatteryBookingBand, BatteryBookingTrigger, type BatteryAppointmentSession } from './BateriaAgendamento'
+import { type BatteryAppointmentSession, BatteryBooking, BatteryBookingBand, BatteryFloatingCta, BatteryHeaderCta, BatteryHeroActions, BatteryModelList } from './BateriaAgendamento'
 
 const description =
 	'Bateria nova para iPhone 11 ao 17, incluindo Pro e Pro Max. Pronta entrega na loja em Santa Efigênia, BH. Consulte o preço pelo WhatsApp.'
@@ -56,7 +56,9 @@ export default async function LojaBateriaIphonePage () {
 				{ href: '#unidade', label: 'Loja' },
 				{ href: '#contato', label: 'Contato' },
 			]}
-			heroAction={<BatteryBookingTrigger />}
+			headerAction={<BatteryHeaderCta />}
+			fab={<BatteryFloatingCta />}
+			heroActions={<BatteryHeroActions />}
 			afterHero={<BatteryBookingBand />}
 			path={lojaCategoryPaths.bateria}
 			description={description}
@@ -76,7 +78,8 @@ export default async function LojaBateriaIphonePage () {
 			}}
 			whatsappMessage={lojaWhatsAppMessages.bateria}
 			models={iphoneModels}
-			modelsLead="Referência dos modelos de iPhone com bateria na loja. Envie o seu no WhatsApp para confirmar disponibilidade e preço."
+			modelsList={<BatteryModelList models={iphoneModels} />}
+			modelsLead="Toque no seu modelo para ver o valor com 5% off e agendar."
 			highlights={[
 				{
 					title: 'Peça nova',

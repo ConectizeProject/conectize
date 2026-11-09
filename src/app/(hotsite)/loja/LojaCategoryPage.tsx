@@ -95,6 +95,10 @@ type LojaCategoryPageProps = {
 	heroImage?: LojaHeroImage
 	afterHero?: ReactNode
 	heroAction?: ReactNode
+	heroActions?: ReactNode
+	headerAction?: ReactNode
+	fab?: ReactNode
+	modelsList?: ReactNode
 	heroCallouts?: readonly LojaCategoryCallout[]
 	reviewsAfterHero?: boolean
 }
@@ -138,6 +142,10 @@ export function LojaCategoryPage ({
 	heroImage,
 	afterHero,
 	heroAction,
+	heroActions,
+	headerAction,
+	fab,
+	modelsList,
 	heroCallouts,
 	reviewsAfterHero = false,
 }: LojaCategoryPageProps) {
@@ -176,29 +184,31 @@ export function LojaCategoryPage ({
 					})}
 				</ul>
 			) : null}
-			<div className={styles.actions}>
-				<LojaWhatsAppLink
-					className={styles.ctaWhatsapp}
-					href={href}
-					placement="hero"
-				>
-					<WhatsAppIcon className="h-5 w-5" />
-					Consultar no WhatsApp
-				</LojaWhatsAppLink>
-				{heroAction ?? (
-					<a
-						className={styles.ctaGhost}
-						href={hasModels ? '#modelos' : '#unidade'}
+			{heroActions ?? (
+				<div className={styles.actions}>
+					<LojaWhatsAppLink
+						className={styles.ctaWhatsapp}
+						href={href}
+						placement="hero"
 					>
-						{hasModels ? modelsAnchorLabel : 'Ver a loja'}
-					</a>
-				)}
-			</div>
+						<WhatsAppIcon className="h-5 w-5" />
+						Consultar no WhatsApp
+					</LojaWhatsAppLink>
+					{heroAction ?? (
+						<a
+							className={styles.ctaGhost}
+							href={hasModels ? '#modelos' : '#unidade'}
+						>
+							{hasModels ? modelsAnchorLabel : 'Ver a loja'}
+						</a>
+					)}
+				</div>
+			)}
 		</>
 	)
 
 	return (
-		<LojaShell navBase="" whatsappHref={href} nav={resolvedNav}>
+		<LojaShell navBase="" whatsappHref={href} nav={resolvedNav} headerAction={headerAction} fab={fab}>
 			<script
 				type="application/ld+json"
 				dangerouslySetInnerHTML={{
@@ -260,11 +270,13 @@ export function LojaCategoryPage ({
 								<h2 id="modelos-titulo">{modelsTitle}</h2>
 								<p>{modelsLead}</p>
 							</div>
-							<ul className={styles.modelChips}>
-								{models?.map((model) => (
-									<li key={model}>{model}</li>
-								))}
-							</ul>
+							{modelsList ?? (
+								<ul className={styles.modelChips}>
+									{models?.map((model) => (
+										<li key={model}>{model}</li>
+									))}
+								</ul>
+							)}
 						</div>
 					</section>
 				) : null}

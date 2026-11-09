@@ -2,12 +2,15 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useFormik } from 'formik'
+import { Copy } from 'lucide-react'
 import * as Yup from 'yup'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { type BookingCtaLocation, sanitizeBookingError, trackAgendamentoConcluido, trackBookingFunnel } from '@/lib/analytics/loja-conversions'
+import { batteryModelFromQuery } from '@/lib/appointments/battery-model-query'
 import { BOOKING_DISCOUNT_PERCENT, discountedPriceCents } from '@/lib/appointments/battery-prices'
-import { sanitizeBookingError, trackAgendamentoConcluido, trackBookingFunnel } from '@/lib/analytics/loja-conversions'
 import { formatSlotLabel, lastBookableDateKey, listSlotStarts } from '@/lib/appointments/slots'
+import { business } from '@/lib/data/business'
 import { whatsappLink } from '@/lib/data/hotsite-loja'
 import { formatCpf } from '@/lib/utils/format-cpf-cnpj'
 import { formatPhoneBr } from '@/lib/utils/format-phone'
@@ -55,7 +58,7 @@ function formatMoneyBr (cents: number) {
 }
 
 type BookingContextValue = {
-	openBooking: () => void
+	openBooking: (location: BookingCtaLocation, model?: string) => void
 	whatsappHref: string
 }
 
@@ -173,13 +176,87 @@ function useBatteryBooking () {
 	return value
 }
 
-export function BatteryBookingTrigger () {
+function BookingModelOffer ({ model, cents }: { model: string, cents: number }) {
+	if (!model || cents <= 0) return null
+	const discounted = discountedPriceCents(cents)
+	return (
+		<p className={styles.bookingOffer} aria-live="polite">
+			<span className={styles.bookingOfferTitle}>Bateria {model}</span>
+			<span className={styles.bookingOfferWas}>De <s>{formatMoneyBr(cents)}</s></span>
+			<span className={styles.bookingOfferNow}>
+				Por <strong>{formatMoneyBr(discounted)}</strong>
+				<small>com {BOOKING_DISCOUNT_PERCENT}% de desconto no agendamento online</small>
+			</span>
+		</p>
+	)
+}
+
+export function BatteryHeroActions () {
+	const { openBooking, whatsappHref } = useBatteryBooking()
+	return (
+		<div className={`${styles.actions} ${styles.heroBookingActions}`}>
+			<button type="button" className={styles.ctaWhatsapp} onClick={() => openBooking('hero')}>
+				Agendar com 5% off
+			</button>
+			<LojaWhatsAppLink className={styles.ctaGhost} href={whatsappHref} placement="hero">
+				<WhatsAppIcon className={`h-5 w-5 ${styles.whatsappGlyph}`} />
+				Consultar no WhatsApp
+			</LojaWhatsAppLink>
+			<p className={styles.heroActionNote}>Escolha o modelo e veja o valor com desconto na hora.</p>
+		</div>
+	)
+}
+
+export function BatteryHeaderCta () {
+	const { openBooking, whatsappHref } = useBatteryBooking()
+	return (
+		<div className={styles.headerActions}>
+			<LojaWhatsAppLink
+				className={styles.headerWhatsapp}
+				href={whatsappHref}
+				placement="header"
+				aria-label="Consultar no WhatsApp"
+			>
+				<WhatsAppIcon className="h-4 w-4" />
+			</LojaWhatsAppLink>
+			<button type="button" className={`${styles.ctaWhatsapp} ${styles.headerCta}`} onClick={() => openBooking('header')}>
+				Agendar 5% off
+			</button>
+		</div>
+	)
+}
+
+export function BatteryFloatingCta () {
+	const { openBooking, whatsappHref } = useBatteryBooking()
+	return (
+		<div className={styles.fabStack}>
+			<LojaWhatsAppLink
+				className={styles.fabIcon}
+				href={whatsappHref}
+				placement="fab"
+				aria-label="Consultar no WhatsApp"
+			>
+				<WhatsAppIcon className="h-5 w-5" />
+			</LojaWhatsAppLink>
+			<button type="button" className={styles.fab} onClick={() => openBooking('floating')}>
+				Agendar 5% off
+			</button>
+		</div>
+	)
+}
+
+export function BatteryModelList ({ models }: { models: readonly string[] }) {
 	const { openBooking } = useBatteryBooking()
 	return (
-		<button type="button" className={`${styles.ctaNeon} ${styles.heroBook}`} onClick={openBooking}>
-			Agendar troca
-			<span className={styles.heroBookOff}>5% de desconto</span>
-		</button>
+		<ul className={styles.modelChips}>
+			{models.map((model) => (
+				<li key={model}>
+					<button type="button" className={styles.modelChip} onClick={() => openBooking('modelos', model)}>
+						{model}
+					</button>
+				</li>
+			))}
+		</ul>
 	)
 }
 
@@ -197,7 +274,7 @@ export function BatteryBookingBand () {
 				<p className={styles.bookingLead}>
 					O desconto entra automaticamente na ordem de serviço, à vista ou parcelado.
 				</p>
-				<button type="button" className={styles.ctaNeon} onClick={openBooking}>
+				<button type="button" className={styles.ctaNeon} onClick={() => openBooking('secao_5off')}>
 					Agendar com 5% off
 				</button>
 			</div>
@@ -229,36 +306,35 @@ function CalendarPicker ({
 		return next
 	}, [cursor, daysInMonth, mondayOffset])
 	const currentMonth = today.slice(0, 7)
-	const nextMonthStart = month === 12
-		? `${year + 1}-01-01`
-		: `${year}-${String(month + 1).padStart(2, '0')}-01`
+	const previousMonth = month === 1 ? `${year - 1}-12` : `${year}-${String(month - 1).padStart(2, '0')}`
+	const followingMonth = month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, '0')}`
+	const hasSelectableDate = (monthKey: string) => {
+		const [targetYear, targetMonth] = monthKey.split('-').map(Number)
+		const targetDays = new Date(targetYear, targetMonth, 0).getDate()
+		for (let day = 1; day <= targetDays; day += 1) {
+			const dateKey = `${monthKey}-${String(day).padStart(2, '0')}`
+			if (dateKey < today || dateKey > latest || listSlotStarts(dateKey).length === 0) continue
+			if (openDates === null || openDates.has(dateKey)) return true
+		}
+		return false
+	}
+	const hasPreviousMonth = previousMonth >= currentMonth && hasSelectableDate(previousMonth)
+	const hasFollowingMonth = `${followingMonth}-01` <= latest && hasSelectableDate(followingMonth)
 
 	return (
 		<div className={styles.calendar}>
 			<div className={styles.calendarHead}>
-				<button
-					type="button"
-					className={styles.calendarNav}
-					onClick={() => {
-						const previous = month === 1 ? `${year - 1}-12` : `${year}-${String(month - 1).padStart(2, '0')}`
-						setCursor(previous)
-					}}
-					disabled={cursor <= currentMonth}
-				>
-					Mês anterior
-				</button>
+				{hasPreviousMonth ? (
+					<button type="button" className={styles.calendarNav} onClick={() => setCursor(previousMonth)}>
+						Mês anterior
+					</button>
+				) : <span />}
 				<strong>{monthLabel(year, month - 1)}</strong>
-				<button
-					type="button"
-					className={styles.calendarNav}
-					onClick={() => {
-						const following = month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, '0')}`
-						setCursor(following)
-					}}
-					disabled={nextMonthStart > latest}
-				>
-					Próximo mês
-				</button>
+				{hasFollowingMonth ? (
+					<button type="button" className={styles.calendarNav} onClick={() => setCursor(followingMonth)}>
+						Próximo mês
+					</button>
+				) : <span />}
 			</div>
 			<div className={styles.calendarWeek}>
 				{WEEKDAYS.map((label) => <span key={label}>{label}</span>)}
@@ -322,11 +398,14 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 	const [created, setCreated] = useState<{ displayNumber: number | null, shareToken: string } | null>(null)
 	const [extraGate, setExtraGate] = useState<ExtraGate | null>(null)
 	const [step, setStep] = useState(0)
+	const [addressCopied, setAddressCopied] = useState(false)
 	const submitLockRef = useRef(false)
+	const modelsRef = useRef<HTMLDivElement>(null)
+	const urlOpenedRef = useRef(false)
 	const schema = useMemo(() => bookingSchema(models), [models])
 	const formik = useFormik<BookingValues>({
 		initialValues: {
-			model: models[0] || '',
+			model: '',
 			startsAt: '',
 			fullName: '',
 			phone: '',
@@ -341,6 +420,43 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 	useEffect(() => {
 		trackBookingFunnel('view_offer')
 	}, [])
+
+	const setFieldValueRef = useRef(formik.setFieldValue)
+	setFieldValueRef.current = formik.setFieldValue
+
+	useEffect(() => {
+		if (urlOpenedRef.current) return
+		const params = new URLSearchParams(window.location.search)
+		if (params.get('agendar') !== '1') return
+		urlOpenedRef.current = true
+		const model = batteryModelFromQuery(params.get('modelo'), models)
+		setError('')
+		setExtraGate(null)
+		setStep(0)
+		setPanel('book')
+		void setFieldValueRef.current('model', model, false)
+		setOpen(true)
+		trackBookingFunnel('start_booking', {
+			ctaLocation: 'url',
+			...(model ? { model } : {}),
+		})
+	}, [models])
+
+	useEffect(() => {
+		if (!open || step !== 0 || !formik.values.model) return
+		const frame = requestAnimationFrame(() => {
+			const root = modelsRef.current
+			const model = formik.values.model
+			if (!root || !model) return
+			const button = root.querySelector<HTMLButtonElement>(`[data-model="${CSS.escape(model)}"]`)
+			if (!button) return
+			const rootRect = root.getBoundingClientRect()
+			const buttonRect = button.getBoundingClientRect()
+			if (buttonRect.top < rootRect.top) root.scrollTop -= rootRect.top - buttonRect.top
+			else if (buttonRect.bottom > rootRect.bottom) root.scrollTop += buttonRect.bottom - rootRect.bottom
+		})
+		return () => cancelAnimationFrame(frame)
+	}, [open, step, formik.values.model])
 
 	const openDateSet = useMemo(() => (openDates ? new Set(openDates) : null), [openDates])
 	const dateRef = useRef(date)
@@ -391,12 +507,19 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 		return () => controller.abort()
 	}, [date, open, panel])
 
-	function openBooking () {
+	function openBooking (location: BookingCtaLocation, model?: string) {
+		const selected = batteryModelFromQuery(model, models)
 		setError('')
+		setExtraGate(null)
 		setStep(0)
 		setPanel('book')
+		setAddressCopied(false)
+		void formik.setFieldValue('model', selected, false)
 		setOpen(true)
-		trackBookingFunnel('start_booking')
+		trackBookingFunnel('start_booking', {
+			ctaLocation: location,
+			...(selected ? { model: selected } : {}),
+		})
 	}
 
 	function chooseDate (dateKey: string) {
@@ -565,16 +688,6 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 
 	const accountHref = created?.shareToken ? '/portal/cadastro?origem=agendamento' : ''
 	const selectedLabel = slots.find((slot) => slot.startsAt === formik.values.startsAt)?.label || ''
-	const [bookingYear, bookingMonth, bookingDay] = date.split('-')
-	const whatsappChangeHref = whatsappLink(
-		[
-			'Olá! Acabei de agendar a troca de bateria pelo site e quero alterar o horário.',
-			created?.displayNumber != null ? `OS #${created.displayNumber}` : '',
-			`Modelo: ${formik.values.model}`,
-			`Data: ${bookingDay}/${bookingMonth}/${bookingYear}${selectedLabel ? `, às ${selectedLabel}` : ''}`,
-			`Nome: ${formik.values.fullName}`,
-		].filter(Boolean).join('\n'),
-	)
 	const maintenanceCents = prices[formik.values.model] || 0
 	const whatsappExistingHref = whatsappLink(
 		[
@@ -589,22 +702,21 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 			].filter(Boolean).join(', ')),
 		].filter(Boolean).join('\n'),
 	)
-	const whatsappRequestHref = whatsappLink(
-		[
-			`Olá, vim pelo site! Gostaria de agendar a troca de bateria do ${formik.values.model}, dia ${bookingDay}/${bookingMonth}/${bookingYear}${selectedLabel ? `, às ${selectedLabel}` : ''}.`,
-			'',
-			`Nome: ${formik.values.fullName}`,
-			`Celular: ${formik.values.phone}`,
-			`E-mail: ${formik.values.email}`,
-			`CPF: ${formik.values.cpf}`,
-		].join('\n'),
-	)
 
 	function fieldMessage (field: keyof BookingValues) {
 		const message = formik.errors[field]
 		if (typeof message !== 'string' || !message) return ''
 		if (!formik.touched[field] && formik.submitCount === 0) return ''
 		return message
+	}
+
+	async function copyStoreAddress () {
+		try {
+			await navigator.clipboard.writeText(business.address.full)
+			setAddressCopied(true)
+		} catch {
+			setAddressCopied(false)
+		}
 	}
 
 	const canContinue = step === 0
@@ -654,7 +766,7 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 		<BookingContext.Provider value={{ openBooking, whatsappHref }}>
 			{children}
 			<Dialog open={open} onOpenChange={setOpen}>
-				<DialogContent className={styles.bookingDialog}>
+				<DialogContent className={`${styles.bookingDialog} w-[min(42rem,calc(100%-1rem))] max-w-[calc(100%-1rem)] max-h-[calc(100dvh-0.75rem)] gap-3 overflow-x-hidden p-3.5 sm:gap-4 sm:p-6`}>
 					<DialogHeader className={styles.bookingDialogHead}>
 						<DialogTitle className={styles.bookingDialogTitle}>
 							{panel === 'success' ? 'Agendamento Realizado!' : 'Agendar com 5% de desconto'}
@@ -681,19 +793,23 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 							<h3 className={styles.bookingStepTitle}>{BOOKING_STEPS[step]}</h3>
 
 							{step === 0 ? (
-								<div className={styles.bookingModels} role="group" aria-label="Modelo">
-									{models.map((item) => (
-										<button
-											key={item}
-											type="button"
-											className={styles.bookingSlot}
-											aria-pressed={formik.values.model === item}
-											onClick={() => { void formik.setFieldValue('model', item) }}
-										>
-											{item}
-										</button>
-									))}
-								</div>
+								<>
+									<div ref={modelsRef} className={styles.bookingModels} role="group" aria-label="Modelo">
+										{models.map((item) => (
+											<button
+												key={item}
+												type="button"
+												className={styles.bookingSlot}
+												data-model={item}
+												aria-pressed={formik.values.model === item}
+												onClick={() => { void formik.setFieldValue('model', item) }}
+											>
+												{item}
+											</button>
+										))}
+									</div>
+									<BookingModelOffer model={formik.values.model} cents={prices[formik.values.model] || 0} />
+								</>
 							) : null}
 
 							{step === 1 ? <CalendarPicker date={date} onDate={chooseDate} openDates={openDateSet} /> : null}
@@ -722,20 +838,20 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 							{step === 3 ? (
 								<>
 									<div className={styles.bookingSummary}>
-										<dl className={styles.bookingPicks}>
-											<div className={styles.bookingPick}>
-												<dt>Modelo</dt>
-												<dd>{formik.values.model}</dd>
-											</div>
-											<div className={styles.bookingPick}>
-												<dt>Data</dt>
-												<dd>{formatBookingDate(date)}</dd>
-											</div>
-											<div className={styles.bookingPick}>
-												<dt>Horário</dt>
-												<dd>{selectedLabel || 'A escolher'}</dd>
-											</div>
-										</dl>
+										<div className={styles.bookingPicks}>
+											<button type="button" className={styles.bookingPick} onClick={() => setStep(0)}>
+												<span className={styles.bookingPickLabel}>Modelo</span>
+												<strong className={styles.bookingPickValue}>{formik.values.model}</strong>
+											</button>
+											<button type="button" className={styles.bookingPick} onClick={() => setStep(1)}>
+												<span className={styles.bookingPickLabel}>Data</span>
+												<strong className={styles.bookingPickValue}>{formatBookingDate(date)}</strong>
+											</button>
+											<button type="button" className={styles.bookingPick} onClick={() => setStep(2)}>
+												<span className={styles.bookingPickLabel}>Horário</span>
+												<strong className={styles.bookingPickValue}>{selectedLabel || 'A escolher'}</strong>
+											</button>
+										</div>
 										{prices[formik.values.model] > 0 ? (
 											<p className={styles.bookingPrice}>
 												<span className={styles.bookingPriceLabel}>Manutenção</span>
@@ -855,21 +971,23 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 									</button>
 								</div>
 							) : (
-								<>
+								<div className={styles.bookingFinalActions}>
 									<button type="button" className={styles.ctaGhost} onClick={goBack}>Voltar</button>
 									<div className={styles.bookingSubmit}>
-										<LojaWhatsAppLink
-											className={styles.ctaWhatsapp}
-											href={extraGate ? whatsappExistingHref : whatsappRequestHref}
-											placement="contato"
-											onClick={() => trackBookingFunnel(
-												extraGate?.kind === 'limit' ? 'whatsapp_existing' : extraGate ? 'whatsapp_change' : 'whatsapp_request',
-												funnelDetail(),
-											)}
-										>
-											<WhatsAppIcon className="h-5 w-5" />
-											{extraGate?.kind === 'limit' ? 'Agendar pelo WhatsApp' : extraGate ? 'Alterar pelo WhatsApp' : 'Solicitar pelo WhatsApp'}
-										</LojaWhatsAppLink>
+										{extraGate ? (
+											<LojaWhatsAppLink
+												className={styles.ctaWhatsapp}
+												href={whatsappExistingHref}
+												placement="contato"
+												onClick={() => trackBookingFunnel(
+													extraGate.kind === 'limit' ? 'whatsapp_existing' : 'whatsapp_change',
+													funnelDetail(),
+												)}
+											>
+												<WhatsAppIcon className="h-5 w-5" />
+												{extraGate.kind === 'limit' ? 'Agendar pelo WhatsApp' : 'Alterar pelo WhatsApp'}
+											</LojaWhatsAppLink>
+										) : null}
 										{extraGate?.kind === 'limit' ? null : extraGate?.kind === 'confirm' ? (
 											<button type="button" className={styles.ctaPrimary} disabled={pending} onClick={() => { void submitNew(formik.values, true) }}>
 												{pending ? 'Agendando...' : 'Seguir com novo agendamento'}
@@ -880,7 +998,7 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 											</button>
 										)}
 									</div>
-								</>
+								</div>
 							)}
 						</form>
 					) : null}
@@ -932,17 +1050,10 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 							{created.displayNumber != null ? (
 								<p className={styles.bookingOsNumber}>
 									<svg className={styles.bookingOsMark} viewBox="0 0 360 108" role="img" aria-label={`Ordem de serviço #${created.displayNumber}`}>
-										<defs>
-											<linearGradient id="booking-os-gradient" x1="0" y1="0" x2="1" y2="1">
-												<stop offset="0%" stopColor="#0c4a62" />
-												<stop offset="46%" stopColor="#156787" />
-												<stop offset="100%" stopColor="#0a3a4e" />
-											</linearGradient>
-										</defs>
-										<text x="180" y="30" textAnchor="middle" fill="url(#booking-os-gradient)" fontFamily="Outfit, sans-serif" fontSize="16" fontWeight="700">
+										<text x="180" y="30" textAnchor="middle" fill="#0a0a0a" fontFamily="Outfit, sans-serif" fontSize="16" fontWeight="700">
 											Ordem de serviço
 										</text>
-										<text x="180" y="88" textAnchor="middle" fill="url(#booking-os-gradient)" fontFamily="Outfit, sans-serif" fontSize="52" fontWeight="700">
+										<text x="180" y="88" textAnchor="middle" fill="#087a38" fontFamily="Outfit, sans-serif" fontSize="52" fontWeight="800">
 											#{created.displayNumber}
 										</text>
 									</svg>
@@ -990,28 +1101,35 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 									</span>
 								</p>
 							) : null}
-							<ul className={styles.bookingSuccessHints}>
-								<li>Crie uma conta para acompanhar as ordens. Na primeira tela, informe o CPF deste agendamento.</li>
-								<li>Para alterar ou cancelar, fale pelo WhatsApp.</li>
-							</ul>
-							<div className={styles.bookingSubmit}>
-								{accountHref ? (
+							<address className={styles.bookingStoreAddress}>
+								<span className={styles.bookingStoreAddressText}>
+									<strong>Conectize Store</strong>
+									<span className={styles.bookingStoreAddressLine}>
+										{business.address.full}
+										<button
+											type="button"
+											className={styles.bookingCopyAddress}
+											aria-label={addressCopied ? 'Endereço copiado' : 'Copiar endereço'}
+											title={addressCopied ? 'Endereço copiado' : 'Copiar endereço'}
+											onClick={() => { void copyStoreAddress() }}
+										>
+											<Copy aria-hidden="true" />
+										</button>
+									</span>
+								</span>
+								<span className={styles.bookingStoreAddressActions}>
+									<a href={business.mapsDirectionsUrl} target="_blank" rel="noopener noreferrer">
+										Ver rotas
+									</a>
+								</span>
+							</address>
+							{accountHref ? (
+								<div className={styles.bookingAccountActions}>
 									<a className={styles.ctaPrimary} href={accountHref} onClick={() => trackBookingFunnel('account_start')}>
 										Criar conta
 									</a>
-								) : null}
-								<LojaWhatsAppLink
-									className={styles.ctaWhatsapp}
-									href={whatsappChangeHref}
-									placement="contato"
-									onClick={() => trackBookingFunnel('whatsapp_change', funnelDetail())}
-								>
-									<WhatsAppIcon className="h-5 w-5" />
-									Alterar pelo WhatsApp
-								</LojaWhatsAppLink>
-							</div>
-							{created.shareToken ? (
-								<a className={styles.ctaGhost} href={`/os/${created.shareToken}`}>Acompanhar a OS</a>
+									<a className={styles.ctaGhost} href={`/os/${created.shareToken}`}>Acompanhar a OS</a>
+								</div>
 							) : null}
 						</div>
 					) : null}
