@@ -1,10 +1,17 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getOpenCashSession } from '@/lib/pdv/service'
 import {
+  assertSalesOrderPaymentWallets,
   clearSalesOrderFinancialTransactions,
   mapSalesOrdersWithFinancePosted,
   syncSalesOrderFinancialTransactions,
 } from '@/lib/finance/service-order-financial-sync'
+import type { CompanyPrintData } from '@/lib/ordem-print'
+import {
+  buildSalesCupomHtml,
+  type SalesCupomData,
+  type SalesCupomPayment,
+} from '@/lib/sales-orders/cupom-print'
 
 export { mapSalesOrdersWithFinancePosted }
 import { toDbCustomerType } from '@/lib/sales-orders/customer-type'
@@ -1582,7 +1589,97 @@ export async function finalizeSalesOrder (
   }
 }
 
-/** Cria/atualiza rascunho + pagamentos + finaliza em uma única autenticação (checkout PDV). */
+const CUPOM_PAYMENT_LABELS: Record<string, string> = {
+  dinheiro: 'Dinheiro',
+  pix: 'PIX',
+  credito: 'Cartão de crédito',
+  debito: 'Cartão de débito',
+  outro: 'Outro',
+}
+
+function cupomPaymentLabel (type: string, installments: number) {
+  const base = CUPOM_PAYMENT_LABELS[type] || type || 'Pagamento'
+  if (type === 'credito' && installments > 1) return `${base} ${installments}x`
+  return base
+}
+
+async function loadOrganizationCompanyPrintData (
+  auth: AuthCtx,
+): Promise<CompanyPrintData | null> {
+  const { data } = await auth.supabase
+    .from('organizations')
+    .select('name, cnpj, address, complement, zip_code, city, state, phone, email, logo_url')
+    .eq('id', auth.organizationId)
+    .maybeSingle()
+  if (!data) return null
+  return {
+    name: data.name ?? null,
+    cnpj: data.cnpj ?? null,
+    address: data.address ?? null,
+    complement: data.complement ?? null,
+    zipCode: data.zip_code ?? null,
+    city: data.city ?? null,
+    state: data.state ?? null,
+    phone: data.phone ?? null,
+    email: data.email ?? null,
+    logoUrl: data.logo_url ?? null,
+  }
+}
+
+function buildCheckoutCupomHtml (input: {
+  orderNumber: number | string | null
+  createdAt: string
+  draft: SalesOrderDraftInput
+  totals: ReturnType<typeof calcSalesOrderTotals>
+  paidAmountCents: number
+  changeCents: number
+  items: SalesOrderItemInput[]
+  productById: Map<string, { name: string | null, sku: string | null }>
+  payments: SalesOrderPaymentInput[]
+  company: CompanyPrintData | null
+}) {
+  const cupomPayments: SalesCupomPayment[] = input.payments
+    .filter((payment) => toInt(payment.amount_cents, 0) > 0)
+    .map((payment) => {
+      const installments = Math.max(1, toInt(payment.installments ?? 1, 1))
+      return {
+        methodLabel: cupomPaymentLabel(payment.payment_method_type, installments),
+        amountCents: toInt(payment.amount_cents, 0),
+      }
+    })
+
+  const cupom: SalesCupomData = {
+    orderNumber: input.orderNumber ?? '',
+    createdAt: input.createdAt,
+    customerName: salesOrderCustomerName(input.draft.customer_name ?? 'Consumidor Final'),
+    customerDocument: input.draft.customer_document ?? null,
+    subtotalCents: input.totals.subtotalCents,
+    discountTotalCents: input.totals.discountTotalCents,
+    surchargeCents: input.totals.surchargeCents,
+    totalCents: input.totals.totalCents,
+    paidAmountCents: input.paidAmountCents,
+    changeCents: input.changeCents,
+    items: input.items.map((item) => {
+      const product = input.productById.get(item.product_id)
+      return {
+        name: product?.name || 'Produto',
+        sku: product?.sku ?? null,
+        quantity: Math.max(1, toInt(item.quantity, 1)),
+        unitPriceCents: toInt(item.unit_price_cents, 0),
+        discountCents: toInt(item.discount_cents ?? 0, 0),
+        subtotalCents: calcItemSubtotal(item),
+      }
+    }),
+    payments: cupomPayments,
+  }
+
+  return buildSalesCupomHtml(cupom, input.company, { autoPrint: false })
+}
+
+/**
+ * Checkout PDV rápido: grava a venda já paga e devolve HTML do cupom.
+ * Estoque e financeiro ficam para after()/rotas idempotentes.
+ */
 export async function checkoutSalesOrder (
   auth: AuthCtx,
   input: {
@@ -1602,14 +1699,36 @@ export async function checkoutSalesOrder (
   const draft = input.draft ?? {}
   const clientMutationId = String(input.clientMutationId || '').trim() || null
   let orderId = input.orderId ? String(input.orderId) : null
+  const payments = input.payments.filter((payment) => toInt(payment.amount_cents, 0) > 0)
+  const discountTotalCents = toInt(draft.discount_total_cents ?? 0, 0)
+  const surchargeCents = toInt(draft.surcharge_cents ?? 0, 0)
+  const totals = calcSalesOrderTotals(items, discountTotalCents, surchargeCents)
+  const paidAmount = payments.reduce((acc, payment) => acc + toInt(payment.amount_cents, 0), 0)
+  if (paidAmount < totals.totalCents) {
+    return { ok: false as const, error: 'payment_insufficient' as const, orderId }
+  }
+
+  const hasCash = payments.some((payment) => payment.payment_method_type === 'dinheiro')
+  let changeCents = 0
+  if (hasCash) {
+    if (input.change_cents != null && Number.isFinite(Number(input.change_cents))) {
+      changeCents = Math.max(0, Math.round(Number(input.change_cents)))
+    } else {
+      changeCents = Math.max(0, paidAmount - totals.totalCents)
+    }
+  }
 
   if (!orderId && clientMutationId) {
     const existing = await findSalesOrderByClientMutationId(auth, clientMutationId)
     if (existing) {
       if (existing.status === 'paid') {
+        const { buildSalesOrderCupomHtml } = await import('@/lib/sales-orders/fetch-sales-order-cupom-html')
+        const cupom = await buildSalesOrderCupomHtml(auth.supabase, auth.organizationId, existing.id, {
+          autoPrint: false,
+        })
         const { data: order } = await auth.supabase
           .from('sales_orders')
-          .select('*')
+          .select('id, order_number, status, customer_name, customer_type, customer_document, subtotal_cents, discount_total_cents, surcharge_cents, total_cents, paid_amount_cents, change_cents, created_at, updated_at')
           .eq('organization_id', auth.organizationId)
           .eq('id', existing.id)
           .maybeSingle()
@@ -1621,6 +1740,8 @@ export async function checkoutSalesOrder (
             order_number: existing.order_number,
             status: 'paid',
           },
+          cupomHtml: cupom.html ?? null,
+          deferredSideEffects: false,
         }
       }
       if (existing.status === 'in_progress') {
@@ -1629,43 +1750,267 @@ export async function checkoutSalesOrder (
     }
   }
 
-  if (!orderId) {
-    const created = await createSalesOrder(auth, items, draft, {
-      clientMutationId,
-    })
-    if (created.ok === false) {
-      return { ok: false as const, error: created.error, orderId: null as string | null }
-    }
-    orderId = created.orderId
-  } else {
-    const updated = await updateSalesOrderDraft(auth, orderId, draft, items)
-    if (updated.ok === false) {
-      return { ok: false as const, error: updated.error, orderId }
-    }
-  }
+  const productIds = [...new Set(items.map((item) => item.product_id).filter(Boolean))]
+  const [cashSession, productsRes, walletCheck, company] = await Promise.all([
+    getOpenCashSession(auth),
+    productIds.length === 0
+      ? Promise.resolve({ data: [] as Array<{ id: string, name: string | null, sku: string | null }>, error: null })
+      : auth.supabase
+        .from('products')
+        .select('id, name, sku')
+        .eq('organization_id', auth.organizationId)
+        .in('id', productIds),
+    assertSalesOrderPaymentWallets(auth.supabase, auth.organizationId, payments),
+    loadOrganizationCompanyPrintData(auth),
+  ])
 
-  const payResult = await replaceSalesOrderPayments(auth, orderId, input.payments)
-  if (payResult.ok === false) {
-    return { ok: false as const, error: payResult.error, orderId }
-  }
-
-  const finalized = await finalizeSalesOrder(auth, orderId, {
-    change_cents: input.change_cents,
-  })
-  if (finalized.ok === false) {
+  if (!cashSession.ok) {
     return {
       ok: false as const,
-      error: finalized.error,
+      error: cashSession.error === 'cash_not_open' ? 'cash_not_open' as const : 'db_error' as const,
       orderId,
-      details: finalized,
+    }
+  }
+  if (productsRes.error) {
+    return { ok: false as const, error: 'db_error' as const, orderId }
+  }
+  if ((productsRes.data?.length ?? 0) !== productIds.length) {
+    return { ok: false as const, error: 'invalid_product' as const, orderId }
+  }
+  if (!walletCheck.ok) {
+    return { ok: false as const, error: 'finance_sync_failed' as const, orderId }
+  }
+
+  const productById = new Map<string, { name: string | null, sku: string | null }>()
+  for (const row of productsRes.data ?? []) {
+    productById.set(String(row.id), {
+      name: row.name ?? null,
+      sku: row.sku ?? null,
+    })
+  }
+
+  const nowIso = new Date().toISOString()
+  const customerName = salesOrderCustomerName(draft.customer_name ?? 'Consumidor Final')
+  const customerType = toDbCustomerType(draft.customer_type ?? 'pf')
+  const customerDocument = draft.customer_document ?? null
+
+  const paymentRows = payments.map((payment) => {
+    const installments = Math.max(1, toInt(payment.installments ?? 1, 1))
+    const baseMeta = payment.metadata && typeof payment.metadata === 'object'
+      ? payment.metadata
+      : {}
+    return {
+      organization_id: auth.organizationId,
+      payment_method_id: payment.payment_method_id ?? null,
+      payment_method_type: payment.payment_method_type,
+      amount_cents: toInt(payment.amount_cents, 1),
+      status: payment.status ?? 'paid',
+      metadata: {
+        ...baseMeta,
+        installments,
+      },
+    }
+  })
+
+  const itemRows = items.map((item) => ({
+    organization_id: auth.organizationId,
+    product_id: item.product_id,
+    quantity: Math.max(1, toInt(item.quantity, 1)),
+    unit_price_cents: toInt(item.unit_price_cents, 0),
+    unit_cost_cents: toInt(item.unit_cost_cents ?? 0, 0),
+    discount_cents: toInt(item.discount_cents ?? 0, 0),
+    subtotal_cents: calcItemSubtotal(item),
+  }))
+
+  let orderNumber: number | string | null = null
+  let createdAt = nowIso
+
+  if (!orderId) {
+    const { data: order, error: orderError } = await auth.supabase
+      .from('sales_orders')
+      .insert({
+        organization_id: auth.organizationId,
+        cash_session_id: cashSession.session.id,
+        status: 'paid',
+        seller_user_id: auth.userId,
+        customer_name: customerName,
+        customer_type: customerType,
+        customer_document: customerDocument,
+        subtotal_cents: totals.subtotalCents,
+        discount_total_cents: totals.discountTotalCents,
+        surcharge_cents: totals.surchargeCents,
+        total_cents: totals.totalCents,
+        paid_amount_cents: paidAmount,
+        change_cents: changeCents,
+        client_mutation_id: clientMutationId,
+        updated_at: nowIso,
+      })
+      .select('id, order_number, created_at')
+      .single()
+
+    if (orderError || !order) {
+      if (clientMutationId && orderError?.code === '23505') {
+        const existing = await findSalesOrderByClientMutationId(auth, clientMutationId)
+        if (existing?.status === 'paid') {
+          const { buildSalesOrderCupomHtml } = await import('@/lib/sales-orders/fetch-sales-order-cupom-html')
+          const cupom = await buildSalesOrderCupomHtml(auth.supabase, auth.organizationId, existing.id, {
+            autoPrint: false,
+          })
+          return {
+            ok: true as const,
+            orderId: existing.id,
+            order: {
+              id: existing.id,
+              order_number: existing.order_number,
+              status: 'paid',
+            },
+            cupomHtml: cupom.html ?? null,
+            deferredSideEffects: false,
+          }
+        }
+      }
+      console.error('[checkoutSalesOrder] insert sales_orders failed', orderError)
+      return { ok: false as const, error: 'db_error' as const, orderId: null }
+    }
+
+    orderId = String(order.id)
+    orderNumber = order.order_number
+    createdAt = String(order.created_at || nowIso)
+
+    const [itemsIns, paymentsIns] = await Promise.all([
+      itemRows.length > 0
+        ? auth.supabase.from('sales_order_items').insert(
+          itemRows.map((row) => ({ ...row, sales_order_id: orderId })),
+        )
+        : Promise.resolve({ error: null }),
+      paymentRows.length > 0
+        ? auth.supabase.from('sales_order_payments').insert(
+          paymentRows.map((row) => ({ ...row, sales_order_id: orderId })),
+        )
+        : Promise.resolve({ error: null }),
+    ])
+
+    if (itemsIns.error || paymentsIns.error) {
+      console.error('[checkoutSalesOrder] insert children failed', itemsIns.error || paymentsIns.error)
+      await auth.supabase
+        .from('sales_orders')
+        .delete()
+        .eq('organization_id', auth.organizationId)
+        .eq('id', orderId)
+      return { ok: false as const, error: 'db_error' as const, orderId: null }
+    }
+  } else {
+    const { data: existing, error: loadError } = await auth.supabase
+      .from('sales_orders')
+      .select('id, status, order_number, created_at, cash_session_id')
+      .eq('organization_id', auth.organizationId)
+      .eq('id', orderId)
+      .maybeSingle()
+
+    if (loadError) return { ok: false as const, error: 'db_error' as const, orderId }
+    if (!existing) return { ok: false as const, error: 'not_found' as const, orderId }
+    if (existing.status === 'paid') {
+      const { buildSalesOrderCupomHtml } = await import('@/lib/sales-orders/fetch-sales-order-cupom-html')
+      const cupom = await buildSalesOrderCupomHtml(auth.supabase, auth.organizationId, orderId, {
+        autoPrint: false,
+      })
+      return {
+        ok: true as const,
+        orderId,
+        order: {
+          id: orderId,
+          order_number: existing.order_number,
+          status: 'paid',
+        },
+        cupomHtml: cupom.html ?? null,
+        deferredSideEffects: false,
+      }
+    }
+    if (existing.status !== 'in_progress') {
+      return { ok: false as const, error: 'order_not_editable' as const, orderId }
+    }
+
+    const { data: marked, error: updError } = await auth.supabase
+      .from('sales_orders')
+      .update({
+        status: 'paid',
+        customer_name: customerName,
+        customer_type: customerType,
+        customer_document: customerDocument,
+        subtotal_cents: totals.subtotalCents,
+        discount_total_cents: totals.discountTotalCents,
+        surcharge_cents: totals.surchargeCents,
+        total_cents: totals.totalCents,
+        paid_amount_cents: paidAmount,
+        change_cents: changeCents,
+        cash_session_id: existing.cash_session_id || cashSession.session.id,
+        updated_at: nowIso,
+      })
+      .eq('organization_id', auth.organizationId)
+      .eq('id', orderId)
+      .eq('status', 'in_progress')
+      .select('id, order_number, created_at')
+      .maybeSingle()
+
+    if (updError) return { ok: false as const, error: 'db_error' as const, orderId }
+    if (!marked) {
+      return { ok: false as const, error: 'db_error' as const, orderId }
+    }
+
+    orderNumber = marked.order_number
+    createdAt = String(marked.created_at || nowIso)
+
+    const [itemsReplace, paymentsReplace] = await Promise.all([
+      replaceSalesOrderItems(auth, orderId, items),
+      replaceSalesOrderPayments(auth, orderId, payments),
+    ])
+    if (!itemsReplace.ok) {
+      return { ok: false as const, error: itemsReplace.error, orderId }
+    }
+    if (!paymentsReplace.ok) {
+      return { ok: false as const, error: paymentsReplace.error, orderId }
     }
   }
 
-  if (!('order' in finalized)) {
-    return { ok: false as const, error: 'unexpected_result' as const, orderId }
-  }
+  const cupomHtml = buildCheckoutCupomHtml({
+    orderNumber,
+    createdAt,
+    draft: {
+      ...draft,
+      customer_name: customerName,
+      customer_document: customerDocument,
+    },
+    totals,
+    paidAmountCents: paidAmount,
+    changeCents,
+    items,
+    productById,
+    payments,
+    company,
+  })
 
-  return { ok: true as const, orderId, order: finalized.order }
+  return {
+    ok: true as const,
+    orderId,
+    order: {
+      id: orderId,
+      order_number: orderNumber,
+      status: 'paid',
+      customer_name: customerName,
+      customer_type: customerType,
+      customer_document: customerDocument,
+      subtotal_cents: totals.subtotalCents,
+      discount_total_cents: totals.discountTotalCents,
+      surcharge_cents: totals.surchargeCents,
+      total_cents: totals.totalCents,
+      paid_amount_cents: paidAmount,
+      change_cents: changeCents,
+      created_at: createdAt,
+      updated_at: nowIso,
+    },
+    cupomHtml,
+    deferredSideEffects: true,
+  }
 }
 
 export async function cancelSalesOrder (

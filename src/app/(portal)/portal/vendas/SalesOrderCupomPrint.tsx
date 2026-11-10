@@ -51,7 +51,9 @@ function printSameOriginPdf (url: string, autoPrint: boolean) {
 }
 
 type SalesOrderCupomPreviewProps = {
-  orderId: string
+  orderId?: string | null
+  /** HTML já montado no checkout (evita GET /print). */
+  html?: string | null
   autoPrint?: boolean
   className?: string
   iframeClassName?: string
@@ -60,7 +62,8 @@ type SalesOrderCupomPreviewProps = {
 }
 
 export function SalesOrderCupomPreview ({
-  orderId,
+  orderId = null,
+  html = null,
   autoPrint = false,
   className,
   iframeClassName,
@@ -69,9 +72,39 @@ export function SalesOrderCupomPreview ({
 }: SalesOrderCupomPreviewProps) {
   return (
     <HtmlPrintPreview
-      src={salesOrderCupomPreviewUrl(orderId)}
+      src={html || !orderId ? null : salesOrderCupomPreviewUrl(orderId)}
+      html={html}
       title='Pré-visualização do cupom'
       errorMessage='Não foi possível carregar o cupom.'
+      autoPrint={autoPrint}
+      className={className}
+      iframeClassName={iframeClassName}
+      fitContentMax={fitContentMax}
+      onPrintReady={onPrintReady}
+    />
+  )
+}
+
+export function SalesOrderDanfePreview ({
+  documentId,
+  autoPrint = false,
+  className,
+  iframeClassName,
+  fitContentMax,
+  onPrintReady,
+}: {
+  documentId: string
+  autoPrint?: boolean
+  className?: string
+  iframeClassName?: string
+  fitContentMax?: number
+  onPrintReady?: (print: () => boolean) => void
+}) {
+  return (
+    <HtmlPrintPreview
+      src={nfceDanfePreviewUrl(documentId)}
+      title='Pré-visualização da NFC-e'
+      errorMessage='Não foi possível carregar o DANFE.'
       autoPrint={autoPrint}
       className={className}
       iframeClassName={iframeClassName}

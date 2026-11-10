@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from 'next'
 import { Outfit } from 'next/font/google'
-import Script from 'next/script'
 import { WhatsAppClickTracker } from '@/components/analytics/WhatsAppClickTracker'
 import { GoogleAnalyticsSafe } from '@/components/GoogleAnalyticsSafe'
 import { business } from '@/lib/data/business'
@@ -103,13 +102,13 @@ export default function RootLayout({
 							'html{background-color:hsl(210 20% 98%);color-scheme:light}html.dark{background-color:hsl(215 25% 8%);color-scheme:dark}',
 					}}
 				/>
-			</head>
-			<body className={outfit.className}>
-				<Script
+				{/* Inline no head evita o aviso do React 19 sobre <Script> no client. */}
+				<script
 					id="theme-boot"
-					strategy="beforeInteractive"
 					dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }}
 				/>
+			</head>
+			<body className={outfit.className}>
 				<GoogleAnalyticsSafe />
 				<WhatsAppClickTracker />
 				{children}

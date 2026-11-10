@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import {
   SalesOrderCupomPreview,
+  SalesOrderDanfePreview,
   openNfceDanfePrint,
   openNfeDanfePrint,
   openSalesOrderCupomPrint,
@@ -18,6 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -67,6 +69,17 @@ type SalesOrderNfceState = {
   xmlUrl: string | null
 }
 
+export type AfterSaleReceiptMode = 'cupom' | 'nfce'
+
+export type AfterSaleNfceResult = {
+  ok: boolean
+  fiscalDocument: FiscalDocumentState | null
+  danfeUrl: string | null
+  error?: string | null
+  message?: string | null
+  needsCorrection?: boolean
+}
+
 type SalesOrderAfterSaleDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -75,6 +88,11 @@ type SalesOrderAfterSaleDialogProps = {
   /** Checkout ainda em andamento — exibe ações de cupom desabilitadas. */
   saving?: boolean
   error?: string | null
+  /** HTML do cupom já montado no checkout. */
+  cupomHtml?: string | null
+  /** cupom = recibo não fiscal; nfce = DANFE / autorização. */
+  receiptMode?: AfterSaleReceiptMode
+  nfceResult?: AfterSaleNfceResult | null
   initialBling?: SalesOrderBlingLinkState | null
   hasBlingIntegration?: boolean
   onDone?: () => void
@@ -114,12 +132,18 @@ export function SalesOrderAfterSaleActions (props: {
   /** checkout: preview do PDV, com Imprimir, NFC-e e menu compacto. */
   layout?: 'default' | 'checkout'
   hasBlingIntegration?: boolean
+  /** Não consulta NFC-e/NF-e na abertura (checkout rápido). */
+  skipFiscalLookup?: boolean
+  /** Estado fiscal já conhecido (Finalizar com NFC-e). */
+  initialNfce?: SalesOrderNfceState | null
 }) {
   const [busyPrint, setBusyPrint] = useState(false)
   const [busyBling, setBusyBling] = useState(false)
   const [busyNfce, setBusyNfce] = useState(false)
   const [busyNfe, setBusyNfe] = useState(false)
-  const [nfce, setNfce] = useState<SalesOrderNfceState>({ fiscalDocument: null, danfeUrl: null, xmlUrl: null })
+  const [nfce, setNfce] = useState<SalesOrderNfceState>(
+    () => props.initialNfce ?? { fiscalDocument: null, danfeUrl: null, xmlUrl: null },
+  )
   const [nfe, setNfe] = useState<SalesOrderNfceState>({ fiscalDocument: null, danfeUrl: null, xmlUrl: null })
   const [bling, setBling] = useState<SalesOrderBlingLinkState>(() =>
     buildInitialBlingState(props)
@@ -130,12 +154,16 @@ export function SalesOrderAfterSaleActions (props: {
     setBling(buildInitialBlingState(props))
   }, [props.blingPedidoId, props.blingNfceId, props.orderId])
 
+  useEffect(() => {
+    if (props.initialNfce) setNfce(props.initialNfce)
+  }, [props.initialNfce, props.orderId])
+
   const isPaid = props.status === 'paid' || props.status == null
   const canSendBling = props.status === 'paid' || props.status == null
   const viewUrl = bling.preferredUrl || bling.pedidoUrl
   const nfceStatus = nfce.fiscalDocument?.status ?? null
   const nfeStatus = nfe.fiscalDocument?.status ?? null
-  const canPrintFiscal = nfceStatus === 'authorized' && nfce.danfeUrl
+  const canPrintFiscal = nfceStatus === 'authorized' && Boolean(nfce.danfeUrl || nfce.fiscalDocument?.id)
   const canPrintNfe = nfeStatus === 'authorized' && nfe.danfeUrl
   const needsFiscalCorrection = Boolean(
     nfce.fiscalDocument?.id && (
@@ -154,9 +182,11 @@ export function SalesOrderAfterSaleActions (props: {
 
   useEffect(() => {
     let cancelled = false
-    if (!isPaid) {
-      setNfce({ fiscalDocument: null, danfeUrl: null, xmlUrl: null })
-      setNfe({ fiscalDocument: null, danfeUrl: null, xmlUrl: null })
+    if (!isPaid || props.skipFiscalLookup) {
+      if (!isPaid) {
+        setNfce({ fiscalDocument: null, danfeUrl: null, xmlUrl: null })
+        setNfe({ fiscalDocument: null, danfeUrl: null, xmlUrl: null })
+      }
       return
     }
 
@@ -189,7 +219,7 @@ export function SalesOrderAfterSaleActions (props: {
     return () => {
       cancelled = true
     }
-  }, [isPaid, props.orderId])
+  }, [isPaid, props.orderId, props.skipFiscalLookup])
 
   async function handlePrint () {
     setBusyPrint(true)
@@ -583,12 +613,36 @@ export function SalesOrderAfterSaleDialog ({
   orderNumber,
   saving = false,
   error = null,
+  cupomHtml = null,
+  receiptMode = 'cupom',
+  nfceResult = null,
   initialBling,
   hasBlingIntegration = false,
   onDone,
 }: SalesOrderAfterSaleDialogProps) {
+  const router = useRouter()
   const [bling, setBling] = useState<SalesOrderBlingLinkState | null>(initialBling ?? null)
   const printRef = useRef<(() => boolean) | null>(null)
+  const isNfceMode = receiptMode === 'nfce'
+  const nfceAuthorized = Boolean(
+    nfceResult?.ok
+    && nfceResult.fiscalDocument?.status === 'authorized'
+    && nfceResult.fiscalDocument.id,
+  )
+  const nfceNeedsCorrection = Boolean(
+    nfceResult?.needsCorrection
+    || (
+      nfceResult?.fiscalDocument?.id
+      && (
+        nfceResult.fiscalDocument.status === 'rejected'
+        || nfceResult.fiscalDocument.status === 'denied'
+        || (
+          nfceResult.fiscalDocument.status === 'pending'
+          && isProductFiscalCorrectionError(nfceResult.fiscalDocument.sefaz_status_code)
+        )
+      )
+    ),
+  )
   const isReady = Boolean(orderId) && !saving && !error
 
   useEffect(() => {
@@ -600,6 +654,24 @@ export function SalesOrderAfterSaleDialog ({
     onOpenChange(false)
     onDone?.()
   }
+
+  function handlePrint () {
+    printRef.current?.()
+  }
+
+  const title = error
+    ? 'Não foi possível finalizar'
+    : saving
+      ? (
+        isNfceMode
+          ? (orderNumber != null ? `Autorizando NFC-e #${orderNumber}` : 'Autorizando NFC-e')
+          : (orderNumber != null ? `Finalizando pedido #${orderNumber}` : 'Finalizando pedido')
+      )
+      : isNfceMode && nfceAuthorized
+        ? `NFC-e #${orderNumber ?? ''} autorizada`
+        : isNfceMode && nfceResult && !nfceResult.ok
+          ? `Pedido ${orderNumber != null ? `#${orderNumber}` : ''} finalizado`
+          : `Pedido ${orderNumber != null ? `#${orderNumber}` : ''} finalizado`
 
   return (
     <Dialog
@@ -620,41 +692,111 @@ export function SalesOrderAfterSaleDialog ({
         }}
       >
         <DialogHeader className='pr-8'>
-          <DialogTitle>
-            {error
-              ? 'Não foi possível finalizar'
-              : saving
-                ? (orderNumber != null ? `Finalizando pedido #${orderNumber}` : 'Finalizando pedido')
-                : `Pedido ${orderNumber != null ? `#${orderNumber}` : ''} finalizado`}
-          </DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
           <DialogDescription className={error ? undefined : 'sr-only'}>
             {error
               ? error
-              : 'Pré-visualização do cupom. Imprima, gere a NFC-e ou comece uma nova venda.'}
+              : isNfceMode
+                ? 'Pré-visualização da NFC-e. Imprima o DANFE ou comece uma nova venda.'
+                : 'Pré-visualização do cupom. Imprima, gere a NFC-e ou comece uma nova venda.'}
           </DialogDescription>
         </DialogHeader>
 
         {error ? null : isReady && orderId ? (
           <div className='space-y-3'>
-            <SalesOrderCupomPreview
-              orderId={orderId}
-              autoPrint={false}
-              fitContentMax={420}
-              onPrintReady={(print) => {
-                printRef.current = print
-              }}
-            />
-            <SalesOrderAfterSaleActions
-              orderId={orderId}
-              orderNumber={orderNumber}
-              status='paid'
-              layout='checkout'
-              hasBlingIntegration={hasBlingIntegration}
-              blingPedidoId={bling?.blingPedidoId}
-              blingNfceId={bling?.blingNfceId}
-              onPrintCupom={() => Boolean(printRef.current?.())}
-              onBlingUpdated={setBling}
-            />
+            {isNfceMode && nfceAuthorized && nfceResult?.fiscalDocument?.id ? (
+              <SalesOrderDanfePreview
+                documentId={nfceResult.fiscalDocument.id}
+                autoPrint={false}
+                fitContentMax={420}
+                onPrintReady={(print) => {
+                  printRef.current = print
+                }}
+              />
+            ) : (
+              <SalesOrderCupomPreview
+                orderId={orderId}
+                html={cupomHtml}
+                autoPrint={false}
+                fitContentMax={420}
+                onPrintReady={(print) => {
+                  printRef.current = print
+                }}
+              />
+            )}
+
+            {isNfceMode && nfceResult && !nfceResult.ok ? (
+              <div className='space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm'>
+                <p className='text-destructive'>
+                  {nfceResult.message || 'Não foi possível autorizar a NFC-e.'}
+                </p>
+                <div className='flex flex-wrap gap-2'>
+                  {nfceNeedsCorrection && nfceResult.fiscalDocument?.id ? (
+                    <Button
+                      type='button'
+                      variant='outline'
+                      className='h-9'
+                      onClick={() => {
+                        router.push(nfceEditorHref(nfceResult.fiscalDocument!.id, {
+                          corrigir: isProductFiscalCorrectionError(
+                            nfceResult.fiscalDocument?.sefaz_status_code,
+                          ),
+                        }))
+                      }}
+                    >
+                      Corrigir NFC-e
+                    </Button>
+                  ) : null}
+                  <Button
+                    type='button'
+                    variant='outline'
+                    className='h-9'
+                    onClick={handlePrint}
+                    disabled={!cupomHtml && !orderId}
+                  >
+                    <Printer className='h-4 w-4' />
+                    Imprimir cupom
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
+            {isNfceMode && nfceAuthorized ? (
+              <div className='flex w-full items-center gap-2'>
+                <Button
+                  type='button'
+                  variant='outline'
+                  className='h-11 flex-1 px-3'
+                  onClick={handlePrint}
+                >
+                  <Printer className='h-4 w-4' />
+                  Imprimir NFC-e
+                </Button>
+              </div>
+            ) : (
+              <SalesOrderAfterSaleActions
+                orderId={orderId}
+                orderNumber={orderNumber}
+                status='paid'
+                layout='checkout'
+                hasBlingIntegration={hasBlingIntegration}
+                skipFiscalLookup
+                blingPedidoId={bling?.blingPedidoId}
+                blingNfceId={bling?.blingNfceId}
+                initialNfce={
+                  nfceResult?.fiscalDocument
+                    ? {
+                      fiscalDocument: nfceResult.fiscalDocument,
+                      danfeUrl: nfceResult.danfeUrl,
+                      xmlUrl: null,
+                    }
+                    : null
+                }
+                onPrintCupom={() => Boolean(printRef.current?.())}
+                onBlingUpdated={setBling}
+              />
+            )}
+
             {bling?.nfceError ? (
               <p className='text-center text-sm text-muted-foreground'>
                 A geração automática da NFC-e não concluiu. Abra o pedido no Bling e gere a nota por lá.
@@ -663,21 +805,34 @@ export function SalesOrderAfterSaleDialog ({
           </div>
         ) : error ? null : (
           <div className='space-y-3'>
-            <div className='flex h-[280px] w-full items-center justify-center rounded-md border bg-muted/40'>
-              <Loader2 className='h-5 w-5 animate-spin text-muted-foreground' />
+            <div className='relative overflow-hidden rounded-md border bg-muted/30 p-4'>
+              <div className='space-y-3'>
+                <div className='flex flex-col items-center gap-2'>
+                  <Skeleton className='h-4 w-40' />
+                  <Skeleton className='h-3 w-28' />
+                </div>
+                <div className='space-y-2 pt-2'>
+                  <Skeleton className='h-3 w-full' />
+                  <Skeleton className='h-3 w-[92%]' />
+                  <Skeleton className='h-3 w-[85%]' />
+                  <Skeleton className='h-3 w-[70%]' />
+                </div>
+                <div className='space-y-2 border-t pt-3'>
+                  <Skeleton className='h-3 w-24' />
+                  <Skeleton className='h-4 w-32' />
+                </div>
+              </div>
+              <div className='absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background/55'>
+                <Loader2 className='h-5 w-5 animate-spin text-primary' />
+                <span className='text-sm font-medium text-foreground'>
+                  {isNfceMode ? 'Autorizando NFC-e…' : 'Finalizando pedido…'}
+                </span>
+              </div>
             </div>
             <div className='flex w-full items-center gap-2'>
-              <Button type='button' variant='outline' className='h-11 flex-1 px-3' disabled>
-                <Printer className='h-4 w-4' />
-                Imprimir
-              </Button>
-              <Button type='button' variant='outline' className='h-11 flex-1 px-3' disabled>
-                <FileCheck2 className='h-4 w-4' />
-                Gerar NFC-e
-              </Button>
-              <Button type='button' variant='outline' size='icon' className='h-11 w-11 shrink-0' disabled aria-label='Mais ações'>
-                <MoreHorizontal className='h-4 w-4' />
-              </Button>
+              <Skeleton className='h-11 flex-1 rounded-md' />
+              {!isNfceMode ? <Skeleton className='h-11 flex-1 rounded-md' /> : null}
+              <Skeleton className='h-11 w-11 shrink-0 rounded-md' />
             </div>
           </div>
         )}

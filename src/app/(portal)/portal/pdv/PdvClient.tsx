@@ -54,6 +54,10 @@ import {
 	writeOfflinePaymentMethods,
 } from '@/lib/pdv/offline/catalog-store'
 import {
+	debugOfflineDb,
+	requestPersistentStorage,
+} from '@/lib/pdv/offline/idb'
+import {
 	enqueueOfflineSale,
 	isLikelyNetworkFailure,
 } from '@/lib/pdv/offline/sales-queue'
@@ -255,6 +259,20 @@ export function PdvClient({
 	>(null)
 	const [afterSaleSaving, setAfterSaleSaving] = useState(false)
 	const [afterSaleError, setAfterSaleError] = useState<string | null>(null)
+	const [afterSaleCupomHtml, setAfterSaleCupomHtml] = useState<string | null>(
+		null,
+	)
+	const [afterSaleReceiptMode, setAfterSaleReceiptMode] = useState<
+		'cupom' | 'nfce'
+	>('cupom')
+	const [afterSaleNfceResult, setAfterSaleNfceResult] = useState<{
+		ok: boolean
+		fiscalDocument: PdvNfceDocument | null
+		danfeUrl: string | null
+		error?: string | null
+		message?: string | null
+		needsCorrection?: boolean
+	} | null>(null)
 	const [movementAmount, setMovementAmount] = useState('')
 	const [movementReason, setMovementReason] = useState('')
 	const [closeSummary, setCloseSummary] = useState<CashCloseSummary | null>(
@@ -509,10 +527,7 @@ export function PdvClient({
 					) {
 						;(
 							window as Window & { __pdvOfflineDebug?: () => Promise<unknown> }
-						).__pdvOfflineDebug = async () => {
-							const { debugOfflineDb } = await import('@/lib/pdv/offline/idb')
-							return debugOfflineDb()
-						}
+						).__pdvOfflineDebug = () => debugOfflineDb()
 					}
 
 					if (notify) {
@@ -568,14 +583,9 @@ export function PdvClient({
 		if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
 			;(
 				window as Window & { __pdvOfflineDebug?: () => Promise<unknown> }
-			).__pdvOfflineDebug = async () => {
-				const { debugOfflineDb } = await import('@/lib/pdv/offline/idb')
-				return debugOfflineDb()
-			}
+			).__pdvOfflineDebug = () => debugOfflineDb()
 		}
-		void import('@/lib/pdv/offline/idb').then(({ requestPersistentStorage }) => {
-			void requestPersistentStorage()
-		})
+		void requestPersistentStorage()
 		void loadMethods()
 		void prefetchCatalogSnapshot()
 	}, [loadMethods, prefetchCatalogSnapshot])
@@ -1979,7 +1989,64 @@ export function PdvClient({
 		}
 	}
 
-	function finalizeOrder() {
+	function buildOptimisticCupomHtml(input: {
+		orderNumber: number | string | null
+		orderPayload: ReturnType<typeof buildOrderPayload>
+		paymentPayload: Array<{
+			payment_method_type: string
+			amount_cents: number
+			installments: number
+		}>
+		paidAmountCents: number
+		changeCents: number
+	}) {
+		const paymentLabels: Record<string, string> = {
+			dinheiro: 'Dinheiro',
+			pix: 'PIX',
+			credito: 'Cartão de crédito',
+			debito: 'Cartão de débito',
+			outro: 'Outro',
+		}
+		const itemsHtml = cart
+			.map((item) => {
+				const name = item.name.replace(/</g, '&lt;')
+				const qty = item.quantity
+				const unit = maskedFromCents(item.unitPriceCents)
+				const sub = maskedFromCents(cartLineSubtotalCents(item))
+				return `<tr><td>${name}</td><td>${qty}</td><td>${unit}</td><td>${sub}</td></tr>`
+			})
+			.join('')
+		const paymentsHtml = input.paymentPayload
+			.map((payment) => {
+				const base =
+					paymentLabels[payment.payment_method_type] ||
+					payment.payment_method_type
+				const label =
+					payment.payment_method_type === 'credito' &&
+					payment.installments > 1
+						? `${base} ${payment.installments}x`
+						: base
+				return `<div>${label}: ${maskedFromCents(payment.amount_cents)}</div>`
+			})
+			.join('')
+		const orderLabel =
+			input.orderNumber != null ? `#${input.orderNumber}` : ''
+		return `<!doctype html><html><head><meta charset="utf-8"><title>Cupom ${orderLabel}</title>
+<style>
+body{font-family:ui-monospace,monospace;font-size:12px;margin:12px;color:#111}
+table{width:100%;border-collapse:collapse} td{padding:2px 0} .total{font-weight:700;margin-top:8px}
+</style></head><body>
+<div><strong>Pedido ${orderLabel || '…'}</strong></div>
+<div>${String(input.orderPayload.customer_name || 'Consumidor Final').replace(/</g, '&lt;')}</div>
+<table>${itemsHtml}</table>
+<div class="total">Total: ${maskedFromCents(totalCents)}</div>
+${paymentsHtml}
+${input.changeCents > 0 ? `<div>Troco: ${maskedFromCents(input.changeCents)}</div>` : ''}
+</body></html>`
+	}
+
+	function finalizeOrder(options?: { emitNfce?: boolean }) {
+		const emitNfce = options?.emitNfce === true
 		if (afterSaleOpen || afterSaleSaving) return
 		if (!cashOpen) {
 			toast({ title: 'Abra o caixa antes de vender', variant: 'destructive' })
@@ -2017,6 +2084,15 @@ export function PdvClient({
 			return
 		}
 
+		if (emitNfce && typeof navigator !== 'undefined' && !navigator.onLine) {
+			toast({
+				title: 'Sem conexão',
+				description: 'A NFC-e precisa de internet. Finalize a venda sem nota ou reconecte.',
+				variant: 'destructive',
+			})
+			return
+		}
+
 		const orderPayload = buildOrderPayload()
 		const paymentPayload = payments
 			.map((line) => ({
@@ -2032,6 +2108,17 @@ export function PdvClient({
 			.filter((line) => line.amount_cents > 0)
 		const checkoutChangeCents = changeCents
 		const checkoutOrderId = currentOrderId
+		const clientMutationId =
+			typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+				? crypto.randomUUID()
+				: `pdv-${Date.now()}-${Math.random().toString(16).slice(2)}`
+		const optimisticHtml = buildOptimisticCupomHtml({
+			orderNumber: currentOrderNumber,
+			orderPayload,
+			paymentPayload,
+			paidAmountCents: paidCents,
+			changeCents: checkoutChangeCents,
+		})
 
 		async function queueSaleOffline(reason: 'offline' | 'network') {
 			if (!organizationId) {
@@ -2075,7 +2162,7 @@ export function PdvClient({
 			}
 		}
 
-		if (typeof navigator !== 'undefined' && !navigator.onLine) {
+		if (!emitNfce && typeof navigator !== 'undefined' && !navigator.onLine) {
 			void queueSaleOffline('offline')
 			return
 		}
@@ -2083,12 +2170,32 @@ export function PdvClient({
 		setAfterSaleError(null)
 		setAfterSaleOrderId(null)
 		setAfterSaleOrderNumber(currentOrderNumber)
+		setAfterSaleCupomHtml(optimisticHtml)
+		setAfterSaleReceiptMode(emitNfce ? 'nfce' : 'cupom')
+		setAfterSaleNfceResult(null)
 		setAfterSaleSaving(true)
 		setAfterSaleOpen(true)
 
 		void (async () => {
 			try {
-				const customerSync = await ensureCustomerInCadastro()
+				const customerPromise = ensureCustomerInCadastro()
+
+				const checkoutRes = await portalFetch('/api/portal/pdv/checkout', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						...orderPayload,
+						order_id: checkoutOrderId,
+						payments: paymentPayload,
+						change_cents: checkoutChangeCents,
+						client_mutation_id: clientMutationId,
+						emit_nfce: emitNfce,
+					}),
+					skipAuthRedirect: true,
+				})
+				const finalizeData = await checkoutRes?.json().catch(() => null)
+
+				const customerSync = await customerPromise
 				if (!customerSync.ok) {
 					toast({
 						title: 'Não foi possível cadastrar o cliente',
@@ -2104,23 +2211,10 @@ export function PdvClient({
 					})
 				}
 
-				const checkoutRes = await portalFetch('/api/portal/pdv/checkout', {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({
-						...orderPayload,
-						order_id: checkoutOrderId,
-						payments: paymentPayload,
-						change_cents: checkoutChangeCents,
-					}),
-					skipAuthRedirect: true,
-				})
-				const finalizeData = await checkoutRes?.json().catch(() => null)
-
 				if (!finalizeData?.ok) {
 					const errorTitle =
 						finalizeData?.error === 'finance_sync_failed'
-							? 'Venda paga, mas não foi possível lançar no financeiro'
+							? 'Não foi possível finalizar'
 							: finalizeData?.error === 'db_error'
 								? 'Erro ao finalizar'
 								: finalizeData?.error || 'Erro ao finalizar'
@@ -2146,15 +2240,63 @@ export function PdvClient({
 					finalizeData.order_id || finalizeData.order?.id || '',
 				)
 				setAfterSaleOrderId(finalOrderId || null)
-				setAfterSaleOrderNumber(finalizeData.order.order_number ?? null)
+				setAfterSaleOrderNumber(finalizeData.order?.order_number ?? null)
+				if (typeof finalizeData.cupom_html === 'string' && finalizeData.cupom_html) {
+					setAfterSaleCupomHtml(finalizeData.cupom_html)
+				}
+
+				if (emitNfce && finalizeData.nfce) {
+					const nfceDoc = (finalizeData.nfce.fiscal_document ??
+						null) as PdvNfceDocument | null
+					setAfterSaleNfceResult({
+						ok: Boolean(finalizeData.nfce.ok),
+						fiscalDocument: nfceDoc,
+						danfeUrl: finalizeData.nfce.danfe_url ?? null,
+						error: finalizeData.nfce.error ?? null,
+						message: finalizeData.nfce.message ?? null,
+						needsCorrection: Boolean(finalizeData.nfce.needs_correction),
+					})
+				}
+
 				setAfterSaleSaving(false)
 				setAfterSaleError(null)
 				resetDraft()
 				void loadSessionOrders()
+
+				if (finalOrderId) {
+					void (async () => {
+						const [stockRes, financeRes] = await Promise.all([
+							portalFetch(
+								`/api/portal/sales-orders/${encodeURIComponent(finalOrderId)}/post-stock`,
+								{ method: 'POST', skipAuthRedirect: true },
+							),
+							portalFetch(
+								`/api/portal/sales-orders/${encodeURIComponent(finalOrderId)}/post-finance`,
+								{ method: 'POST', skipAuthRedirect: true },
+							),
+						])
+						const [stockData, financeData] = await Promise.all([
+							stockRes?.json().catch(() => null),
+							financeRes?.json().catch(() => null),
+						])
+						const stockOk =
+							stockData?.ok ||
+							stockData?.error === 'stock_already_posted' ||
+							stockData?.error === 'full_skips_local_stock'
+						const financeOk =
+							financeData?.ok || financeData?.error === 'finance_already_posted'
+						if (!stockOk) {
+							console.error('[pdv] post-stock retry failed', stockData)
+						}
+						if (!financeOk) {
+							console.error('[pdv] post-finance retry failed', financeData)
+						}
+					})()
+				}
 			} catch (err) {
 				setAfterSaleSaving(false)
 				setAfterSaleOpen(false)
-				if (isLikelyNetworkFailure(err)) {
+				if (!emitNfce && isLikelyNetworkFailure(err)) {
 					await queueSaleOffline('network')
 					return
 				}
@@ -2280,8 +2422,7 @@ export function PdvClient({
 					<h1 className="shrink-0 text-base font-semibold sm:text-lg">Frente de Caixa</h1>
 					<span className="truncate text-xs opacity-90 sm:text-sm">Vendedor: {sellerName}</span>
 					<span className="hidden text-[11px] opacity-75 lg:inline">
-						F2 busca · F3 qtd · F4 pag. · F5 cliente · F6 finalizar · F7 exato ·
-						F9 nova
+						F2 busca · F3 qtd · F4 pag. · F5 cliente · F6 finalizar · F7 exato · F9 nova
 					</span>
 				</div>
 				<div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -3041,7 +3182,7 @@ export function PdvClient({
 								{maskedFromCents(totalCents)}
 							</span>
 						</div>
-						<div className="flex gap-2">
+						<div className="flex flex-wrap gap-2">
 							<Button
 								variant="outline"
 								className="min-w-0 flex-1 sm:w-auto sm:flex-none"
@@ -3052,16 +3193,33 @@ export function PdvClient({
 							</Button>
 							<Button
 								className="min-w-0 flex-1 sm:w-auto sm:flex-none"
+								onClick={() => finalizeOrder({ emitNfce: true })}
+								disabled={
+									busy ||
+									afterSaleSaving ||
+									afterSaleOpen ||
+									!cashOpen ||
+									cart.length === 0 ||
+									(typeof navigator !== 'undefined' && !navigator.onLine)
+								}
+							>
+								{afterSaleSaving && afterSaleReceiptMode === 'nfce' ? (
+									<Loader2 className="mr-2 h-4 w-4 animate-spin" />
+								) : null}
+								Finalizar com NFC-e
+							</Button>
+							<Button
+								className="min-w-0 flex-1 sm:w-auto sm:flex-none"
 								onClick={() => finalizeOrder()}
-							disabled={
-								busy ||
-								afterSaleSaving ||
-								afterSaleOpen ||
-								!cashOpen ||
-								cart.length === 0
-							}
-						>
-								{afterSaleSaving ? (
+								disabled={
+									busy ||
+									afterSaleSaving ||
+									afterSaleOpen ||
+									!cashOpen ||
+									cart.length === 0
+								}
+							>
+								{afterSaleSaving && afterSaleReceiptMode === 'cupom' ? (
 									<Loader2 className="mr-2 h-4 w-4 animate-spin" />
 								) : null}
 								Finalizar venda (F6)
@@ -3514,12 +3672,46 @@ export function PdvClient({
 					if (!open) {
 						setAfterSaleSaving(false)
 						setAfterSaleError(null)
+						setAfterSaleCupomHtml(null)
+						setAfterSaleNfceResult(null)
+						setAfterSaleReceiptMode('cupom')
 					}
 				}}
 				orderId={afterSaleOrderId}
 				orderNumber={afterSaleOrderNumber}
 				saving={afterSaleSaving}
 				error={afterSaleError}
+				cupomHtml={afterSaleCupomHtml}
+				receiptMode={afterSaleReceiptMode}
+				nfceResult={
+					afterSaleNfceResult
+						? {
+								ok: afterSaleNfceResult.ok,
+								fiscalDocument: afterSaleNfceResult.fiscalDocument
+									? {
+											id: afterSaleNfceResult.fiscalDocument.id,
+											status: (afterSaleNfceResult.fiscalDocument
+												.status || 'pending') as
+												| 'pending'
+												| 'authorized'
+												| 'rejected'
+												| 'canceled'
+												| 'denied',
+											sefaz_status_code:
+												afterSaleNfceResult.fiscalDocument
+													.sefaz_status_code,
+											sefaz_status_message:
+												afterSaleNfceResult.fiscalDocument
+													.sefaz_status_message,
+										}
+									: null,
+								danfeUrl: afterSaleNfceResult.danfeUrl,
+								error: afterSaleNfceResult.error,
+								message: afterSaleNfceResult.message,
+								needsCorrection: afterSaleNfceResult.needsCorrection,
+							}
+						: null
+				}
 				hasBlingIntegration={hasBlingIntegration}
 			/>
 		</div>

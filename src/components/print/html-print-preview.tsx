@@ -21,7 +21,9 @@ export function printHtmlIframe (iframe: HTMLIFrameElement | null) {
 }
 
 type HtmlPrintPreviewProps = {
-  src: string
+  src?: string | null
+  /** HTML inline (checkout PDV). Preferir quando o cupom já veio na resposta. */
+  html?: string | null
   title: string
   errorMessage: string
   autoPrint?: boolean
@@ -33,7 +35,8 @@ type HtmlPrintPreviewProps = {
 }
 
 export function HtmlPrintPreview ({
-  src,
+  src = null,
+  html = null,
   title,
   errorMessage,
   autoPrint = false,
@@ -46,6 +49,7 @@ export function HtmlPrintPreview ({
   const autoPrintedRef = useRef(false)
   const [isLoading, setIsLoading] = useState(true)
   const [hasError, setHasError] = useState(false)
+  const contentKey = html ? `html:${html.length}:${html.slice(0, 32)}` : `src:${src || ''}`
 
   const doPrint = useCallback(() => printHtmlIframe(iframeRef.current), [])
 
@@ -53,7 +57,7 @@ export function HtmlPrintPreview ({
     autoPrintedRef.current = false
     setIsLoading(true)
     setHasError(false)
-  }, [src])
+  }, [contentKey])
 
   useEffect(() => {
     onPrintReady?.(doPrint)
@@ -73,23 +77,26 @@ export function HtmlPrintPreview ({
     }, 200)
   }
 
+  const hasContent = Boolean(html || src)
+
   return (
     <div className={className || 'relative overflow-hidden rounded-md border bg-muted/30'}>
-      {isLoading ? (
+      {isLoading && hasContent ? (
         <div className='absolute inset-0 z-10 flex items-center justify-center bg-background/70'>
           <Loader2 className='h-5 w-5 animate-spin text-muted-foreground' />
         </div>
       ) : null}
-      {hasError ? (
+      {hasError || !hasContent ? (
         <div className='flex min-h-[280px] items-center justify-center p-4 text-center text-sm text-muted-foreground'>
-          {errorMessage}
+          {hasContent ? errorMessage : 'Carregando pré-visualização…'}
         </div>
       ) : (
         <iframe
           ref={iframeRef}
-          key={src}
+          key={contentKey}
           title={title}
-          src={src}
+          src={html ? undefined : (src || undefined)}
+          srcDoc={html || undefined}
           className={iframeClassName || 'h-[min(56vh,420px)] w-full border-0 bg-white'}
           onLoad={handleLoad}
           onError={() => {
