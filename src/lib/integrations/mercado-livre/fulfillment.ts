@@ -241,9 +241,9 @@ export async function withLiveMeliFulfillment<T extends LiveFulfillmentOrder> (p
     if (!mlOrderId) return false
     const isCanceled = String(order.status || '').trim().toLowerCase() === 'canceled'
       || String(order.status || '').trim().toLowerCase() === 'cancelled'
+    // ml_label_status não é persistido: não usar como gatilho de live (reconsulta o MELI em todo load).
     return (
       !order.ml_fulfillment_stage
-      || !order.ml_label_status
       || !order.ml_shipment_id
       || (isCanceled && !order.ml_claim_status)
     )

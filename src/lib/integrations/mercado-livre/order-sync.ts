@@ -2,14 +2,22 @@ import { randomUUID } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
 	getMeliConnectionByOrganizationId,
+	getMeliItem,
 	getMeliOrder,
 	getMeliShipment,
+	loadMeliUserProductStockById,
 	type HubConnection,
 	pickMeliClaimForDisplay,
 	searchMeliClaimsByOrderId,
 } from '@/lib/integrations/mercado-livre/api'
 import { persistMeliFulfillment } from '@/lib/integrations/mercado-livre/fulfillment'
-import { resolveMeliProductId } from '@/lib/integrations/mercado-livre/product-resolve'
+import { stockFromMeliLocations } from '@/lib/integrations/mercado-livre/listing-display'
+import {
+	parseMeliOrderItemRef,
+	resolveMeliProductId,
+} from '@/lib/integrations/mercado-livre/product-resolve'
+import { userProductIdFromMeliItem } from '@/lib/integrations/mercado-livre/listing-variations'
+import { meliLogisticTypeFromShipment } from '@/lib/vendas/sales-lane'
 import { extractMeliOrderIdFromResource } from '@/lib/integrations/mercado-livre/webhooks'
 import {
 	cancelSalesOrder,
@@ -340,6 +348,97 @@ async function findSalesOrderByMlId(
 	return { id: String(data.id), status: String(data.status || '') }
 }
 
+async function resolveUserProductIdForMlItem(params: {
+	supabase: ServiceClient
+	organizationId: string
+	connection: HubConnection
+	mlItemId: string
+}): Promise<string | null> {
+	const mlItemId = String(params.mlItemId || '').trim()
+	if (!mlItemId) return null
+
+	const { data: listing } = await params.supabase
+		.from('meli_listings')
+		.select('raw')
+		.eq('organization_id', params.organizationId)
+		.eq('ml_item_id', mlItemId)
+		.maybeSingle()
+
+	const listingRaw = asRecord(listing?.raw)
+	const fromListing = trimText(listingRaw?.user_product_id)
+	if (fromListing) return fromListing
+
+	try {
+		const item = await getMeliItem(params.connection, mlItemId, params.supabase)
+		return userProductIdFromMeliItem(item)
+	} catch {
+		return null
+	}
+}
+
+/**
+ * Consulta o estoque Full (meli_facility) no momento do sync.
+ * Esse valor já é o disponível após a venda e fica gravado no item.
+ */
+async function attachMeliFullStockAfterSale(params: {
+	supabase: ServiceClient
+	organizationId: string
+	connection: HubConnection
+	order: Record<string, unknown>
+	items: Array<SalesOrderItemInput & { mlItemId?: string | null }>
+}): Promise<SalesOrderItemInput[]> {
+	const logistic = meliLogisticTypeFromShipment({
+		shipping: params.order.shipping,
+		shipment: null,
+		tags: params.order.tags,
+	})
+	if (logistic !== 'fulfillment') {
+		return params.items.map(({ mlItemId: _mlItemId, ...item }) => item)
+	}
+
+	const userProductIds: string[] = []
+	const userProductByIndex = new Map<number, string>()
+	await Promise.all(
+		params.items.map(async (item, index) => {
+			const mlItemId = String(item.mlItemId || '').trim()
+			if (!mlItemId) return
+			const userProductId = await resolveUserProductIdForMlItem({
+				supabase: params.supabase,
+				organizationId: params.organizationId,
+				connection: params.connection,
+				mlItemId,
+			})
+			if (!userProductId) return
+			userProductIds.push(userProductId)
+			userProductByIndex.set(index, userProductId)
+		}),
+	)
+
+	if (userProductByIndex.size === 0) {
+		return params.items.map(({ mlItemId: _mlItemId, ...item }) => item)
+	}
+
+	const locationsByUserProduct = await loadMeliUserProductStockById(
+		params.connection,
+		userProductIds,
+		params.supabase,
+	)
+
+	return params.items.map((item, index) => {
+		const { mlItemId: _mlItemId, ...rest } = item
+		const userProductId = userProductByIndex.get(index)
+		if (!userProductId) return rest
+		const locations = locationsByUserProduct.get(userProductId)
+		if (locations == null) return rest
+		const stockFull = stockFromMeliLocations(locations).stock_full
+		if (stockFull == null) return rest
+		return {
+			...rest,
+			stock_after_sale: Math.max(0, Math.round(stockFull)),
+		}
+	})
+}
+
 async function mapOrderItems(params: {
 	supabase: ServiceClient
 	organizationId: string
@@ -354,9 +453,10 @@ async function mapOrderItems(params: {
 		throw new Error('meli_order_without_items')
 	}
 
-	const items: SalesOrderItemInput[] = []
+	const drafted: Array<SalesOrderItemInput & { mlItemId?: string | null }> = []
 	for (const raw of rawItems) {
 		const row = asRecord(raw) ?? {}
+		const itemRef = parseMeliOrderItemRef(raw)
 		const productId = await resolveMeliProductId({
 			supabase: params.supabase,
 			organizationId: params.organizationId,
@@ -366,13 +466,21 @@ async function mapOrderItems(params: {
 		})
 		const quantity = Math.max(1, Math.round(Number(row.quantity) || 1))
 		const unitPriceCents = reaisToCents(row.unit_price ?? row.full_unit_price)
-		items.push({
+		drafted.push({
 			product_id: productId,
 			quantity,
 			unit_price_cents: unitPriceCents,
+			mlItemId: itemRef?.itemId ?? null,
 		})
 	}
-	return items
+
+	return attachMeliFullStockAfterSale({
+		supabase: params.supabase,
+		organizationId: params.organizationId,
+		connection: params.connection,
+		order: params.order,
+		items: drafted,
+	})
 }
 
 export async function upsertSalesOrderFromMeliOrder(params: {
@@ -619,8 +727,22 @@ function canonicalizeMeliItems(
 			item.discount_cents ?? 0,
 		].join(':')
 		const previous = grouped.get(key)
-		if (previous) previous.quantity += item.quantity
-		else grouped.set(key, { ...item })
+		if (previous) {
+			previous.quantity += item.quantity
+			if (previous.stock_after_sale == null && item.stock_after_sale != null) {
+				previous.stock_after_sale = item.stock_after_sale
+			} else if (
+				previous.stock_after_sale != null
+				&& item.stock_after_sale != null
+			) {
+				previous.stock_after_sale = Math.min(
+					previous.stock_after_sale,
+					item.stock_after_sale,
+				)
+			}
+		} else {
+			grouped.set(key, { ...item })
+		}
 	}
 	return [...grouped.values()].sort((a, b) =>
 		[a.product_id, a.unit_price_cents, a.discount_cents ?? 0]
@@ -629,6 +751,81 @@ function canonicalizeMeliItems(
 				[b.product_id, b.unit_price_cents, b.discount_cents ?? 0].join(':'),
 			),
 	)
+}
+
+/** Preenche stock_after_sale em itens Full que ainda não têm snapshot. */
+async function backfillMissingMeliStockAfterSale(params: {
+	supabase: ServiceClient
+	organizationId: string
+	connection: HubConnection
+	salesOrderId: string
+	order: Record<string, unknown>
+	auth: AuthCtx
+}) {
+	const logisticFromOrder = meliLogisticTypeFromShipment({
+		shipping: params.order.shipping,
+		shipment: null,
+		tags: params.order.tags,
+	})
+	let logistic = logisticFromOrder
+	if (logistic !== 'fulfillment') {
+		const { data: orderRow } = await params.supabase
+			.from('sales_orders')
+			.select('ml_logistic_type')
+			.eq('organization_id', params.organizationId)
+			.eq('id', params.salesOrderId)
+			.maybeSingle()
+		logistic = trimText(orderRow?.ml_logistic_type)?.toLowerCase() ?? null
+	}
+	if (logistic !== 'fulfillment') return
+
+	const listed = await listSalesOrderItems(params.auth, params.salesOrderId)
+	if (!listed.ok || listed.items.length === 0) return
+	const missing = listed.items.some((item) => item.stock_after_sale == null)
+	if (!missing) return
+
+	const productIds = listed.items.map((item) => item.product_id)
+	const { data: products } = await params.supabase
+		.from('products')
+		.select('id, ml_item_id')
+		.eq('organization_id', params.organizationId)
+		.in('id', productIds)
+	const mlItemByProductId = new Map(
+		(products ?? []).map((row) => [
+			String(row.id),
+			trimText(row.ml_item_id),
+		]),
+	)
+
+	const drafted: Array<SalesOrderItemInput & { mlItemId?: string | null }> =
+		listed.items.map((item) => ({
+			product_id: item.product_id,
+			quantity: item.quantity,
+			unit_price_cents: item.unit_price_cents,
+			unit_cost_cents: item.unit_cost_cents ?? 0,
+			discount_cents: item.discount_cents ?? 0,
+			stock_after_sale: item.stock_after_sale ?? null,
+			mlItemId: mlItemByProductId.get(item.product_id) ?? null,
+		}))
+
+	const enriched = await attachMeliFullStockAfterSale({
+		supabase: params.supabase,
+		organizationId: params.organizationId,
+		connection: params.connection,
+		order: params.order,
+		items: drafted,
+	})
+	if (!enriched.some((item) => item.stock_after_sale != null)) return
+
+	const repaired = await updateSalesOrderDraft(
+		params.auth,
+		params.salesOrderId,
+		{},
+		canonicalizeMeliItems(enriched),
+	)
+	if (repaired.ok === false) {
+		console.error('[meli stock_after_sale backfill]', repaired.error)
+	}
 }
 
 function sameMeliItems(
@@ -795,6 +992,15 @@ async function attachMeliFulfillment(params: {
 	if (fullStock.ok === false) {
 		console.error('[meli full stock reverse]', fullStock.error)
 	}
+
+	await backfillMissingMeliStockAfterSale({
+		supabase: params.supabase,
+		organizationId: params.organizationId,
+		connection: params.connection,
+		salesOrderId: params.salesOrderId,
+		order: params.order,
+		auth,
+	})
 }
 
 export async function syncMeliShipmentById(params: {

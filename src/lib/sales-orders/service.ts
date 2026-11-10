@@ -41,6 +41,8 @@ export type SalesOrderItemInput = {
   unit_price_cents: number
   unit_cost_cents?: number
   discount_cents?: number
+  /** Snapshot do estoque disponível após esta venda (ex.: Full MELI no sync). */
+  stock_after_sale?: number | null
 }
 
 export type SalesOrderPaymentInput = {
@@ -777,6 +779,7 @@ function toSalesOrderItemInputs (
     unit_price_cents: number
     unit_cost_cents?: number | null
     discount_cents?: number | null
+    stock_after_sale?: number | null
   }>,
 ): SalesOrderItemInput[] {
   return rows.map((row) => ({
@@ -785,6 +788,9 @@ function toSalesOrderItemInputs (
     unit_price_cents: toInt(row.unit_price_cents, 0),
     unit_cost_cents: toInt(row.unit_cost_cents ?? 0, 0),
     discount_cents: toInt(row.discount_cents ?? 0, 0),
+    stock_after_sale: row.stock_after_sale == null
+      ? null
+      : Math.max(0, toInt(row.stock_after_sale, 0)),
   }))
 }
 
@@ -1244,7 +1250,7 @@ export async function updateSalesOrderDraft (
 export async function listSalesOrderItems (auth: AuthCtx, orderId: string) {
   const { data, error } = await auth.supabase
     .from('sales_order_items')
-    .select('id, product_id, quantity, unit_price_cents, unit_cost_cents, discount_cents, subtotal_cents')
+    .select('id, product_id, quantity, unit_price_cents, unit_cost_cents, discount_cents, subtotal_cents, stock_after_sale')
     .eq('organization_id', auth.organizationId)
     .eq('sales_order_id', orderId)
     .order('created_at', { ascending: true })
@@ -1262,6 +1268,7 @@ type SalesOrderItemSnapshotRow = {
   unit_cost_cents: number
   discount_cents: number
   subtotal_cents: number
+  stock_after_sale?: number | null
 }
 
 type SalesOrderPaymentSnapshotRow = {
@@ -1300,7 +1307,7 @@ export async function replaceSalesOrderItems (auth: AuthCtx, orderId: string, it
 
   const { data: previousData, error: snapError } = await auth.supabase
     .from('sales_order_items')
-    .select('product_id, quantity, unit_price_cents, unit_cost_cents, discount_cents, subtotal_cents')
+    .select('product_id, quantity, unit_price_cents, unit_cost_cents, discount_cents, subtotal_cents, stock_after_sale')
     .eq('organization_id', auth.organizationId)
     .eq('sales_order_id', orderId)
 
@@ -1315,6 +1322,9 @@ export async function replaceSalesOrderItems (auth: AuthCtx, orderId: string, it
     unit_cost_cents: toInt(row.unit_cost_cents ?? 0, 0),
     discount_cents: toInt(row.discount_cents ?? 0, 0),
     subtotal_cents: toInt(row.subtotal_cents, 0),
+    stock_after_sale: row.stock_after_sale == null
+      ? null
+      : Math.max(0, toInt(row.stock_after_sale, 0)),
   }))
 
   const { error: delError } = await auth.supabase
@@ -1335,6 +1345,9 @@ export async function replaceSalesOrderItems (auth: AuthCtx, orderId: string, it
       unit_cost_cents: toInt(item.unit_cost_cents ?? 0, 0),
       discount_cents: toInt(item.discount_cents ?? 0, 0),
       subtotal_cents: calcItemSubtotal(item),
+      stock_after_sale: item.stock_after_sale == null
+        ? null
+        : Math.max(0, toInt(item.stock_after_sale, 0)),
     }))
     const { error: insError } = await auth.supabase.from('sales_order_items').insert(rows)
     if (insError) {

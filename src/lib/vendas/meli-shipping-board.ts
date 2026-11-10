@@ -1,5 +1,11 @@
 import { brazilTodayDateString } from '@/lib/dashboard/brazil-day'
-import type { SalesLane } from '@/lib/vendas/sales-lane'
+import {
+  isMeliOpenFulfillmentStage,
+  isMeliShippingUpcoming,
+  meliShipReadyDateKey,
+  resolveMeliFulfillmentStage,
+  type SalesLane,
+} from '@/lib/vendas/sales-lane'
 
 export type MeliShippingTabId = 'today' | 'upcoming' | 'transit' | 'finished'
 
@@ -51,14 +57,6 @@ function norm (value: unknown) {
   return String(value || '').trim().toLowerCase()
 }
 
-function brazilDateKey (iso: string | null | undefined) {
-  const raw = String(iso || '').trim()
-  if (!raw) return null
-  const parsed = new Date(raw)
-  if (Number.isNaN(parsed.getTime())) return null
-  return brazilTodayDateString(parsed)
-}
-
 /** DD/MM a partir de YYYY-MM-DD (fuso BR). */
 export function formatMeliShipReadyDayLabel (dateKey: string | null | undefined) {
   const raw = String(dateKey || '').trim()
@@ -87,21 +85,30 @@ export function formatMeliPostingDeadlineUntil (iso: string | null | undefined) 
   return `Até ${hour}:${minute}h`
 }
 
-/**
- * Dia em que a etiqueta libera para o vendedor.
- * Usa só ml_label_available_at (não o prazo de postagem).
- */
-export function meliShipReadyDateKey (row: MeliShippingOrderRow) {
-  return brazilDateKey(row.ml_label_available_at)
+export { meliShipReadyDateKey }
+
+/** Nomes de método do ML que na prática são Flex (ex.: Prioritario). */
+export function isMeliFlexShippingMethodName (value: string | null | undefined) {
+  const name = norm(value)
+  if (!name) return false
+  if (name === 'flex' || name.includes('flex')) return true
+  // ML costuma gravar o método Flex como "Prioritario" / "Prioritário".
+  const folded = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  return folded === 'prioritario' || folded.includes('prioritario')
+}
+
+export function isMeliFlexShippingRow (row: Pick<MeliShippingOrderRow, 'ml_logistic_type' | 'ml_shipping_method'>) {
+  return norm(row.ml_logistic_type) === 'self_service'
+    || isMeliFlexShippingMethodName(row.ml_shipping_method)
 }
 
 /** Rótulo do método nos cards de próximos dias. */
 export function meliShippingMethodLabel (row: MeliShippingOrderRow) {
+  const logistic = norm(row.ml_logistic_type)
+  if (isMeliFlexShippingRow(row)) return 'Flex'
+  if (logistic === 'fulfillment') return 'Full'
   const named = String(row.ml_shipping_method || '').trim()
   if (named) return named
-  const logistic = norm(row.ml_logistic_type)
-  if (logistic === 'self_service') return 'Flex'
-  if (logistic === 'fulfillment') return 'Full'
   if (logistic === 'drop_off' || logistic === 'xd_drop_off') return 'Agência Mercado Livre'
   return 'Mercado Envios'
 }
@@ -109,7 +116,7 @@ export function meliShippingMethodLabel (row: MeliShippingOrderRow) {
 /** Rótulo do método em Envios de hoje (Flex / Mercado Envios). */
 export function meliShippingTodayMethodLabel (row: MeliShippingOrderRow) {
   const logistic = norm(row.ml_logistic_type)
-  if (logistic === 'self_service') return 'Flex'
+  if (isMeliFlexShippingRow(row)) return 'Flex'
   if (logistic === 'fulfillment') return 'Full'
   return 'Mercado Envios'
 }
@@ -117,17 +124,6 @@ export function meliShippingTodayMethodLabel (row: MeliShippingOrderRow) {
 function todayLaneForMethod (method: string): SalesLane {
   if (norm(method) === 'flex') return 'flex'
   return 'preparing'
-}
-
-/** Ainda não liberou para envio/impressão neste dia. */
-function goesToUpcomingDays (
-  readyDay: string | null,
-  today: string,
-  substatus: string,
-) {
-  if (substatus === 'buffered') return true
-  if (!readyDay) return true
-  return readyDay > today
 }
 
 type LineBucket = {
@@ -200,19 +196,18 @@ export function buildMeliShippingBoard (
 
     const status = norm(row.status)
     const logistic = norm(row.ml_logistic_type)
-    const stage = norm(row.ml_fulfillment_stage)
     const shipStatus = norm(row.ml_shipment_status)
-    const substatus = norm(row.ml_shipment_substatus)
+    // Recalcula a etapa: stage no banco pode ficar stale após postagem Flex (dropped_off etc.).
+    const stage = resolveMeliFulfillmentStage(row) || norm(row.ml_fulfillment_stage)
     const isFull = logistic === 'fulfillment'
     const isCanceled = status === 'canceled' || status === 'cancelled'
       || shipStatus === 'cancelled' || shipStatus === 'canceled'
-    const isDelivered = shipStatus === 'delivered'
     const isActive = status === 'paid' || status === 'in_progress'
     const readyDay = meliShipReadyDateKey(row)
-    const isOpenStage = stage === 'preparing' || stage === 'pending_shipment'
-    const isUpcoming = goesToUpcomingDays(readyDay, today, substatus)
+    const isOpenStage = isMeliOpenFulfillmentStage(stage)
+    const isUpcoming = isMeliShippingUpcoming(row, today)
 
-    if (isDelivered) {
+    if (shipStatus === 'delivered') {
       finished += 1
       continue
     }

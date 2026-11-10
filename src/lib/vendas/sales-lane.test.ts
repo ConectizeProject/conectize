@@ -33,6 +33,14 @@ describe('sales lane', () => {
       shipmentSubstatus: 'printed',
     })).toBe('pending_shipment')
     expect(meliFulfillmentStage({
+      shipmentStatus: 'ready_to_ship',
+      shipmentSubstatus: 'dropped_off',
+    })).toBe('shipped')
+    expect(meliFulfillmentStage({
+      shipmentStatus: 'ready_to_ship',
+      shipmentSubstatus: 'picked_up',
+    })).toBe('shipped')
+    expect(meliFulfillmentStage({
       shipmentStatus: 'shipped',
       shipmentSubstatus: 'dropped_off',
     })).toBe('shipped')
@@ -44,53 +52,69 @@ describe('sales lane', () => {
 
   it('filtra o número do marketplace e as etapas dos menus', () => {
     expect(parseMarketplaceOrderNumber('ML 2000018995039116')).toBe('2000018995039116')
-    // Em preparação: só com etiqueta já imprimível.
+    // Em preparação / envios de hoje: liberação da etiqueta <= hoje.
     expect(orderMatchesSalesLane({
       ml_fulfillment_stage: 'preparing',
       ml_logistic_type: 'drop_off',
       ml_shipment_substatus: 'ready_to_print',
-    }, 'preparing')).toBe(true)
-    expect(orderMatchesSalesLane({
-      ml_fulfillment_stage: 'preparing',
-      ml_logistic_type: 'drop_off',
-      ml_shipment_substatus: 'buffered',
-    }, 'preparing')).toBe(false)
-    expect(orderMatchesSalesLane({
-      ml_fulfillment_stage: 'preparing',
-      ml_logistic_type: 'drop_off',
-      ml_shipment_substatus: null,
-    }, 'preparing')).toBe(false)
+      ml_label_available_at: '2026-10-16T12:00:00.000Z',
+    }, 'preparing', '2026-10-16')).toBe(true)
     expect(orderMatchesSalesLane({
       ml_fulfillment_stage: 'pending_shipment',
       ml_logistic_type: 'drop_off',
       ml_shipment_substatus: 'printed',
-    }, 'preparing')).toBe(false)
+      ml_label_available_at: '2026-10-16T10:00:00.000Z',
+    }, 'preparing', '2026-10-16')).toBe(true)
+    expect(orderMatchesSalesLane({
+      ml_fulfillment_stage: 'preparing',
+      ml_logistic_type: 'drop_off',
+      ml_shipment_substatus: 'buffered',
+      ml_label_available_at: '2026-10-18T12:00:00.000Z',
+    }, 'preparing', '2026-10-16')).toBe(false)
+    expect(orderMatchesSalesLane({
+      ml_fulfillment_stage: 'preparing',
+      ml_logistic_type: 'self_service',
+      ml_shipment_substatus: 'ready_to_print',
+      ml_label_available_at: '2026-10-16T12:00:00.000Z',
+    }, 'preparing', '2026-10-16')).toBe(false)
     expect(orderMatchesSalesLane({
       ml_fulfillment_stage: 'preparing',
       ml_logistic_type: 'fulfillment',
       ml_shipment_substatus: 'ready_to_print',
-    }, 'preparing')).toBe(false)
+      ml_label_available_at: '2026-10-16T12:00:00.000Z',
+    }, 'preparing', '2026-10-16')).toBe(false)
     expect(orderMatchesSalesLane({
       ml_fulfillment_stage: 'shipped',
       ml_logistic_type: null,
-    }, 'preparing')).toBe(false)
-    // Envios pendentes: não enviadas (com ou sem etiqueta), exceto FULL.
+    }, 'preparing', '2026-10-16')).toBe(false)
+    // Envios pendentes / próximos dias: buffered, sem data ou data futura.
     expect(orderMatchesSalesLane({
       ml_fulfillment_stage: 'preparing',
       ml_logistic_type: null,
-    }, 'pending_shipment')).toBe(true)
+      ml_shipment_substatus: 'buffered',
+      ml_label_available_at: '2026-10-18T12:00:00.000Z',
+    }, 'pending_shipment', '2026-10-16')).toBe(true)
     expect(orderMatchesSalesLane({
       ml_fulfillment_stage: 'pending_shipment',
       ml_logistic_type: 'self_service',
-    }, 'pending_shipment')).toBe(true)
+      ml_shipment_substatus: 'ready_to_print',
+      ml_label_available_at: '2026-10-20T12:00:00.000Z',
+    }, 'pending_shipment', '2026-10-16')).toBe(true)
+    expect(orderMatchesSalesLane({
+      ml_fulfillment_stage: 'pending_shipment',
+      ml_logistic_type: 'drop_off',
+      ml_shipment_substatus: 'printed',
+      ml_label_available_at: '2026-10-16T10:00:00.000Z',
+    }, 'pending_shipment', '2026-10-16')).toBe(false)
     expect(orderMatchesSalesLane({
       ml_fulfillment_stage: 'pending_shipment',
       ml_logistic_type: 'fulfillment',
-    }, 'pending_shipment')).toBe(false)
+      ml_label_available_at: '2026-10-20T12:00:00.000Z',
+    }, 'pending_shipment', '2026-10-16')).toBe(false)
     expect(orderMatchesSalesLane({
       ml_fulfillment_stage: 'shipped',
       ml_logistic_type: null,
-    }, 'pending_shipment')).toBe(false)
+    }, 'pending_shipment', '2026-10-16')).toBe(false)
   })
 
   it('reconhece Flex pelo tipo logístico ou pela tag', () => {
@@ -108,6 +132,14 @@ describe('sales lane', () => {
     expect(orderMatchesSalesLane({
       ml_fulfillment_stage: 'preparing',
       ml_logistic_type: 'self_service',
-    }, 'flex')).toBe(true)
+      ml_shipment_substatus: 'ready_to_print',
+      ml_label_available_at: '2026-10-16T12:00:00.000Z',
+    }, 'flex', '2026-10-16')).toBe(true)
+    expect(orderMatchesSalesLane({
+      ml_fulfillment_stage: 'preparing',
+      ml_logistic_type: 'self_service',
+      ml_shipment_substatus: 'buffered',
+      ml_label_available_at: '2026-10-20T12:00:00.000Z',
+    }, 'flex', '2026-10-16')).toBe(false)
   })
 })

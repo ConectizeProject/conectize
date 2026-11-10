@@ -1,3 +1,5 @@
+import { brazilTodayDateString } from '@/lib/dashboard/brazil-day'
+
 export const SALES_LANES = [
   'all',
   'preparing',
@@ -18,18 +20,83 @@ export const SALES_LANE_OPTIONS: Array<{ id: SalesLane, label: string }> = [
   { id: 'canceled', label: 'Canceladas' },
 ]
 
+/** Etapas ainda não despachadas (para enviar hoje ou nos próximos dias). */
+export const MELI_OPEN_FULFILLMENT_STAGES = ['preparing', 'pending_shipment'] as const
+
+function brazilDateKey (iso: string | null | undefined) {
+  const raw = String(iso || '').trim()
+  if (!raw) return null
+  const parsed = new Date(raw)
+  if (Number.isNaN(parsed.getTime())) return null
+  return brazilTodayDateString(parsed)
+}
+
+/** Dia em que a etiqueta libera para o vendedor (fuso BR). */
+export function meliShipReadyDateKey (row: {
+  ml_label_available_at?: string | null
+}) {
+  return brazilDateKey(row.ml_label_available_at)
+}
+
+export function isMeliOpenFulfillmentStage (stage: string | null | undefined) {
+  const value = String(stage || '').trim().toLowerCase()
+  return value === 'preparing' || value === 'pending_shipment'
+}
+
+/**
+ * Ainda não liberou para envio neste dia: buffered, sem data ou data futura.
+ * Alinhado ao painel de envios (Envios de hoje vs Próximos dias).
+ */
+export function isMeliShippingUpcoming (
+  row: {
+    ml_label_available_at?: string | null
+    ml_shipment_substatus?: string | null
+  },
+  today = brazilTodayDateString(),
+) {
+  const substatus = String(row.ml_shipment_substatus || '').trim().toLowerCase()
+  if (substatus === 'buffered') return true
+  const readyDay = meliShipReadyDateKey(row)
+  if (!readyDay) return true
+  return readyDay > today
+}
+
+export function isMeliShippingTodayReady (
+  row: {
+    ml_fulfillment_stage?: string | null
+    ml_label_available_at?: string | null
+    ml_shipment_substatus?: string | null
+  },
+  today = brazilTodayDateString(),
+) {
+  return isMeliOpenFulfillmentStage(row.ml_fulfillment_stage)
+    && !isMeliShippingUpcoming(row, today)
+}
+
 const SHIPPED_STATUSES = new Set(['shipped', 'delivered', 'not_delivered'])
 
-const LABEL_ISSUED_SUBSTATUSES = new Set([
-  'printed',
-  'ready_for_pickup',
+/**
+ * Vendedor já postou / entregou à logística.
+ * No ML isso frequentemente fica em ready_to_ship (ex.: dropped_off, picked_up),
+ * mas para o painel "Para enviar" já não deve aparecer.
+ */
+const SELLER_POSTED_SUBSTATUSES = new Set([
+  'dropped_off',
+  'picked_up',
+  'authorized_by_carrier',
   'in_hub',
   'in_packing_list',
-  'dropped_off',
   'soon_deliver',
   'waiting_for_withdrawal',
-  'authorized_by_carrier',
+])
+
+/** Etiqueta pronta, ainda cabe ação do vendedor (imprimir/postar/aguardar coleta). */
+const LABEL_READY_SUBSTATUSES = new Set([
+  'printed',
+  'ready_for_pickup',
+  'ready_for_dropoff',
   'in_pickup_list',
+  'ready_for_pkl_creation',
 ])
 
 export type MeliFulfillmentStage = 'preparing' | 'pending_shipment' | 'shipped'
@@ -48,10 +115,37 @@ export function meliFulfillmentStage (input: {
   if (!status) return 'preparing'
   if (status === 'cancelled' || status === 'canceled') return null
   if (SHIPPED_STATUSES.has(status)) return 'shipped'
-  if (status === 'ready_to_ship' && LABEL_ISSUED_SUBSTATUSES.has(substatus)) {
+  // ready_to_ship + dropped_off/picked_up/... = já postado ("A caminho" no ML).
+  if (status === 'ready_to_ship' && SELLER_POSTED_SUBSTATUSES.has(substatus)) {
+    return 'shipped'
+  }
+  if (status === 'ready_to_ship' && LABEL_READY_SUBSTATUSES.has(substatus)) {
     return 'pending_shipment'
   }
   return 'preparing'
+}
+
+/** Recalcula a etapa a partir do status/substatus quando existirem (corrige stage stale no banco). */
+export function resolveMeliFulfillmentStage (order: {
+  ml_fulfillment_stage?: string | null
+  ml_shipment_status?: string | null
+  ml_shipment_substatus?: string | null
+}): MeliFulfillmentStage | null {
+  const hasShipmentSignal = Boolean(
+    String(order.ml_shipment_status || '').trim()
+    || String(order.ml_shipment_substatus || '').trim(),
+  )
+  if (hasShipmentSignal) {
+    return meliFulfillmentStage({
+      shipmentStatus: order.ml_shipment_status ?? null,
+      shipmentSubstatus: order.ml_shipment_substatus ?? null,
+    })
+  }
+  const stored = String(order.ml_fulfillment_stage || '').trim()
+  if (stored === 'preparing' || stored === 'pending_shipment' || stored === 'shipped') {
+    return stored
+  }
+  return null
 }
 
 function collectTags (value: unknown, into: string[]) {
@@ -117,14 +211,13 @@ export function isMeliLabelPrintableSubstatus (substatus: string | null | undefi
 }
 
 /**
- * Etapas persistidas que entram em cada menu.
- * - Em preparação: etapa preparing e etiqueta já imprimível
- * - Envios pendentes: não enviadas, exceto FULL (`preparing` + `pending_shipment`)
- * - Despachadas: já enviadas (`shipped`)
+ * Etapas persistidas que entram em cada menu (pré-filtro SQL).
+ * O recorte fino (hoje vs próximos dias / Flex) usa `orderMatchesSalesLane`.
  */
 export function fulfillmentStagesForLane (lane: SalesLane): string[] | null {
-  if (lane === 'preparing') return ['preparing']
-  if (lane === 'pending_shipment') return ['preparing', 'pending_shipment']
+  if (lane === 'preparing' || lane === 'pending_shipment' || lane === 'flex') {
+    return [...MELI_OPEN_FULFILLMENT_STAGES]
+  }
   if (lane === 'shipped') return ['shipped']
   return null
 }
@@ -133,26 +226,40 @@ export function isMeliFullLogistic (logisticType: string | null | undefined): bo
   return String(logisticType || '').trim().toLowerCase() === 'fulfillment'
 }
 
-/** Menus em que FULL não entra (logística do ML). */
-export function laneExcludesMeliFull (lane: SalesLane): boolean {
-  return lane === 'preparing' || lane === 'pending_shipment'
+export function isMeliFlexLogistic (logisticType: string | null | undefined): boolean {
+  return String(logisticType || '').trim().toLowerCase() === 'self_service'
 }
 
+/** Menus em que FULL não entra (logística do ML). */
+export function laneExcludesMeliFull (lane: SalesLane): boolean {
+  return lane === 'preparing' || lane === 'pending_shipment' || lane === 'flex'
+}
+
+/**
+ * Alinhado ao painel de envios:
+ * - preparing: para enviar hoje (não Full, não Flex)
+ * - flex: Flex para enviar hoje
+ * - pending_shipment: próximos dias (não Full)
+ * - shipped: já despachadas
+ */
 export function orderMatchesSalesLane (order: {
   ml_logistic_type?: string | null
   ml_fulfillment_stage?: string | null
+  ml_shipment_status?: string | null
   ml_shipment_substatus?: string | null
-}, lane: SalesLane): boolean {
-  if (lane === 'flex') return order.ml_logistic_type === 'self_service'
-  // FULL: logística do ML, fora de preparação e envios pendentes.
-  if (laneExcludesMeliFull(lane) && isMeliFullLogistic(order.ml_logistic_type)) return false
-  const stages = fulfillmentStagesForLane(lane)
-  if (!stages) return true
-  if (!stages.includes(String(order.ml_fulfillment_stage || ''))) return false
-  // Em preparação: só quem já pode imprimir a etiqueta.
-  if (lane === 'preparing') {
-    return isMeliLabelPrintableSubstatus(order.ml_shipment_substatus)
-  }
+  ml_label_available_at?: string | null
+}, lane: SalesLane, today = brazilTodayDateString()): boolean {
+  const isFull = isMeliFullLogistic(order.ml_logistic_type)
+  const isFlex = isMeliFlexLogistic(order.ml_logistic_type)
+  const stage = resolveMeliFulfillmentStage(order)
+  const isOpen = isMeliOpenFulfillmentStage(stage)
+  const isUpcoming = isMeliShippingUpcoming(order, today)
+  const isToday = isOpen && !isUpcoming
+
+  if (lane === 'flex') return isFlex && isToday
+  if (lane === 'preparing') return !isFull && !isFlex && isToday
+  if (lane === 'pending_shipment') return !isFull && isOpen && isUpcoming
+  if (lane === 'shipped') return stage === 'shipped'
   return true
 }
 
