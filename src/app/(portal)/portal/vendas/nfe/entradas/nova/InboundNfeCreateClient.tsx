@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Barcode, FileUp, Loader2, Plus, Search, Trash2, Upload } from 'lucide-react'
+import { Barcode, FileUp, Info, Loader2, Plus, Trash2, Upload } from 'lucide-react'
+import { CreateCustomerDialog, EditCustomerDialog, type CustomerHit } from '@/components/customers'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -16,28 +17,35 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { Switch } from '@/components/ui/switch'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { toast } from '@/hooks/use-toast'
 import { extractNfeAccessKey } from '@/lib/fiscal/nfe-access-key'
+import { csosnOptions } from '@/lib/fiscal/csosn-options'
+import { ipiCstOptions, pisCofinsCstOptions } from '@/lib/fiscal/tax-cst-options'
+import { fiscalPaymentTypeOptions } from '@/lib/fiscal/payment-type-options'
 import { portalFetch } from '@/lib/portal/portal-fetch'
 import { parse3utoolsText } from '@/lib/resale/parse-3utools'
-import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import {
   formatMoneyInput,
+  maskedFromCents,
   moneyToCentsFromMasked,
 } from '@/lib/utils/money'
 import { onlyDigits } from '@/lib/utils/strings'
-import { cn } from '@/lib/utils'
+import { NovaOrdemCustomerCard } from '../../../../ordens/nova/NovaOrdemCustomerCard'
+import {
+  getCustomerDocumentDigits,
+  getCustomerDisplayName,
+  useNovaOrdemCustomerSearch,
+} from '../../../../ordens/nova/use-nova-ordem-customer-search'
 
 type Mode = 'xml' | 'manual' | 'usados'
-
-type CustomerHit = {
-  id: string
-  full_name?: string | null
-  company_name?: string | null
-  trade_name?: string | null
-  cpf?: string | null
-  cnpj?: string | null
-}
+type FiscalPurpose = 'resale' | 'fixed_asset' | 'use_consumption'
+type EntryType = 'own_issuance' | 'third_party' | 'import' | 'xml_import'
 
 type PaymentMethod = {
   id: string
@@ -52,6 +60,15 @@ type ManualLine = {
   unitValue: string
   productId: string | null
   productLabel: string
+  ncm: string
+  cest: string
+  unit: string
+  cfop: string
+  fiscalOrigin: string
+  icmsCsosn: string
+  pisCst: string
+  cofinsCst: string
+  ipiCst: string
 }
 
 type UsedLine = {
@@ -75,15 +92,6 @@ function newKey () {
     : `k-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
-function customerDisplayName (customer: CustomerHit) {
-  return String(
-    customer.full_name
-      || customer.trade_name
-      || customer.company_name
-      || '',
-  ).trim()
-}
-
 function emptyManualLine (): ManualLine {
   return {
     key: newKey(),
@@ -92,6 +100,15 @@ function emptyManualLine (): ManualLine {
     unitValue: '',
     productId: null,
     productLabel: '',
+    ncm: '',
+    cest: '',
+    unit: 'UN',
+    cfop: '1102',
+    fiscalOrigin: '0',
+    icmsCsosn: '102',
+    pisCst: '99',
+    cofinsCst: '99',
+    ipiCst: '53',
   }
 }
 
@@ -116,10 +133,11 @@ export function InboundNfeCreateClient () {
   const router = useRouter()
   const searchParams = useSearchParams()
   const initialMode = (searchParams.get('tipo') || searchParams.get('mode') || 'xml') as Mode
-  const [mode, setMode] = useState<Mode>(
-    initialMode === 'manual' || initialMode === 'usados' ? initialMode : 'xml',
-  )
+  const initialEntryType: EntryType = initialMode === 'xml' ? 'xml_import' : 'own_issuance'
+  const [entryType, setEntryType] = useState<EntryType>(initialEntryType)
+  const [mode, setMode] = useState<Mode>(initialEntryType === 'xml_import' ? 'xml' : 'manual')
   const [isSaving, setIsSaving] = useState(false)
+  const [referenceNumber, setReferenceNumber] = useState<number | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   // XML
@@ -129,18 +147,56 @@ export function InboundNfeCreateClient () {
   const lastAccessKeyLookupRef = useRef('')
 
   // Manual products
-  const [issuerName, setIssuerName] = useState('')
   const [issuedAt, setIssuedAt] = useState(() => new Date().toISOString().slice(0, 10))
+  const [fiscalPurpose, setFiscalPurpose] = useState<FiscalPurpose>('resale')
+  const [shouldMoveStock, setShouldMoveStock] = useState(true)
+  const [freight, setFreight] = useState('')
+  const [insurance, setInsurance] = useState('')
+  const [otherExpenses, setOtherExpenses] = useState('')
+  const [discount, setDiscount] = useState('')
+  const [transportMode, setTransportMode] = useState<'none' | 'buyer' | 'seller' | 'carrier'>('none')
+  const [complementaryInformation, setComplementaryInformation] = useState('')
+  const [fiscalInformation, setFiscalInformation] = useState('')
+  const [fiscalPaymentType, setFiscalPaymentType] = useState('')
+  const [fiscalPaymentValue, setFiscalPaymentValue] = useState('')
+  const [importDeclaration, setImportDeclaration] = useState({
+    number: '',
+    registrationDate: '',
+    exporterCode: '',
+    customsExpenses: '',
+    clearancePlace: '',
+    clearanceState: '',
+    clearanceDate: '',
+    transportWay: '',
+    importForm: '',
+    acquirerCnpj: '',
+    acquirerState: '',
+  })
   const [manualLines, setManualLines] = useState<ManualLine[]>([emptyManualLine()])
   const [productSearchByKey, setProductSearchByKey] = useState<Record<string, string>>({})
   const [productHitsByKey, setProductHitsByKey] = useState<Record<string, Array<{ id: string, name: string, sku?: string | null, barcode?: string | null, hasVariations?: boolean }>>>({})
 
   // Used
-  const [sellerSearch, setSellerSearch] = useState('')
-  const [sellerHits, setSellerHits] = useState<CustomerHit[]>([])
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerHit | null>(null)
   const [sellerCustomerId, setSellerCustomerId] = useState<string | null>(null)
   const [sellerName, setSellerName] = useState('')
   const [sellerDocument, setSellerDocument] = useState('')
+  const [isCreateCustomerOpen, setIsCreateCustomerOpen] = useState(false)
+  const [createCustomerInitialDocumentDigits, setCreateCustomerInitialDocumentDigits] = useState('')
+  const [customerToEdit, setCustomerToEdit] = useState<CustomerHit | null>(null)
+  const {
+    customerSearchInput,
+    setCustomerSearchInput,
+    documentDigits,
+    isDocumentMode,
+    isNameMode,
+    isSearchingDocument,
+    documentSearchError,
+    hasFetched,
+    customersFiltered,
+    isCpfPopoverOpen,
+    setIsCpfPopoverOpen,
+  } = useNovaOrdemCustomerSearch({ selectedCustomer })
   const [purchaseDate, setPurchaseDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([])
   const [paymentMethodId, setPaymentMethodId] = useState('')
@@ -167,39 +223,47 @@ export function InboundNfeCreateClient () {
   }, [mode])
 
   useEffect(() => {
-    if (mode !== 'usados') return
-    const q = sellerSearch.trim()
-    if (q.length < 2) {
-      setSellerHits([])
-      return
-    }
-    const controller = new AbortController()
-    const timer = window.setTimeout(() => {
-      const digits = onlyDigits(q)
-      const url = digits.length >= 5
-        ? `/api/portal/customers/search?documentPrefix=${encodeURIComponent(digits.slice(0, 5))}`
-        : `/api/portal/customers/search?name=${encodeURIComponent(q)}`
-      portalFetch(url, { signal: controller.signal })
-        .then(async (res) => {
-          const data = await res?.json().catch(() => null)
-          if (controller.signal.aborted) return
-          setSellerHits(Array.isArray(data?.customers) ? data.customers.slice(0, 8) : [])
-        })
-        .catch(() => {
-          if (!controller.signal.aborted) setSellerHits([])
-        })
-    }, 250)
+    let cancelled = false
+    portalFetch('/api/portal/fiscal/inbound-nfe?next=1')
+      .then(async (res) => {
+        const data = await res?.json().catch(() => null)
+        if (!cancelled && data?.ok) setReferenceNumber(Number(data.number) || null)
+      })
+      .catch(() => {
+        if (!cancelled) setReferenceNumber(null)
+      })
     return () => {
-      controller.abort()
-      window.clearTimeout(timer)
+      cancelled = true
     }
-  }, [mode, sellerSearch])
+  }, [])
 
-  const modes = useMemo(() => ([
-    { id: 'xml' as const, title: 'Importar XML', description: 'Produtos novos a partir do XML do fornecedor' },
-    { id: 'manual' as const, title: 'Cadastro manual', description: 'Produtos novos sem XML' },
-    { id: 'usados' as const, title: 'Usados / aparelhos', description: 'Compra de seminovo de cliente final' },
-  ]), [])
+  function selectSellerCustomer (customer: CustomerHit) {
+    setSelectedCustomer(customer)
+    setSellerCustomerId(customer.id)
+    setSellerName(getCustomerDisplayName(customer))
+    setSellerDocument(getCustomerDocumentDigits(customer))
+    setIsCpfPopoverOpen(false)
+  }
+
+  function clearSellerCustomer () {
+    setSelectedCustomer(null)
+    setSellerCustomerId(null)
+    setSellerName('')
+    setSellerDocument('')
+    setIsCpfPopoverOpen(true)
+  }
+
+  function editSellerCustomer () {
+    setCustomerToEdit(selectedCustomer)
+    setIsCreateCustomerOpen(true)
+  }
+
+  function createSellerCustomer () {
+    setCreateCustomerInitialDocumentDigits(documentDigits)
+    setCustomerToEdit(null)
+    setIsCpfPopoverOpen(false)
+    setIsCreateCustomerOpen(true)
+  }
 
   async function lookupByAccessKey (raw: string) {
     if (accessKeyLookupRef.current || isImporting) return
@@ -302,6 +366,14 @@ export function InboundNfeCreateClient () {
 
   async function submitManual () {
     if (isSaving) return
+    if (!sellerCustomerId) {
+      toast({
+        title: 'Selecione o fornecedor',
+        description: 'Busque um cliente existente ou cadastre um novo antes de continuar.',
+        variant: 'destructive',
+      })
+      return
+    }
     setIsSaving(true)
     try {
       const items = manualLines.map((line) => ({
@@ -309,14 +381,45 @@ export function InboundNfeCreateClient () {
         quantity: Number(line.quantity.replace(',', '.')),
         unit_value_cents: moneyToCentsFromMasked(line.unitValue) ?? 0,
         product_id: line.productId,
+        ncm: onlyDigits(line.ncm),
+        cest: onlyDigits(line.cest) || null,
+        unit: line.unit.trim().toUpperCase(),
+        cfop: onlyDigits(line.cfop),
+        fiscal_origin: Number(line.fiscalOrigin),
+        icms_csosn: onlyDigits(line.icmsCsosn),
+        pis_cst: onlyDigits(line.pisCst),
+        cofins_cst: onlyDigits(line.cofinsCst),
+        ipi_cst: onlyDigits(line.ipiCst) || null,
       }))
       const res = await portalFetch('/api/portal/fiscal/inbound-nfe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mode: 'manual',
-          issuer_name: issuerName.trim() || null,
+          entry_type: entryType,
+          seller_customer_id: sellerCustomerId,
+          seller_name: sellerName.trim() || null,
+          seller_document: onlyDigits(sellerDocument) || null,
+          issuer_name: sellerName.trim() || null,
           issued_at: issuedAt || null,
+          fiscal_purpose: fiscalPurpose,
+          should_move_stock: shouldMoveStock,
+          import_declaration: entryType === 'import' ? importDeclaration : null,
+          freight_cents: moneyToCentsFromMasked(freight) ?? 0,
+          insurance_cents: moneyToCentsFromMasked(insurance) ?? 0,
+          other_expenses_cents: moneyToCentsFromMasked(otherExpenses) ?? 0,
+          discount_cents: moneyToCentsFromMasked(discount) ?? 0,
+          transport_mode: transportMode,
+          complementary_information: complementaryInformation.trim() || null,
+          fiscal_information: fiscalInformation.trim() || null,
+          fiscal_payments: fiscalPaymentType
+            ? [{
+              type: fiscalPaymentType,
+              value_cents: fiscalPaymentType === '90'
+                ? 0
+                : (moneyToCentsFromMasked(fiscalPaymentValue) ?? noteTotalCents),
+            }]
+            : [],
           items,
         }),
       })
@@ -363,6 +466,14 @@ export function InboundNfeCreateClient () {
 
   async function submitUsed () {
     if (isSaving) return
+    if (!sellerCustomerId) {
+      toast({
+        title: 'Selecione o cliente vendedor',
+        description: 'Busque um cliente existente ou cadastre um novo antes de continuar.',
+        variant: 'destructive',
+      })
+      return
+    }
     setIsSaving(true)
     try {
       const devices = usedLines.map((line) => ({
@@ -412,13 +523,27 @@ export function InboundNfeCreateClient () {
     }
   }
 
+  const productsTotalCents = manualLines.reduce((total, line) => {
+    const quantity = Number(line.quantity.replace(',', '.')) || 0
+    const unitValueCents = moneyToCentsFromMasked(line.unitValue) ?? 0
+    return total + Math.round(quantity * unitValueCents)
+  }, 0)
+  const noteTotalCents = Math.max(
+    0,
+    productsTotalCents
+      + (moneyToCentsFromMasked(freight) ?? 0)
+      + (moneyToCentsFromMasked(insurance) ?? 0)
+      + (moneyToCentsFromMasked(otherExpenses) ?? 0)
+      - (moneyToCentsFromMasked(discount) ?? 0),
+  )
+
   return (
     <div className='space-y-4'>
       <div className='flex flex-wrap items-start justify-between gap-3'>
         <div>
           <h2 className='text-lg font-medium'>Nova NF-e de entrada</h2>
           <p className='text-sm text-muted-foreground'>
-            Produtos novos (XML ou manual) ou aparelhos usados.
+            Informe como a entrada será registrada e complete somente os dados aplicáveis.
           </p>
         </div>
         <Link href='/portal/vendas/nfe/entradas'>
@@ -426,24 +551,52 @@ export function InboundNfeCreateClient () {
         </Link>
       </div>
 
-      <div className='grid gap-3 md:grid-cols-3'>
-        {modes.map((item) => (
-          <button
-            key={item.id}
-            type='button'
-            onClick={() => setMode(item.id)}
-            className={cn(
-              'rounded-lg border p-4 text-left transition-colors',
-              mode === item.id
-                ? 'border-primary bg-primary/5'
-                : 'hover:bg-muted/50',
-            )}
-          >
-            <p className='font-medium'>{item.title}</p>
-            <p className='mt-1 text-sm text-muted-foreground'>{item.description}</p>
-          </button>
-        ))}
-      </div>
+      <Card>
+        <CardHeader className='pb-3'>
+          <CardTitle className='text-base'>Identificação da entrada</CardTitle>
+        </CardHeader>
+        <CardContent className='grid gap-4 sm:grid-cols-2'>
+          <div className='space-y-1.5'>
+            <Label htmlFor='entry-type'>Tipo de entrada</Label>
+            <Select
+              value={entryType}
+              onValueChange={(value: EntryType) => {
+                setEntryType(value)
+                setMode(value === 'xml_import' ? 'xml' : 'manual')
+              }}
+            >
+              <SelectTrigger id='entry-type'><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value='own_issuance'>Emissão própria</SelectItem>
+                <SelectItem value='third_party'>Emitida por terceiros</SelectItem>
+                <SelectItem value='import'>Importação</SelectItem>
+                <SelectItem value='xml_import'>Importação de XML de entrada</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className='space-y-1.5'>
+            <div className='flex items-center gap-1.5'>
+              <Label htmlFor='reference-number'>Número de referência</Label>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button type='button' aria-label='Informação sobre o número'>
+                    <Info className='h-3.5 w-3.5 text-muted-foreground' />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent className='max-w-64'>
+                  Este número é somente uma referência e pode mudar se outra nota for gerada antes.
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            <Input
+              id='reference-number'
+              value={referenceNumber == null ? 'Calculando...' : `1/${referenceNumber}`}
+              readOnly
+              aria-readonly='true'
+            />
+          </div>
+        </CardContent>
+      </Card>
 
       {mode === 'xml' ? (
         <Card>
@@ -508,18 +661,114 @@ export function InboundNfeCreateClient () {
 
       {mode === 'manual' ? (
         <div className='space-y-4'>
+          <NovaOrdemCustomerCard
+            selectedCustomer={selectedCustomer}
+            searchInput={customerSearchInput}
+            documentDigits={documentDigits}
+            onSearchInputChange={setCustomerSearchInput}
+            isCpfPopoverOpen={isCpfPopoverOpen}
+            onCpfPopoverOpenChange={setIsCpfPopoverOpen}
+            customersFiltered={customersFiltered}
+            isSearchingDocument={isSearchingDocument}
+            documentSearchError={documentSearchError}
+            hasFetched={hasFetched}
+            isDocumentMode={isDocumentMode}
+            isNameMode={isNameMode}
+            onSelectCustomer={selectSellerCustomer}
+            onClearCustomer={clearSellerCustomer}
+            onEditCustomer={editSellerCustomer}
+            onCreateCustomer={createSellerCustomer}
+          />
+          {entryType === 'import' ? (
+            <Card>
+              <CardHeader className='pb-3'>
+                <CardTitle className='text-base'>Declaração de importação</CardTitle>
+              </CardHeader>
+              <CardContent className='grid gap-3 sm:grid-cols-2 lg:grid-cols-4'>
+                {[
+                  ['number', 'Número da DI', 'text'],
+                  ['registrationDate', 'Data de registro da DI', 'date'],
+                  ['exporterCode', 'Código do exportador', 'text'],
+                  ['customsExpenses', 'Despesas aduaneiras', 'text'],
+                  ['clearancePlace', 'Local do desembaraço', 'text'],
+                  ['clearanceState', 'UF do desembaraço', 'text'],
+                  ['clearanceDate', 'Data do desembaraço', 'date'],
+                  ['transportWay', 'Via de transporte', 'text'],
+                  ['importForm', 'Forma de importação', 'text'],
+                  ['acquirerCnpj', 'CNPJ do adquirente', 'text'],
+                  ['acquirerState', 'UF do adquirente', 'text'],
+                ].map(([key, label, type]) => (
+                  <div key={key} className='space-y-1.5'>
+                    <Label htmlFor={`import-${key}`}>{label}</Label>
+                    <Input
+                      id={`import-${key}`}
+                      type={type}
+                      value={importDeclaration[key as keyof typeof importDeclaration]}
+                      onChange={(event) => setImportDeclaration((previous) => ({
+                        ...previous,
+                        [key]: event.target.value,
+                      }))}
+                    />
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          ) : null}
           <Card>
             <CardHeader className='pb-3'>
-              <CardTitle className='text-base'>Fornecedor</CardTitle>
+              <CardTitle className='text-base'>Dados fiscais da entrada</CardTitle>
             </CardHeader>
-            <CardContent className='grid gap-3 sm:grid-cols-2'>
-              <div className='space-y-1.5'>
-                <Label htmlFor='issuer'>Nome / razão social</Label>
-                <Input id='issuer' value={issuerName} onChange={(e) => setIssuerName(e.target.value)} />
+            <CardContent className='space-y-4'>
+              <p className='text-sm text-muted-foreground'>
+                A Conectize será a emitente da NF-e de entrada. O cliente selecionado acima será identificado como vendedor.
+              </p>
+              <div className='grid gap-3 sm:grid-cols-2'>
+                <div className='space-y-1.5'>
+                  <Label htmlFor='issued'>Data da entrada</Label>
+                  <Input id='issued' type='date' value={issuedAt} onChange={(e) => setIssuedAt(e.target.value)} />
+                </div>
+                <div className='space-y-1.5'>
+                  <Label htmlFor='fiscal-purpose'>Finalidade</Label>
+                  <Select
+                    value={fiscalPurpose}
+                    onValueChange={(value: FiscalPurpose) => {
+                      setFiscalPurpose(value)
+                      const cfop = value === 'fixed_asset'
+                        ? '1551'
+                        : value === 'use_consumption'
+                          ? '1556'
+                          : '1102'
+                      setManualLines((previous) => previous.map((line) => ({
+                        ...line,
+                        cfop,
+                      })))
+                      if (value !== 'resale') setShouldMoveStock(false)
+                    }}
+                  >
+                    <SelectTrigger id='fiscal-purpose'>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='resale'>Mercadoria para revenda</SelectItem>
+                      <SelectItem value='fixed_asset'>Ativo imobilizado</SelectItem>
+                      <SelectItem value='use_consumption'>Uso ou consumo</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <div className='space-y-1.5'>
-                <Label htmlFor='issued'>Data</Label>
-                <Input id='issued' type='date' value={issuedAt} onChange={(e) => setIssuedAt(e.target.value)} />
+              <div className='flex items-start justify-between gap-4 rounded-md border p-3'>
+                <div>
+                  <Label htmlFor='should-move-stock'>Movimentar estoque</Label>
+                  <p className='mt-1 text-xs text-muted-foreground'>
+                    Desative quando o item já estiver cadastrado no estoque ou quando não houver entrada física.
+                  </p>
+                </div>
+                <Switch
+                  id='should-move-stock'
+                  checked={shouldMoveStock}
+                  onCheckedChange={setShouldMoveStock}
+                  aria-label='Movimentar estoque'
+                />
               </div>
             </CardContent>
           </Card>
@@ -614,6 +863,140 @@ export function InboundNfeCreateClient () {
                         <p className='text-xs text-muted-foreground'>Vinculado: {line.productLabel}</p>
                       ) : null}
                     </div>
+                    <div className='space-y-1.5'>
+                      <Label>NCM</Label>
+                      <Input
+                        value={line.ncm}
+                        inputMode='numeric'
+                        maxLength={8}
+                        onChange={(event) => setManualLines((previous) => previous.map((row) => (
+                          row.key === line.key ? { ...row, ncm: onlyDigits(event.target.value) } : row
+                        )))}
+                        placeholder='8 dígitos'
+                      />
+                    </div>
+                    <div className='space-y-1.5'>
+                      <Label>CEST</Label>
+                      <Input
+                        value={line.cest}
+                        inputMode='numeric'
+                        maxLength={7}
+                        onChange={(event) => setManualLines((previous) => previous.map((row) => (
+                          row.key === line.key ? { ...row, cest: onlyDigits(event.target.value) } : row
+                        )))}
+                        placeholder='Quando aplicável'
+                      />
+                    </div>
+                    <div className='space-y-1.5'>
+                      <Label>CFOP</Label>
+                      <Input
+                        value={line.cfop}
+                        inputMode='numeric'
+                        maxLength={4}
+                        onChange={(event) => setManualLines((previous) => previous.map((row) => (
+                          row.key === line.key ? { ...row, cfop: onlyDigits(event.target.value) } : row
+                        )))}
+                      />
+                      <p className='text-xs text-muted-foreground'>
+                        Use CFOP iniciado por 2 para vendedor de outro estado.
+                      </p>
+                    </div>
+                    <div className='space-y-1.5'>
+                      <Label>Unidade</Label>
+                      <Input
+                        value={line.unit}
+                        maxLength={6}
+                        onChange={(event) => setManualLines((previous) => previous.map((row) => (
+                          row.key === line.key ? { ...row, unit: event.target.value.toUpperCase() } : row
+                        )))}
+                      />
+                    </div>
+                    <div className='space-y-1.5'>
+                      <Label>Origem da mercadoria</Label>
+                      <Select
+                        value={line.fiscalOrigin}
+                        onValueChange={(value) => setManualLines((previous) => previous.map((row) => (
+                          row.key === line.key ? { ...row, fiscalOrigin: value } : row
+                        )))}
+                      >
+                        <SelectTrigger className='bg-transparent'><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value='0'>0 - Nacional</SelectItem>
+                          <SelectItem value='1'>1 - Estrangeira, importação direta</SelectItem>
+                          <SelectItem value='2'>2 - Estrangeira, adquirida no mercado interno</SelectItem>
+                          <SelectItem value='3'>3 - Nacional, conteúdo de importação superior a 40%</SelectItem>
+                          <SelectItem value='4'>4 - Nacional, processo produtivo básico</SelectItem>
+                          <SelectItem value='5'>5 - Nacional, conteúdo de importação até 40%</SelectItem>
+                          <SelectItem value='6'>6 - Estrangeira sem similar nacional</SelectItem>
+                          <SelectItem value='7'>7 - Estrangeira sem similar, mercado interno</SelectItem>
+                          <SelectItem value='8'>8 - Nacional, conteúdo de importação superior a 70%</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className='space-y-1.5'>
+                      <Label>CSOSN do ICMS</Label>
+                      <Select
+                        value={line.icmsCsosn}
+                        onValueChange={(value) => setManualLines((previous) => previous.map((row) => (
+                          row.key === line.key ? { ...row, icmsCsosn: value } : row
+                        )))}
+                      >
+                        <SelectTrigger className='bg-transparent'><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {csosnOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className='space-y-1.5'>
+                      <Label>CST PIS</Label>
+                      <Select
+                        value={line.pisCst}
+                        onValueChange={(value) => setManualLines((previous) => previous.map((row) => (
+                          row.key === line.key ? { ...row, pisCst: value } : row
+                        )))}
+                      >
+                        <SelectTrigger className='bg-transparent'><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {pisCofinsCstOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className='space-y-1.5'>
+                      <Label>CST COFINS</Label>
+                      <Select
+                        value={line.cofinsCst}
+                        onValueChange={(value) => setManualLines((previous) => previous.map((row) => (
+                          row.key === line.key ? { ...row, cofinsCst: value } : row
+                        )))}
+                      >
+                        <SelectTrigger className='bg-transparent'><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {pisCofinsCstOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className='space-y-1.5'>
+                      <Label>CST IPI</Label>
+                      <Select
+                        value={line.ipiCst}
+                        onValueChange={(value) => setManualLines((previous) => previous.map((row) => (
+                          row.key === line.key ? { ...row, ipiCst: value } : row
+                        )))}
+                      >
+                        <SelectTrigger className='bg-transparent'><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {ipiCstOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                   {manualLines.length > 1 ? (
                     <Button
@@ -631,10 +1014,132 @@ export function InboundNfeCreateClient () {
             </CardContent>
           </Card>
 
+          <Card>
+            <CardHeader className='pb-3'>
+              <CardTitle className='text-base'>Totais da nota</CardTitle>
+            </CardHeader>
+            <CardContent className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3'>
+              <div className='space-y-1.5'>
+                <Label>Total dos produtos</Label>
+                <Input value={`R$ ${maskedFromCents(productsTotalCents)}`} readOnly />
+              </div>
+              {[
+                ['Frete', freight, setFreight],
+                ['Seguro', insurance, setInsurance],
+                ['Outras despesas', otherExpenses, setOtherExpenses],
+                ['Desconto', discount, setDiscount],
+              ].map(([label, value, setter]) => (
+                <div key={String(label)} className='space-y-1.5'>
+                  <Label>{String(label)}</Label>
+                  <Input
+                    value={String(value)}
+                    inputMode='numeric'
+                    placeholder='0,00'
+                    onChange={(event) => {
+                      const setValue = setter as (next: string) => void
+                      setValue(formatMoneyInput(event.target.value))
+                    }}
+                  />
+                </div>
+              ))}
+              <div className='space-y-1.5'>
+                <Label>Total da nota</Label>
+                <Input value={`R$ ${maskedFromCents(noteTotalCents)}`} readOnly className='font-semibold' />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className='pb-3'>
+              <CardTitle className='text-base'>Transporte</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className='max-w-md space-y-1.5'>
+                <Label htmlFor='transport-mode'>Modalidade</Label>
+                <Select value={transportMode} onValueChange={(value: typeof transportMode) => setTransportMode(value)}>
+                  <SelectTrigger id='transport-mode'><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value='none'>Sem transporte</SelectItem>
+                    <SelectItem value='buyer'>Frete por conta da Conectize</SelectItem>
+                    <SelectItem value='seller'>Frete por conta do vendedor</SelectItem>
+                    <SelectItem value='carrier'>Transportadora</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className='pb-3'>
+              <CardTitle className='text-base'>Pagamento da operação</CardTitle>
+            </CardHeader>
+            <CardContent className='grid gap-3 sm:grid-cols-2'>
+              <div className='space-y-1.5'>
+                <Label htmlFor='fiscal-payment-type'>Forma de pagamento</Label>
+                <Select
+                  value={fiscalPaymentType || undefined}
+                  onValueChange={(value) => {
+                    setFiscalPaymentType(value)
+                    if (value === '90') setFiscalPaymentValue('')
+                  }}
+                >
+                  <SelectTrigger id='fiscal-payment-type' className='bg-transparent'>
+                    <SelectValue placeholder='Selecione' />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {fiscalPaymentTypeOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className='space-y-1.5'>
+                <Label htmlFor='fiscal-payment-value'>Valor pago</Label>
+                <Input
+                  id='fiscal-payment-value'
+                  value={fiscalPaymentType === '90' ? '0,00' : fiscalPaymentValue}
+                  placeholder={maskedFromCents(noteTotalCents)}
+                  inputMode='numeric'
+                  disabled={!fiscalPaymentType || fiscalPaymentType === '90'}
+                  onChange={(event) => setFiscalPaymentValue(formatMoneyInput(event.target.value))}
+                />
+              </div>
+              <p className='text-xs text-muted-foreground sm:col-span-2'>
+                Esta informação será usada no XML e não gera lançamento financeiro automaticamente.
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className='pb-3'>
+              <CardTitle className='text-base'>Informações adicionais</CardTitle>
+            </CardHeader>
+            <CardContent className='grid gap-3 sm:grid-cols-2'>
+              <div className='space-y-1.5'>
+                <Label htmlFor='complementary-information'>Informações complementares</Label>
+                <Textarea
+                  id='complementary-information'
+                  value={complementaryInformation}
+                  onChange={(event) => setComplementaryInformation(event.target.value)}
+                  rows={3}
+                />
+              </div>
+              <div className='space-y-1.5'>
+                <Label htmlFor='fiscal-information'>Informações de interesse do fisco</Label>
+                <Textarea
+                  id='fiscal-information'
+                  value={fiscalInformation}
+                  onChange={(event) => setFiscalInformation(event.target.value)}
+                  rows={3}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
           <div className='flex justify-end'>
             <Button type='button' disabled={isSaving} onClick={() => void submitManual()}>
               {isSaving ? <Loader2 className='mr-1 h-4 w-4 animate-spin' /> : <FileUp className='mr-1 h-4 w-4' />}
-              Criar rascunho
+              Salvar rascunho fiscal
             </Button>
           </div>
         </div>
@@ -642,65 +1147,30 @@ export function InboundNfeCreateClient () {
 
       {mode === 'usados' ? (
         <div className='space-y-4'>
+          <NovaOrdemCustomerCard
+                selectedCustomer={selectedCustomer}
+                searchInput={customerSearchInput}
+                documentDigits={documentDigits}
+                onSearchInputChange={setCustomerSearchInput}
+                isCpfPopoverOpen={isCpfPopoverOpen}
+                onCpfPopoverOpenChange={setIsCpfPopoverOpen}
+                customersFiltered={customersFiltered}
+                isSearchingDocument={isSearchingDocument}
+                documentSearchError={documentSearchError}
+                hasFetched={hasFetched}
+                isDocumentMode={isDocumentMode}
+                isNameMode={isNameMode}
+                onSelectCustomer={selectSellerCustomer}
+                onClearCustomer={clearSellerCustomer}
+                onEditCustomer={editSellerCustomer}
+                onCreateCustomer={createSellerCustomer}
+          />
           <Card>
             <CardHeader className='pb-3'>
-              <CardTitle className='text-base'>Cliente vendedor</CardTitle>
+              <CardTitle className='text-base'>Dados da compra</CardTitle>
             </CardHeader>
-            <CardContent className='space-y-3'>
-              <div className='relative space-y-1.5'>
-                <Label>Buscar cliente</Label>
-                <div className='relative'>
-                  <Input
-                    value={sellerSearch}
-                    onChange={(e) => {
-                      setSellerSearch(e.target.value)
-                      setSellerCustomerId(null)
-                    }}
-                    placeholder='Nome ou CPF/CNPJ'
-                  />
-                  <Search className='pointer-events-none absolute right-2 top-2.5 h-4 w-4 text-muted-foreground' />
-                </div>
-                {sellerHits.length > 0 ? (
-                  <ul className='max-h-40 overflow-auto rounded-md border bg-background'>
-                    {sellerHits.map((hit) => {
-                      const doc = onlyDigits(String(hit.cnpj || hit.cpf || ''))
-                      return (
-                        <li key={hit.id}>
-                          <button
-                            type='button'
-                            className='flex w-full flex-col items-start px-3 py-2 text-left text-sm hover:bg-muted'
-                            onClick={() => {
-                              const name = customerDisplayName(hit)
-                              setSellerCustomerId(hit.id)
-                              setSellerName(name)
-                              setSellerDocument(doc)
-                              setSellerSearch(name)
-                              setSellerHits([])
-                            }}
-                          >
-                            <span className='font-medium'>{customerDisplayName(hit) || 'Sem nome'}</span>
-                            <span className='text-xs text-muted-foreground'>
-                              {doc ? formatCpfCnpj(doc) : hit.id.slice(0, 8)}
-                            </span>
-                          </button>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                ) : null}
-              </div>
+            <CardContent>
               <div className='grid gap-3 sm:grid-cols-2'>
-                <div className='space-y-1.5'>
-                  <Label>Nome do vendedor</Label>
-                  <Input value={sellerName} onChange={(e) => setSellerName(e.target.value)} />
-                </div>
-                <div className='space-y-1.5'>
-                  <Label>CPF/CNPJ</Label>
-                  <Input
-                    value={sellerDocument ? formatCpfCnpj(sellerDocument) : ''}
-                    onChange={(e) => setSellerDocument(onlyDigits(e.target.value).slice(0, 14))}
-                  />
-                </div>
                 <div className='space-y-1.5'>
                   <Label>Data da compra</Label>
                   <Input type='date' value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} />
@@ -874,6 +1344,23 @@ export function InboundNfeCreateClient () {
           </div>
         </div>
       ) : null}
+
+      {customerToEdit ? (
+        <EditCustomerDialog
+          open={isCreateCustomerOpen}
+          onOpenChange={setIsCreateCustomerOpen}
+          customer={customerToEdit}
+          onSaved={selectSellerCustomer}
+        />
+      ) : (
+        <CreateCustomerDialog
+          open={isCreateCustomerOpen}
+          onOpenChange={setIsCreateCustomerOpen}
+          initialDocumentDigits={createCustomerInitialDocumentDigits}
+          mode='create'
+          onCreated={selectSellerCustomer}
+        />
+      )}
     </div>
   )
 }

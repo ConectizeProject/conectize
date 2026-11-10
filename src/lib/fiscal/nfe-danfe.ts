@@ -190,6 +190,7 @@ async function restampEmitenteBox (
   }
 
   restampSectionTitles(pdfDoc, collectDanfeSectionTitles(danfe), fontBold)
+  restampProductDescriptions(pdfDoc, danfe, font)
 
   return Buffer.from(await pdfDoc.save())
 }
@@ -293,6 +294,209 @@ function restampSectionTitles (
       color: rgb(0, 0, 0),
     })
   }
+}
+
+function restampProductDescriptions (
+  pdfDoc: PDFDocument,
+  data: ReturnType<typeof parseNFeXml>,
+  font: PDFFont,
+) {
+  if (data.produtos.length === 0) return
+
+  const pages = pdfDoc.getPages()
+  const columnWidths = [42, 130, 38, 32, 25, 20, 40, 38, 38, 32, 36, 32, 32, 28, 26]
+  const scale = (595.28 - DANFE_MARGIN * 2) / columnWidths.reduce((sum, width) => sum + width, 0)
+  const scaledWidths = columnWidths.map((width) => width * scale)
+  const rowPositions = collectDanfeProductRows(data)
+  const firstRow = rowPositions[0]
+  const lastRow = rowPositions.at(-1)
+  if (!firstRow || !lastRow || firstRow.page !== 0 || lastRow.page !== 0) return
+
+  const page = pages[0]
+  if (!page) return
+  const fontSize = 6
+  const lineHeight = 7
+  const descriptions = data.produtos.map((product) => (
+    wrapText(font, String(product.descricao || ''), fontSize, scaledWidths[1] - 4)
+  ))
+  const rowHeights = descriptions.map((lines) => Math.max(DANFE_LINE_H, lines.length * lineHeight + 3))
+  const rowsHeight = rowHeights.reduce((sum, height) => sum + height, 0)
+  const newAdditionalTop = firstRow.yFromTop + rowsHeight + 2
+  const newContentBottom = newAdditionalTop + DANFE_TITLE_H + 55
+  if (newContentBottom > DANFE_PAGE_H - DANFE_MARGIN) return
+
+  const oldAdditionalTop = lastRow.yFromTop + DANFE_LINE_H + 2
+  const oldContentBottom = oldAdditionalTop + DANFE_TITLE_H + 55
+  const contentBottom = Math.max(oldContentBottom, newContentBottom)
+  const { height: pageHeight } = page.getSize()
+  page.drawRectangle({
+    x: DANFE_MARGIN - 0.5,
+    y: pageHeight - contentBottom - 0.5,
+    width: 595.28 - DANFE_MARGIN * 2 + 1,
+    height: contentBottom - firstRow.yFromTop + 1,
+    color: rgb(1, 1, 1),
+  })
+
+  let rowTop = firstRow.yFromTop
+  for (let index = 0; index < data.produtos.length; index += 1) {
+    const product = data.produtos[index]
+    const rowHeight = rowHeights[index]
+    const rowBottom = pageHeight - rowTop - rowHeight
+    const values = [
+      product.codigo,
+      '',
+      product.ncm,
+      product.origemCsosn,
+      product.cfop,
+      product.unidade,
+      product.quantidade,
+      product.valorUnitario,
+      product.valorTotal,
+      product.valorDesconto,
+      product.bcIcms,
+      product.valorIcms,
+      product.valorIpi,
+      product.aliqIcms,
+      product.aliqIpi,
+    ]
+
+    let x = DANFE_MARGIN
+    for (let column = 0; column < scaledWidths.length; column += 1) {
+      const width = scaledWidths[column]
+      page.drawRectangle({
+        x,
+        y: rowBottom,
+        width,
+        height: rowHeight,
+        borderColor: rgb(0, 0, 0),
+        borderWidth: 0.5,
+      })
+      if (column === 1) {
+        let textY = rowBottom + rowHeight - fontSize - 1.5
+        for (const line of descriptions[index]) {
+          safeDrawText(page, line, {
+            x: x + 2,
+            y: textY,
+            size: fontSize,
+            font,
+            color: rgb(0, 0, 0),
+          })
+          textY -= lineHeight
+        }
+      } else {
+        const value = fitSingleLine(font, String(values[column] || ''), fontSize, width - 4)
+        safeDrawText(page, value, {
+          x: column === 0 ? x + 2 : x + width - font.widthOfTextAtSize(value, fontSize) - 2,
+          y: rowBottom + (rowHeight - fontSize) / 2,
+          size: fontSize,
+          font,
+          color: rgb(0, 0, 0),
+        })
+      }
+      x += width
+    }
+    rowTop += rowHeight
+  }
+
+  drawAdditionalInformation(page, data, font, newAdditionalTop)
+}
+
+function fitSingleLine (font: PDFFont, value: string, size: number, maxWidth: number) {
+  if (font.widthOfTextAtSize(value, size) <= maxWidth) return value
+  let fitted = value
+  while (fitted.length > 1 && font.widthOfTextAtSize(`${fitted}...`, size) > maxWidth) {
+    fitted = fitted.slice(0, -1)
+  }
+  return `${fitted}...`
+}
+
+function drawAdditionalInformation (
+  page: PDFPage,
+  data: ReturnType<typeof parseNFeXml>,
+  font: PDFFont,
+  yFromTop: number,
+) {
+  const { width: pageWidth, height: pageHeight } = page.getSize()
+  const contentWidth = pageWidth - DANFE_MARGIN * 2
+  const titleBottom = pageHeight - yFromTop - DANFE_TITLE_H
+  page.drawRectangle({
+    x: DANFE_MARGIN,
+    y: titleBottom,
+    width: contentWidth,
+    height: DANFE_TITLE_H,
+    borderColor: rgb(0, 0, 0),
+    borderWidth: 0.5,
+  })
+  safeDrawText(page, 'DADOS ADICIONAIS', {
+    x: DANFE_MARGIN + DANFE_TITLE_PAD,
+    y: titleBottom + 3,
+    size: DANFE_TITLE_SIZE,
+    font,
+    color: rgb(0, 0, 0),
+  })
+
+  const boxHeight = 55
+  const leftWidth = contentWidth * 0.6
+  const boxBottom = titleBottom - boxHeight
+  for (const [x, width] of [
+    [DANFE_MARGIN, leftWidth],
+    [DANFE_MARGIN + leftWidth, contentWidth - leftWidth],
+  ] as const) {
+    page.drawRectangle({
+      x,
+      y: boxBottom,
+      width,
+      height: boxHeight,
+      borderColor: rgb(0, 0, 0),
+      borderWidth: 0.5,
+    })
+  }
+  safeDrawText(page, 'INFORMACOES COMPLEMENTARES', {
+    x: DANFE_MARGIN + 3,
+    y: titleBottom - 8,
+    size: 5,
+    font,
+    color: rgb(0.4, 0.4, 0.4),
+  })
+  safeDrawText(page, 'RESERVADO AO FISCO', {
+    x: DANFE_MARGIN + leftWidth + 3,
+    y: titleBottom - 8,
+    size: 5,
+    font,
+    color: rgb(0.4, 0.4, 0.4),
+  })
+  const additionalLines = wrapText(font, String(data.informacoesComplementares || ''), 6, leftWidth - 6)
+  let additionalY = titleBottom - 18
+  for (const line of additionalLines.slice(0, 6)) {
+    safeDrawText(page, line, {
+      x: DANFE_MARGIN + 3,
+      y: additionalY,
+      size: 6,
+      font,
+      color: rgb(0, 0, 0),
+    })
+    additionalY -= 7
+  }
+}
+
+function collectDanfeProductRows (data: ReturnType<typeof parseNFeXml>) {
+  const titles = collectDanfeSectionTitles(data)
+  const productsTitle = titles.find((item) => item.title === 'DADOS DOS PRODUTOS / SERVICOS')
+  if (!productsTitle) return [] as Array<{ page: number, yFromTop: number }>
+
+  const rows: Array<{ page: number, yFromTop: number }> = []
+  let page = productsTitle.page
+  let y = productsTitle.yFromTop + DANFE_TITLE_H + 18
+
+  for (let index = 0; index < data.produtos.length; index += 1) {
+    if (y + DANFE_LINE_H > DANFE_PAGE_H - DANFE_MARGIN - 80) {
+      page += 1
+      y = DANFE_MARGIN
+    }
+    rows.push({ page, yFromTop: y })
+    y += DANFE_LINE_H
+  }
+  return rows
 }
 
 export async function buildNfeDanfePdf (

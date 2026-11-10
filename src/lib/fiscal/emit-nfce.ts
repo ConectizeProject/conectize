@@ -4,6 +4,7 @@ import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { decryptFiscalSecretToBuffer, decryptFiscalSecretToString } from '@/lib/fiscal/secrets'
 import { buildNfceFromSalesOrder } from '@/lib/fiscal/build-nfce-from-sales-order'
 import { buildNfeFromServiceOrder } from '@/lib/fiscal/build-nfe-from-service-order'
+import { buildNfeFromInbound } from '@/lib/fiscal/build-nfe-from-inbound'
 import { createSefazClient, type SefazTransmitResult } from '@/lib/fiscal/sefaz-client'
 import { nfceCscForEnvironment } from '@/lib/fiscal/csc'
 import { getDefaultFiscalOperationNature } from '@/lib/fiscal/operation-nature'
@@ -144,9 +145,13 @@ async function getExistingFiscalDocument (
   auth: AuthCtx,
   orderId: string,
   model: '55' | '65',
-  source: 'sales' | 'service' = 'sales',
+  source: 'sales' | 'service' | 'inbound' = 'sales',
 ) {
-  const column = source === 'service' ? 'service_order_id' : 'sales_order_id'
+  const column = source === 'service'
+    ? 'service_order_id'
+    : source === 'inbound'
+      ? 'inbound_nfe_id'
+      : 'sales_order_id'
   const { data } = await auth.supabase
     .from('fiscal_documents')
     .select(FISCAL_DOCUMENT_SELECT)
@@ -474,6 +479,10 @@ export async function getServiceOrderNfceState (auth: AuthCtx, orderId: string) 
   return getExistingFiscalDocument(auth, orderId, '65', 'service')
 }
 
+export async function getInboundNfeState (auth: AuthCtx, inboundNfeId: string) {
+  return getExistingFiscalDocument(auth, inboundNfeId, '55', 'inbound')
+}
+
 export async function emitNfceForSalesOrder (auth: AuthCtx, orderId: string) {
   return emitFiscalDocumentForSalesOrder(auth, orderId, '65')
 }
@@ -490,6 +499,10 @@ export async function emitNfceForServiceOrder (auth: AuthCtx, orderId: string) {
   return emitFiscalDocument(auth, { serviceOrderId: orderId }, '65')
 }
 
+export async function emitNfeForInbound (auth: AuthCtx, inboundNfeId: string) {
+  return emitFiscalDocument(auth, { inboundNfeId }, '55')
+}
+
 export async function emitFiscalDocumentForSalesOrder (
   auth: AuthCtx,
   orderId: string,
@@ -500,14 +513,15 @@ export async function emitFiscalDocumentForSalesOrder (
 
 async function emitFiscalDocument (
   auth: AuthCtx,
-  source: { salesOrderId?: string, serviceOrderId?: string },
+  source: { salesOrderId?: string, serviceOrderId?: string, inboundNfeId?: string },
   model: '55' | '65',
 ): Promise<EmitNfceResult> {
   const kind = fiscalDocumentKind(model)
   const salesOrderId = source.salesOrderId || null
   const serviceOrderId = source.serviceOrderId || null
-  const orderId = salesOrderId || serviceOrderId
-  const sourceKind = serviceOrderId ? 'service' : 'sales'
+  const inboundNfeId = source.inboundNfeId || null
+  const orderId = salesOrderId || serviceOrderId || inboundNfeId
+  const sourceKind = inboundNfeId ? 'inbound' : serviceOrderId ? 'service' : 'sales'
   if (!orderId) {
     return { ok: false, error: 'order_not_found', message: 'Pedido não informado.' }
   }
@@ -645,6 +659,7 @@ async function emitFiscalDocument (
         number: numbering.number,
         sales_order_id: salesOrderId,
         service_order_id: serviceOrderId,
+        inbound_nfe_id: inboundNfeId,
         status: 'pending',
       })
       .select(FISCAL_DOCUMENT_SELECT)
@@ -665,7 +680,16 @@ async function emitFiscalDocument (
   }
   signedPersist.documentId = fiscalDocument.id
 
-  const built = sourceKind === 'service'
+  const built = sourceKind === 'inbound'
+    ? await buildNfeFromInbound({
+      supabase: auth.supabase,
+      organizationId: auth.organizationId,
+      inboundNfeId: orderId,
+      profile,
+      series: numbering.series,
+      number: numbering.number,
+    })
+    : sourceKind === 'service'
     ? await buildNfeFromServiceOrder({
       supabase: auth.supabase,
       organizationId: auth.organizationId,

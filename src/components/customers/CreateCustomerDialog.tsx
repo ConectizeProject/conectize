@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, Loader2 } from 'lucide-react'
 import { portalFetch } from '@/lib/portal/portal-fetch'
 import { formatPhoneBr } from '@/lib/utils/format-phone'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
@@ -125,6 +125,9 @@ export function CreateCustomerDialog(props: Props) {
 
   const [isLookingUpZipCode, setIsLookingUpZipCode] = useState(false)
   const [zipCodeLookupError, setZipCodeLookupError] = useState<string | null>(null)
+  const loadedZipRef = useRef('')
+  const [isLookingUpCnpj, setIsLookingUpCnpj] = useState(false)
+  const [cnpjLookupError, setCnpjLookupError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!props.open) return
@@ -150,6 +153,8 @@ export function CreateCustomerDialog(props: Props) {
     setReferralSource(isEdit ? String(props.customer?.referral_source || '') : '')
     setReferralSourceOther(isEdit ? String(props.customer?.referral_source_other || '') : '')
 
+    const initialZip = isEdit ? onlyDigits(props.customer?.zip_code || '').slice(0, 8) : ''
+    loadedZipRef.current = initialZip
     setZipCode(isEdit ? String(props.customer?.zip_code || '') : '')
     setState(isEdit ? String(props.customer?.state || '') : '')
     setCity(isEdit ? String(props.customer?.city || '') : '')
@@ -161,37 +166,35 @@ export function CreateCustomerDialog(props: Props) {
     setStateRegistrationExempt(isEdit ? props.customer?.state_registration_exempt === true : false)
 
     setZipCodeLookupError(null)
+    setCnpjLookupError(null)
+    setIsLookingUpCnpj(false)
     setErrorMessage(null)
   }, [isEdit, props.customer, props.open, seedDigits])
 
   useEffect(() => {
-    // No cadastro novo, preenche logradouro/bairro/cidade pelo CEP.
-    // Na edição, não consultar ViaCEP: a resposta sobrescreve bairro/rua do cliente
-    // (e muitas vezes vem vazia), fazendo parecer que alterações não persistem.
-    if (isEdit) {
+    let cancelled = false
+    const zip = onlyDigits(zipCode).slice(0, 8)
+    if (isEdit && zip === loadedZipRef.current) {
       setZipCodeLookupError(null)
       setIsLookingUpZipCode(false)
       return
     }
 
-    let cancelled = false
-    const zip = onlyDigits(zipCode).slice(0, 8)
-
     async function run() {
       setZipCodeLookupError(null)
       setIsLookingUpZipCode(true)
       try {
-        const res = await fetch(`https://viacep.com.br/ws/${zip}/json/`)
+        const res = await portalFetch(`/api/portal/customers/lookup?cep=${zip}`)
         const data = await res.json().catch(() => null)
-        if (!res.ok || !data || data.erro) {
+        if (!res.ok || !data?.ok || !data.address) {
           if (!cancelled) setZipCodeLookupError('CEP não encontrado.')
           return
         }
         if (cancelled) return
-        setStreet(String(data.logradouro || ''))
-        setNeighborhood(String(data.bairro || ''))
-        setCity(String(data.localidade || ''))
-        setState(String(data.uf || ''))
+        setStreet(String(data.address.street || ''))
+        setNeighborhood(String(data.address.neighborhood || ''))
+        setCity(String(data.address.city || ''))
+        setState(String(data.address.state || ''))
       } catch {
         if (!cancelled) setZipCodeLookupError('Não foi possível buscar o CEP agora.')
       } finally {
@@ -212,15 +215,60 @@ export function CreateCustomerDialog(props: Props) {
   const documentDigits = useMemo(() => onlyDigits(document).slice(0, 14), [document])
 
   useEffect(() => {
+    if (isEdit || !props.open || documentDigits.length !== 14) {
+      setCnpjLookupError(null)
+      setIsLookingUpCnpj(false)
+      return
+    }
+
+    let cancelled = false
+    async function run () {
+      setCnpjLookupError(null)
+      setIsLookingUpCnpj(true)
+      try {
+        const res = await portalFetch(`/api/portal/customers/lookup?cnpj=${documentDigits}`)
+        const data = await res.json().catch(() => null)
+        if (!res.ok || !data?.ok || !data.company) {
+          if (!cancelled) setCnpjLookupError('CNPJ não encontrado.')
+          return
+        }
+        if (cancelled) return
+        const company = data.company as Record<string, string>
+        setCompanyName(company.companyName || '')
+        setTradeName(company.tradeName || '')
+        setEmail(company.email || '')
+        setMobilePhone(formatPhoneBr(company.phone || '') ?? '')
+        setZipCode(formatCepBr(company.zipCode || ''))
+        setState(company.state || '')
+        setCity(company.city || '')
+        setNeighborhood(company.neighborhood || '')
+        setStreet(company.street || '')
+        setStreetNumber(company.streetNumber || '')
+        setStreetComplement(company.streetComplement || '')
+      } catch {
+        if (!cancelled) setCnpjLookupError('Não foi possível buscar o CNPJ agora.')
+      } finally {
+        if (!cancelled) setIsLookingUpCnpj(false)
+      }
+    }
+
+    void run()
+    return () => { cancelled = true }
+  }, [documentDigits, isEdit, props.open])
+
+  useEffect(() => {
     if (!props.open) return
     if (documentDigits.length > 11) setIsCompany(true)
     if (documentDigits.length > 0 && documentDigits.length <= 11) setIsCompany(false)
   }, [documentDigits, props.open])
 
+  const isAddressLookupPending = isLookingUpCnpj || isLookingUpZipCode
+
   const canSave = useMemo(() => {
+    if (isLookingUpCnpj || isLookingUpZipCode) return false
     if (isCompany) return documentDigits.length === 14 && Boolean(companyName.trim())
     return documentDigits.length === 11 && Boolean(fullName.trim())
-  }, [companyName, documentDigits.length, fullName, isCompany])
+  }, [companyName, documentDigits.length, fullName, isCompany, isLookingUpCnpj, isLookingUpZipCode])
 
   function buildRequestBody(patchCustomerId?: string) {
     const id =
@@ -525,19 +573,29 @@ export function CreateCustomerDialog(props: Props) {
           <div className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="customerDocument">CPF/CNPJ<span className="text-destructive"> *</span></Label>
-              <Input
-                id="customerDocument"
-                value={document}
-                onChange={(e) => {
-                  if (isEdit) return
-                  setDocument(formatCpfCnpj(e.target.value))
-                }}
-                readOnly={isEdit}
-                disabled={isEdit}
-                placeholder={isCompany ? '00.000.000/0000-00' : '000.000.000-00'}
-                inputMode="numeric"
-                className={isEdit ? 'bg-muted' : ''}
-              />
+              <div className="relative">
+                <Input
+                  id="customerDocument"
+                  value={document}
+                  onChange={(e) => {
+                    if (isEdit || isLookingUpCnpj) return
+                    setDocument(formatCpfCnpj(e.target.value))
+                  }}
+                  readOnly={isEdit || isLookingUpCnpj}
+                  disabled={isEdit}
+                  placeholder={isCompany ? '00.000.000/0000-00' : '000.000.000-00'}
+                  inputMode="numeric"
+                  className={`${isEdit ? 'bg-muted' : ''} ${isLookingUpCnpj ? 'pr-10' : ''}`}
+                />
+                {isLookingUpCnpj ? (
+                  <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center" aria-hidden="true">
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  </span>
+                ) : null}
+              </div>
+              {cnpjLookupError ? (
+                <p className="text-xs text-destructive">{cnpjLookupError}</p>
+              ) : null}
               {isEdit ? (
                 <p className="text-xs text-muted-foreground">CPF/CNPJ não pode ser alterado após o cadastro.</p>
               ) : null}
@@ -546,14 +604,14 @@ export function CreateCustomerDialog(props: Props) {
             {isCompany ? (
               <div className="space-y-2">
                 <Label htmlFor="companyName">Razão social<span className="text-destructive"> *</span></Label>
-                <Input id="companyName" value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="Ex: Razão social LTDA" />
+                <Input id="companyName" value={companyName} onChange={(e) => setCompanyName(e.target.value)} readOnly={isLookingUpCnpj} placeholder="Ex: Razão social LTDA" />
               </div>
             ) : null}
 
             {isCompany ? (
               <div className="space-y-2">
                 <Label htmlFor="tradeName">Nome fantasia (opcional)</Label>
-                <Input id="tradeName" value={tradeName} onChange={(e) => setTradeName(e.target.value)} placeholder="Ex: Nome fantasia" />
+                <Input id="tradeName" value={tradeName} onChange={(e) => setTradeName(e.target.value)} readOnly={isLookingUpCnpj} placeholder="Ex: Nome fantasia" />
               </div>
             ) : null}
 
@@ -596,13 +654,13 @@ export function CreateCustomerDialog(props: Props) {
 
             <div className="space-y-2">
               <Label htmlFor="customerEmail">E-mail</Label>
-              <Input id="customerEmail" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="cliente@exemplo.com" />
+              <Input id="customerEmail" value={email} onChange={(e) => setEmail(e.target.value)} readOnly={isLookingUpCnpj} placeholder="cliente@exemplo.com" />
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="mobilePhone">Celular</Label>
-                <Input id="mobilePhone" value={mobilePhone} onChange={(e) => setMobilePhone(formatPhoneBr(e.target.value) ?? '')} placeholder="(31) 9 0000-0000" inputMode="numeric" />
+                <Input id="mobilePhone" value={mobilePhone} onChange={(e) => setMobilePhone(formatPhoneBr(e.target.value) ?? '')} readOnly={isLookingUpCnpj} placeholder="(31) 9 0000-0000" inputMode="numeric" />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="birthDate">Data de nascimento</Label>
@@ -625,50 +683,59 @@ export function CreateCustomerDialog(props: Props) {
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-2">
                 <Label htmlFor="zipCode">CEP</Label>
-                <Input
-                  id="zipCode"
-                  value={formatCepBr(zipCode)}
-                  onChange={(e) => setZipCode(formatCepBr(e.target.value))}
-                  placeholder="00000-000"
-                  inputMode="numeric"
-                />
+                <div className="relative">
+                  <Input
+                    id="zipCode"
+                    value={formatCepBr(zipCode)}
+                    onChange={(e) => {
+                      if (isAddressLookupPending) return
+                      setZipCode(formatCepBr(e.target.value))
+                    }}
+                    readOnly={isAddressLookupPending}
+                    placeholder="00000-000"
+                    inputMode="numeric"
+                    className={isAddressLookupPending ? 'pr-10' : ''}
+                  />
+                  {isAddressLookupPending ? (
+                    <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center" aria-hidden="true">
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    </span>
+                  ) : null}
+                </div>
                 {zipCodeLookupError ? (
                   <p className="text-xs text-destructive">{zipCodeLookupError}</p>
-                ) : null}
-                {!zipCodeLookupError && isLookingUpZipCode ? (
-                  <p className="text-xs text-muted-foreground">Buscando endereço…</p>
                 ) : null}
               </div>
 
               <div className="space-y-2 md:col-span-2">
                 <Label htmlFor="state">Estado (UF)</Label>
-                <Input id="state" value={state} onChange={(e) => setState(e.target.value.toUpperCase().slice(0, 2))} placeholder="UF" />
+                <Input id="state" value={state} onChange={(e) => setState(e.target.value.toUpperCase().slice(0, 2))} readOnly={isAddressLookupPending} placeholder="UF" />
               </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="city">Cidade</Label>
-              <Input id="city" value={city} onChange={(e) => setCity(e.target.value)} placeholder="Cidade" />
+              <Input id="city" value={city} onChange={(e) => setCity(e.target.value)} readOnly={isAddressLookupPending} placeholder="Cidade" />
             </div>
 
             <div className="grid gap-2 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="neighborhood">Bairro</Label>
-                <Input id="neighborhood" value={neighborhood} onChange={(e) => setNeighborhood(e.target.value)} placeholder="Bairro" />
+                <Input id="neighborhood" value={neighborhood} onChange={(e) => setNeighborhood(e.target.value)} readOnly={isAddressLookupPending} placeholder="Bairro" />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="street">Rua</Label>
-                <Input id="street" value={street} onChange={(e) => setStreet(e.target.value)} placeholder="Logradouro" />
+                <Input id="street" value={street} onChange={(e) => setStreet(e.target.value)} readOnly={isAddressLookupPending} placeholder="Logradouro" />
               </div>
             </div>
 
             <div className="grid gap-2 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="streetNumber">Número</Label>
-                <Input id="streetNumber" value={streetNumber} onChange={(e) => setStreetNumber(e.target.value)} placeholder="Número" />
+                <Input id="streetNumber" value={streetNumber} onChange={(e) => setStreetNumber(e.target.value)} readOnly={isLookingUpCnpj} placeholder="Número" />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="streetComplement">Complemento</Label>
-                <Input id="streetComplement" value={streetComplement} onChange={(e) => setStreetComplement(e.target.value)} placeholder="Apto, bloco, sala..." />
+                <Input id="streetComplement" value={streetComplement} onChange={(e) => setStreetComplement(e.target.value)} readOnly={isLookingUpCnpj} placeholder="Apto, bloco, sala..." />
               </div>
             </div>
 

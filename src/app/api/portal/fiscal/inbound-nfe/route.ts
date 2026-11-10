@@ -6,6 +6,7 @@ import {
   createUsedDevicesInbound,
   importInboundNfeXml,
   listInboundNfeDocuments,
+  getNextInboundReferenceNumber,
 } from '@/lib/fiscal/inbound-nfe'
 import { readInboundXmlUpload } from '@/lib/fiscal/parse-inbound-nfe-xml'
 
@@ -17,10 +18,15 @@ function inboundImportStatus (error: string) {
   return 400
 }
 
-export async function GET () {
+export async function GET (request: Request) {
   const auth = await requireStaffOrAdmin()
   if (auth.ok === false) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
+  }
+
+  if (new URL(request.url).searchParams.get('next') === '1') {
+    const number = await getNextInboundReferenceNumber(auth)
+    return NextResponse.json({ ok: true, number })
   }
 
   const result = await listInboundNfeDocuments(auth)
@@ -167,6 +173,30 @@ export async function POST (request: Request) {
 
   // manual products (default)
   const result = await createManualProductsInbound(auth, {
+    entryType: body.entry_type === 'third_party' || body.entry_type === 'import'
+      ? body.entry_type
+      : 'own_issuance',
+    importDeclaration: body.import_declaration && typeof body.import_declaration === 'object'
+      ? body.import_declaration as Record<string, unknown>
+      : null,
+    freightCents: Number(body.freight_cents || 0),
+    insuranceCents: Number(body.insurance_cents || 0),
+    otherExpensesCents: Number(body.other_expenses_cents || 0),
+    discountCents: Number(body.discount_cents || 0),
+    transportMode: body.transport_mode === 'buyer' || body.transport_mode === 'seller' || body.transport_mode === 'carrier'
+      ? body.transport_mode
+      : 'none',
+    complementaryInformation: body.complementary_information ? String(body.complementary_information) : null,
+    fiscalInformation: body.fiscal_information ? String(body.fiscal_information) : null,
+    fiscalPayments: body.fiscal_payments,
+    sellerCustomerId: body.seller_customer_id ? String(body.seller_customer_id) : null,
+    sellerName: body.seller_name ? String(body.seller_name) : null,
+    sellerDocument: body.seller_document ? String(body.seller_document) : null,
+    fiscalPurpose: body.fiscal_purpose === 'fixed_asset' || body.fiscal_purpose === 'use_consumption'
+      ? body.fiscal_purpose
+      : 'resale',
+    shouldMoveStock: body.should_move_stock === true,
+    operationNature: body.operation_nature ? String(body.operation_nature) : null,
     issuerName: body.issuer_name ? String(body.issuer_name) : null,
     issuedAt: body.issued_at ? String(body.issued_at) : null,
     notes: body.notes ? String(body.notes) : null,
@@ -181,7 +211,14 @@ export async function POST (request: Request) {
           productCode: row.product_code ? String(row.product_code) : null,
           barcode: row.barcode ? String(row.barcode) : null,
           ncm: row.ncm ? String(row.ncm) : null,
+          cest: row.cest ? String(row.cest) : null,
           unit: row.unit ? String(row.unit) : 'UN',
+          cfop: row.cfop ? String(row.cfop) : null,
+          fiscalOrigin: row.fiscal_origin == null ? null : Number(row.fiscal_origin),
+          icmsCsosn: row.icms_csosn ? String(row.icms_csosn) : null,
+          pisCst: row.pis_cst ? String(row.pis_cst) : null,
+          cofinsCst: row.cofins_cst ? String(row.cofins_cst) : null,
+          ipiCst: row.ipi_cst ? String(row.ipi_cst) : null,
         }
       })
       : [],
