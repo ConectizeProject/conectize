@@ -1,5 +1,6 @@
 'use client'
 
+import { DateInput } from '@/components/forms'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -66,20 +67,18 @@ export function VendasListFilters ({
       <CardContent className='grid gap-3'>
         <div className='space-y-1.5'>
           <Label htmlFor={`${idPrefix}-from`}>Data inicial</Label>
-          <Input
+          <DateInput
             id={`${idPrefix}-from`}
-            type='date'
             value={from}
-            onChange={(event) => onFromChange(event.target.value)}
+            onChange={onFromChange}
           />
         </div>
         <div className='space-y-1.5'>
           <Label htmlFor={`${idPrefix}-to`}>Data final</Label>
-          <Input
+          <DateInput
             id={`${idPrefix}-to`}
-            type='date'
             value={to}
-            onChange={(event) => onToChange(event.target.value)}
+            onChange={onToChange}
           />
         </div>
         <div className='space-y-1.5'>

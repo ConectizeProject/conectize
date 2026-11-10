@@ -25,6 +25,7 @@ import {
   OrderServicesTotalProvider,
   type ServiceLine,
 } from '@/components/orders'
+import { DateInput } from '@/components/forms'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -281,12 +282,11 @@ export function OrcamentoFormClient ({
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="validUntil">Validade</Label>
-                      <Input
+                      <DateInput
                         id="validUntil"
                         name="validUntil"
-                        type="date"
                         value={formik.values.validUntil}
-                        onChange={formik.handleChange}
+                        onChange={(ymd) => void formik.setFieldValue('validUntil', ymd)}
                         disabled={Boolean(quoteId)}
                       />
                     </div>

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { Download } from 'lucide-react'
+import { DateInput } from '@/components/forms'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -197,22 +198,20 @@ export function AccountingXmlExportDialog ({ open, onOpenChange }: Props) {
           <div className='grid gap-3 sm:grid-cols-2'>
             <div className='space-y-1.5'>
               <Label htmlFor='accounting-xml-from'>Data inicial</Label>
-              <Input
+              <DateInput
                 id='accounting-xml-from'
-                type='date'
                 value={fromDate}
                 max={toDate || undefined}
-                onChange={(e) => setFromDate(e.target.value)}
+                onChange={setFromDate}
               />
             </div>
             <div className='space-y-1.5'>
               <Label htmlFor='accounting-xml-to'>Data final</Label>
-              <Input
+              <DateInput
                 id='accounting-xml-to'
-                type='date'
                 value={toDate}
                 min={fromDate || undefined}
-                onChange={(e) => setToDate(e.target.value)}
+                onChange={setToDate}
               />
             </div>
           </div>

@@ -17,6 +17,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { AlertTriangle, Loader2 } from 'lucide-react'
+import { CepInput, DateInput, DocumentInput } from '@/components/forms'
 import { portalFetch } from '@/lib/portal/portal-fetch'
 import { formatPhoneBr } from '@/lib/utils/format-phone'
 import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
@@ -574,17 +575,17 @@ export function CreateCustomerDialog(props: Props) {
             <div className="space-y-2">
               <Label htmlFor="customerDocument">CPF/CNPJ<span className="text-destructive"> *</span></Label>
               <div className="relative">
-                <Input
+                <DocumentInput
                   id="customerDocument"
                   value={document}
-                  onChange={(e) => {
+                  onChange={(next) => {
                     if (isEdit || isLookingUpCnpj) return
-                    setDocument(formatCpfCnpj(e.target.value))
+                    setDocument(next)
                   }}
+                  mode="cpf-cnpj"
                   readOnly={isEdit || isLookingUpCnpj}
                   disabled={isEdit}
                   placeholder={isCompany ? '00.000.000/0000-00' : '000.000.000-00'}
-                  inputMode="numeric"
                   className={`${isEdit ? 'bg-muted' : ''} ${isLookingUpCnpj ? 'pr-10' : ''}`}
                 />
                 {isLookingUpCnpj ? (
@@ -664,7 +665,7 @@ export function CreateCustomerDialog(props: Props) {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="birthDate">Data de nascimento</Label>
-                <Input id="birthDate" type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} />
+                <DateInput id="birthDate" value={birthDate} onChange={setBirthDate} />
               </div>
             </div>
 
@@ -684,16 +685,14 @@ export function CreateCustomerDialog(props: Props) {
               <div className="space-y-2">
                 <Label htmlFor="zipCode">CEP</Label>
                 <div className="relative">
-                  <Input
+                  <CepInput
                     id="zipCode"
-                    value={formatCepBr(zipCode)}
-                    onChange={(e) => {
+                    value={zipCode}
+                    onChange={(next) => {
                       if (isAddressLookupPending) return
-                      setZipCode(formatCepBr(e.target.value))
+                      setZipCode(next)
                     }}
                     readOnly={isAddressLookupPending}
-                    placeholder="00000-000"
-                    inputMode="numeric"
                     className={isAddressLookupPending ? 'pr-10' : ''}
                   />
                   {isAddressLookupPending ? (

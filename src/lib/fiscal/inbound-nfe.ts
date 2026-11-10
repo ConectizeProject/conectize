@@ -7,6 +7,7 @@ import {
   coerceRawSalePaymentsToArray,
   mapLooseEntryToSalePaymentRow,
 } from '@/lib/resale/sale-payment-methods'
+import { syncAmountRowsToTotal } from '@/lib/fiscal/sync-payment-amounts'
 import { onlyDigits } from '@/lib/utils/strings'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 
@@ -214,6 +215,35 @@ function normalizeFiscalPayments (value: unknown): InboundFiscalPayment[] {
     if (type.length !== 2 || (type !== '90' && valueCents <= 0)) return []
     return [{ type, value_cents: type === '90' ? 0 : valueCents }]
   })
+}
+
+function allocateDevicePaymentCents (
+  payments: Array<{ value_cents: number }>,
+  purchaseValueCents: number,
+) {
+  return syncAmountRowsToTotal(
+    payments.map((payment) => ({ type: '', valueCents: payment.value_cents })),
+    purchaseValueCents,
+  )
+}
+
+function fiscalPaymentsForTotal (
+  payments: InboundFiscalPayment[],
+  totalCents: number,
+): InboundFiscalPayment[] {
+  const payableSum = payments.reduce(
+    (sum, payment) => sum + (payment.type === '90' ? 0 : payment.value_cents),
+    0,
+  )
+  if (payableSum === totalCents) return payments
+  const synced = syncAmountRowsToTotal(
+    payments.map((payment) => ({ type: payment.type, valueCents: payment.value_cents })),
+    totalCents,
+  )
+  return normalizeFiscalPayments(payments.map((payment, index) => ({
+    type: payment.type,
+    value_cents: synced[index] ?? 0,
+  })))
 }
 
 function asRowWithId (row: unknown): { id: string } | null {
@@ -929,6 +959,10 @@ export async function updateInboundNfeFiscalSettings (
     : Math.max(0, Math.round(Number(input.discountCents) || 0))
   const productsTotalCents = (loaded.document.items || [])
     .reduce((total, item) => total + item.total_cents, 0)
+  const totalCents = Math.max(
+    0,
+    productsTotalCents + freightCents + insuranceCents + otherExpensesCents - discountCents,
+  )
 
   const { error } = await auth.supabase
     .from('inbound_nfe_documents')
@@ -940,10 +974,10 @@ export async function updateInboundNfeFiscalSettings (
       insurance_cents: insuranceCents,
       other_expenses_cents: otherExpensesCents,
       discount_cents: discountCents,
-      total_cents: Math.max(
-        0,
-        productsTotalCents + freightCents + insuranceCents + otherExpensesCents - discountCents,
-      ),
+      total_cents: totalCents,
+      fiscal_payments: input.fiscalPayments === undefined
+        ? fiscalPaymentsForTotal(loaded.document.fiscal_payments, totalCents)
+        : normalizeFiscalPayments(input.fiscalPayments),
       transport_mode: input.transportMode || loaded.document.transport_mode,
       complementary_information: input.complementaryInformation === undefined
         ? loaded.document.complementary_information
@@ -951,9 +985,6 @@ export async function updateInboundNfeFiscalSettings (
       fiscal_information: input.fiscalInformation === undefined
         ? loaded.document.fiscal_information
         : cleanText(input.fiscalInformation) || null,
-      fiscal_payments: input.fiscalPayments === undefined
-        ? loaded.document.fiscal_payments
-        : normalizeFiscalPayments(input.fiscalPayments),
       updated_at: new Date().toISOString(),
     })
     .eq('organization_id', auth.organizationId)
@@ -1198,17 +1229,19 @@ export async function updateInboundNfeItemFiscal (
     (total, item) => total + (item.id === itemId ? itemTotalCents : item.total_cents),
     0,
   )
+  const totalCents = Math.max(
+    0,
+    productsTotalCents
+      + loaded.document.freight_cents
+      + loaded.document.insurance_cents
+      + loaded.document.other_expenses_cents
+      - loaded.document.discount_cents,
+  )
   await auth.supabase
     .from('inbound_nfe_documents')
     .update({
-      total_cents: Math.max(
-        0,
-        productsTotalCents
-          + loaded.document.freight_cents
-          + loaded.document.insurance_cents
-          + loaded.document.other_expenses_cents
-          - loaded.document.discount_cents,
-      ),
+      total_cents: totalCents,
+      fiscal_payments: fiscalPaymentsForTotal(loaded.document.fiscal_payments, totalCents),
       updated_at: new Date().toISOString(),
     })
     .eq('organization_id', auth.organizationId)
@@ -1259,17 +1292,19 @@ export async function deleteInboundNfeItem (
   const productsTotalCents = items
     .filter((item) => item.id !== itemId)
     .reduce((total, item) => total + item.total_cents, 0)
+  const totalCents = Math.max(
+    0,
+    productsTotalCents
+      + loaded.document.freight_cents
+      + loaded.document.insurance_cents
+      + loaded.document.other_expenses_cents
+      - loaded.document.discount_cents,
+  )
   await auth.supabase
     .from('inbound_nfe_documents')
     .update({
-      total_cents: Math.max(
-        0,
-        productsTotalCents
-          + loaded.document.freight_cents
-          + loaded.document.insurance_cents
-          + loaded.document.other_expenses_cents
-          - loaded.document.discount_cents,
-      ),
+      total_cents: totalCents,
+      fiscal_payments: fiscalPaymentsForTotal(loaded.document.fiscal_payments, totalCents),
       updated_at: new Date().toISOString(),
     })
     .eq('organization_id', auth.organizationId)
@@ -1585,6 +1620,13 @@ async function postUsedDevicesInbound (auth: AuthCtx, documentId: string, doc: I
     }
 
     const purchaseValueCents = Math.max(0, Math.round(item.unit_value_cents || 0))
+    const devicePaymentCents = allocateDevicePaymentCents(payments, purchaseValueCents)
+    const devicePayments = payments
+      .map((payment, index) => ({
+        ...payment,
+        value_cents: devicePaymentCents[index] ?? 0,
+      }))
+      .filter((payment) => payment.value_cents > 0)
     const { data: deviceRaw, error: deviceError } = await service
       .from('resale_devices')
       .insert({
@@ -1607,7 +1649,7 @@ async function postUsedDevicesInbound (auth: AuthCtx, documentId: string, doc: I
         seller_customer_id: doc.seller_customer_id,
         seller_name: doc.seller_name,
         seller_document: doc.seller_document,
-        purchase_payment_methods: payments.length > 0 ? payments : null,
+        purchase_payment_methods: devicePayments.length > 0 ? devicePayments : null,
         advertised: false,
         tested: false,
         image_gallery_paths: [],
@@ -1652,7 +1694,7 @@ async function postUsedDevicesInbound (auth: AuthCtx, documentId: string, doc: I
           model: device.model ?? null,
           acquisition_source: 'customer_purchase',
           purchase_value_cents: purchaseValueCents,
-          purchase_payment_methods: payments,
+          purchase_payment_methods: devicePayments,
           purchase_date: purchaseDate,
           updated_at: device.updated_at ?? null,
         },

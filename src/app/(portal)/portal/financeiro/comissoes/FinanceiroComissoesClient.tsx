@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { Loader2, Percent, RefreshCw } from 'lucide-react'
+import { DateInput } from '@/components/forms'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -306,22 +307,20 @@ export function FinanceiroComissoesClient () {
               <>
                 <div className="space-y-1.5">
                   <Label htmlFor="comm-from">De</Label>
-                  <Input
+                  <DateInput
                     id="comm-from"
-                    type="date"
                     value={from}
-                    onChange={(e) => setFrom(e.target.value)}
-                    className="w-[160px]"
+                    onChange={setFrom}
+                    className="w-[200px]"
                   />
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="comm-to">Até</Label>
-                  <Input
+                  <DateInput
                     id="comm-to"
-                    type="date"
                     value={to}
-                    onChange={(e) => setTo(e.target.value)}
-                    className="w-[160px]"
+                    onChange={setTo}
+                    className="w-[200px]"
                   />
                 </div>
               </>

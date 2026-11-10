@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { DateInput, MoneyInput } from '@/components/forms'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -22,7 +23,7 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { toast } from '@/hooks/use-toast'
-import { formatMoneyInput, moneyToCentsFromMasked } from '@/lib/utils/money'
+import { moneyToCentsFromMasked } from '@/lib/utils/money'
 import { portalFetch } from '@/lib/portal/portal-fetch'
 
 type ContaOption = { id: string; name: string }
@@ -173,20 +174,17 @@ export function FinanceiroNovoRegistroDialog ({
           </div>
           <div>
             <Label>Data da movimentação</Label>
-            <Input
-              type="date"
+            <DateInput
               value={formOccurredAt}
-              onChange={(e) => setFormOccurredAt(e.target.value)}
+              onChange={setFormOccurredAt}
             />
           </div>
           <div>
             <Label>Valor (R$)</Label>
-            <Input
+            <MoneyInput
               value={formAmount}
-              onChange={(e) => setFormAmount(formatMoneyInput(e.target.value))}
+              onChange={setFormAmount}
               placeholder="0,00"
-              inputMode="numeric"
-              autoComplete="off"
               className="tabular-nums"
             />
           </div>

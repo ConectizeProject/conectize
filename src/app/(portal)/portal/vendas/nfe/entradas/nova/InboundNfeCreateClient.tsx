@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Barcode, FileUp, Info, Loader2, Plus, Trash2, Upload } from 'lucide-react'
 import { CreateCustomerDialog, EditCustomerDialog, type CustomerHit } from '@/components/customers'
+import { DateInput, MoneyInput } from '@/components/forms'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -27,7 +28,14 @@ import { toast } from '@/hooks/use-toast'
 import { extractNfeAccessKey } from '@/lib/fiscal/nfe-access-key'
 import { csosnOptions } from '@/lib/fiscal/csosn-options'
 import { ipiCstOptions, pisCofinsCstOptions } from '@/lib/fiscal/tax-cst-options'
-import { fiscalPaymentTypeOptions } from '@/lib/fiscal/payment-type-options'
+import { syncAmountRowsToTotal } from '@/lib/fiscal/sync-payment-amounts'
+import {
+  FiscalPaymentsEditor,
+  emptyFiscalPaymentDraft,
+  fiscalPaymentDraftCents,
+  syncFiscalPaymentDrafts,
+  type FiscalPaymentDraft,
+} from '../FiscalPaymentsEditor'
 import { portalFetch } from '@/lib/portal/portal-fetch'
 import { parse3utoolsText } from '@/lib/resale/parse-3utools'
 import {
@@ -51,6 +59,12 @@ type PaymentMethod = {
   id: string
   description?: string | null
   type?: string | null
+}
+
+type PurchasePaymentDraft = {
+  key: string
+  paymentMethodId: string
+  value: string
 }
 
 type ManualLine = {
@@ -157,8 +171,7 @@ export function InboundNfeCreateClient () {
   const [transportMode, setTransportMode] = useState<'none' | 'buyer' | 'seller' | 'carrier'>('none')
   const [complementaryInformation, setComplementaryInformation] = useState('')
   const [fiscalInformation, setFiscalInformation] = useState('')
-  const [fiscalPaymentType, setFiscalPaymentType] = useState('')
-  const [fiscalPaymentValue, setFiscalPaymentValue] = useState('')
+  const [fiscalPayments, setFiscalPayments] = useState<FiscalPaymentDraft[]>([emptyFiscalPaymentDraft()])
   const [importDeclaration, setImportDeclaration] = useState({
     number: '',
     registrationDate: '',
@@ -199,7 +212,11 @@ export function InboundNfeCreateClient () {
   } = useNovaOrdemCustomerSearch({ selectedCustomer })
   const [purchaseDate, setPurchaseDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([])
-  const [paymentMethodId, setPaymentMethodId] = useState('')
+  const [purchasePayments, setPurchasePayments] = useState<PurchasePaymentDraft[]>([{
+    key: newKey(),
+    paymentMethodId: '',
+    value: '',
+  }])
   const [usedLines, setUsedLines] = useState<UsedLine[]>([emptyUsedLine()])
   const [threeUtoolsRaw, setThreeUtoolsRaw] = useState('')
 
@@ -374,6 +391,15 @@ export function InboundNfeCreateClient () {
       })
       return
     }
+    const typedPayments = fiscalPayments.filter((payment) => payment.type)
+    if (typedPayments.length > 0 && fiscalPaymentDraftCents(typedPayments) !== noteTotalCents) {
+      toast({
+        title: 'Pagamentos diferentes do total',
+        description: 'A soma dos valores pagos precisa ser igual ao total da nota.',
+        variant: 'destructive',
+      })
+      return
+    }
     setIsSaving(true)
     try {
       const items = manualLines.map((line) => ({
@@ -412,14 +438,12 @@ export function InboundNfeCreateClient () {
           transport_mode: transportMode,
           complementary_information: complementaryInformation.trim() || null,
           fiscal_information: fiscalInformation.trim() || null,
-          fiscal_payments: fiscalPaymentType
-            ? [{
-              type: fiscalPaymentType,
-              value_cents: fiscalPaymentType === '90'
-                ? 0
-                : (moneyToCentsFromMasked(fiscalPaymentValue) ?? noteTotalCents),
-            }]
-            : [],
+          fiscal_payments: fiscalPayments
+            .filter((payment) => payment.type)
+            .map((payment) => ({
+              type: payment.type,
+              value_cents: payment.type === '90' ? 0 : (moneyToCentsFromMasked(payment.value) ?? 0),
+            })),
           items,
         }),
       })
@@ -492,6 +516,22 @@ export function InboundNfeCreateClient () {
         },
       }))
       const totalCents = devices.reduce((sum, d) => sum + (d.purchase_value_cents || 0), 0)
+      const purchasePaymentMethods = purchasePayments
+        .filter((payment) => payment.paymentMethodId)
+        .map((payment) => ({
+          payment_method_id: payment.paymentMethodId,
+          value_cents: moneyToCentsFromMasked(payment.value) ?? 0,
+        }))
+        .filter((payment) => payment.value_cents > 0)
+      const paidCents = purchasePaymentMethods.reduce((sum, payment) => sum + payment.value_cents, 0)
+      if (purchasePaymentMethods.length > 0 && paidCents !== totalCents) {
+        toast({
+          title: 'Pagamentos diferentes do total',
+          description: 'A soma das formas de pagamento precisa ser igual ao valor pago nos aparelhos.',
+          variant: 'destructive',
+        })
+        return
+      }
       const res = await portalFetch('/api/portal/fiscal/inbound-nfe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -501,9 +541,7 @@ export function InboundNfeCreateClient () {
           seller_name: sellerName.trim() || null,
           seller_document: onlyDigits(sellerDocument) || null,
           purchase_date: purchaseDate || null,
-          purchase_payment_methods: paymentMethodId
-            ? [{ payment_method_id: paymentMethodId, value_cents: totalCents }]
-            : [],
+          purchase_payment_methods: purchasePaymentMethods,
           devices,
         }),
       })
@@ -536,6 +574,40 @@ export function InboundNfeCreateClient () {
       + (moneyToCentsFromMasked(otherExpenses) ?? 0)
       - (moneyToCentsFromMasked(discount) ?? 0),
   )
+  const usedTotalCents = usedLines.reduce(
+    (sum, line) => sum + (moneyToCentsFromMasked(line.purchaseValue) ?? 0),
+    0,
+  )
+
+  useEffect(() => {
+    if (mode !== 'manual') return
+    setFiscalPayments((current) => {
+      const next = syncFiscalPaymentDrafts(current, noteTotalCents)
+      const same = next.length === current.length && next.every((row, index) => (
+        row.value === current[index]?.value && row.type === current[index]?.type
+      ))
+      return same ? current : next
+    })
+  }, [mode, noteTotalCents])
+
+  useEffect(() => {
+    if (mode !== 'usados') return
+    setPurchasePayments((current) => {
+      const cents = syncAmountRowsToTotal(
+        current.map((payment) => ({
+          type: '',
+          valueCents: moneyToCentsFromMasked(payment.value) ?? 0,
+        })),
+        usedTotalCents,
+      )
+      const next = current.map((payment, index) => ({
+        ...payment,
+        value: maskedFromCents(cents[index] ?? 0),
+      }))
+      const same = next.every((row, index) => row.value === current[index]?.value)
+      return same ? current : next
+    })
+  }, [mode, usedTotalCents])
 
   return (
     <div className='space-y-4'>
@@ -725,7 +797,7 @@ export function InboundNfeCreateClient () {
               <div className='grid gap-3 sm:grid-cols-2'>
                 <div className='space-y-1.5'>
                   <Label htmlFor='issued'>Data da entrada</Label>
-                  <Input id='issued' type='date' value={issuedAt} onChange={(e) => setIssuedAt(e.target.value)} />
+                  <DateInput id='issued' value={issuedAt} onChange={setIssuedAt} />
                 </div>
                 <div className='space-y-1.5'>
                   <Label htmlFor='fiscal-purpose'>Finalidade</Label>
@@ -1073,39 +1145,15 @@ export function InboundNfeCreateClient () {
             <CardHeader className='pb-3'>
               <CardTitle className='text-base'>Pagamento da operação</CardTitle>
             </CardHeader>
-            <CardContent className='grid gap-3 sm:grid-cols-2'>
-              <div className='space-y-1.5'>
-                <Label htmlFor='fiscal-payment-type'>Forma de pagamento</Label>
-                <Select
-                  value={fiscalPaymentType || undefined}
-                  onValueChange={(value) => {
-                    setFiscalPaymentType(value)
-                    if (value === '90') setFiscalPaymentValue('')
-                  }}
-                >
-                  <SelectTrigger id='fiscal-payment-type' className='bg-transparent'>
-                    <SelectValue placeholder='Selecione' />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {fiscalPaymentTypeOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className='space-y-1.5'>
-                <Label htmlFor='fiscal-payment-value'>Valor pago</Label>
-                <Input
-                  id='fiscal-payment-value'
-                  value={fiscalPaymentType === '90' ? '0,00' : fiscalPaymentValue}
-                  placeholder={maskedFromCents(noteTotalCents)}
-                  inputMode='numeric'
-                  disabled={!fiscalPaymentType || fiscalPaymentType === '90'}
-                  onChange={(event) => setFiscalPaymentValue(formatMoneyInput(event.target.value))}
-                />
-              </div>
-              <p className='text-xs text-muted-foreground sm:col-span-2'>
-                Esta informação será usada no XML e não gera lançamento financeiro automaticamente.
+            <CardContent className='grid gap-3'>
+              <FiscalPaymentsEditor
+                payments={fiscalPayments}
+                totalCents={noteTotalCents}
+                disabled={isSaving}
+                onChange={setFiscalPayments}
+              />
+              <p className='text-xs text-muted-foreground'>
+                O valor pago acompanha o total da nota quando um item muda. Esta informação vai no XML e não gera lançamento financeiro automaticamente.
               </p>
             </CardContent>
           </Card>
@@ -1173,22 +1221,91 @@ export function InboundNfeCreateClient () {
               <div className='grid gap-3 sm:grid-cols-2'>
                 <div className='space-y-1.5'>
                   <Label>Data da compra</Label>
-                  <Input type='date' value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} />
+                  <DateInput value={purchaseDate} onChange={setPurchaseDate} />
                 </div>
-                <div className='space-y-1.5'>
-                  <Label>Forma de pagamento</Label>
-                  <Select value={paymentMethodId || undefined} onValueChange={setPaymentMethodId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder='Opcional — saída financeira' />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {paymentMethods.map((method) => (
-                        <SelectItem key={method.id} value={method.id}>
-                          {method.description || method.type || method.id}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className='space-y-3 sm:col-span-2'>
+                  <Label>Formas de pagamento</Label>
+                  {purchasePayments.map((payment, index) => (
+                    <div key={payment.key} className='grid gap-3 sm:grid-cols-[minmax(0,1fr)_11rem_auto] sm:items-end'>
+                      <div className='space-y-1.5'>
+                        <Label htmlFor={`used-payment-${payment.key}`}>
+                          {purchasePayments.length > 1 ? `Forma ${index + 1}` : 'Forma de pagamento'}
+                        </Label>
+                        <Select
+                          value={payment.paymentMethodId}
+                          onValueChange={(paymentMethodId) => {
+                            setPurchasePayments((current) => current.map((row) => (
+                              row.key === payment.key ? { ...row, paymentMethodId } : row
+                            )))
+                          }}
+                        >
+                          <SelectTrigger id={`used-payment-${payment.key}`}>
+                            <SelectValue placeholder='Opcional, saída financeira' />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {paymentMethods.map((method) => (
+                              <SelectItem key={method.id} value={method.id}>
+                                {method.description || method.type || method.id}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className='space-y-1.5'>
+                        <Label htmlFor={`used-payment-value-${payment.key}`}>Valor</Label>
+                        <MoneyInput
+                          id={`used-payment-value-${payment.key}`}
+                          value={payment.value}
+                          onChange={(value) => {
+                            setPurchasePayments((current) => current.map((row) => (
+                              row.key === payment.key ? { ...row, value } : row
+                            )))
+                          }}
+                        />
+                      </div>
+                      <Button
+                        type='button'
+                        variant='ghost'
+                        size='icon'
+                        className='text-muted-foreground'
+                        disabled={purchasePayments.length === 1}
+                        aria-label={`Remover forma de pagamento ${index + 1}`}
+                        onClick={() => {
+                          setPurchasePayments((current) => (
+                            current.length === 1
+                              ? current
+                              : current.filter((row) => row.key !== payment.key)
+                          ))
+                        }}
+                      >
+                        <Trash2 className='h-4 w-4' />
+                      </Button>
+                    </div>
+                  ))}
+                  <div className='flex flex-wrap items-center justify-between gap-2'>
+                    <Button
+                      type='button'
+                      variant='outline'
+                      size='sm'
+                      onClick={() => {
+                        const paid = purchasePayments.reduce(
+                          (sum, payment) => sum + (moneyToCentsFromMasked(payment.value) ?? 0),
+                          0,
+                        )
+                        setPurchasePayments((current) => [...current, {
+                          key: newKey(),
+                          paymentMethodId: '',
+                          value: maskedFromCents(Math.max(0, usedTotalCents - paid)),
+                        }])
+                      }}
+                    >
+                      <Plus className='mr-1 h-4 w-4' />
+                      Incluir forma de pagamento
+                    </Button>
+                    <p className='text-xs text-muted-foreground'>
+                      O valor acompanha a soma do valor pago nos aparelhos.
+                    </p>
+                  </div>
                 </div>
               </div>
             </CardContent>

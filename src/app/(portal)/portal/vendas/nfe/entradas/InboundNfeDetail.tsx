@@ -5,6 +5,11 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { PopoverAnchor } from '@radix-ui/react-popover'
 import { Link2, Loader2, Pencil, Trash2 } from 'lucide-react'
+import {
+  FiscalPaymentsEditor,
+  fiscalPaymentDraftsFromRows,
+  type FiscalPaymentDraft,
+} from './FiscalPaymentsEditor'
 import { searchLocalCatalog } from '@/app/(portal)/portal/pdv/pdv-catalog-cache'
 import type { CatalogProduct } from '@/app/(portal)/portal/pdv/pdv-types'
 import { Badge } from '@/components/ui/badge'
@@ -45,7 +50,6 @@ import { toast } from '@/hooks/use-toast'
 import { appConfirm } from '@/lib/ui/app-dialogs'
 import { csosnOptions } from '@/lib/fiscal/csosn-options'
 import { ipiCstOptions, pisCofinsCstOptions } from '@/lib/fiscal/tax-cst-options'
-import { fiscalPaymentTypeOptions } from '@/lib/fiscal/payment-type-options'
 import { formatMoneyInput, maskedFromCents, moneyToCentsFromMasked } from '@/lib/utils/money'
 import { revendaPath } from '@/lib/revenda/revenda-paths'
 import { NovaOrdemCustomerCard } from '@/app/(portal)/portal/ordens/nova/NovaOrdemCustomerCard'
@@ -581,6 +585,24 @@ export function InboundNfeDetail ({ documentId }: Props) {
   )
 
   const items = document?.items || []
+  const [fiscalPaymentDrafts, setFiscalPaymentDrafts] = useState<FiscalPaymentDraft[]>([])
+
+  useEffect(() => {
+    if (!document) return
+    setFiscalPaymentDrafts((current) => {
+      const saved = fiscalPaymentDraftsFromRows(document.fiscal_payments || [])
+      const pending = current.filter((draft) => !draft.type)
+      const savedTyped = saved.filter((draft) => draft.type)
+      const next = pending.length === 0
+        ? saved
+        : (savedTyped.length === 0 && current.length === 1 ? current : [...savedTyped, ...pending])
+      const same = next.length === current.length && next.every((row, index) => (
+        row.type === current[index]?.type && row.value === current[index]?.value
+      ))
+      return same ? current : next
+    })
+  }, [document])
+
   const isUsed = document?.entry_kind === 'used_devices'
   const unlinkedCount = useMemo(
     () => (isUsed ? 0 : items.filter((item) => !item.product_id).length),
@@ -589,7 +611,6 @@ export function InboundNfeDetail ({ documentId }: Props) {
   const linkedCount = isUsed ? items.length : items.length - unlinkedCount
   const isDraft = document?.status === 'draft' &&
     (!document.fiscal_document || document.fiscal_document.status === 'rejected')
-  const fiscalPayment = document?.fiscal_payments?.[0] || null
 
   async function selectSellerCustomer (customer: CustomerHit) {
     if (!document || !isDraft || isSavingFiscalSettings) return
@@ -672,6 +693,18 @@ export function InboundNfeDetail ({ documentId }: Props) {
     } finally {
       setIsSavingFiscalSettings(false)
     }
+  }
+
+  function commitFiscalPayments (drafts: FiscalPaymentDraft[]) {
+    if (!document) return
+    void saveAdditionalSettings({
+      fiscal_payments: drafts
+        .filter((payment) => payment.type)
+        .map((payment) => ({
+          type: payment.type,
+          value_cents: payment.type === '90' ? 0 : (moneyToCentsFromMasked(payment.value) ?? 0),
+        })),
+    })
   }
 
   async function saveAdditionalSettings (patch: Record<string, unknown>) {
@@ -1120,57 +1153,16 @@ export function InboundNfeDetail ({ documentId }: Props) {
                 ))}
               </div>
             ) : null}
-            <div className='grid gap-3 border-t pt-4 sm:grid-cols-2'>
-              <div className='space-y-1.5'>
-                <label htmlFor='detail-payment-type' className='text-sm font-medium'>
-                  Forma de pagamento
-                </label>
-                <Select
-                  value={fiscalPayment?.type || undefined}
-                  disabled={!isDraft || isSavingFiscalSettings}
-                  onValueChange={(value) => {
-                    void saveAdditionalSettings({
-                      fiscal_payments: [{
-                        type: value,
-                        value_cents: value === '90' ? 0 : document.total_cents,
-                      }],
-                    })
-                  }}
-                >
-                  <SelectTrigger id='detail-payment-type' className='bg-transparent'>
-                    <SelectValue placeholder='Selecione' />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {fiscalPaymentTypeOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className='space-y-1.5'>
-                <label htmlFor='detail-payment-value' className='text-sm font-medium'>Valor pago</label>
-                <Input
-                  id='detail-payment-value'
-                  key={`${fiscalPayment?.type}-${fiscalPayment?.value_cents}`}
-                  defaultValue={maskedFromCents(fiscalPayment?.value_cents || 0)}
-                  inputMode='numeric'
-                  disabled={!isDraft || isSavingFiscalSettings || !fiscalPayment || fiscalPayment.type === '90'}
-                  onChange={(event) => {
-                    event.target.value = formatMoneyInput(event.target.value)
-                  }}
-                  onBlur={(event) => {
-                    if (!fiscalPayment || fiscalPayment.type === '90') return
-                    void saveAdditionalSettings({
-                      fiscal_payments: [{
-                        type: fiscalPayment.type,
-                        value_cents: moneyToCentsFromMasked(event.target.value) ?? 0,
-                      }],
-                    })
-                  }}
-                />
-              </div>
-              <p className='text-xs text-muted-foreground sm:col-span-2'>
-                Usado no XML da NF-e, sem criar movimentação financeira automaticamente.
+            <div className='grid gap-3 border-t pt-4'>
+              <FiscalPaymentsEditor
+                payments={fiscalPaymentDrafts}
+                totalCents={document.total_cents}
+                disabled={!isDraft || isSavingFiscalSettings}
+                onChange={setFiscalPaymentDrafts}
+                onCommit={commitFiscalPayments}
+              />
+              <p className='text-xs text-muted-foreground'>
+                Usado no XML da NF-e, sem criar movimentação financeira automaticamente. Ao alterar o valor de um item, o valor pago acompanha o novo total.
               </p>
             </div>
             <div className='grid gap-3 sm:grid-cols-2'>

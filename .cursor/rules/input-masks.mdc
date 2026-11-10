@@ -1,0 +1,16 @@
+---
+description: Máscaras obrigatórias para data, documento, CEP e valor
+globs: **/*.{tsx,ts}
+alwaysApply: false
+---
+
+# Máscaras de input (portal)
+
+Sempre use os componentes de `@/components/forms`:
+
+- **Data:** `DateInput` (`dd/mm/yyyy` + datepicker). Valor interno `yyyy-mm-dd`. Nunca `type="date"`.
+- **CPF/CNPJ:** `DocumentInput` com `mode="cpf" | "cnpj" | "cpf-cnpj"`.
+- **CEP:** `CepInput`.
+- **Valor monetário:** `MoneyInput`. Nunca `type="number"` para dinheiro.
+
+Utils: `format-date-input`, `format-cpf-cnpj`, `format-cep`, `money`.

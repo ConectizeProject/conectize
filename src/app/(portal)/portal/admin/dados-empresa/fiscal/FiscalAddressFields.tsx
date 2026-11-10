@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { CepInput } from '@/components/forms'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { formatCepBr } from '@/lib/utils/format-cep'
@@ -74,17 +75,14 @@ export function FiscalAddressFields (props: {
       <div className='grid gap-4 md:grid-cols-4'>
         <div className='space-y-2'>
           <Label htmlFor='zipCode'>CEP</Label>
-          <Input
+          <CepInput
             id='zipCode'
             name='zipCode'
-            inputMode='numeric'
-            autoComplete='postal-code'
             value={zipCode}
-            onChange={(event) => {
+            onChange={(next) => {
               hasEditedZipCodeRef.current = true
-              setZipCode(formatCepBr(event.target.value))
+              setZipCode(next)
             }}
-            placeholder='00000-000'
           />
           {zipCodeLookupError ? (
             <p className='text-xs text-destructive'>{zipCodeLookupError}</p>

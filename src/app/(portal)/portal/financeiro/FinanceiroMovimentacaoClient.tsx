@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { Plus, Pencil, Loader2, CalendarIcon, Trash2, RotateCw } from 'lucide-react'
+import { DateInput } from '@/components/forms'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -594,18 +595,16 @@ export function FinanceiroMovimentacaoClient() {
             </Select>
             {preset === 'custom' && (
               <>
-                <Input
-                  type="date"
+                <DateInput
                   value={customFrom}
-                  onChange={(e) => setCustomFrom(e.target.value)}
-                  className="w-[145px]"
+                  onChange={setCustomFrom}
+                  className="w-[180px]"
                   aria-label="Data inicial"
                 />
-                <Input
-                  type="date"
+                <DateInput
                   value={customTo}
-                  onChange={(e) => setCustomTo(e.target.value)}
-                  className="w-[145px]"
+                  onChange={setCustomTo}
+                  className="w-[180px]"
                   aria-label="Data final"
                 />
               </>
@@ -852,10 +851,9 @@ export function FinanceiroMovimentacaoClient() {
             </div>
             <div>
               <Label>Data</Label>
-              <Input
-                type="date"
+              <DateInput
                 value={editOccurredAt}
-                onChange={(e) => setEditOccurredAt(e.target.value)}
+                onChange={setEditOccurredAt}
               />
             </div>
             <div>
@@ -1027,11 +1025,10 @@ export function FinanceiroMovimentacaoClient() {
               </div>
               <div>
                 <Label htmlFor="settle-paid-at">Data do pagamento</Label>
-                <Input
+                <DateInput
                   id="settle-paid-at"
-                  type="date"
                   value={settlePaidAt}
-                  onChange={(e) => setSettlePaidAt(e.target.value)}
+                  onChange={setSettlePaidAt}
                   required
                 />
               </div>

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Download, FileDown, MoreHorizontal, Pencil, Printer, Send, Trash2, XCircle } from 'lucide-react'
+import { DateInput } from '@/components/forms'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -346,20 +347,18 @@ export function FiscalDocumentsList ({ model, readOnly = false, detailBasePath }
             </div>
             <div className='space-y-1.5'>
               <Label htmlFor={`fiscal-${model}-filter-from`}>Data inicial</Label>
-              <Input
+              <DateInput
                 id={`fiscal-${model}-filter-from`}
-                type='date'
                 value={from}
-                onChange={(e) => setFrom(e.target.value)}
+                onChange={setFrom}
               />
             </div>
             <div className='space-y-1.5'>
               <Label htmlFor={`fiscal-${model}-filter-to`}>Data final</Label>
-              <Input
+              <DateInput
                 id={`fiscal-${model}-filter-to`}
-                type='date'
                 value={to}
-                onChange={(e) => setTo(e.target.value)}
+                onChange={setTo}
               />
             </div>
             <div className='space-y-1.5'>
