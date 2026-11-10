@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { SlidersHorizontal, X } from 'lucide-react'
+import { DateInput } from '@/components/forms'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
@@ -424,37 +425,33 @@ export function SeminovosFilterCollapsible ({
               </div>
               <div className="space-y-2">
                 <Label htmlFor="seminovos-purchaseDateFrom">Compra (de)</Label>
-                <Input
+                <DateInput
                   id="seminovos-purchaseDateFrom"
                   name="purchaseDateFrom"
-                  type="date"
                   defaultValue={initialValues.purchaseDateFrom}
                 />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="seminovos-purchaseDateTo">Compra (até)</Label>
-                <Input
+                <DateInput
                   id="seminovos-purchaseDateTo"
                   name="purchaseDateTo"
-                  type="date"
                   defaultValue={initialValues.purchaseDateTo}
                 />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="seminovos-saleDateFrom">Venda (de)</Label>
-                <Input
+                <DateInput
                   id="seminovos-saleDateFrom"
                   name="saleDateFrom"
-                  type="date"
                   defaultValue={initialValues.saleDateFrom || ''}
                 />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="seminovos-saleDateTo">Venda (até)</Label>
-                <Input
+                <DateInput
                   id="seminovos-saleDateTo"
                   name="saleDateTo"
-                  type="date"
                   defaultValue={initialValues.saleDateTo || ''}
                 />
               </div>

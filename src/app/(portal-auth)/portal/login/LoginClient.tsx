@@ -1,6 +1,6 @@
 'use client'
 
-import { Loader2, Mail } from 'lucide-react'
+import { Eye, EyeOff, Loader2, Mail } from 'lucide-react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -49,6 +49,7 @@ export function LoginClient({
 
 	const [email, setEmail] = useState('')
 	const [password, setPassword] = useState('')
+	const [isPasswordVisible, setIsPasswordVisible] = useState(false)
 	const [isSubmitting, setIsSubmitting] = useState(false)
 	const [isSendingRecovery, setIsSendingRecovery] = useState(false)
 	const [message, setMessage] = useState<string | null>(null)
@@ -448,15 +449,29 @@ export function LoginClient({
 													: 'Esqueci minha senha'}
 											</button>
 										</div>
-										<Input
-											id="password"
-											name="password"
-											type="password"
-											autoComplete="current-password"
-											placeholder="Digite sua senha"
-											value={password}
-											onChange={(e) => setPassword(e.target.value)}
-										/>
+										<div className="relative">
+											<Input
+												id="password"
+												name="password"
+												type={isPasswordVisible ? 'text' : 'password'}
+												autoComplete="current-password"
+												placeholder="Digite sua senha"
+												value={password}
+												onChange={(e) => setPassword(e.target.value)}
+												className="pr-10"
+											/>
+											<button
+												type="button"
+												className="absolute inset-y-0 right-0 grid w-10 place-items-center text-muted-foreground transition-colors hover:text-foreground"
+												aria-label={isPasswordVisible ? 'Ocultar senha' : 'Mostrar senha'}
+												aria-pressed={isPasswordVisible}
+												onClick={() => setIsPasswordVisible((visible) => !visible)}
+											>
+												{isPasswordVisible
+													? <EyeOff className="h-4 w-4" aria-hidden="true" />
+													: <Eye className="h-4 w-4" aria-hidden="true" />}
+											</button>
+										</div>
 									</div>
 
 									<AuthFormMessages

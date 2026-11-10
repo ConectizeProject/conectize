@@ -13,6 +13,7 @@ import {
   CreateCustomerDialog,
   type CustomerHit,
 } from '@/components/customers'
+import { DateInput } from '@/components/forms'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -1148,11 +1149,10 @@ export function ResaleMarkSoldDialog ({
                 />
                 <div className="space-y-2">
                   <Label htmlFor="sell-date">Data da venda</Label>
-                  <Input
+                  <DateInput
                     id="sell-date"
-                    type="date"
                     value={sellDate}
-                    onChange={(e) => setSellDate(e.target.value)}
+                    onChange={setSellDate}
                   />
                 </div>
               </>

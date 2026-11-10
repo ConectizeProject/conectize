@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Eye, EyeOff } from 'lucide-react'
+import { DateInput } from '@/components/forms'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -436,17 +437,15 @@ export function ResaleBulkEditTable ({
                   </TableCell>
                   <TableCell className="align-top whitespace-nowrap">
                     <div className="flex flex-col gap-1">
-                      <Input
-                        type="date"
+                      <DateInput
                         value={d.purchase_date || ''}
-                        onChange={(e) => updateRow(d.id, 'purchase_date', e.target.value)}
-                        className="h-8 text-xs"
+                        onChange={(ymd) => updateRow(d.id, 'purchase_date', ymd)}
+                        inputClassName="h-8 text-xs"
                       />
-                      <Input
-                        type="date"
+                      <DateInput
                         value={d.sale_date || ''}
-                        onChange={(e) => updateRow(d.id, 'sale_date', e.target.value)}
-                        className="h-8 text-xs"
+                        onChange={(ymd) => updateRow(d.id, 'sale_date', ymd)}
+                        inputClassName="h-8 text-xs"
                       />
                     </div>
                   </TableCell>

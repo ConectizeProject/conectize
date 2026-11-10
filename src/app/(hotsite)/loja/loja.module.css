@@ -900,11 +900,16 @@ a.bookingChoice {
 	gap: 0.2rem 0.45rem;
 }
 
-.bookingOfferNow small {
+.bookingOfferNow small,
+.bookingOfferNote {
 	color: var(--loja-muted);
 	font-size: 0.78rem;
 	font-weight: 400;
 	line-height: 1.35;
+}
+
+.bookingOfferNote {
+	display: block;
 }
 
 .bookingOsNumber {

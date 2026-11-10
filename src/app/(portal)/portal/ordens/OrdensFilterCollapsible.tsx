@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { SlidersHorizontal, X } from 'lucide-react'
+import { DateInput } from '@/components/forms'
+import { DocumentMaskedInput } from '@/app/(portal)/portal/clientes/DocumentMaskedInput'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
@@ -506,11 +508,9 @@ export function OrdensFilterCollapsible ({
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="cpf">CPF ou CNPJ</Label>
-                  <Input
-                    id="cpf"
+                  <DocumentMaskedInput
                     name="cpf"
-                    inputMode="numeric"
-                    placeholder="11 ou 14 dígitos"
+                    placeholder="CPF ou CNPJ"
                     defaultValue={initialValues.cpf ? formatCpfCnpj(initialValues.cpf) : ''}
                   />
                 </div>
@@ -644,37 +644,33 @@ export function OrdensFilterCollapsible ({
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="createdFrom">Criação (de)</Label>
-                  <Input
+                  <DateInput
                     id="createdFrom"
                     name="createdFrom"
-                    type="date"
                     defaultValue={initialValues.createdFrom}
                   />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="createdTo">Criação (até)</Label>
-                  <Input
+                  <DateInput
                     id="createdTo"
                     name="createdTo"
-                    type="date"
                     defaultValue={initialValues.createdTo}
                   />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="readyFrom">Previsão entrega (de)</Label>
-                  <Input
+                  <DateInput
                     id="readyFrom"
                     name="readyFrom"
-                    type="date"
                     defaultValue={initialValues.readyFrom}
                   />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="readyTo">Previsão entrega (até)</Label>
-                  <Input
+                  <DateInput
                     id="readyTo"
                     name="readyTo"
-                    type="date"
                     defaultValue={initialValues.readyTo}
                   />
                 </div>

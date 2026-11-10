@@ -187,6 +187,7 @@ function BookingModelOffer ({ model, cents }: { model: string, cents: number }) 
 				Por <strong>{formatMoneyBr(discounted)}</strong>
 				<small>com {BOOKING_DISCOUNT_PERCENT}% de desconto no agendamento online</small>
 			</span>
+			<small className={styles.bookingOfferNote}>12 meses de garantia · Pronto na hora</small>
 		</p>
 	)
 }
@@ -385,6 +386,32 @@ function CalendarPicker ({
 	)
 }
 
+let urlStartBookingSent = false
+
+function trackUrlStartBooking (model: string) {
+	if (urlStartBookingSent) return () => {}
+	const detail = {
+		ctaLocation: 'url' as const,
+		...(model ? { model } : {}),
+	}
+	const send = () => {
+		if (urlStartBookingSent) return true
+		if (typeof window.gtag !== 'function') return false
+		urlStartBookingSent = true
+		trackBookingFunnel('start_booking', detail)
+		return true
+	}
+	if (send()) return () => {}
+	const timer = window.setInterval(() => {
+		if (send()) window.clearInterval(timer)
+	}, 200)
+	const stop = window.setTimeout(() => window.clearInterval(timer), 8000)
+	return () => {
+		window.clearInterval(timer)
+		window.clearTimeout(stop)
+	}
+}
+
 export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appointment, children }: Props) {
 	const [open, setOpen] = useState(false)
 	const [panel, setPanel] = useState<Panel>('book')
@@ -425,21 +452,19 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 	setFieldValueRef.current = formik.setFieldValue
 
 	useEffect(() => {
-		if (urlOpenedRef.current) return
 		const params = new URLSearchParams(window.location.search)
 		if (params.get('agendar') !== '1') return
-		urlOpenedRef.current = true
 		const model = batteryModelFromQuery(params.get('modelo'), models)
-		setError('')
-		setExtraGate(null)
-		setStep(0)
-		setPanel('book')
-		void setFieldValueRef.current('model', model, false)
-		setOpen(true)
-		trackBookingFunnel('start_booking', {
-			ctaLocation: 'url',
-			...(model ? { model } : {}),
-		})
+		if (!urlOpenedRef.current) {
+			urlOpenedRef.current = true
+			setError('')
+			setExtraGate(null)
+			setStep(0)
+			setPanel('book')
+			void setFieldValueRef.current('model', model, false)
+			setOpen(true)
+		}
+		return trackUrlStartBooking(model)
 	}, [models])
 
 	useEffect(() => {

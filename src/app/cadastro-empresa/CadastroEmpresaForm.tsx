@@ -5,9 +5,9 @@ import { useRouter } from 'next/navigation'
 import { Formik } from 'formik'
 import * as Yup from 'yup'
 import { Button } from '@/components/ui/button'
+import { DocumentInput } from '@/components/forms'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { formatCpfCnpj } from '@/lib/utils/format-cpf-cnpj'
 import { onlyDigits } from '@/lib/utils/strings'
 
 type Props = {
@@ -199,23 +199,15 @@ export function CadastroEmpresaForm ({ initialError }: Props) {
 
           <div className='space-y-2'>
             <Label htmlFor='cnpj'>CPF ou CNPJ</Label>
-            <Input
+            <DocumentInput
               id='cnpj'
               name='cnpj'
-              type='text'
-              inputMode='numeric'
-              autoComplete='off'
-              maxLength={18}
+              mode='cpf-cnpj'
               placeholder='000.000.000-00 ou 00.000.000/0000-00'
               value={formik.values.cnpj}
-              onChange={(event) => {
-                formik.setFieldValue('cnpj', formatCpfCnpj(event.target.value))
+              onChange={(next) => {
+                void formik.setFieldValue('cnpj', next)
               }}
-              onBlur={(event) => {
-                formik.setFieldValue('cnpj', formatCpfCnpj(event.target.value))
-                formik.handleBlur(event)
-              }}
-              aria-invalid={Boolean(formik.touched.cnpj && formik.errors.cnpj)}
             />
             {formik.touched.cnpj && formik.errors.cnpj ? (
               <p className='text-sm text-destructive'>{formik.errors.cnpj}</p>

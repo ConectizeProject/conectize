@@ -7,6 +7,7 @@ import {
   coerceRawSalePaymentsToArray,
   mapLooseEntryToSalePaymentRow,
 } from '@/lib/resale/sale-payment-methods'
+import { syncAmountRowsToTotal } from '@/lib/fiscal/sync-payment-amounts'
 import { onlyDigits } from '@/lib/utils/strings'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 
@@ -16,6 +17,9 @@ export type InboundNfeStatus = 'draft' | 'posted' | 'canceled'
 export type InboundEntryKind = 'products' | 'used_devices'
 export type InboundSourceMode = 'xml' | 'manual'
 export type InboundItemKind = 'product' | 'used_device'
+export type InboundFiscalPurpose = 'resale' | 'fixed_asset' | 'use_consumption'
+export type InboundEntryType = 'own_issuance' | 'third_party' | 'import' | 'xml_import'
+export type InboundFiscalPayment = { type: string, value_cents: number }
 
 export type UsedDeviceSnapshot = {
   device_name: string
@@ -40,6 +44,13 @@ export type InboundNfeItemRow = {
   ncm: string | null
   cest: string | null
   unit: string | null
+  cfop: string | null
+  fiscal_origin: number | null
+  icms_csosn: string | null
+  icms_cst: string | null
+  pis_cst: string | null
+  cofins_cst: string | null
+  ipi_cst: string | null
   quantity: number
   unit_value_cents: number
   total_cents: number
@@ -59,6 +70,7 @@ export type InboundNfeDocumentRow = {
   id: string
   entry_kind: InboundEntryKind
   source_mode: InboundSourceMode
+  entry_type: InboundEntryType
   access_key: string | null
   series: number
   number: number
@@ -70,6 +82,17 @@ export type InboundNfeDocumentRow = {
   seller_customer_id: string | null
   seller_name: string | null
   seller_document: string | null
+  fiscal_purpose: InboundFiscalPurpose
+  should_move_stock: boolean
+  operation_nature: string
+  freight_cents: number
+  insurance_cents: number
+  other_expenses_cents: number
+  discount_cents: number
+  transport_mode: 'none' | 'buyer' | 'seller' | 'carrier'
+  complementary_information: string | null
+  fiscal_information: string | null
+  fiscal_payments: InboundFiscalPayment[]
   purchase_payment_methods: unknown
   total_cents: number
   status: InboundNfeStatus
@@ -77,7 +100,20 @@ export type InboundNfeDocumentRow = {
   posted_at: string | null
   created_at: string
   updated_at: string
+  fiscal_document?: {
+    id: string
+    status: string
+    series: number
+    number: number
+    access_key: string | null
+    sefaz_status_message: string | null
+  } | null
   items?: InboundNfeItemRow[]
+}
+
+function isInboundNfeEditable (document: InboundNfeDocumentRow) {
+  return document.status === 'draft' &&
+    (!document.fiscal_document || document.fiscal_document.status === 'rejected')
 }
 
 export type ManualProductLineInput = {
@@ -88,7 +124,14 @@ export type ManualProductLineInput = {
   productCode?: string | null
   barcode?: string | null
   ncm?: string | null
+  cest?: string | null
   unit?: string | null
+  cfop?: string | null
+  fiscalOrigin?: number | null
+  icmsCsosn?: string | null
+  pisCst?: string | null
+  cofinsCst?: string | null
+  ipiCst?: string | null
 }
 
 export type UsedDeviceLineInput = {
@@ -100,6 +143,7 @@ const DOC_SELECT = [
   'id',
   'entry_kind',
   'source_mode',
+  'entry_type',
   'access_key',
   'series',
   'number',
@@ -111,6 +155,17 @@ const DOC_SELECT = [
   'seller_customer_id',
   'seller_name',
   'seller_document',
+  'fiscal_purpose',
+  'should_move_stock',
+  'operation_nature',
+  'freight_cents',
+  'insurance_cents',
+  'other_expenses_cents',
+  'discount_cents',
+  'transport_mode',
+  'complementary_information',
+  'fiscal_information',
+  'fiscal_payments',
   'purchase_payment_methods',
   'total_cents',
   'status',
@@ -130,6 +185,13 @@ const ITEM_SELECT = [
   'ncm',
   'cest',
   'unit',
+  'cfop',
+  'fiscal_origin',
+  'icms_csosn',
+  'icms_cst',
+  'pis_cst',
+  'cofins_cst',
+  'ipi_cst',
   'quantity',
   'unit_value_cents',
   'total_cents',
@@ -141,6 +203,47 @@ const ITEM_SELECT = [
 
 function cleanText (value: unknown) {
   return String(value ?? '').trim()
+}
+
+function normalizeFiscalPayments (value: unknown): InboundFiscalPayment[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((raw) => {
+    if (!raw || typeof raw !== 'object') return []
+    const row = raw as Record<string, unknown>
+    const type = onlyDigits(String(row.type || row.payment_type || '')).slice(0, 2)
+    const valueCents = Math.max(0, Math.round(Number(row.value_cents) || 0))
+    if (type.length !== 2 || (type !== '90' && valueCents <= 0)) return []
+    return [{ type, value_cents: type === '90' ? 0 : valueCents }]
+  })
+}
+
+function allocateDevicePaymentCents (
+  payments: Array<{ value_cents: number }>,
+  purchaseValueCents: number,
+) {
+  return syncAmountRowsToTotal(
+    payments.map((payment) => ({ type: '', valueCents: payment.value_cents })),
+    purchaseValueCents,
+  )
+}
+
+function fiscalPaymentsForTotal (
+  payments: InboundFiscalPayment[],
+  totalCents: number,
+): InboundFiscalPayment[] {
+  const payableSum = payments.reduce(
+    (sum, payment) => sum + (payment.type === '90' ? 0 : payment.value_cents),
+    0,
+  )
+  if (payableSum === totalCents) return payments
+  const synced = syncAmountRowsToTotal(
+    payments.map((payment) => ({ type: payment.type, valueCents: payment.value_cents })),
+    totalCents,
+  )
+  return normalizeFiscalPayments(payments.map((payment, index) => ({
+    type: payment.type,
+    value_cents: synced[index] ?? 0,
+  })))
 }
 
 function asRowWithId (row: unknown): { id: string } | null {
@@ -195,6 +298,10 @@ async function nextInboundNumber (auth: AuthCtx) {
     .maybeSingle()
   const current = Number(data?.number || 0)
   return Number.isFinite(current) && current > 0 ? current + 1 : 1
+}
+
+export async function getNextInboundReferenceNumber (auth: AuthCtx) {
+  return nextInboundNumber(auth)
 }
 
 async function suggestProductMatches (
@@ -279,6 +386,13 @@ function mapItemRow (row: Record<string, unknown>): InboundNfeItemRow {
     ncm: row.ncm ? String(row.ncm) : null,
     cest: row.cest ? String(row.cest) : null,
     unit: row.unit ? String(row.unit) : null,
+    cfop: row.cfop ? String(row.cfop) : null,
+    fiscal_origin: row.fiscal_origin == null ? null : Number(row.fiscal_origin),
+    icms_csosn: row.icms_csosn ? String(row.icms_csosn) : null,
+    icms_cst: row.icms_cst ? String(row.icms_cst) : null,
+    pis_cst: row.pis_cst ? String(row.pis_cst) : null,
+    cofins_cst: row.cofins_cst ? String(row.cofins_cst) : null,
+    ipi_cst: row.ipi_cst ? String(row.ipi_cst) : null,
     quantity: Number(row.quantity),
     unit_value_cents: Number(row.unit_value_cents || 0),
     total_cents: Number(row.total_cents || 0),
@@ -310,9 +424,44 @@ export async function listInboundNfeDocuments (auth: AuthCtx) {
     return { ok: false as const, error: 'db_error' as const }
   }
 
+  const documents = (data || []) as unknown as InboundNfeDocumentRow[]
+  const ids = documents.map((document) => document.id)
+  const { data: fiscalDocuments, error: fiscalError } = ids.length > 0
+    ? await auth.supabase
+      .from('fiscal_documents')
+      .select('id, inbound_nfe_id, status, series, number, access_key, sefaz_status_message, created_at')
+      .eq('organization_id', auth.organizationId)
+      .in('inbound_nfe_id', ids)
+      .order('created_at', { ascending: false })
+    : { data: [], error: null }
+
+  if (fiscalError) {
+    console.error('[inbound-nfe] list fiscal documents', fiscalError)
+    return { ok: false as const, error: 'db_error' as const }
+  }
+
+  const fiscalByInboundId = new Map<string, InboundNfeDocumentRow['fiscal_document']>()
+  for (const fiscalDocument of fiscalDocuments || []) {
+    const inboundNfeId = String(fiscalDocument.inbound_nfe_id || '')
+    if (!inboundNfeId || fiscalByInboundId.has(inboundNfeId)) continue
+    fiscalByInboundId.set(inboundNfeId, {
+      id: String(fiscalDocument.id),
+      status: String(fiscalDocument.status || ''),
+      series: Number(fiscalDocument.series || 0),
+      number: Number(fiscalDocument.number || 0),
+      access_key: fiscalDocument.access_key ? String(fiscalDocument.access_key) : null,
+      sefaz_status_message: fiscalDocument.sefaz_status_message
+        ? String(fiscalDocument.sefaz_status_message)
+        : null,
+    })
+  }
+
   return {
     ok: true as const,
-    documents: (data || []) as unknown as InboundNfeDocumentRow[],
+    documents: documents.map((document) => ({
+      ...document,
+      fiscal_document: fiscalByInboundId.get(document.id) || null,
+    })),
   }
 }
 
@@ -342,10 +491,36 @@ export async function getInboundNfeDocument (auth: AuthCtx, documentId: string) 
     return { ok: false as const, error: 'db_error' as const }
   }
 
+  const { data: fiscalDocument, error: fiscalError } = await auth.supabase
+    .from('fiscal_documents')
+    .select('id, status, series, number, access_key, sefaz_status_message')
+    .eq('organization_id', auth.organizationId)
+    .eq('inbound_nfe_id', documentId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (fiscalError) {
+    console.error('[inbound-nfe] get fiscal document', fiscalError)
+    return { ok: false as const, error: 'db_error' as const }
+  }
+
   return {
     ok: true as const,
     document: {
       ...(doc as unknown as InboundNfeDocumentRow),
+      fiscal_document: fiscalDocument
+        ? {
+          id: String(fiscalDocument.id),
+          status: String(fiscalDocument.status || ''),
+          series: Number(fiscalDocument.series || 0),
+          number: Number(fiscalDocument.number || 0),
+          access_key: fiscalDocument.access_key ? String(fiscalDocument.access_key) : null,
+          sefaz_status_message: fiscalDocument.sefaz_status_message
+            ? String(fiscalDocument.sefaz_status_message)
+            : null,
+        }
+        : null,
       items: (items || []).map((row) => mapItemRow(row as unknown as Record<string, unknown>)),
     },
   }
@@ -366,6 +541,7 @@ export async function importInboundNfeXml (auth: AuthCtx, xmlContent: string) {
       organization_id: auth.organizationId,
       entry_kind: 'products',
       source_mode: 'xml',
+      entry_type: 'xml_import',
       access_key: doc.accessKey,
       series: doc.series,
       number: doc.number,
@@ -446,6 +622,22 @@ export async function importInboundNfeXml (auth: AuthCtx, xmlContent: string) {
 export async function createManualProductsInbound (
   auth: AuthCtx,
   input: {
+    sellerCustomerId?: string | null
+    entryType?: Exclude<InboundEntryType, 'xml_import'>
+    importDeclaration?: Record<string, unknown> | null
+    freightCents?: number
+    insuranceCents?: number
+    otherExpensesCents?: number
+    discountCents?: number
+    transportMode?: 'none' | 'buyer' | 'seller' | 'carrier'
+    complementaryInformation?: string | null
+    fiscalInformation?: string | null
+    fiscalPayments?: unknown
+    sellerName?: string | null
+    sellerDocument?: string | null
+    fiscalPurpose?: InboundFiscalPurpose
+    shouldMoveStock?: boolean
+    operationNature?: string | null
     issuerName?: string | null
     issuedAt?: string | null
     notes?: string | null
@@ -467,6 +659,24 @@ export async function createManualProductsInbound (
     if (!Number.isFinite(quantity) || quantity <= 0) {
       return { ok: false as const, error: 'invalid_quantity' as const, message: `Quantidade inválida em "${description}".` }
     }
+    const ncm = onlyDigits(raw.ncm || '')
+    const cfop = onlyDigits(raw.cfop || '')
+    const fiscalOrigin = Number(raw.fiscalOrigin)
+    const icmsCsosn = onlyDigits(raw.icmsCsosn || '')
+    const pisCst = onlyDigits(raw.pisCst || '')
+    const cofinsCst = onlyDigits(raw.cofinsCst || '')
+    if (ncm.length !== 8) {
+      return { ok: false as const, error: 'invalid_ncm' as const, message: `Informe o NCM com 8 dígitos em "${description}".` }
+    }
+    if (!/^[12]\d{3}$/.test(cfop)) {
+      return { ok: false as const, error: 'invalid_cfop' as const, message: `Informe um CFOP de entrada válido em "${description}".` }
+    }
+    if (!Number.isInteger(fiscalOrigin) || fiscalOrigin < 0 || fiscalOrigin > 8) {
+      return { ok: false as const, error: 'invalid_origin' as const, message: `Informe a origem fiscal em "${description}".` }
+    }
+    if (icmsCsosn.length !== 3 || pisCst.length !== 2 || cofinsCst.length !== 2) {
+      return { ok: false as const, error: 'invalid_tax_code' as const, message: `Revise CSOSN, CST PIS e CST COFINS em "${description}".` }
+    }
     lines.push({
       description,
       quantity,
@@ -474,17 +684,35 @@ export async function createManualProductsInbound (
       productId: raw.productId || null,
       productCode: cleanText(raw.productCode) || null,
       barcode: onlyDigits(raw.barcode || '') || null,
-      ncm: onlyDigits(raw.ncm || '') || null,
+      ncm,
+      cest: onlyDigits(raw.cest || '') || null,
       unit: cleanText(raw.unit || 'UN').toUpperCase().slice(0, 6) || 'UN',
+      cfop,
+      fiscalOrigin,
+      icmsCsosn,
+      pisCst,
+      cofinsCst,
+      ipiCst: onlyDigits(raw.ipiCst || '') || null,
     })
   }
 
-  const totalCents = lines.reduce(
+  const productsTotalCents = lines.reduce(
     (sum, line) => sum + Math.round(line.unitValueCents * line.quantity),
     0,
   )
+  const freightCents = Math.max(0, Math.round(Number(input.freightCents) || 0))
+  const insuranceCents = Math.max(0, Math.round(Number(input.insuranceCents) || 0))
+  const otherExpensesCents = Math.max(0, Math.round(Number(input.otherExpensesCents) || 0))
+  const discountCents = Math.max(0, Math.round(Number(input.discountCents) || 0))
+  const totalCents = Math.max(
+    0,
+    productsTotalCents + freightCents + insuranceCents + otherExpensesCents - discountCents,
+  )
   const number = await nextInboundNumber(auth)
   const issuedAt = input.issuedAt ? new Date(input.issuedAt).toISOString() : new Date().toISOString()
+  const fiscalPurpose = input.fiscalPurpose === 'fixed_asset' || input.fiscalPurpose === 'use_consumption'
+    ? input.fiscalPurpose
+    : 'resale'
 
   const { data: insertedRaw, error } = await auth.supabase
     .from('inbound_nfe_documents')
@@ -492,11 +720,33 @@ export async function createManualProductsInbound (
       organization_id: auth.organizationId,
       entry_kind: 'products',
       source_mode: 'manual',
+      entry_type: input.entryType || 'own_issuance',
+      import_declaration: input.entryType === 'import' ? input.importDeclaration || {} : null,
       access_key: null,
       series: 1,
       number,
       issued_at: Number.isNaN(new Date(issuedAt).getTime()) ? new Date().toISOString() : issuedAt,
       issuer_name: cleanText(input.issuerName) || null,
+      seller_customer_id: cleanText(input.sellerCustomerId) || null,
+      seller_name: cleanText(input.sellerName) || null,
+      seller_document: onlyDigits(input.sellerDocument || '') || null,
+      fiscal_purpose: fiscalPurpose,
+      should_move_stock: input.shouldMoveStock === true,
+      operation_nature: cleanText(input.operationNature) || (
+        fiscalPurpose === 'fixed_asset'
+          ? 'Compra de bem para o ativo imobilizado'
+          : fiscalPurpose === 'use_consumption'
+            ? 'Compra de material para uso ou consumo'
+            : 'Compra de mercadoria para comercialização'
+      ),
+      freight_cents: freightCents,
+      insurance_cents: insuranceCents,
+      other_expenses_cents: otherExpensesCents,
+      discount_cents: discountCents,
+      transport_mode: input.transportMode || 'none',
+      complementary_information: cleanText(input.complementaryInformation) || null,
+      fiscal_information: cleanText(input.fiscalInformation) || null,
+      fiscal_payments: normalizeFiscalPayments(input.fiscalPayments),
       total_cents: totalCents,
       status: 'draft',
       xml_content: null,
@@ -521,7 +771,14 @@ export async function createManualProductsInbound (
     barcode: line.barcode,
     description: line.description,
     ncm: line.ncm,
+    cest: line.cest,
     unit: line.unit,
+    cfop: line.cfop,
+    fiscal_origin: line.fiscalOrigin,
+    icms_csosn: line.icmsCsosn,
+    pis_cst: line.pisCst,
+    cofins_cst: line.cofinsCst,
+    ipi_cst: line.ipiCst,
     quantity: line.quantity,
     unit_value_cents: line.unitValueCents,
     total_cents: Math.round(line.unitValueCents * line.quantity),
@@ -610,6 +867,7 @@ export async function createUsedDevicesInbound (
       organization_id: auth.organizationId,
       entry_kind: 'used_devices',
       source_mode: 'manual',
+      entry_type: 'own_issuance',
       access_key: null,
       series: 1,
       number,
@@ -660,6 +918,157 @@ export async function createUsedDevicesInbound (
   return getInboundNfeDocument(auth, inserted.id)
 }
 
+export async function updateInboundNfeFiscalSettings (
+  auth: AuthCtx,
+  documentId: string,
+  input: {
+    fiscalPurpose: InboundFiscalPurpose
+    shouldMoveStock: boolean
+    operationNature?: string | null
+    freightCents?: number
+    insuranceCents?: number
+    otherExpensesCents?: number
+    discountCents?: number
+    transportMode?: 'none' | 'buyer' | 'seller' | 'carrier'
+    complementaryInformation?: string | null
+    fiscalInformation?: string | null
+    fiscalPayments?: unknown
+  },
+) {
+  const loaded = await getInboundNfeDocument(auth, documentId)
+  if (!loaded.ok) return loaded
+  if (!isInboundNfeEditable(loaded.document)) {
+    return {
+      ok: false as const,
+      error: 'not_editable' as const,
+      message: 'Somente rascunhos podem ter os dados fiscais alterados.',
+    }
+  }
+
+  const freightCents = input.freightCents == null
+    ? loaded.document.freight_cents
+    : Math.max(0, Math.round(Number(input.freightCents) || 0))
+  const insuranceCents = input.insuranceCents == null
+    ? loaded.document.insurance_cents
+    : Math.max(0, Math.round(Number(input.insuranceCents) || 0))
+  const otherExpensesCents = input.otherExpensesCents == null
+    ? loaded.document.other_expenses_cents
+    : Math.max(0, Math.round(Number(input.otherExpensesCents) || 0))
+  const discountCents = input.discountCents == null
+    ? loaded.document.discount_cents
+    : Math.max(0, Math.round(Number(input.discountCents) || 0))
+  const productsTotalCents = (loaded.document.items || [])
+    .reduce((total, item) => total + item.total_cents, 0)
+  const totalCents = Math.max(
+    0,
+    productsTotalCents + freightCents + insuranceCents + otherExpensesCents - discountCents,
+  )
+
+  const { error } = await auth.supabase
+    .from('inbound_nfe_documents')
+    .update({
+      fiscal_purpose: input.fiscalPurpose,
+      should_move_stock: input.shouldMoveStock,
+      operation_nature: cleanText(input.operationNature) || loaded.document.operation_nature,
+      freight_cents: freightCents,
+      insurance_cents: insuranceCents,
+      other_expenses_cents: otherExpensesCents,
+      discount_cents: discountCents,
+      total_cents: totalCents,
+      fiscal_payments: input.fiscalPayments === undefined
+        ? fiscalPaymentsForTotal(loaded.document.fiscal_payments, totalCents)
+        : normalizeFiscalPayments(input.fiscalPayments),
+      transport_mode: input.transportMode || loaded.document.transport_mode,
+      complementary_information: input.complementaryInformation === undefined
+        ? loaded.document.complementary_information
+        : cleanText(input.complementaryInformation) || null,
+      fiscal_information: input.fiscalInformation === undefined
+        ? loaded.document.fiscal_information
+        : cleanText(input.fiscalInformation) || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('organization_id', auth.organizationId)
+    .eq('id', documentId)
+
+  if (error) {
+    console.error('[inbound-nfe] update fiscal settings', error)
+    return {
+      ok: false as const,
+      error: 'db_error' as const,
+      message: 'Não foi possível atualizar os dados fiscais da entrada.',
+    }
+  }
+
+  return getInboundNfeDocument(auth, documentId)
+}
+
+export async function updateInboundNfeSeller (
+  auth: AuthCtx,
+  documentId: string,
+  customerId: string,
+) {
+  const loaded = await getInboundNfeDocument(auth, documentId)
+  if (!loaded.ok) return loaded
+  if (!isInboundNfeEditable(loaded.document)) {
+    return {
+      ok: false as const,
+      error: 'not_editable' as const,
+      message: 'Somente rascunhos podem ter o cliente alterado.',
+    }
+  }
+
+  const { data: customer, error: customerError } = await auth.supabase
+    .from('customers')
+    .select('id, cpf, cnpj, full_name, is_company, company_name, trade_name')
+    .eq('organization_id', auth.organizationId)
+    .eq('id', customerId)
+    .maybeSingle()
+
+  if (customerError || !customer?.id) {
+    return {
+      ok: false as const,
+      error: 'customer_not_found' as const,
+      message: 'Cliente não encontrado.',
+    }
+  }
+
+  const sellerName = customer.is_company
+    ? cleanText(customer.company_name || customer.trade_name || customer.full_name)
+    : cleanText(customer.full_name)
+  const sellerDocument = onlyDigits(customer.cnpj || customer.cpf || '')
+  if (!sellerName || (sellerDocument.length !== 11 && sellerDocument.length !== 14)) {
+    return {
+      ok: false as const,
+      error: 'customer_incomplete' as const,
+      message: 'O cliente precisa ter nome e CPF ou CNPJ válidos.',
+    }
+  }
+
+  const { error } = await auth.supabase
+    .from('inbound_nfe_documents')
+    .update({
+      seller_customer_id: String(customer.id),
+      seller_name: sellerName,
+      seller_document: sellerDocument,
+      issuer_name: sellerName,
+      issuer_cnpj: sellerDocument,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('organization_id', auth.organizationId)
+    .eq('id', documentId)
+
+  if (error) {
+    console.error('[inbound-nfe] update seller', error)
+    return {
+      ok: false as const,
+      error: 'db_error' as const,
+      message: 'Não foi possível alterar o cliente da NF-e.',
+    }
+  }
+
+  return getInboundNfeDocument(auth, documentId)
+}
+
 export async function linkInboundNfeItem (
   auth: AuthCtx,
   documentId: string,
@@ -668,7 +1077,7 @@ export async function linkInboundNfeItem (
 ) {
   const loaded = await getInboundNfeDocument(auth, documentId)
   if (!loaded.ok) return loaded
-  if (loaded.document.status !== 'draft') {
+  if (!isInboundNfeEditable(loaded.document)) {
     return {
       ok: false as const,
       error: 'not_editable' as const,
@@ -715,6 +1124,282 @@ export async function linkInboundNfeItem (
   }
 
   return getInboundNfeDocument(auth, documentId)
+}
+
+export async function updateInboundNfeItemFiscal (
+  auth: AuthCtx,
+  documentId: string,
+  itemId: string,
+  input: {
+    ncm: string
+    cest?: string | null
+    unit: string
+    cfop: string
+    fiscalOrigin: number
+    icmsCsosn: string
+    pisCst: string
+    cofinsCst: string
+    ipiCst?: string | null
+    quantity?: number
+    unitValueCents?: number
+    description?: string
+    productCode?: string | null
+    barcode?: string | null
+  },
+) {
+  const loaded = await getInboundNfeDocument(auth, documentId)
+  if (!loaded.ok) return loaded
+  if (!isInboundNfeEditable(loaded.document) || loaded.document.entry_kind !== 'products') {
+    return {
+      ok: false as const,
+      error: 'not_editable' as const,
+      message: 'Somente itens de rascunhos de mercadoria podem ser alterados.',
+    }
+  }
+
+  const ncm = onlyDigits(input.ncm)
+  const cfop = onlyDigits(input.cfop)
+  const fiscalOrigin = Number(input.fiscalOrigin)
+  const icmsCsosn = onlyDigits(input.icmsCsosn)
+  const pisCst = onlyDigits(input.pisCst)
+  const cofinsCst = onlyDigits(input.cofinsCst)
+  if (ncm.length !== 8 || !/^[12]\d{3}$/.test(cfop)) {
+    return { ok: false as const, error: 'invalid_fiscal_data' as const, message: 'Revise o NCM e o CFOP do item.' }
+  }
+  if (!Number.isInteger(fiscalOrigin) || fiscalOrigin < 0 || fiscalOrigin > 8) {
+    return { ok: false as const, error: 'invalid_origin' as const, message: 'Informe uma origem fiscal válida.' }
+  }
+  if (icmsCsosn.length !== 3 || pisCst.length !== 2 || cofinsCst.length !== 2) {
+    return { ok: false as const, error: 'invalid_tax_code' as const, message: 'Revise CSOSN, CST PIS e CST COFINS.' }
+  }
+  const currentItem = (loaded.document.items || []).find((item) => item.id === itemId)
+  if (!currentItem) {
+    return { ok: false as const, error: 'not_found' as const, message: 'Item não encontrado.' }
+  }
+  const quantity = input.quantity == null ? currentItem.quantity : Number(input.quantity)
+  const unitValueCents = input.unitValueCents == null
+    ? currentItem.unit_value_cents
+    : Math.max(0, Math.round(Number(input.unitValueCents) || 0))
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    return { ok: false as const, error: 'invalid_quantity' as const, message: 'Informe uma quantidade válida.' }
+  }
+  const itemTotalCents = Math.round(quantity * unitValueCents)
+  const description = input.description == null
+    ? currentItem.description
+    : cleanText(input.description)
+  if (!description) {
+    return { ok: false as const, error: 'invalid_description' as const, message: 'Informe a descrição do produto.' }
+  }
+
+  const { error } = await auth.supabase
+    .from('inbound_nfe_items')
+    .update({
+      ncm,
+      cest: onlyDigits(input.cest || '') || null,
+      unit: cleanText(input.unit || 'UN').toUpperCase().slice(0, 6) || 'UN',
+      cfop,
+      fiscal_origin: fiscalOrigin,
+      icms_csosn: icmsCsosn,
+      icms_cst: null,
+      pis_cst: pisCst,
+      cofins_cst: cofinsCst,
+      ipi_cst: onlyDigits(input.ipiCst || '') || null,
+      quantity,
+      unit_value_cents: unitValueCents,
+      total_cents: itemTotalCents,
+      description,
+      product_code: input.productCode === undefined
+        ? currentItem.product_code
+        : cleanText(input.productCode) || null,
+      barcode: input.barcode === undefined
+        ? currentItem.barcode
+        : onlyDigits(input.barcode || '') || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('organization_id', auth.organizationId)
+    .eq('inbound_nfe_id', documentId)
+    .eq('id', itemId)
+
+  if (error) {
+    console.error('[inbound-nfe] update item fiscal', error)
+    return { ok: false as const, error: 'db_error' as const, message: 'Não foi possível salvar os dados fiscais do item.' }
+  }
+
+  const productsTotalCents = (loaded.document.items || []).reduce(
+    (total, item) => total + (item.id === itemId ? itemTotalCents : item.total_cents),
+    0,
+  )
+  const totalCents = Math.max(
+    0,
+    productsTotalCents
+      + loaded.document.freight_cents
+      + loaded.document.insurance_cents
+      + loaded.document.other_expenses_cents
+      - loaded.document.discount_cents,
+  )
+  await auth.supabase
+    .from('inbound_nfe_documents')
+    .update({
+      total_cents: totalCents,
+      fiscal_payments: fiscalPaymentsForTotal(loaded.document.fiscal_payments, totalCents),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('organization_id', auth.organizationId)
+    .eq('id', documentId)
+
+  return getInboundNfeDocument(auth, documentId)
+}
+
+export async function deleteInboundNfeItem (
+  auth: AuthCtx,
+  documentId: string,
+  itemId: string,
+) {
+  const loaded = await getInboundNfeDocument(auth, documentId)
+  if (!loaded.ok) return loaded
+  if (!isInboundNfeEditable(loaded.document)) {
+    return {
+      ok: false as const,
+      error: 'not_editable' as const,
+      message: 'Somente itens de rascunhos podem ser excluídos.',
+    }
+  }
+
+  const items = loaded.document.items || []
+  if (!items.some((item) => item.id === itemId)) {
+    return { ok: false as const, error: 'not_found' as const, message: 'Item não encontrado.' }
+  }
+  if (items.length <= 1) {
+    return {
+      ok: false as const,
+      error: 'last_item' as const,
+      message: 'A NF-e precisa manter ao menos um item.',
+    }
+  }
+
+  const { error } = await auth.supabase
+    .from('inbound_nfe_items')
+    .delete()
+    .eq('organization_id', auth.organizationId)
+    .eq('inbound_nfe_id', documentId)
+    .eq('id', itemId)
+
+  if (error) {
+    console.error('[inbound-nfe] delete item', error)
+    return { ok: false as const, error: 'db_error' as const, message: 'Não foi possível excluir o item.' }
+  }
+
+  const productsTotalCents = items
+    .filter((item) => item.id !== itemId)
+    .reduce((total, item) => total + item.total_cents, 0)
+  const totalCents = Math.max(
+    0,
+    productsTotalCents
+      + loaded.document.freight_cents
+      + loaded.document.insurance_cents
+      + loaded.document.other_expenses_cents
+      - loaded.document.discount_cents,
+  )
+  await auth.supabase
+    .from('inbound_nfe_documents')
+    .update({
+      total_cents: totalCents,
+      fiscal_payments: fiscalPaymentsForTotal(loaded.document.fiscal_payments, totalCents),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('organization_id', auth.organizationId)
+    .eq('id', documentId)
+
+  return getInboundNfeDocument(auth, documentId)
+}
+
+export async function cloneInboundNfeDocument (auth: AuthCtx, documentId: string) {
+  const loaded = await getInboundNfeDocument(auth, documentId)
+  if (!loaded.ok) return loaded
+
+  const source = loaded.document
+  const number = await nextInboundNumber(auth)
+  const { data: insertedRaw, error } = await auth.supabase
+    .from('inbound_nfe_documents')
+    .insert({
+      organization_id: auth.organizationId,
+      entry_kind: source.entry_kind,
+      source_mode: 'manual',
+      entry_type: source.entry_type === 'xml_import' ? 'third_party' : source.entry_type,
+      access_key: null,
+      series: source.series,
+      number,
+      issued_at: new Date().toISOString(),
+      issuer_cnpj: null,
+      issuer_name: source.seller_name,
+      recipient_cnpj: null,
+      recipient_name: null,
+      seller_customer_id: source.seller_customer_id,
+      seller_name: source.seller_name,
+      seller_document: source.seller_document,
+      fiscal_purpose: source.fiscal_purpose,
+      should_move_stock: source.should_move_stock,
+      operation_nature: source.operation_nature,
+      import_declaration: null,
+      freight_cents: source.freight_cents,
+      insurance_cents: source.insurance_cents,
+      other_expenses_cents: source.other_expenses_cents,
+      discount_cents: source.discount_cents,
+      transport_mode: source.transport_mode,
+      complementary_information: source.complementary_information,
+      fiscal_information: source.fiscal_information,
+      fiscal_payments: source.fiscal_payments,
+      purchase_payment_methods: source.purchase_payment_methods,
+      total_cents: source.total_cents,
+      status: 'draft',
+      xml_content: null,
+      notes: source.notes,
+      created_by: auth.userId,
+    })
+    .select('id')
+    .single()
+
+  const inserted = asRowWithId(insertedRaw)
+  if (error || !inserted) {
+    console.error('[inbound-nfe] clone document', error)
+    return { ok: false as const, error: 'db_error' as const, message: 'Não foi possível clonar a entrada.' }
+  }
+
+  const itemRows = (source.items || []).map((item) => ({
+    organization_id: auth.organizationId,
+    inbound_nfe_id: inserted.id,
+    line_number: item.line_number,
+    item_kind: item.item_kind,
+    product_code: item.product_code,
+    barcode: item.barcode,
+    description: item.description,
+    ncm: item.ncm,
+    cest: item.cest,
+    unit: item.unit,
+    cfop: item.cfop,
+    fiscal_origin: item.fiscal_origin,
+    icms_csosn: item.icms_csosn,
+    icms_cst: item.icms_cst,
+    pis_cst: item.pis_cst,
+    cofins_cst: item.cofins_cst,
+    ipi_cst: item.ipi_cst,
+    quantity: item.quantity,
+    unit_value_cents: item.unit_value_cents,
+    total_cents: item.total_cents,
+    product_id: item.product_id,
+    device_snapshot: item.device_snapshot,
+  }))
+
+  if (itemRows.length > 0) {
+    const { error: itemsError } = await auth.supabase.from('inbound_nfe_items').insert(itemRows)
+    if (itemsError) {
+      console.error('[inbound-nfe] clone items', itemsError)
+      await auth.supabase.from('inbound_nfe_documents').delete().eq('id', inserted.id)
+      return { ok: false as const, error: 'db_error' as const, message: 'Não foi possível clonar os itens.' }
+    }
+  }
+
+  return getInboundNfeDocument(auth, inserted.id)
 }
 
 async function postProductsInbound (auth: AuthCtx, documentId: string, doc: InboundNfeDocumentRow) {
@@ -935,6 +1620,13 @@ async function postUsedDevicesInbound (auth: AuthCtx, documentId: string, doc: I
     }
 
     const purchaseValueCents = Math.max(0, Math.round(item.unit_value_cents || 0))
+    const devicePaymentCents = allocateDevicePaymentCents(payments, purchaseValueCents)
+    const devicePayments = payments
+      .map((payment, index) => ({
+        ...payment,
+        value_cents: devicePaymentCents[index] ?? 0,
+      }))
+      .filter((payment) => payment.value_cents > 0)
     const { data: deviceRaw, error: deviceError } = await service
       .from('resale_devices')
       .insert({
@@ -957,7 +1649,7 @@ async function postUsedDevicesInbound (auth: AuthCtx, documentId: string, doc: I
         seller_customer_id: doc.seller_customer_id,
         seller_name: doc.seller_name,
         seller_document: doc.seller_document,
-        purchase_payment_methods: payments.length > 0 ? payments : null,
+        purchase_payment_methods: devicePayments.length > 0 ? devicePayments : null,
         advertised: false,
         tested: false,
         image_gallery_paths: [],
@@ -1002,7 +1694,7 @@ async function postUsedDevicesInbound (auth: AuthCtx, documentId: string, doc: I
           model: device.model ?? null,
           acquisition_source: 'customer_purchase',
           purchase_value_cents: purchaseValueCents,
-          purchase_payment_methods: payments,
+          purchase_payment_methods: devicePayments,
           purchase_date: purchaseDate,
           updated_at: device.updated_at ?? null,
         },
@@ -1057,6 +1749,13 @@ export async function postInboundNfeToStock (auth: AuthCtx, documentId: string) 
       ok: false as const,
       error: 'already_posted' as const,
       message: 'Esta NF-e já foi lançada ou cancelada.',
+    }
+  }
+  if (!doc.should_move_stock) {
+    return {
+      ok: false as const,
+      error: 'stock_movement_disabled' as const,
+      message: 'A movimentação de estoque está desativada para esta entrada.',
     }
   }
 

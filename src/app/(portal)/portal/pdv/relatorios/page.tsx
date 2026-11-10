@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { DateInput } from '@/components/forms'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { portalFetch } from '@/lib/portal/portal-fetch'
 import { maskedFromCents } from '@/lib/utils/money'
@@ -29,7 +29,7 @@ export default function PdvReportPage () {
       <Card>
         <CardHeader><CardTitle>Data</CardTitle></CardHeader>
         <CardContent className='flex gap-2'>
-          <Input type='date' value={date} onChange={(e) => setDate(e.target.value)} className='w-52' />
+          <DateInput value={date} onChange={setDate} className='w-52' />
           <Button onClick={() => void load()}>Atualizar</Button>
         </CardContent>
       </Card>

@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { compressImageForEntry } from '@/lib/image/compress-image'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { DateInput } from '@/components/forms'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -1344,11 +1345,11 @@ export function SeminovosFormClient ({
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="formPurchaseDate">Data de compra</Label>
-                <Input id="formPurchaseDate" type="date" value={formPurchaseDate} onChange={(e) => setFormPurchaseDate(e.target.value)} />
+                <DateInput id="formPurchaseDate" value={formPurchaseDate} onChange={setFormPurchaseDate} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="formSaleDate">Data de venda</Label>
-                <Input id="formSaleDate" type="date" value={formSaleDate} onChange={(e) => setFormSaleDate(e.target.value)} />
+                <DateInput id="formSaleDate" value={formSaleDate} onChange={setFormSaleDate} />
               </div>
             </div>
           </CardContent>

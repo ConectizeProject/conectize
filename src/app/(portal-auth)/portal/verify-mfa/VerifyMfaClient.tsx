@@ -1,13 +1,12 @@
 'use client'
 
-import { Loader2 } from 'lucide-react'
+import { Loader2, LockKeyhole } from 'lucide-react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AuthCardLayout } from '@/components/auth/AuthCardLayout'
 import { AuthFormMessages } from '@/components/auth/AuthFormMessages'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
 	userNeedsMfaChallenge,
@@ -29,7 +28,10 @@ export function VerifyMfaClient() {
 	const [factorId, setFactorId] = useState<string | null>(null)
 	const [isLoading, setIsLoading] = useState(true)
 	const [isSubmitting, setIsSubmitting] = useState(false)
+	const [isCodeFocused, setIsCodeFocused] = useState(false)
 	const [errorMessage, setErrorMessage] = useState<string | null>(null)
+	const formRef = useRef<HTMLFormElement>(null)
+	const lastAutoSubmittedCodeRef = useRef('')
 
 	useEffect(() => {
 		if (!supabase) {
@@ -82,6 +84,17 @@ export function VerifyMfaClient() {
 			alive = false
 		}
 	}, [supabase, router, redirectTo])
+
+	useEffect(() => {
+		if (code.length < 6) {
+			lastAutoSubmittedCodeRef.current = ''
+			return
+		}
+		if (isLoading || isSubmitting || !factorId) return
+		if (lastAutoSubmittedCodeRef.current === code) return
+		lastAutoSubmittedCodeRef.current = code
+		formRef.current?.requestSubmit()
+	}, [code, factorId, isLoading, isSubmitting])
 
 	async function onSubmit(event: React.FormEvent) {
 		event.preventDefault()
@@ -147,9 +160,12 @@ export function VerifyMfaClient() {
 	return (
 		<AuthCardLayout>
 			<Card className="w-full max-w-md">
-				<CardHeader>
-					<CardTitle>Verificação em duas etapas</CardTitle>
-					<CardDescription>
+				<CardHeader className="items-center text-center">
+					<div className="mb-2 grid h-14 w-14 place-items-center rounded-full bg-primary/10 text-primary">
+						<LockKeyhole className="h-7 w-7" aria-hidden="true" />
+					</div>
+					<CardTitle className="text-2xl">Verificação em duas etapas</CardTitle>
+					<CardDescription id="mfa-code-description">
 						Abra o aplicativo autenticador e digite o código de 6 dígitos.
 					</CardDescription>
 				</CardHeader>
@@ -160,28 +176,52 @@ export function VerifyMfaClient() {
 							Carregando…
 						</div>
 					) : (
-						<form method="post" onSubmit={onSubmit} className="space-y-4">
-							<div className="space-y-2">
-								<Label htmlFor="mfa-code">Código</Label>
-								<Input
-									id="mfa-code"
-									name="code"
-									inputMode="numeric"
-									autoComplete="one-time-code"
-									autoFocus
-									placeholder="000000"
-									maxLength={6}
-									value={code}
-									onChange={(e) =>
-										setCode(e.target.value.replace(/\D/g, '').slice(0, 6))
-									}
-									disabled={isSubmitting}
-								/>
+						<form ref={formRef} method="post" onSubmit={onSubmit} className="space-y-4">
+							<div>
+								<Label htmlFor="mfa-code" className="sr-only">Código</Label>
+								<div className="relative my-5">
+									<input
+										id="mfa-code"
+										name="code"
+										type="text"
+										inputMode="numeric"
+										autoComplete="one-time-code"
+										autoFocus
+										maxLength={6}
+										value={code}
+										onFocus={() => setIsCodeFocused(true)}
+										onBlur={() => setIsCodeFocused(false)}
+										onChange={(e) =>
+											setCode(e.target.value.replace(/\D/g, '').slice(0, 6))
+										}
+										disabled={isSubmitting}
+										aria-describedby="mfa-code-description"
+										className="absolute inset-0 z-10 h-full w-full cursor-text opacity-0 disabled:cursor-not-allowed"
+									/>
+									<div className="grid grid-cols-6 gap-2" aria-hidden="true">
+										{Array.from({ length: 6 }, (_, index) => {
+											const isActive = isCodeFocused && index === Math.min(code.length, 5)
+											return (
+												<span
+													key={index}
+													className={[
+														'grid h-16 min-w-0 place-items-center rounded-lg border bg-background text-xl font-semibold transition-colors',
+														isActive
+															? 'border-primary ring-2 ring-primary/20'
+															: 'border-input',
+													].join(' ')}
+												>
+													{code[index] || ''}
+												</span>
+											)
+										})}
+									</div>
+								</div>
 							</div>
 
 							<AuthFormMessages errorMessage={errorMessage} message={null} />
 
-							<div className="flex flex-wrap items-center justify-between gap-2">
+							<div className="flex flex-col items-center justify-center gap-2">
 								<Button
 									type="button"
 									variant="ghost"
@@ -193,7 +233,7 @@ export function VerifyMfaClient() {
 								>
 									Usar outra conta
 								</Button>
-								<Button type="submit" size="sm" disabled={isSubmitting}>
+								<Button type="submit" disabled={isSubmitting} className="min-w-48 shadow-sm">
 									{isSubmitting ? 'Verificando…' : 'Continuar'}
 								</Button>
 							</div>
