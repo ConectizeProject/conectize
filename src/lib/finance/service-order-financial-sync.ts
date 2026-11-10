@@ -226,6 +226,45 @@ function resolveContaForSalesOrderPayment (
   return { contaId: null, label: '' }
 }
 
+/** Valida carteiras antes de marcar a venda como paga (PDV checkout rápido). */
+export async function assertSalesOrderPaymentWallets (
+  supabase: SupabaseClient,
+  organizationId: string,
+  payments: Array<{
+    payment_method_id?: string | null
+    payment_method_type: string
+    amount_cents: number
+    status?: string | null
+  }>,
+): Promise<{ ok: true } | { ok: false, error: 'finance_wallet_missing' }> {
+  const paid = payments.filter((payment) => {
+    const status = payment.status ?? 'paid'
+    return status !== 'canceled' && Math.max(0, Number(payment.amount_cents) || 0) > 0
+  })
+  if (paid.length === 0) return { ok: true }
+
+  const [methods, defaultContaId] = await Promise.all([
+    loadOrganizationPaymentMethods(supabase, organizationId),
+    loadDefaultContaId(supabase, organizationId),
+  ])
+
+  for (const payment of paid) {
+    const { contaId } = resolveContaForSalesOrderPayment(
+      {
+        payment_method_id: payment.payment_method_id ?? null,
+        payment_method_type: payment.payment_method_type,
+      },
+      methods,
+      defaultContaId,
+    )
+    if (!contaId) {
+      return { ok: false, error: 'finance_wallet_missing' }
+    }
+  }
+
+  return { ok: true }
+}
+
 /**
  * Ajusta valores de pagamento para o financeiro.
  *
