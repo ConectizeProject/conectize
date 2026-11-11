@@ -22,6 +22,9 @@ export type BookingFunnelStep =
 	| 'select_model'
 	| 'select_date'
 	| 'select_slot'
+	| 'form_view'
+	| 'form_start'
+	| 'form_field_error'
 	| 'submit_attempt'
 	| 'submit_booking'
 	| 'booking_error'
@@ -41,11 +44,18 @@ export type BookingCtaLocation =
 	| 'secao_5off'
 	| 'url'
 
+export type BookingFormField = 'nome' | 'celular' | 'email' | 'cpf'
+export type BookingFormErrorType = 'vazio' | 'invalido'
+
 export type BookingFunnelDetail = {
 	model?: string
 	date?: string
 	slot?: string
 	error?: string
+	errorReason?: string
+	errorStatus?: number
+	errorField?: BookingFormField
+	errorType?: BookingFormErrorType
 	ctaLocation?: BookingCtaLocation
 }
 
@@ -83,6 +93,36 @@ export function sanitizeBookingError (raw: unknown, fallback = 'desconhecido'): 
 	return slug || fallback
 }
 
+/** Motivo estável para booking_error, sem dados pessoais. */
+export function bookingErrorReason (raw: unknown, status?: number): string {
+	const sanitized = sanitizeBookingError(raw, '')
+	if (
+		sanitized === 'horario_indisponivel' ||
+		sanitized === 'ocupado'
+	) return 'horario_indisponivel'
+	if (
+		sanitized === 'dados_invalidos' ||
+		sanitized === 'validacao_servidor'
+	) return 'validacao_servidor'
+	if (
+		sanitized === 'timeout' ||
+		sanitized === 'failed_to_fetch' ||
+		sanitized === 'rede' ||
+		sanitized === 'networkerror' ||
+		sanitized === 'aborterror'
+	) return 'timeout'
+	if (
+		(typeof status === 'number' && status >= 500) ||
+		sanitized === 'config' ||
+		sanitized === 'falha_api' ||
+		/^http_5/.test(sanitized)
+	) return 'falha_api'
+	if (typeof status === 'number' && status >= 400) {
+		return sanitized || 'validacao_servidor'
+	}
+	return sanitized || 'falha_api'
+}
+
 /** Uma vez por agendamento concluído. Sem nome, CPF, telefone ou e-mail. */
 export function trackAgendamentoConcluido (detail: {
 	modelo: string
@@ -111,15 +151,30 @@ export function trackBookingFunnel (step: BookingFunnelStep, detail?: BookingFun
 	const date = String(detail?.date || '').trim()
 	const slot = String(detail?.slot || '').trim()
 	const error = sanitizeBookingError(detail?.error, '')
+	const errorReason = detail?.errorReason
+		? sanitizeBookingError(detail.errorReason, '')
+		: step === 'booking_error'
+			? bookingErrorReason(detail?.error, detail?.errorStatus)
+			: ''
+	const errorStatus = typeof detail?.errorStatus === 'number' && Number.isFinite(detail.errorStatus)
+		? detail.errorStatus
+		: undefined
+	const errorField = detail?.errorField
+	const errorType = detail?.errorType
 	const ctaLocation = detail?.ctaLocation
+	const label = errorReason || error || errorField || model || 'troca-de-bateria'
 	window.gtag('event', step, {
 		event_category: 'agendamento',
-		event_label: error || model || 'troca-de-bateria',
+		event_label: label,
 		page_path: window.location.pathname,
 		booking_model: model || undefined,
 		booking_date: date || undefined,
 		booking_slot: slot || undefined,
 		error: error || undefined,
+		...(errorReason ? { error_reason: errorReason } : {}),
+		...(errorStatus != null ? { error_status: errorStatus } : {}),
+		...(errorField ? { error_field: errorField } : {}),
+		...(errorType ? { error_type: errorType } : {}),
 		...(ctaLocation ? { cta_location: ctaLocation } : {}),
 	})
 }

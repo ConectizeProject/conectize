@@ -6,7 +6,14 @@ import { Copy } from 'lucide-react'
 import * as Yup from 'yup'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { type BookingCtaLocation, sanitizeBookingError, trackAgendamentoConcluido, trackBookingFunnel } from '@/lib/analytics/loja-conversions'
+import {
+	type BookingCtaLocation,
+	type BookingFormField,
+	bookingErrorReason,
+	sanitizeBookingError,
+	trackAgendamentoConcluido,
+	trackBookingFunnel,
+} from '@/lib/analytics/loja-conversions'
 import { batteryModelFromQuery } from '@/lib/appointments/battery-model-query'
 import { BOOKING_DISCOUNT_PERCENT, discountedPriceCents } from '@/lib/appointments/battery-prices'
 import { formatSlotLabel, lastBookableDateKey, listSlotStarts } from '@/lib/appointments/slots'
@@ -427,6 +434,8 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 	const [step, setStep] = useState(0)
 	const [addressCopied, setAddressCopied] = useState(false)
 	const submitLockRef = useRef(false)
+	const formStartedRef = useRef(false)
+	const formViewKeyRef = useRef('')
 	const modelsRef = useRef<HTMLDivElement>(null)
 	const urlOpenedRef = useRef(false)
 	const schema = useMemo(() => bookingSchema(models), [models])
@@ -448,6 +457,13 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 		trackBookingFunnel('view_offer')
 	}, [])
 
+	useEffect(() => {
+		if (!open) {
+			formStartedRef.current = false
+			formViewKeyRef.current = ''
+		}
+	}, [open])
+
 	const setFieldValueRef = useRef(formik.setFieldValue)
 	setFieldValueRef.current = formik.setFieldValue
 
@@ -457,6 +473,8 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 		const model = batteryModelFromQuery(params.get('modelo'), models)
 		if (!urlOpenedRef.current) {
 			urlOpenedRef.current = true
+			formStartedRef.current = false
+			formViewKeyRef.current = ''
 			setError('')
 			setExtraGate(null)
 			setStep(0)
@@ -532,8 +550,25 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 		return () => controller.abort()
 	}, [date, open, panel])
 
+	useEffect(() => {
+		if (!open || panel !== 'book' || step !== 3) {
+			if (step !== 3) formViewKeyRef.current = ''
+			return
+		}
+		const key = `${formik.values.model}|${date}|${formik.values.startsAt}`
+		if (formViewKeyRef.current === key) return
+		formViewKeyRef.current = key
+		trackBookingFunnel('form_view', {
+			model: formik.values.model,
+			date,
+			slot: formik.values.startsAt,
+		})
+	}, [open, panel, step, formik.values.model, formik.values.startsAt, date])
+
 	function openBooking (location: BookingCtaLocation, model?: string) {
 		const selected = batteryModelFromQuery(model, models)
+		formStartedRef.current = false
+		formViewKeyRef.current = ''
 		setError('')
 		setExtraGate(null)
 		setStep(0)
@@ -554,19 +589,87 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 		void formik.setFieldValue('startsAt', '', false)
 	}
 
-	function funnelDetail (extra?: { error?: string, slot?: string }) {
+	function funnelDetail (extra?: {
+		error?: string
+		errorStatus?: number
+		errorReason?: string
+		slot?: string
+		errorField?: BookingFormField
+		errorType?: 'vazio' | 'invalido'
+	}) {
 		return {
 			model: formik.values.model,
 			date,
 			slot: extra?.slot || formik.values.startsAt,
 			error: extra?.error,
+			errorStatus: extra?.errorStatus,
+			errorReason: extra?.errorReason,
+			errorField: extra?.errorField,
+			errorType: extra?.errorType,
 		}
+	}
+
+	function markFormStart () {
+		if (formStartedRef.current) return
+		formStartedRef.current = true
+		trackBookingFunnel('form_start', funnelDetail())
+	}
+
+	function formFieldErrorType (field: keyof BookingValues, message: string): 'vazio' | 'invalido' {
+		const raw = String(formik.values[field] || '').trim()
+		const digits = onlyDigits(raw)
+		if (!raw || (field === 'phone' && digits.length === 0) || (field === 'cpf' && digits.length === 0)) {
+			return 'vazio'
+		}
+		if (/obrigat|informe o nome\.|informe o celular\.|informe o e-mail\.|informe o cpf\./i.test(message)) {
+			return 'vazio'
+		}
+		return 'invalido'
+	}
+
+	function analyticsFieldName (field: keyof BookingValues): BookingFormField | null {
+		if (field === 'fullName') return 'nome'
+		if (field === 'phone') return 'celular'
+		if (field === 'email') return 'email'
+		if (field === 'cpf') return 'cpf'
+		return null
 	}
 
 	function chooseSlot (slot: Slot) {
 		setStartsAt(slot.startsAt)
 		void formik.setFieldValue('startsAt', slot.startsAt)
 		trackBookingFunnel('select_slot', funnelDetail({ slot: slot.startsAt }))
+	}
+
+	function trackFieldErrors (errors: Partial<Record<keyof BookingValues, string>>) {
+		const fields: Array<keyof BookingValues> = ['fullName', 'phone', 'email', 'cpf']
+		for (const field of fields) {
+			const message = errors[field]
+			if (typeof message !== 'string' || !message) continue
+			const analyticsField = analyticsFieldName(field)
+			if (!analyticsField) continue
+			trackBookingFunnel('form_field_error', funnelDetail({
+				errorField: analyticsField,
+				errorType: formFieldErrorType(field, message),
+			}))
+		}
+	}
+
+	async function handleBookSubmit (event: FormEvent<HTMLFormElement>) {
+		event.preventDefault()
+		if (step !== 3 || panel !== 'book') return
+		const errors = await formik.validateForm()
+		const fieldErrors = Object.fromEntries(
+			Object.entries(errors).filter((entry): entry is [keyof BookingValues, string] => typeof entry[1] === 'string'),
+		) as Partial<Record<keyof BookingValues, string>>
+		if (Object.keys(fieldErrors).length > 0) {
+			trackFieldErrors(fieldErrors)
+			for (const field of Object.keys(fieldErrors) as Array<keyof BookingValues>) {
+				void formik.setFieldTouched(field, true, false)
+			}
+			return
+		}
+		await submitNew(formik.values)
 	}
 
 	async function submitNew (values: BookingValues, confirmExtra = false) {
@@ -576,15 +679,22 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 		const emailOk = isEmailFormat(email)
 		const cpfOk = isValidCpf(values.cpf)
 		if (!emailOk || !cpfOk) {
+			const fieldErrors: Partial<Record<keyof BookingValues, string>> = {}
 			if (!emailOk) {
-				formik.setFieldError('email', 'E-mail inválido.')
+				fieldErrors.email = 'E-mail inválido.'
+				formik.setFieldError('email', fieldErrors.email)
 				void formik.setFieldTouched('email', true, false)
 			}
 			if (!cpfOk) {
-				formik.setFieldError('cpf', 'CPF inválido.')
+				fieldErrors.cpf = 'CPF inválido.'
+				formik.setFieldError('cpf', fieldErrors.cpf)
 				void formik.setFieldTouched('cpf', true, false)
 			}
-			trackBookingFunnel('booking_error', funnelDetail({ error: 'dados_invalidos' }))
+			trackFieldErrors(fieldErrors)
+			trackBookingFunnel('booking_error', funnelDetail({
+				error: 'dados_invalidos',
+				errorReason: 'validacao_servidor',
+			}))
 			submitLockRef.current = false
 			return
 		}
@@ -622,8 +732,11 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 			try {
 				payload = await response.json() as typeof payload
 			} catch (err) {
+				const error = sanitizeBookingError(err, `http_${response.status}_json`)
 				trackBookingFunnel('booking_error', funnelDetail({
-					error: sanitizeBookingError(err, `http_${response.status}_json`),
+					error,
+					errorReason: bookingErrorReason(error, response.status),
+					errorStatus: response.status,
 				}))
 				setError(ERRORS.config)
 				return
@@ -641,8 +754,11 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 					setError(ERRORS[payload.error] || ERRORS.config)
 					return
 				}
+				const error = sanitizeBookingError(payload.error || `http_${response.status}`, 'config')
 				trackBookingFunnel('booking_error', funnelDetail({
-					error: sanitizeBookingError(payload.error || `http_${response.status}`, 'config'),
+					error,
+					errorReason: bookingErrorReason(error, response.status),
+					errorStatus: response.status,
 				}))
 				setError(ERRORS[payload.error || ''] || ERRORS.config)
 				return
@@ -660,8 +776,10 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 			})
 			setPanel('success')
 		} catch (err) {
+			const error = sanitizeBookingError(err, 'rede')
 			trackBookingFunnel('booking_error', funnelDetail({
-				error: sanitizeBookingError(err, 'rede'),
+				error,
+				errorReason: bookingErrorReason(error),
 			}))
 			setError(ERRORS.config)
 		} finally {
@@ -802,7 +920,7 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 					</DialogHeader>
 
 					{panel === 'book' ? (
-						<form className={styles.bookingForm} onSubmit={formik.handleSubmit} noValidate>
+						<form className={styles.bookingForm} onSubmit={(event) => { void handleBookSubmit(event) }} noValidate>
 							<ol className={styles.bookingSteps} aria-label="Etapas do agendamento">
 								{BOOKING_STEPS.map((label, index) => (
 									<li
@@ -893,6 +1011,7 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 												name="fullName"
 												value={formik.values.fullName}
 												onChange={formik.handleChange}
+												onFocus={markFormStart}
 												onBlur={formik.handleBlur}
 												autoComplete="name"
 												aria-invalid={Boolean(fieldMessage('fullName'))}
@@ -908,6 +1027,7 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 													const input = event.target
 													void formik.setFieldValue('phone', maskPhoneInput(formik.values.phone, input.value, input.selectionStart ?? input.value.length))
 												}}
+												onFocus={markFormStart}
 												onBlur={formik.handleBlur}
 												inputMode="tel"
 												autoComplete="tel"
@@ -923,6 +1043,7 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 												type="email"
 												value={formik.values.email}
 												onChange={(event) => { void formik.setFieldValue('email', maskEmail(event.target.value)) }}
+												onFocus={markFormStart}
 												onBlur={formik.handleBlur}
 												inputMode="email"
 												autoComplete="email"
@@ -937,6 +1058,7 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 												name="cpf"
 												value={formik.values.cpf}
 												onChange={(event) => { void formik.setFieldValue('cpf', formatCpf(event.target.value)) }}
+												onFocus={markFormStart}
 												onBlur={formik.handleBlur}
 												inputMode="numeric"
 												autoComplete="off"
@@ -997,7 +1119,11 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 								</div>
 							) : (
 								<div className={styles.bookingFinalActions}>
-									<button type="button" className={styles.ctaGhost} onClick={goBack}>Voltar</button>
+									{!extraGate ? (
+										<p className={styles.bookingFinalHighlight}>
+											Faça seu agendamento agora e ganhe 5% de desconto
+										</p>
+									) : null}
 									<div className={styles.bookingSubmit}>
 										{extraGate ? (
 											<LojaWhatsAppLink
@@ -1023,6 +1149,9 @@ export function BatteryBooking ({ models, prices, whatsappHref, loggedIn, appoin
 											</button>
 										)}
 									</div>
+									<button type="button" className={styles.bookingFinalBack} onClick={goBack}>
+										Voltar
+									</button>
 								</div>
 							)}
 						</form>

@@ -1,3 +1,5 @@
+import { isFeriadoLoja } from '@/config/feriados'
+
 export const APPOINTMENT_TIME_ZONE = 'America/Sao_Paulo'
 export const SLOT_MINUTES = 30
 export const OPEN_BUFFER_MINUTES = 60
@@ -104,6 +106,7 @@ function slotIso (dateKey: string, minuteOfDay: number) {
 
 export function listSlotStarts (dateKey: string) {
 	if (!isDateKey(dateKey)) return []
+	if (isFeriadoLoja(dateKey)) return []
 	const rule = DAY_RULES[weekdayIndexInSaoPaulo(dateKey)]
 	if (!rule) return []
 	const first = rule.opens + OPEN_BUFFER_MINUTES
