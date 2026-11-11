@@ -846,7 +846,9 @@ export function PedidosVendaList () {
                                           Abrir NFC-e
                                         </Link>
                                       </DropdownMenuItem>
-                                    ) : order.status === 'paid' && order.ml_logistic_type !== 'fulfillment' ? (
+                                    ) : order.status === 'paid'
+                                      && order.ml_logistic_type !== 'fulfillment'
+                                      && !String(order.ml_order_id || '').trim() ? (
                                       <DropdownMenuItem
                                         disabled={isBusy}
                                         onSelect={(event) => {

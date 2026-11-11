@@ -32,13 +32,23 @@ describe('buildMeliShippingBoard', () => {
         ml_label_available_at: '2026-10-20T14:00:00.000Z',
         ml_shipping_method: 'Agência Mercado Livre',
       },
+      {
+        status: 'paid',
+        ml_order_id: '3',
+        ml_logistic_type: null,
+        ml_fulfillment_stage: 'preparing',
+        ml_shipment_status: 'pending',
+        ml_shipment_substatus: 'buffered',
+        ml_label_available_at: '2026-10-19T14:00:00.000Z',
+        ml_shipping_method: 'Prioritario',
+      },
     ], '2026-10-16')
 
     expect(board.tabs.find((tab) => tab.id === 'today')?.count).toBe(0)
-    expect(board.tabs.find((tab) => tab.id === 'upcoming')?.count).toBe(2)
+    expect(board.tabs.find((tab) => tab.id === 'upcoming')?.count).toBe(3)
     expect(board.cardsByTab.upcoming[0]).toMatchObject({
       sectionLabel: 'Para enviar',
-      count: 2,
+      count: 3,
     })
     expect(board.cardsByTab.upcoming[0]?.lines).toEqual([
       {
@@ -50,12 +60,49 @@ describe('buildMeliShippingBoard', () => {
       },
       {
         id: expect.any(String),
+        title: 'Flex',
+        detail: '19/10',
+        count: 1,
+        lane: 'pending_shipment',
+      },
+      {
+        id: expect.any(String),
         title: 'Agência Mercado Livre',
         detail: '20/10',
         count: 1,
         lane: 'pending_shipment',
       },
     ])
+  })
+
+  it('não conta como para enviar quando já foi postado (dropped_off/picked_up)', () => {
+    const board = buildMeliShippingBoard([
+      {
+        status: 'paid',
+        ml_order_id: '2000019388141996',
+        ml_logistic_type: 'self_service',
+        ml_fulfillment_stage: 'pending_shipment',
+        ml_shipment_status: 'ready_to_ship',
+        ml_shipment_substatus: 'dropped_off',
+        ml_label_available_at: '2026-10-16T12:00:00.000Z',
+        ml_shipping_method: 'Prioritario',
+      },
+      {
+        status: 'paid',
+        ml_order_id: '2',
+        ml_logistic_type: 'self_service',
+        ml_fulfillment_stage: 'preparing',
+        ml_shipment_status: 'ready_to_ship',
+        ml_shipment_substatus: 'picked_up',
+        ml_label_available_at: '2026-10-16T12:00:00.000Z',
+        ml_shipping_method: 'Prioritario',
+      },
+    ], '2026-10-16')
+
+    expect(board.tabs.find((tab) => tab.id === 'today')?.count).toBe(0)
+    expect(board.tabs.find((tab) => tab.id === 'upcoming')?.count).toBe(0)
+    expect(board.cardsByTab.today).toEqual([])
+    expect(board.cardsByTab.upcoming).toEqual([])
   })
 
   it('lista Para enviar de hoje como Flex / Mercado Envios com horário', () => {

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+	bookingErrorReason,
 	sanitizeBookingError,
 	trackAgendamentoConcluido,
 	trackBookingFunnel,
@@ -15,6 +16,16 @@ describe('sanitizeBookingError', () => {
 			'falha_para_redacted_cpf_redacted',
 		)
 		expect(sanitizeBookingError('')).toBe('desconhecido')
+	})
+})
+
+describe('bookingErrorReason', () => {
+	it('mapeia motivos estáveis sem dados pessoais', () => {
+		expect(bookingErrorReason('horario_indisponivel')).toBe('horario_indisponivel')
+		expect(bookingErrorReason('dados_invalidos')).toBe('validacao_servidor')
+		expect(bookingErrorReason('Failed to fetch')).toBe('timeout')
+		expect(bookingErrorReason('config', 500)).toBe('falha_api')
+		expect(bookingErrorReason('http_500_json')).toBe('falha_api')
 	})
 })
 
@@ -64,7 +75,7 @@ describe('trackBookingFunnel', () => {
 		vi.unstubAllGlobals()
 	})
 
-	it('registra booking_error no parâmetro error, sem conversão do Ads', () => {
+	it('registra booking_error com error_reason e error_status, sem conversão do Ads', () => {
 		vi.stubGlobal('window', {
 			gtag (...args: unknown[]) {
 				events.push(args)
@@ -72,7 +83,11 @@ describe('trackBookingFunnel', () => {
 			location: { pathname: '/loja/bateria-iphone' },
 		})
 
-		trackBookingFunnel('booking_error', { error: 'http_500_json', model: 'iPhone 13' })
+		trackBookingFunnel('booking_error', {
+			error: 'http_500_json',
+			errorStatus: 500,
+			model: 'iPhone 13',
+		})
 		trackBookingFunnel('submit_booking', { model: 'iPhone 13', date: '2026-10-12', slot: '14:30' })
 
 		expect(events).toHaveLength(2)
@@ -81,17 +96,61 @@ describe('trackBookingFunnel', () => {
 			'booking_error',
 			{
 				event_category: 'agendamento',
-				event_label: 'http_500_json',
+				event_label: 'falha_api',
 				page_path: '/loja/bateria-iphone',
 				booking_model: 'iPhone 13',
 				booking_date: undefined,
 				booking_slot: undefined,
 				error: 'http_500_json',
+				error_reason: 'falha_api',
+				error_status: 500,
 			},
 		])
 		expect(events[1]?.[1]).toBe('submit_booking')
 		expect(events.some((item) => item[1] === 'conversion')).toBe(false)
 		expect(events[0]?.[2]).not.toHaveProperty('cta_location')
+	})
+
+	it('envia form_view, form_start e form_field_error sem valor digitado', () => {
+		vi.stubGlobal('window', {
+			gtag (...args: unknown[]) {
+				events.push(args)
+			},
+			location: { pathname: '/loja/bateria-iphone' },
+		})
+
+		trackBookingFunnel('form_view', { model: 'iPhone 13', date: '2026-10-12' })
+		trackBookingFunnel('form_start', { model: 'iPhone 13', date: '2026-10-12' })
+		trackBookingFunnel('form_field_error', {
+			model: 'iPhone 13',
+			date: '2026-10-12',
+			errorField: 'cpf',
+			errorType: 'invalido',
+		})
+
+		expect(events[0]?.[1]).toBe('form_view')
+		expect(events[1]?.[1]).toBe('form_start')
+		expect(events[2]).toEqual([
+			'event',
+			'form_field_error',
+			{
+				event_category: 'agendamento',
+				event_label: 'cpf',
+				page_path: '/loja/bateria-iphone',
+				booking_model: 'iPhone 13',
+				booking_date: '2026-10-12',
+				booking_slot: undefined,
+				error: undefined,
+				error_field: 'cpf',
+				error_type: 'invalido',
+			},
+		])
+		const payload = events[2]?.[2] as Record<string, unknown>
+		expect(payload).not.toHaveProperty('nome')
+		expect(payload).not.toHaveProperty('cpf')
+		expect(payload).not.toHaveProperty('email')
+		expect(payload).not.toHaveProperty('telefone')
+		expect(payload).not.toHaveProperty('value')
 	})
 
 	it('acrescenta cta_location e o modelo no start_booking', () => {
@@ -149,5 +208,7 @@ describe('trackWhatsAppClick', () => {
 				link_url: 'https://wa.me/5531986140889?text=Oi',
 			},
 		]])
+		expect(events.some((item) => item[1] === 'clique_whatsapp')).toBe(false)
+		expect(events.some((item) => item[1] === 'conversion_event_outbound_click')).toBe(false)
 	})
 })

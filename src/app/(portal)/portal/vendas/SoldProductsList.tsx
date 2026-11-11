@@ -102,6 +102,7 @@ type SoldItem = {
     costTotalCents?: number | null
     stockCurrent?: number | null
     stockAfterSale?: number | null
+    stockFull?: number | null
     nfeStatus?: string | null
     nfeDocumentId?: string | null
     nfceStatus?: string | null
@@ -235,6 +236,7 @@ function productCardOrder (item: SoldItem): SalesOrderListRowData {
       cost_total_cents: item.margin.costTotalCents,
       stock_current: card?.stockCurrent ?? null,
       stock_after_sale: card?.stockAfterSale ?? null,
+      stock_full: card?.stockFull ?? null,
       ml_item_id: card?.mlItemId ?? null,
       ml_item_url: card?.mlItemUrl ?? null,
       ml_order_id: item.order.mlOrderId,

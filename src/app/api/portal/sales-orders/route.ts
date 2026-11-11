@@ -12,7 +12,6 @@ import { withLiveMeliFulfillment } from '@/lib/integrations/mercado-livre/fulfil
 import {
   fulfillmentStagesForLane,
   laneExcludesMeliFull,
-  MELI_LABEL_PRINTABLE_SUBSTATUSES,
   orderMatchesSalesLane,
   parseMarketplaceOrderNumber,
   parseSalesLane,
@@ -22,7 +21,7 @@ import { loadSalesOrderListPresentation, orderTaxCents } from '@/lib/vendas/sale
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const ORDER_COLUMNS = 'id, order_number, status, seller_user_id, customer_name, customer_type, customer_document, subtotal_cents, discount_total_cents, total_cents, paid_amount_cents, change_cents, cash_session_id, bling_pedido_id, bling_nfce_id, created_at, updated_at, ml_order_id, ml_pack_id'
-const FULFILLMENT_COLUMNS = `${ORDER_COLUMNS}, ml_shipment_status, ml_shipment_substatus, ml_logistic_type, ml_fulfillment_stage, ml_shipment_id, ml_claim_status`
+const FULFILLMENT_COLUMNS = `${ORDER_COLUMNS}, ml_shipment_status, ml_shipment_substatus, ml_logistic_type, ml_fulfillment_stage, ml_shipment_id, ml_claim_status, ml_label_available_at, ml_posting_deadline, ml_shipping_method`
 
 function missingFulfillmentColumn (message: string | undefined) {
   const text = String(message || '')
@@ -33,6 +32,9 @@ function missingFulfillmentColumn (message: string | undefined) {
     || text.includes('ml_shipment_id')
     || text.includes('ml_label_status')
     || text.includes('ml_claim_status')
+    || text.includes('ml_label_available_at')
+    || text.includes('ml_posting_deadline')
+    || text.includes('ml_shipping_method')
 }
 
 export const maxDuration = 60
@@ -69,14 +71,20 @@ export async function GET (request: NextRequest) {
   const page = paginated ? vendasListPage(pageParam) : 1
   const { from: rangeFrom, to: rangeTo, pageSize } = vendasListRange(page)
 
-  function buildOrdersQuery (columns: string) {
+  const laneNeedsReadyDay = lane === 'flex'
+    || lane === 'preparing'
+    || lane === 'pending_shipment'
+
+  function buildOrdersQuery (columns: string, options?: { deferPagination?: boolean }) {
     let query = staffAuth.supabase
       .from('sales_orders')
       .select(columns, { count: 'exact' })
       .eq('organization_id', staffAuth.organizationId)
       .order('created_at', { ascending: false })
 
-    if (paginated) query = query.range(rangeFrom, rangeTo)
+    // Hoje vs próximos dias exige filtro em memória: busca um pool maior e pagina depois.
+    if (options?.deferPagination) query = query.limit(400)
+    else if (paginated) query = query.range(rangeFrom, rangeTo)
     else query = query.limit(200)
     return query
   }
@@ -128,8 +136,8 @@ export async function GET (request: NextRequest) {
     cashSessionId = session.session.id
   }
 
-  function filteredQuery (columns: string) {
-    let next = buildOrdersQuery(columns)
+  function filteredQuery (columns: string, options?: { deferPagination?: boolean }) {
+    let next = buildOrdersQuery(columns, options)
 
     if (from && DATE_RE.test(from)) {
       next = next.gte('created_at', brazilDayRangeUtc(from).startIso)
@@ -142,18 +150,15 @@ export async function GET (request: NextRequest) {
     else if (lane === 'all' || mlOrder) {
       // Canceladas entram em "Todas" e na busca por pedido MELI.
       next = next.in('status', ['paid', 'canceled'])
-    } else if (lane === 'flex') {
-      next = next.eq('status', 'paid').not('ml_order_id', 'is', null).eq('ml_logistic_type', 'self_service')
-    } else if (lane === 'preparing' || lane === 'shipped' || lane === 'pending_shipment') {
+    } else if (lane === 'flex' || lane === 'preparing' || lane === 'shipped' || lane === 'pending_shipment') {
       const stages = fulfillmentStagesForLane(lane) ?? [lane]
       next = next
         .eq('status', 'paid')
         .not('ml_order_id', 'is', null)
         .in('ml_fulfillment_stage', stages)
-      if (lane === 'preparing') {
-        next = next.in('ml_shipment_substatus', [...MELI_LABEL_PRINTABLE_SUBSTATUSES])
-      }
-      if (laneExcludesMeliFull(lane)) {
+      if (lane === 'flex') {
+        next = next.eq('ml_logistic_type', 'self_service')
+      } else if (laneExcludesMeliFull(lane)) {
         // Mantém null/outros tipos; só tira FULL (logística do ML).
         next = next.or('ml_logistic_type.is.null,ml_logistic_type.neq.fulfillment')
       }
@@ -197,12 +202,14 @@ export async function GET (request: NextRequest) {
     || lane === 'shipped'
     || lane === 'pending_shipment'
 
-  let classifyLaneInMemory = false
-  let listed = await filteredQuery(FULFILLMENT_COLUMNS)
+  let classifyLaneInMemory = laneNeedsReadyDay
+  let listed = await filteredQuery(FULFILLMENT_COLUMNS, {
+    deferPagination: laneNeedsReadyDay,
+  })
   if (listed.error && missingFulfillmentColumn(listed.error.message)) {
     classifyLaneInMemory = laneNeedsFulfillment
     listed = laneNeedsFulfillment
-      ? await recentMarketplaceQuery(laneNeedsFulfillment ? FULFILLMENT_COLUMNS : ORDER_COLUMNS)
+      ? await recentMarketplaceQuery(FULFILLMENT_COLUMNS)
       : await filteredQuery(ORDER_COLUMNS)
   }
   if (listed.error) {
@@ -218,8 +225,8 @@ export async function GET (request: NextRequest) {
     organizationId: auth.organizationId,
     orders,
   })
-  if (classifyLaneInMemory) {
-    const matched = orders.filter((order) => orderMatchesSalesLane(order, lane || 'all'))
+  if (classifyLaneInMemory && lane) {
+    const matched = orders.filter((order) => orderMatchesSalesLane(order, lane))
     total = matched.length
     const start = paginated ? rangeFrom : 0
     const end = paginated ? rangeTo + 1 : matched.length

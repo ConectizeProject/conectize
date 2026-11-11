@@ -36,6 +36,13 @@ describe('horários de agendamento da loja', () => {
 		expect(listSlotStarts('2026-10-11')).toEqual([])
 	})
 
+	it('feriado não tem horário', () => {
+		expect(listSlotStarts('2026-11-20')).toEqual([])
+		expect(listSlotStarts('2026-12-25')).toEqual([])
+		expect(listSlotStarts('2027-01-01')).toEqual([])
+		expect(isBookableSlot('2026-11-20T12:00:00-03:00', new Date('2026-11-01T00:00:00-03:00'))).toBe(false)
+	})
+
 	it('recusa horário fora da grade ou no passado', () => {
 		const slots = listSlotStarts('2026-10-12')
 		expect(isBookableSlot(slots[0], new Date('2026-10-12T11:00:00-03:00'))).toBe(false)

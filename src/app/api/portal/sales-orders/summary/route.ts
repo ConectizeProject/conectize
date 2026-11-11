@@ -3,6 +3,7 @@ import { requireStaffOrAdmin } from '@/lib/auth/portal-api'
 import {
   addBrazilCalendarDays,
   brazilCurrentMonthRange,
+  brazilDayRangeUtc,
   brazilPreviousMonthRange,
   brazilTodayDateString,
 } from '@/lib/dashboard/brazil-day'
@@ -49,16 +50,15 @@ export async function GET () {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
   }
 
-  try {
-    await backfillMeliPurchaseDates({
-      supabase: auth.supabase,
-      organizationId: auth.organizationId,
-      limit: 80,
-    })
-  } catch (err) {
+  // Não bloqueia o summary: backfill em background (TTL interno evita spam).
+  void backfillMeliPurchaseDates({
+    supabase: auth.supabase,
+    organizationId: auth.organizationId,
+    limit: 40,
+  }).catch((err) => {
     const message = err instanceof Error ? err.message : 'unknown_error'
     console.error('[sales-orders summary backfill]', message)
-  }
+  })
 
   const current = brazilCurrentMonthRange()
   const previous = brazilPreviousMonthRange()
@@ -125,14 +125,18 @@ export async function GET () {
   }> = []
 
   if (showShippingBoard) {
-    for (let from = 0; from < 3000; from += 1000) {
+    // Painel precisa só de pedidos MELI recentes / em aberto, não do histórico inteiro.
+    const shippingSince = addBrazilCalendarDays(today, -120)
+    const shippingSinceIso = brazilDayRangeUtc(shippingSince).startIso
+    for (let from = 0; from < 1000; from += 500) {
       const listed = await auth.supabase
         .from('sales_orders')
         .select('status, ml_order_id, ml_logistic_type, ml_fulfillment_stage, ml_shipment_status, ml_shipment_substatus, ml_posting_deadline, ml_label_available_at, ml_shipping_method')
         .eq('organization_id', auth.organizationId)
         .not('ml_order_id', 'is', null)
+        .gte('created_at', shippingSinceIso)
         .order('created_at', { ascending: false })
-        .range(from, from + 999)
+        .range(from, from + 499)
 
       if (listed.error) {
         // Fallback sem colunas novas, se o schema ainda nao tiver migration.
@@ -142,14 +146,15 @@ export async function GET () {
             .select('status, ml_order_id, ml_logistic_type, ml_fulfillment_stage, ml_shipment_status, ml_shipment_substatus')
             .eq('organization_id', auth.organizationId)
             .not('ml_order_id', 'is', null)
+            .gte('created_at', shippingSinceIso)
             .order('created_at', { ascending: false })
-            .range(from, from + 999)
+            .range(from, from + 499)
           if (basic.error) {
             console.error('[sales-orders summary shipping]', basic.error.message)
             break
           }
           shippingRows.push(...(basic.data ?? []))
-          if (!basic.data || basic.data.length < 1000) break
+          if (!basic.data || basic.data.length < 500) break
           continue
         }
         console.error('[sales-orders summary shipping]', listed.error.message)
@@ -157,7 +162,7 @@ export async function GET () {
       }
 
       shippingRows.push(...(listed.data ?? []))
-      if (!listed.data || listed.data.length < 1000) break
+      if (!listed.data || listed.data.length < 500) break
     }
   }
 

@@ -18,6 +18,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { meliClaimStatusLabel, saleProfitBreakdown } from '@/lib/vendas/meli-sale-display'
+import { isMeliFlexShippingRow } from '@/lib/vendas/meli-shipping-board'
 import { MarginRow } from '@/app/(portal)/portal/vendas/SoldItemMarginBreakdown'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -54,6 +55,8 @@ export type SalesOrderListItem = {
   cost_total_cents?: number | null
   stock_current: number | null
   stock_after_sale: number | null
+  /** Estoque restante no depósito Full (CD do ML). */
+  stock_full?: number | null
   ml_item_id?: string | null
   ml_item_url?: string | null
   /** Pedido individual MELI (dentro de um carrinho/pack). */
@@ -454,10 +457,13 @@ function ProductColumn ({
   return (
     <div className='min-w-0 space-y-3'>
       {items.map((item) => {
-        // FULL: estoque no depósito do ML, saldo local não se aplica.
-        const stock = isFull ? null : (item.stock_after_sale ?? item.stock_current)
+        // FULL: só saldo do CD (meli_facility). Demais canais: estoque local após a venda.
+        const stock = isFull
+          ? (item.stock_full ?? null)
+          : (item.stock_after_sale ?? item.stock_current)
         const itemOrderId = String(item.ml_order_id || lineOrderId || '').trim()
         const canEditProduct = Boolean(item.product_id && onEditProduct)
+        const canEditLocalStock = canEditProduct && !isFull
         return (
           <div key={`${order.id}-${item.product_id || item.name}`} className='min-w-0 space-y-2'>
             {showIndividualOrderId && itemOrderId ? (
@@ -470,7 +476,19 @@ function ProductColumn ({
               <span className='inline-flex h-6 shrink-0 items-center justify-center rounded-md bg-amber-500/15 px-2 text-xs font-semibold tabular-nums text-amber-800 dark:text-amber-300'>
                 {item.quantity}x
               </span>
-              <span className={cn('line-clamp-2 text-sm font-medium', copyClass)}>{item.name}</span>
+              {item.ml_item_url ? (
+                <a
+                  href={item.ml_item_url}
+                  target='_blank'
+                  rel='noopener noreferrer'
+                  className={cn('line-clamp-2 text-sm font-medium underline-offset-2 hover:underline', copyClass)}
+                  onClick={stopRowClick}
+                >
+                  {item.name}
+                </a>
+              ) : (
+                <span className={cn('line-clamp-2 text-sm font-medium', copyClass)}>{item.name}</span>
+              )}
             </p>
             <div className='flex min-w-0 gap-3'>
               <span className='flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-md text-muted-foreground'>
@@ -530,7 +548,18 @@ function ProductColumn ({
                   {stock != null ? (
                     <>
                       <span className='mx-1.5 text-muted-foreground' aria-hidden='true'>·</span>
-                      {canEditProduct ? (
+                      {isFull ? (
+                        <span
+                          className='inline-flex items-center gap-1 font-semibold text-emerald-600'
+                          title='Estoque no depósito Full'
+                        >
+                          <Zap className='h-3.5 w-3.5 shrink-0' aria-hidden='true' />
+                          <span className='tabular-nums'>{stock}</span>
+                          <span className={cn('font-normal', copyClass)}>
+                            {stock === 1 ? ' disponível' : ' disponíveis'}
+                          </span>
+                        </span>
+                      ) : canEditLocalStock ? (
                         <button
                           type='button'
                           className='inline font-semibold text-emerald-600 underline-offset-2 hover:underline'
@@ -595,7 +624,9 @@ function ActionsColumn ({
   // Enviar NF-e só faz sentido em marketplace (MELI etc.); venda local não tem destino.
   const canSendNfe = isMarketplace && !isFull && !isCanceled && allowNfe && order.status === 'paid'
   const hasLocalNfce = Boolean(order.nfce_document_id)
-  const canEmitNfce = !isFull
+  // MELI usa NF-e / nota do marketplace; NFC-e é só para venda local.
+  const canEmitNfce = !isMarketplace
+    && !isFull
     && !isCanceled
     && allowNfe
     && order.status === 'paid'
@@ -969,12 +1000,15 @@ function CartHeader ({
   const mutedCopyClass = canceledCopyClass(isCanceled, 'text-muted-foreground')
   const buyerName = formatPersonName(String(order.ml_buyer_name || order.customer_name || '').trim() || 'Consumidor')
   const isFull = order.ml_logistic_type === 'fulfillment'
-  const isFlex = order.ml_logistic_type === 'self_service'
+  const isFlex = isMeliFlexShippingRow({
+    ml_logistic_type: order.ml_logistic_type,
+    ml_shipping_method: order.ml_shipping_method,
+  })
   const shippingMethod = String(order.ml_shipping_method || '').trim()
   const logisticsLabel = isFull
     ? ['FULL', shippingMethod].filter(Boolean).join(' - ')
     : isFlex
-      ? ['Flex', shippingMethod].filter(Boolean).join(' - ')
+      ? 'Flex'
       : shippingMethod
   const mlOrderId = String(order.ml_order_id || '').trim()
   const mlPackId = String(order.ml_pack_id || '').trim()
@@ -989,7 +1023,11 @@ function CartHeader ({
     <div className='min-w-0 space-y-1.5 text-sm'>
       <div className='flex flex-wrap items-center gap-2'>
         <p className='font-semibold text-foreground'>{title}</p>
-        {isCanceled ? null : (
+        {isCanceled ? null : order.status_label === 'Enviado' ? (
+          <Badge className='border-transparent bg-amber-100 text-amber-950 dark:bg-amber-500/20 dark:text-amber-200'>
+            Enviado
+          </Badge>
+        ) : (
           <Badge
             variant={order.status === 'paid' ? 'secondary' : 'default'}
           >
