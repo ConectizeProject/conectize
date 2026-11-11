@@ -198,6 +198,49 @@ export function meliLabelStatus (
   return null
 }
 
+/**
+ * Desconto promocional do item MELI.
+ * Prefere `discounts[].amounts` (full/seller por unidade); fallback: full_unit_price − unit_price.
+ */
+export function meliOrderItemDiscountCents (orderItem: unknown): {
+  totalCents: number
+  sellerCents: number
+} {
+  const row = asRecord(orderItem)
+  if (!row) return { totalCents: 0, sellerCents: 0 }
+  const quantity = Math.max(1, Math.trunc(Number(row.quantity) || 1))
+
+  let totalPerUnit = 0
+  let sellerPerUnit = 0
+  const discounts = Array.isArray(row.discounts) ? row.discounts : []
+  for (const entry of discounts) {
+    const amounts = asRecord(asRecord(entry)?.amounts)
+    if (!amounts) continue
+    const full = reaisToCentsAllowZero(amounts.full ?? amounts.total) ?? 0
+    const seller = reaisToCentsAllowZero(amounts.seller) ?? 0
+    if (full > 0) totalPerUnit += full
+    if (seller > 0) sellerPerUnit += seller
+  }
+
+  if (totalPerUnit <= 0) {
+    const unit = Number(row.unit_price)
+    const fullUnit = Number(row.full_unit_price)
+    if (
+      Number.isFinite(unit)
+      && Number.isFinite(fullUnit)
+      && fullUnit > unit
+    ) {
+      totalPerUnit = Math.round((fullUnit - unit) * 100)
+    }
+  }
+
+  const totalCents = totalPerUnit > 0 ? totalPerUnit * quantity : 0
+  const sellerCents = sellerPerUnit > 0
+    ? sellerPerUnit * quantity
+    : totalCents
+  return { totalCents, sellerCents }
+}
+
 export function meliSaleDisplayFromPayloads (input: {
   order: Record<string, unknown> | null
   shipment: Record<string, unknown> | null

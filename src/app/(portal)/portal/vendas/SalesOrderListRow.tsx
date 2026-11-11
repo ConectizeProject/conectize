@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type MouseEvent, type ReactNode } from 'react'
 import {
   Bike,
+  Bookmark,
   ChevronDown,
   Copy,
   FileCheck2,
@@ -61,6 +62,9 @@ export type SalesOrderListItem = {
   ml_item_url?: string | null
   /** Pedido individual MELI (dentro de um carrinho/pack). */
   ml_order_id?: string | null
+  /** Desconto promocional MELI (informativo). */
+  ml_discount_total_cents?: number | null
+  ml_discount_seller_cents?: number | null
 }
 
 export type SalesOrderListRowData = {
@@ -543,7 +547,45 @@ function ProductColumn ({
                     <CopyIconButton value={item.ml_item_id} label='Copiar anúncio' />
                   </p>
                 ) : null}
-                <p className='text-sm'>
+                <p className='flex flex-wrap items-center gap-1.5 text-sm'>
+                  {(() => {
+                    const discountTotal = Math.max(0, Number(item.ml_discount_total_cents) || 0)
+                    const discountSeller = Math.max(
+                      0,
+                      Number(item.ml_discount_seller_cents) || discountTotal,
+                    )
+                    if (discountTotal <= 0) return null
+                    return (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type='button'
+                            className='inline-flex h-5 w-5 shrink-0 items-center justify-center text-sky-600 hover:text-sky-700'
+                            aria-label='Desconto promocional'
+                            onClick={stopRowClick}
+                          >
+                            <Bookmark className='h-4 w-4 fill-current' aria-hidden='true' />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent
+                          side='top'
+                          className='max-w-xs border-violet-900 bg-violet-950 px-3 py-2 text-violet-50'
+                        >
+                          <p className='text-xs font-medium'>Venda realizada com desconto promocional.</p>
+                          <div className='mt-1.5 space-y-1 text-xs'>
+                            <p className='flex items-center justify-between gap-4'>
+                              <span>Desconto total aplicado ao produto</span>
+                              <span className='tabular-nums font-semibold'>{money(discountTotal)}</span>
+                            </p>
+                            <p className='flex items-center justify-between gap-4'>
+                              <span>Desconto custeado pelo vendedor</span>
+                              <span className='tabular-nums font-semibold'>{money(discountSeller)}</span>
+                            </p>
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    )
+                  })()}
                   <span className='font-semibold text-emerald-600'>{money(item.unit_price_cents)}</span>
                   {stock != null ? (
                     <>
@@ -1000,7 +1042,7 @@ function CartHeader ({
   const mutedCopyClass = canceledCopyClass(isCanceled, 'text-muted-foreground')
   const buyerName = formatPersonName(String(order.ml_buyer_name || order.customer_name || '').trim() || 'Consumidor')
   const isFull = order.ml_logistic_type === 'fulfillment'
-  const isFlex = isMeliFlexShippingRow({
+  const isFlex = !isFull && isMeliFlexShippingRow({
     ml_logistic_type: order.ml_logistic_type,
     ml_shipping_method: order.ml_shipping_method,
   })

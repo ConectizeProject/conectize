@@ -114,6 +114,8 @@ type SoldItem = {
     mlItemId?: string | null
     mlItemUrl?: string | null
     shipmentId?: string | null
+    discountTotalCents?: number | null
+    discountSellerCents?: number | null
   } | null
   margin: SoldItemMarginBreakdownData & {
     effectiveUnitCostCents: number | null
@@ -240,6 +242,8 @@ function productCardOrder (item: SoldItem): SalesOrderListRowData {
       ml_item_id: card?.mlItemId ?? null,
       ml_item_url: card?.mlItemUrl ?? null,
       ml_order_id: item.order.mlOrderId,
+      ml_discount_total_cents: card?.discountTotalCents ?? null,
+      ml_discount_seller_cents: card?.discountSellerCents ?? null,
     }],
   }
 }

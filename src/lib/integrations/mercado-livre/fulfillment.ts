@@ -69,6 +69,11 @@ function toIsoOrNull (value: string | null | undefined) {
   return new Date(raw).toISOString()
 }
 
+function nonNegativeCentsOrZero (value: number | null | undefined) {
+  const amount = Math.trunc(Number(value) || 0)
+  return amount > 0 ? amount : 0
+}
+
 export async function persistMeliFulfillment (params: {
   supabase: SupabaseClient
   organizationId: string
@@ -79,6 +84,9 @@ export async function persistMeliFulfillment (params: {
   labelAvailableAt?: string | null
   shippingMethod?: string | null
   claimStatus?: string | null
+  saleFeeCents?: number | null
+  shippingGrossCents?: number | null
+  shippingRefundCents?: number | null
 }): Promise<'ok' | 'error' | 'missing_column'> {
   const snapshot = snapshotFromMeliPayloads(params.order, params.shipment ?? null)
   const purchasedRaw =
@@ -98,6 +106,9 @@ export async function persistMeliFulfillment (params: {
   const shippingMethod = trimText(params.shippingMethod)
     ?? trimText(asRecord(leadTime?.shipping_method)?.name)
   const claimStatus = trimText(params.claimStatus)?.toLowerCase()
+  const hasFeeSnapshot = params.saleFeeCents !== undefined
+    || params.shippingGrossCents !== undefined
+    || params.shippingRefundCents !== undefined
   const { error } = await params.supabase
     .from('sales_orders')
     .update({
@@ -113,6 +124,13 @@ export async function persistMeliFulfillment (params: {
       ...(shippingMethod ? { ml_shipping_method: shippingMethod } : {}),
       ...(claimStatus === 'opened' || claimStatus === 'closed'
         ? { ml_claim_status: claimStatus }
+        : {}),
+      ...(hasFeeSnapshot
+        ? {
+          ml_sale_fee_cents: nonNegativeCentsOrZero(params.saleFeeCents),
+          ml_shipping_gross_cents: nonNegativeCentsOrZero(params.shippingGrossCents),
+          ml_shipping_refund_cents: nonNegativeCentsOrZero(params.shippingRefundCents),
+        }
         : {}),
     })
     .eq('organization_id', params.organizationId)
@@ -236,7 +254,7 @@ export async function withLiveMeliFulfillment<T extends LiveFulfillmentOrder> (p
   organizationId: string
   orders: T[]
 }): Promise<Array<T & LiveMeliFulfillmentFields>> {
-  const pending = params.orders.filter((order) => {
+  const criticalPending = params.orders.filter((order) => {
     const mlOrderId = String(order.ml_order_id || '').trim()
     if (!mlOrderId) return false
     const isCanceled = String(order.status || '').trim().toLowerCase() === 'canceled'
@@ -248,6 +266,15 @@ export async function withLiveMeliFulfillment<T extends LiveFulfillmentOrder> (p
       || (isCanceled && !order.ml_claim_status)
     )
   })
+  // Backfill de tarifas: limitado por request para não estourar timeout da listagem.
+  const FEE_BACKFILL_LIMIT = 4
+  const feeBackfill = params.orders.filter((order) => {
+    const mlOrderId = String(order.ml_order_id || '').trim()
+    if (!mlOrderId) return false
+    if (criticalPending.some((row) => row.id === order.id)) return false
+    return order.ml_sale_fee_cents == null || order.ml_shipping_gross_cents == null
+  }).slice(0, FEE_BACKFILL_LIMIT)
+  const pending = [...criticalPending, ...feeBackfill]
   if (pending.length === 0) return params.orders as Array<T & LiveMeliFulfillmentFields>
 
   const connection = await getMeliConnectionByOrganizationId(
@@ -289,6 +316,9 @@ export async function withLiveMeliFulfillment<T extends LiveFulfillmentOrder> (p
         labelAvailableAt: snapshot.sale?.labelAvailableAt ?? null,
         shippingMethod: snapshot.sale?.shippingMethodName ?? null,
         claimStatus: snapshot.sale?.claimStatus ?? null,
+        saleFeeCents: snapshot.sale?.saleFeeCents ?? 0,
+        shippingGrossCents: snapshot.sale?.shippingGrossCents ?? 0,
+        shippingRefundCents: snapshot.sale?.shippingRefundCents ?? 0,
       })
       if (saved === 'missing_column') persistUnavailable = true
     }
@@ -311,9 +341,9 @@ export async function withLiveMeliFulfillment<T extends LiveFulfillmentOrder> (p
       ml_fulfillment_stage: snapshot.stage,
       ml_buyer_name: sale?.buyerName ?? null,
       ml_buyer_nickname: sale?.buyerNickname ?? null,
-      ml_shipping_gross_cents: sale?.shippingGrossCents ?? null,
-      ml_shipping_refund_cents: sale?.shippingRefundCents ?? null,
-      ml_sale_fee_cents: sale?.saleFeeCents ?? null,
+      ml_shipping_gross_cents: sale?.shippingGrossCents ?? 0,
+      ml_shipping_refund_cents: sale?.shippingRefundCents ?? 0,
+      ml_sale_fee_cents: sale?.saleFeeCents ?? 0,
       ml_posting_deadline: sale?.postingDeadline ?? null,
       ml_delivery_estimate: sale?.deliveryEstimate ?? null,
       ml_shipping_method: sale?.shippingMethodName ?? null,

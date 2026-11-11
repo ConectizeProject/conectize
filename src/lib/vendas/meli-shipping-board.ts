@@ -1,11 +1,16 @@
 import { brazilTodayDateString } from '@/lib/dashboard/brazil-day'
 import {
+  isMeliFlexShippingMethodName,
+  isMeliFlexShippingOrder,
   isMeliOpenFulfillmentStage,
+  isMeliShippingCalendarDay,
   isMeliShippingUpcoming,
   meliShipReadyDateKey,
   resolveMeliFulfillmentStage,
   type SalesLane,
 } from '@/lib/vendas/sales-lane'
+
+export { isMeliFlexShippingMethodName }
 
 export type MeliShippingTabId = 'today' | 'upcoming' | 'transit' | 'finished'
 
@@ -26,6 +31,9 @@ export type MeliShippingCard = {
   count: number
   footerLabel: string | null
   footerCount: number
+  footerLane?: SalesLane | null
+  canceledLabel: string | null
+  canceledCount: number
   lane: SalesLane
   lines: MeliShippingCardLine[]
 }
@@ -87,19 +95,10 @@ export function formatMeliPostingDeadlineUntil (iso: string | null | undefined) 
 
 export { meliShipReadyDateKey }
 
-/** Nomes de método do ML que na prática são Flex (ex.: Prioritario). */
-export function isMeliFlexShippingMethodName (value: string | null | undefined) {
-  const name = norm(value)
-  if (!name) return false
-  if (name === 'flex' || name.includes('flex')) return true
-  // ML costuma gravar o método Flex como "Prioritario" / "Prioritário".
-  const folded = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-  return folded === 'prioritario' || folded.includes('prioritario')
-}
-
-export function isMeliFlexShippingRow (row: Pick<MeliShippingOrderRow, 'ml_logistic_type' | 'ml_shipping_method'>) {
-  return norm(row.ml_logistic_type) === 'self_service'
-    || isMeliFlexShippingMethodName(row.ml_shipping_method)
+export function isMeliFlexShippingRow (
+  row: Pick<MeliShippingOrderRow, 'ml_logistic_type' | 'ml_shipping_method'>,
+) {
+  return isMeliFlexShippingOrder(row)
 }
 
 /** Rótulo do método nos cards de próximos dias. */
@@ -174,8 +173,8 @@ function bumpLine (
 }
 
 /**
- * Envios de hoje: liberação da etiqueta ≤ hoje.
- * Próximos dias: buffered, sem data ou data futura, agrupados por método + data.
+ * Envios de hoje: liberação da etiqueta / prazo ≤ hoje.
+ * Próximos dias: buffered ou data futura, agrupados por método + data.
  */
 export function buildMeliShippingBoard (
   rows: MeliShippingOrderRow[],
@@ -189,7 +188,9 @@ export function buildMeliShippingBoard (
   let transit = 0
   let finished = 0
   const todayBuckets = new Map<string, LineBucket>()
+  const todayCanceledBuckets = new Map<string, LineBucket>()
   const upcomingBuckets = new Map<string, LineBucket>()
+  const upcomingCanceledBuckets = new Map<string, LineBucket>()
 
   for (const row of rows) {
     if (!String(row.ml_order_id || '').trim()) continue
@@ -213,9 +214,32 @@ export function buildMeliShippingBoard (
     }
 
     if (isCanceled) {
-      if (isOpenStage && !isFull) {
-        if (isUpcoming) upcomingCanceled += 1
-        else todayCanceled += 1
+      // Cancelada FULL ou já despachada: só histórico.
+      if (isFull || stage === 'shipped' || shipStatus === 'shipped' || shipStatus === 'delivered') {
+        finished += 1
+        continue
+      }
+      // Só o dia do prazo/etiqueta: sem data ou outros dias não entram em "Não enviar".
+      if (isMeliShippingCalendarDay(row, today)) {
+        todayCanceled += 1
+        const method = meliShippingMethodLabel(row)
+        const until = formatMeliPostingDeadlineUntil(row.ml_posting_deadline)
+        bumpLine(todayCanceledBuckets, {
+          title: method,
+          detail: until,
+          sortKey: `${until || 'zzz'}|${method}`,
+          lane: 'canceled',
+        })
+      } else if (isUpcoming && readyDay) {
+        upcomingCanceled += 1
+        const method = meliShippingMethodLabel(row)
+        const dayLabel = formatMeliShipReadyDayLabel(readyDay)
+        bumpLine(upcomingCanceledBuckets, {
+          title: method,
+          detail: dayLabel,
+          sortKey: readyDay || '9999-99-99',
+          lane: 'canceled',
+        })
       } else {
         finished += 1
       }
@@ -263,7 +287,9 @@ export function buildMeliShippingBoard (
   const todayCount = todayActive + todayCanceled
   const upcomingCount = upcoming + upcomingCanceled
   const todayLines = toLines(todayBuckets)
+  const todayCanceledLines = toLines(todayCanceledBuckets)
   const upcomingLines = toLines(upcomingBuckets)
+  const upcomingCanceledLines = toLines(upcomingCanceledBuckets)
 
   const todayCards: MeliShippingCard[] = []
   if (todayActive > 0 || todayCanceled > 0) {
@@ -274,10 +300,19 @@ export function buildMeliShippingBoard (
       title: 'Para enviar',
       subtitle: null,
       count: todayActive,
-      footerLabel: todayCanceled > 0 ? 'Canceladas. Não enviar' : null,
-      footerCount: todayCanceled,
-      lane: todayLines.some((line) => line.lane === 'flex') ? 'flex' : 'preparing',
-      lines: todayLines,
+      footerLabel: null,
+      footerCount: 0,
+      footerLane: null,
+      canceledLabel: todayCanceled > 0 ? 'Canceladas. Não enviar' : null,
+      canceledCount: todayCanceled,
+      lane: todayActive > 0
+        ? (todayLines.some((line) => line.lane === 'flex') ? 'flex' : 'preparing')
+        : 'dont_ship',
+      // Com vendas ativas: só linhas a enviar. Só canceladas: mostra método/prazo.
+      lines: todayActive > 0 ? todayLines : todayCanceledLines.map((line) => ({
+        ...line,
+        lane: 'dont_ship' as SalesLane,
+      })),
     })
   }
   if (fullInProgress > 0) {
@@ -290,6 +325,9 @@ export function buildMeliShippingBoard (
       count: fullInProgress,
       footerLabel: null,
       footerCount: 0,
+      footerLane: null,
+      canceledLabel: null,
+      canceledCount: 0,
       lane: 'all',
       lines: [{
         id: 'today-full-line',
@@ -310,10 +348,16 @@ export function buildMeliShippingBoard (
       title: 'Para enviar',
       subtitle: null,
       count: upcoming,
-      footerLabel: upcomingCanceled > 0 ? 'Canceladas. Não enviar' : null,
-      footerCount: upcomingCanceled,
-      lane: 'pending_shipment',
-      lines: upcomingLines,
+      footerLabel: null,
+      footerCount: 0,
+      footerLane: null,
+      canceledLabel: upcomingCanceled > 0 ? 'Canceladas. Não enviar' : null,
+      canceledCount: upcomingCanceled,
+      lane: upcoming > 0 ? 'pending_shipment' : 'dont_ship',
+      lines: upcoming > 0 ? upcomingLines : upcomingCanceledLines.map((line) => ({
+        ...line,
+        lane: 'dont_ship' as SalesLane,
+      })),
     })
   }
   if (fullInProgress > 0) {
@@ -326,6 +370,9 @@ export function buildMeliShippingBoard (
       count: fullInProgress,
       footerLabel: null,
       footerCount: 0,
+      footerLane: null,
+      canceledLabel: null,
+      canceledCount: 0,
       lane: 'all',
       lines: [{
         id: 'upcoming-full-line',

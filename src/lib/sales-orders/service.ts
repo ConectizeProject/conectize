@@ -43,6 +43,9 @@ export type SalesOrderItemInput = {
   discount_cents?: number
   /** Snapshot do estoque disponível após esta venda (ex.: Full MELI no sync). */
   stock_after_sale?: number | null
+  /** Desconto promocional MELI (informativo; não altera subtotal). */
+  ml_discount_total_cents?: number | null
+  ml_discount_seller_cents?: number | null
 }
 
 export type SalesOrderPaymentInput = {
@@ -780,6 +783,8 @@ function toSalesOrderItemInputs (
     unit_cost_cents?: number | null
     discount_cents?: number | null
     stock_after_sale?: number | null
+    ml_discount_total_cents?: number | null
+    ml_discount_seller_cents?: number | null
   }>,
 ): SalesOrderItemInput[] {
   return rows.map((row) => ({
@@ -791,6 +796,12 @@ function toSalesOrderItemInputs (
     stock_after_sale: row.stock_after_sale == null
       ? null
       : Math.max(0, toInt(row.stock_after_sale, 0)),
+    ml_discount_total_cents: row.ml_discount_total_cents == null
+      ? null
+      : Math.max(0, toInt(row.ml_discount_total_cents, 0)),
+    ml_discount_seller_cents: row.ml_discount_seller_cents == null
+      ? null
+      : Math.max(0, toInt(row.ml_discount_seller_cents, 0)),
   }))
 }
 
@@ -1250,12 +1261,24 @@ export async function updateSalesOrderDraft (
 export async function listSalesOrderItems (auth: AuthCtx, orderId: string) {
   const { data, error } = await auth.supabase
     .from('sales_order_items')
-    .select('id, product_id, quantity, unit_price_cents, unit_cost_cents, discount_cents, subtotal_cents, stock_after_sale')
+    .select('id, product_id, quantity, unit_price_cents, unit_cost_cents, discount_cents, subtotal_cents, stock_after_sale, ml_discount_total_cents, ml_discount_seller_cents')
     .eq('organization_id', auth.organizationId)
     .eq('sales_order_id', orderId)
     .order('created_at', { ascending: true })
 
-  if (error) return { ok: false as const, error: 'db_error' as const }
+  if (error) {
+    if (/ml_discount_/i.test(error.message)) {
+      const fallback = await auth.supabase
+        .from('sales_order_items')
+        .select('id, product_id, quantity, unit_price_cents, unit_cost_cents, discount_cents, subtotal_cents, stock_after_sale')
+        .eq('organization_id', auth.organizationId)
+        .eq('sales_order_id', orderId)
+        .order('created_at', { ascending: true })
+      if (fallback.error) return { ok: false as const, error: 'db_error' as const }
+      return { ok: true as const, items: fallback.data ?? [] }
+    }
+    return { ok: false as const, error: 'db_error' as const }
+  }
   return { ok: true as const, items: data ?? [] }
 }
 
@@ -1269,6 +1292,8 @@ type SalesOrderItemSnapshotRow = {
   discount_cents: number
   subtotal_cents: number
   stock_after_sale?: number | null
+  ml_discount_total_cents?: number | null
+  ml_discount_seller_cents?: number | null
 }
 
 type SalesOrderPaymentSnapshotRow = {
@@ -1305,13 +1330,38 @@ export async function replaceSalesOrderItems (auth: AuthCtx, orderId: string, it
   )
   if (!ownership.ok) return ownership
 
-  const { data: previousData, error: snapError } = await auth.supabase
-    .from('sales_order_items')
-    .select('product_id, quantity, unit_price_cents, unit_cost_cents, discount_cents, subtotal_cents, stock_after_sale')
-    .eq('organization_id', auth.organizationId)
-    .eq('sales_order_id', orderId)
-
-  if (snapError) return { ok: false as const, error: 'db_error' as const }
+  type PreviousItemRow = {
+    product_id?: string | null
+    quantity?: number | null
+    unit_price_cents?: number | null
+    unit_cost_cents?: number | null
+    discount_cents?: number | null
+    subtotal_cents?: number | null
+    stock_after_sale?: number | null
+    ml_discount_total_cents?: number | null
+    ml_discount_seller_cents?: number | null
+  }
+  let previousData: PreviousItemRow[] | null = null
+  {
+    const withDiscount = await auth.supabase
+      .from('sales_order_items')
+      .select('product_id, quantity, unit_price_cents, unit_cost_cents, discount_cents, subtotal_cents, stock_after_sale, ml_discount_total_cents, ml_discount_seller_cents')
+      .eq('organization_id', auth.organizationId)
+      .eq('sales_order_id', orderId)
+    if (withDiscount.error && /ml_discount_/i.test(withDiscount.error.message)) {
+      const legacy = await auth.supabase
+        .from('sales_order_items')
+        .select('product_id, quantity, unit_price_cents, unit_cost_cents, discount_cents, subtotal_cents, stock_after_sale')
+        .eq('organization_id', auth.organizationId)
+        .eq('sales_order_id', orderId)
+      if (legacy.error) return { ok: false as const, error: 'db_error' as const }
+      previousData = (legacy.data ?? []) as PreviousItemRow[]
+    } else if (withDiscount.error) {
+      return { ok: false as const, error: 'db_error' as const }
+    } else {
+      previousData = (withDiscount.data ?? []) as PreviousItemRow[]
+    }
+  }
 
   const previousRows: SalesOrderItemSnapshotRow[] = (previousData ?? []).map((row) => ({
     organization_id: auth.organizationId,
@@ -1325,6 +1375,12 @@ export async function replaceSalesOrderItems (auth: AuthCtx, orderId: string, it
     stock_after_sale: row.stock_after_sale == null
       ? null
       : Math.max(0, toInt(row.stock_after_sale, 0)),
+    ml_discount_total_cents: row.ml_discount_total_cents == null
+      ? null
+      : Math.max(0, toInt(row.ml_discount_total_cents, 0)),
+    ml_discount_seller_cents: row.ml_discount_seller_cents == null
+      ? null
+      : Math.max(0, toInt(row.ml_discount_seller_cents, 0)),
   }))
 
   const { error: delError } = await auth.supabase
@@ -1348,9 +1404,26 @@ export async function replaceSalesOrderItems (auth: AuthCtx, orderId: string, it
       stock_after_sale: item.stock_after_sale == null
         ? null
         : Math.max(0, toInt(item.stock_after_sale, 0)),
+      ml_discount_total_cents: item.ml_discount_total_cents == null
+        ? null
+        : Math.max(0, toInt(item.ml_discount_total_cents, 0)),
+      ml_discount_seller_cents: item.ml_discount_seller_cents == null
+        ? null
+        : Math.max(0, toInt(item.ml_discount_seller_cents, 0)),
     }))
     const { error: insError } = await auth.supabase.from('sales_order_items').insert(rows)
     if (insError) {
+      if (/ml_discount_/i.test(insError.message)) {
+        const legacyRows = rows.map(({
+          ml_discount_total_cents: _total,
+          ml_discount_seller_cents: _seller,
+          ...rest
+        }) => rest)
+        const { error: legacyInsError } = await auth.supabase
+          .from('sales_order_items')
+          .insert(legacyRows)
+        if (!legacyInsError) return { ok: true as const }
+      }
       await restoreSalesOrderChildRows(
         auth,
         'sales_order_items',

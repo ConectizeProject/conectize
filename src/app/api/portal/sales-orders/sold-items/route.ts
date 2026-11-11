@@ -14,8 +14,7 @@ import {
   allocateSharedShippingToRows,
   computeSoldItemMargin,
 } from '@/lib/vendas/sold-item-margin'
-import { withLiveMeliFulfillment, type LiveMeliFulfillmentFields } from '@/lib/integrations/mercado-livre/fulfillment'
-import { withLiveMeliInvoices } from '@/lib/integrations/mercado-livre/api'
+import type { LiveMeliFulfillmentFields } from '@/lib/integrations/mercado-livre/fulfillment'
 import { matchMeliSaleItem, meliItemPublicUrl, taxCentsFromMargin } from '@/lib/vendas/meli-sale-display'
 import {
   loadSalesOrderListPresentation,
@@ -78,6 +77,8 @@ type UnifiedSoldRow = {
   productCostCents: number | null
   /** Snapshot no recebimento da venda (Full MELI: saldo do CD após a venda). */
   stockAfterSaleSnapshot: number | null
+  mlDiscountTotalCents: number | null
+  mlDiscountSellerCents: number | null
   subtotalCents: number
   createdAt: string
   sortAt: number
@@ -270,6 +271,8 @@ function soldItemCard (
     mlItemId,
     mlItemUrl: listing?.url || (mlItemId ? meliItemPublicUrl(mlItemId) : null),
     shipmentId: live?.ml_shipment_id || null,
+    discountTotalCents: row.mlDiscountTotalCents,
+    discountSellerCents: row.mlDiscountSellerCents,
   }
 }
 
@@ -316,6 +319,22 @@ function missingStockAfterSaleColumn (message: string | undefined) {
   return String(message || '').includes('stock_after_sale')
 }
 
+function missingMeliDiscountColumn (message: string | undefined) {
+  return /ml_discount_/i.test(String(message || ''))
+}
+
+function missingMeliFeeColumn (message: string | undefined) {
+  return /ml_sale_fee_cents|ml_shipping_gross_cents|ml_shipping_refund_cents/i
+    .test(String(message || ''))
+}
+
+function nullableNonNegativeCents (value: unknown): number | null {
+  if (value == null || value === '') return null
+  const raw = Number(value)
+  if (!Number.isFinite(raw)) return null
+  return Math.max(0, Math.round(raw))
+}
+
 export const maxDuration = 60
 
 export async function GET (request: NextRequest) {
@@ -339,6 +358,7 @@ export async function GET (request: NextRequest) {
     || lane === 'preparing'
     || lane === 'shipped'
     || lane === 'pending_shipment'
+    || lane === 'dont_ship'
   const includeServiceOrders = lane === 'all' && !sellerUserId && !paymentMethodId && !mlOrder
 
   let paymentOrderIds: string[] | null = null
@@ -362,10 +382,28 @@ export async function GET (request: NextRequest) {
 
   function buildSaleItemsQuery (
     restrictOrderIds: string[] | null,
-    options?: { includeClaimColumns?: boolean, includeStockAfterSale?: boolean },
+    options?: {
+      includeClaimColumns?: boolean
+      includeStockAfterSale?: boolean
+      includeMeliFees?: boolean
+      includeMeliDiscounts?: boolean
+    },
   ) {
     const includeClaimColumns = options?.includeClaimColumns !== false
     const includeStockAfterSale = options?.includeStockAfterSale !== false
+    const includeMeliFees = options?.includeMeliFees !== false
+    const includeMeliDiscounts = options?.includeMeliDiscounts !== false
+    const feeColumns = includeMeliFees
+      ? `
+          ml_sale_fee_cents,
+          ml_shipping_gross_cents,
+          ml_shipping_refund_cents,`
+      : ''
+    const discountColumns = includeMeliDiscounts
+      ? `
+        ml_discount_total_cents,
+        ml_discount_seller_cents,`
+      : ''
     const salesOrderSelect = includeClaimColumns
       ? `
           id,
@@ -385,6 +423,7 @@ export async function GET (request: NextRequest) {
           ml_label_available_at,
           ml_posting_deadline,
           ml_shipping_method,
+          ${feeColumns}
           customer_name
         `
       : `
@@ -404,6 +443,7 @@ export async function GET (request: NextRequest) {
           ml_label_available_at,
           ml_posting_deadline,
           ml_shipping_method,
+          ${feeColumns}
           customer_name
         `
     let query = supabase
@@ -418,6 +458,7 @@ export async function GET (request: NextRequest) {
         discount_cents,
         subtotal_cents,
         ${includeStockAfterSale ? 'stock_after_sale,' : ''}
+        ${discountColumns}
         created_at,
         sales_orders!inner (
           ${salesOrderSelect}
@@ -443,6 +484,17 @@ export async function GET (request: NextRequest) {
 
     if (lane === 'canceled') {
       query = query.eq('sales_orders.status', 'canceled')
+    } else if (lane === 'dont_ship') {
+      query = query
+        .not('sales_orders.ml_order_id', 'is', null)
+        .or(
+          'status.eq.canceled,ml_shipment_status.eq.cancelled,ml_shipment_status.eq.canceled',
+          { referencedTable: 'sales_orders' },
+        )
+        .or(
+          'ml_logistic_type.is.null,ml_logistic_type.neq.fulfillment',
+          { referencedTable: 'sales_orders' },
+        )
     } else if (lane === 'all' || mlOrder) {
       // Canceladas entram em "Todas" e na busca por pedido MELI.
       query = query.in('sales_orders.status', ['paid', 'canceled'])
@@ -472,10 +524,8 @@ export async function GET (request: NextRequest) {
       query = query
         .not('sales_orders.ml_order_id', 'is', null)
         .in('sales_orders.ml_fulfillment_stage', stages)
-      if (lane === 'flex') {
-        query = query.eq('sales_orders.ml_logistic_type', 'self_service')
-      } else if (laneExcludesMeliFull(lane)) {
-        // Mantém null/outros tipos; só tira FULL (logística do ML).
+      if (laneExcludesMeliFull(lane)) {
+        // Flex também filtra em memória (Prioritario / self_service); só tira FULL.
         query = query.or(
           'ml_logistic_type.is.null,ml_logistic_type.neq.fulfillment',
           { referencedTable: 'sales_orders' },
@@ -496,6 +546,13 @@ export async function GET (request: NextRequest) {
 
     if (lane === 'canceled') {
       next = next.eq('status', 'canceled')
+    } else if (lane === 'dont_ship') {
+      next = next
+        .not('ml_order_id', 'is', null)
+        .or(
+          'status.eq.canceled,ml_shipment_status.eq.cancelled,ml_shipment_status.eq.canceled',
+        )
+        .or('ml_logistic_type.is.null,ml_logistic_type.neq.fulfillment')
     } else if (lane === 'all' || mlOrder) {
       next = next.in('status', ['paid', 'canceled'])
     } else {
@@ -515,44 +572,51 @@ export async function GET (request: NextRequest) {
   }
 
   async function marketplaceOrderIdsForLane () {
-    const withClaim = 'id, ml_order_id, status, ml_fulfillment_stage, ml_shipment_id, ml_claim_status, ml_logistic_type, ml_shipment_status, ml_shipment_substatus, ml_label_available_at'
-    const withoutClaim = 'id, ml_order_id, status, ml_fulfillment_stage, ml_shipment_id, ml_logistic_type, ml_shipment_status, ml_shipment_substatus, ml_label_available_at'
+    const withClaim = 'id, ml_order_id, status, ml_fulfillment_stage, ml_shipment_id, ml_claim_status, ml_logistic_type, ml_shipment_status, ml_shipment_substatus, ml_label_available_at, ml_posting_deadline, ml_shipping_method'
+    const withoutClaim = 'id, ml_order_id, status, ml_fulfillment_stage, ml_shipment_id, ml_logistic_type, ml_shipment_status, ml_shipment_substatus, ml_label_available_at, ml_posting_deadline, ml_shipping_method'
     let listed = await buildMarketplaceOrdersQuery(withClaim)
     if (listed.error && missingClaimStatusColumn(listed.error.message)) {
       listed = await buildMarketplaceOrdersQuery(withoutClaim)
     }
+    if (listed.error && missingFulfillmentColumn(listed.error.message)) {
+      listed = await buildMarketplaceOrdersQuery(
+        'id, ml_order_id, status, ml_fulfillment_stage, ml_shipment_id, ml_logistic_type, ml_shipment_status, ml_shipment_substatus, ml_label_available_at',
+      )
+    }
     if (listed.error) return { error: listed.error.message, ids: [] as string[] }
-    const orders = await withLiveMeliFulfillment({
-      supabase: supabase,
-      organizationId: organizationId,
-      orders: (listed.data ?? []).map((row) => {
-        const record = row as unknown as Record<string, unknown>
-        const claimRaw = String(record.ml_claim_status || '').trim().toLowerCase()
-        return {
-          id: String(record.id || ''),
-          ml_order_id: record.ml_order_id != null ? String(record.ml_order_id) : null,
-          status: record.status != null ? String(record.status) : null,
-          ml_claim_status: claimRaw === 'opened' || claimRaw === 'closed' ? claimRaw : null,
-          ml_fulfillment_stage: record.ml_fulfillment_stage != null
-            ? String(record.ml_fulfillment_stage)
-            : null,
-          ml_shipment_id: record.ml_shipment_id != null
-            ? String(record.ml_shipment_id)
-            : null,
-          ml_logistic_type: record.ml_logistic_type != null
-            ? String(record.ml_logistic_type)
-            : null,
-          ml_shipment_status: record.ml_shipment_status != null
-            ? String(record.ml_shipment_status)
-            : null,
-          ml_shipment_substatus: record.ml_shipment_substatus != null
-            ? String(record.ml_shipment_substatus)
-            : null,
-          ml_label_available_at: record.ml_label_available_at != null
-            ? String(record.ml_label_available_at)
-            : null,
-        }
-      }),
+    const orders = (listed.data ?? []).map((row) => {
+      const record = row as unknown as Record<string, unknown>
+      const claimRaw = String(record.ml_claim_status || '').trim().toLowerCase()
+      return {
+        id: String(record.id || ''),
+        ml_order_id: record.ml_order_id != null ? String(record.ml_order_id) : null,
+        status: record.status != null ? String(record.status) : null,
+        ml_claim_status: claimRaw === 'opened' || claimRaw === 'closed' ? claimRaw : null,
+        ml_fulfillment_stage: record.ml_fulfillment_stage != null
+          ? String(record.ml_fulfillment_stage)
+          : null,
+        ml_shipment_id: record.ml_shipment_id != null
+          ? String(record.ml_shipment_id)
+          : null,
+        ml_logistic_type: record.ml_logistic_type != null
+          ? String(record.ml_logistic_type)
+          : null,
+        ml_shipment_status: record.ml_shipment_status != null
+          ? String(record.ml_shipment_status)
+          : null,
+        ml_shipment_substatus: record.ml_shipment_substatus != null
+          ? String(record.ml_shipment_substatus)
+          : null,
+        ml_label_available_at: record.ml_label_available_at != null
+          ? String(record.ml_label_available_at)
+          : null,
+        ml_posting_deadline: record.ml_posting_deadline != null
+          ? String(record.ml_posting_deadline)
+          : null,
+        ml_shipping_method: record.ml_shipping_method != null
+          ? String(record.ml_shipping_method)
+          : null,
+      }
     })
     return {
       error: null,
@@ -617,6 +681,12 @@ export async function GET (request: NextRequest) {
   }
   if (saleItemsRes.error && missingStockAfterSaleColumn(saleItemsRes.error.message)) {
     saleItemsRes = await buildSaleItemsQuery(null, { includeStockAfterSale: false })
+  }
+  if (saleItemsRes.error && missingMeliFeeColumn(saleItemsRes.error.message)) {
+    saleItemsRes = await buildSaleItemsQuery(null, { includeMeliFees: false })
+  }
+  if (saleItemsRes.error && missingMeliDiscountColumn(saleItemsRes.error.message)) {
+    saleItemsRes = await buildSaleItemsQuery(null, { includeMeliDiscounts: false })
   }
   if (
     saleItemsRes.error
@@ -915,6 +985,7 @@ export async function GET (request: NextRequest) {
   const laneNeedsReadyDay = lane === 'flex'
     || lane === 'preparing'
     || lane === 'pending_shipment'
+    || lane === 'dont_ship'
 
   const saleOrderLiveSeedById = new Map<string, {
     ml_claim_status: string | null
@@ -926,6 +997,9 @@ export async function GET (request: NextRequest) {
     ml_label_available_at: string | null
     ml_posting_deadline: string | null
     ml_shipping_method: string | null
+    ml_sale_fee_cents: number | null
+    ml_shipping_gross_cents: number | null
+    ml_shipping_refund_cents: number | null
   }>()
 
   for (const row of saleRows) {
@@ -936,7 +1010,12 @@ export async function GET (request: NextRequest) {
     > | null
     if (laneNeedsReadyDay && order) {
       const laneOrder = {
+        status: order.status != null ? String(order.status) : null,
+        ml_order_id: order.ml_order_id != null ? String(order.ml_order_id) : null,
         ml_logistic_type: order.ml_logistic_type != null ? String(order.ml_logistic_type) : null,
+        ml_shipping_method: order.ml_shipping_method != null
+          ? String(order.ml_shipping_method)
+          : null,
         ml_fulfillment_stage: order.ml_fulfillment_stage != null
           ? String(order.ml_fulfillment_stage)
           : null,
@@ -948,6 +1027,9 @@ export async function GET (request: NextRequest) {
           : null,
         ml_label_available_at: order.ml_label_available_at != null
           ? String(order.ml_label_available_at)
+          : null,
+        ml_posting_deadline: order.ml_posting_deadline != null
+          ? String(order.ml_posting_deadline)
           : null,
       }
       if (!orderMatchesSalesLane(laneOrder, lane)) continue
@@ -1015,6 +1097,9 @@ export async function GET (request: NextRequest) {
         ml_shipping_method: order?.ml_shipping_method != null
           ? String(order.ml_shipping_method)
           : null,
+        ml_sale_fee_cents: nullableNonNegativeCents(order?.ml_sale_fee_cents),
+        ml_shipping_gross_cents: nullableNonNegativeCents(order?.ml_shipping_gross_cents),
+        ml_shipping_refund_cents: nullableNonNegativeCents(order?.ml_shipping_refund_cents),
       })
     }
 
@@ -1038,10 +1123,15 @@ export async function GET (request: NextRequest) {
       ),
       lineUnitCostCents,
       productCostCents,
-      stockAfterSaleSnapshot: (() => {
-        const raw = Number((row as { stock_after_sale?: number | null }).stock_after_sale)
-        return Number.isFinite(raw) ? Math.max(0, Math.round(raw)) : null
-      })(),
+      stockAfterSaleSnapshot: nullableNonNegativeCents(
+        (row as { stock_after_sale?: number | null }).stock_after_sale,
+      ),
+      mlDiscountTotalCents: nullableNonNegativeCents(
+        (row as { ml_discount_total_cents?: number | null }).ml_discount_total_cents,
+      ),
+      mlDiscountSellerCents: nullableNonNegativeCents(
+        (row as { ml_discount_seller_cents?: number | null }).ml_discount_seller_cents,
+      ),
       subtotalCents,
       createdAt,
       sortAt: sortMs(createdAt),
@@ -1111,6 +1201,8 @@ export async function GET (request: NextRequest) {
       lineUnitCostCents: line.unitCostCents,
       productCostCents,
       stockAfterSaleSnapshot: null,
+      mlDiscountTotalCents: null,
+      mlDiscountSellerCents: null,
       subtotalCents,
       createdAt,
       sortAt: sortMs(createdAt),
@@ -1167,6 +1259,9 @@ export async function GET (request: NextRequest) {
           ml_label_available_at: liveSeed?.ml_label_available_at ?? null,
           ml_posting_deadline: liveSeed?.ml_posting_deadline ?? null,
           ml_shipping_method: liveSeed?.ml_shipping_method ?? null,
+          ml_sale_fee_cents: liveSeed?.ml_sale_fee_cents ?? null,
+          ml_shipping_gross_cents: liveSeed?.ml_shipping_gross_cents ?? null,
+          ml_shipping_refund_cents: liveSeed?.ml_shipping_refund_cents ?? null,
         }]
       }),
   ).values()]
@@ -1177,7 +1272,8 @@ export async function GET (request: NextRequest) {
       .map((row) => row.order.id)
       .filter(Boolean),
   )]
-  let liveOrders: Array<(typeof saleOrders)[number] & LiveMeliFulfillmentFields> = saleOrders
+  // Listagem só lê a base: sem enrich live no MELI.
+  const liveOrders = saleOrders as Array<(typeof saleOrders)[number] & LiveMeliFulfillmentFields>
   let presentation = {
     marginTaxPercent: 0,
     itemsByOrderId: new Map() as Awaited<ReturnType<typeof loadSalesOrderListPresentation>>['itemsByOrderId'],
@@ -1198,11 +1294,6 @@ export async function GET (request: NextRequest) {
     }))
   try {
     const enriched = await Promise.all([
-      withLiveMeliFulfillment({
-        supabase: supabase,
-        organizationId: organizationId,
-        orders: saleOrders,
-      }),
       loadSalesOrderListPresentation({
         supabase: supabase,
         organizationId: organizationId,
@@ -1234,29 +1325,19 @@ export async function GET (request: NextRequest) {
         rows: osStockRows,
       }),
     ])
-    liveOrders = enriched[0]
-    presentation = enriched[1]
-    fiscalRows = enriched[2]
-    osFiscalRows = enriched[3]
-    financePostedIds = enriched[4]
-    stockPostedIds = enriched[5]
-    osFinancePostedIds = enriched[6]
-    osStockPostedIds = enriched[7]
-    osStockByKey = enriched[8]
+    presentation = enriched[0]
+    fiscalRows = enriched[1]
+    osFiscalRows = enriched[2]
+    financePostedIds = enriched[3]
+    stockPostedIds = enriched[4]
+    osFinancePostedIds = enriched[5]
+    osStockPostedIds = enriched[6]
+    osStockByKey = enriched[7]
   } catch (err) {
     console.error('[sold-items] enrich page failed', err)
   }
   const liveByOrderId = new Map(liveOrders.map((order) => [order.id, order]))
-  const meliInvoiceByOrderId = await withLiveMeliInvoices({
-    supabase: supabase,
-    organizationId: organizationId,
-    orders: liveOrders.map((order) => ({
-      id: order.id,
-      ml_order_id: order.ml_order_id,
-      ml_shipment_id: order.ml_shipment_id != null ? String(order.ml_shipment_id) : null,
-      ml_logistic_type: order.ml_logistic_type ?? null,
-    })),
-  })
+  const meliInvoiceByOrderId = new Map<string, { id: string, status: string | null, authorized: boolean }>()
   const nfeByOrderId = new Map<string, { id: string, status: string }>()
   const nfceByOrderId = new Map<string, { id: string, status: string }>()
   if (!fiscalRows.error) {
@@ -1336,13 +1417,26 @@ export async function GET (request: NextRequest) {
       hasAuthorizedFiscalDoc: row.hasAuthorizedFiscalDoc,
     })
     const live = liveByOrderId.get(row.order.id)
-    const listing = matchMeliSaleItem(live?.ml_sale_items, {
-      sku: row.productSku,
-      title: row.productName,
-    })
-    const mlItemId = listing?.itemId || row.mlItemId || null
-    // Full: usa o snapshot gravado no recebimento da venda (não consulta o MELI na listagem).
+    const presented = row.source === 'service_order'
+      ? (() => {
+        const stock = row.productId
+          ? osStockByKey.get(`${row.order.id}:${row.productId}`)
+          : null
+        if (!stock) return null
+        return {
+          costTotalCents: margin.costTotalCents,
+          stockCurrent: stock.stockCurrent,
+          stockAfterSale: stock.stockAfterSale,
+          stockFullSnapshot: null as number | null,
+        }
+      })()
+      : presentation.itemsByOrderId.get(row.order.id)?.find((item) => (
+        item.productId === row.productId
+      )) ?? null
+    // Full: só snapshot persistido na base (sync/webhook).
     const stockFull = row.stockAfterSaleSnapshot
+      ?? presented?.stockFullSnapshot
+      ?? null
 
     return {
       id: row.id,
@@ -1371,21 +1465,13 @@ export async function GET (request: NextRequest) {
       },
       card: soldItemCard(row, {
         live,
-        presented: row.source === 'service_order'
-          ? (() => {
-            const stock = row.productId
-              ? osStockByKey.get(`${row.order.id}:${row.productId}`)
-              : null
-            if (!stock) return null
-            return {
-              costTotalCents: margin.costTotalCents,
-              stockCurrent: stock.stockCurrent,
-              stockAfterSale: stock.stockAfterSale,
-            }
-          })()
-          : presentation.itemsByOrderId.get(row.order.id)?.find((item) => (
-            item.productId === row.productId
-          )) ?? null,
+        presented: presented
+          ? {
+            costTotalCents: presented.costTotalCents,
+            stockCurrent: presented.stockCurrent,
+            stockAfterSale: presented.stockAfterSale,
+          }
+          : null,
         stockFull,
         marginTaxPercent: presentation.marginTaxPercent,
         nfe: nfeByOrderId.get(row.order.id) ?? null,

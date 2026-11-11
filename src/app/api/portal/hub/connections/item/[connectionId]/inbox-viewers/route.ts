@@ -100,7 +100,7 @@ export async function PUT (
       {
         ok: false,
         error: saved.error,
-        hint: 'Tabela hub_connection_inbox_viewers ausente? Execute npx supabase db push.',
+        hint: 'Tabela hub_connection_inbox_viewers ausente? Execute npx supabase@3.1.0 db push --remote.',
       },
       { status: 500 },
     )
