@@ -10,7 +10,6 @@ import {
   FINALIZED_ORDER_STATUS_SET,
   ORDER_STATUS_SET,
 } from '@/lib/orders/order-status'
-import { rollbackOrderStatusAfterStockFailure } from '@/lib/orders/rollback-order-status-after-stock-failure'
 import { applyOrderStatusStockTransition } from '@/lib/orders/stock-by-status'
 
 export type ApplyOrderStatusChangeResult =
@@ -180,18 +179,9 @@ export async function applyOrderStatusChange (
       actorUserId: editorUserId,
     })
   } catch (err) {
+    // Não bloqueia a OS: status/alteração seguem mesmo se a baixa falhar
+    // (ex.: produto sem estoque físico ou pai sem movimentação).
     console.error('[applyOrderStatusChange stock]', err)
-    // Status sem estoque consistente é pior que falhar a operação: reverte o status
-    // para o anterior e sinaliza erro (retry reconcilia o líquido parcial).
-    await rollbackOrderStatusAfterStockFailure(supabase, {
-      orderId,
-      previousStatus,
-      previousClosedAt: existing.closed_at ?? null,
-      updatePayload,
-      logLabel: 'applyOrderStatusChange',
-      nextStatus,
-    })
-    return { ok: false, error: 'stock_sync_failed' }
   }
 
   const organizationId = String(

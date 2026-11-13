@@ -184,6 +184,19 @@ async function insertServiceOrderStockMovement (input: {
   if (error) {
     // Unique index: corrida/retry já criou o movimento.
     if (String(error.code || '') === '23505') return
+    const message = String(error.message || '')
+    // Pai/kit virtual não guardam estoque próprio: OS pode seguir sem baixar neles.
+    if (
+      message.includes('parent_product_cannot_have_stock')
+      || message.includes('virtual_product_cannot_have_stock')
+    ) {
+      console.warn('[order-stock-transition] skip stockless product', {
+        orderId: input.orderId,
+        productId: input.productId,
+        message,
+      })
+      return
+    }
     throw error
   }
 
@@ -211,6 +224,44 @@ async function insertServiceOrderStockMovement (input: {
       error: errorMessage,
     })
   }
+}
+
+/** Produtos que não recebem movimento físico (pai com variações, serviço ou kit virtual). */
+async function loadStocklessProductIds (
+  supabase: SupabaseClient,
+  productIds: string[],
+  kitProductIds: Set<string>,
+): Promise<Set<string>> {
+  const stockless = new Set<string>(kitProductIds)
+  const ids = productIds.filter((id) => !stockless.has(id))
+  if (ids.length === 0) return stockless
+
+  const { data: products } = await supabase
+    .from('products')
+    .select('id, kind')
+    .in('id', ids)
+
+  for (const row of products ?? []) {
+    const id = String((row as { id?: string }).id || '').trim()
+    if (!id) continue
+    if (String((row as { kind?: string | null }).kind || '').toLowerCase() === 'service') {
+      stockless.add(id)
+    }
+  }
+
+  const { data: children } = await supabase
+    .from('products')
+    .select('parent_product_id')
+    .in('parent_product_id', ids)
+
+  for (const row of children ?? []) {
+    const parentId = String(
+      (row as { parent_product_id?: string | null }).parent_product_id || '',
+    ).trim()
+    if (parentId) stockless.add(parentId)
+  }
+
+  return stockless
 }
 
 async function resolveExitExternalReference (
@@ -311,6 +362,12 @@ export async function applyOrderStatusStockTransition (input: ApplyOrderStatusSt
   ])
   if (productIds.size === 0) return
 
+  const stocklessProductIds = await loadStocklessProductIds(
+    input.supabase,
+    [...productIds],
+    expanded.kitProductIds,
+  )
+
   const { data: productRows } = await input.supabase
     .from('products')
     .select('id, bling_id')
@@ -328,6 +385,7 @@ export async function applyOrderStatusStockTransition (input: ApplyOrderStatusSt
   // Cancelamento / final sem conserto: devolve todo o líquido saído.
   if (returnOnFinalNoRepair) {
     for (const productId of productIds) {
+      if (stocklessProductIds.has(productId)) continue
       const net = existingNets.get(productId)
         ?? await loadServiceOrderProductNetExit(input.supabase, input.orderId, productId)
       if (net <= 0) continue
@@ -358,7 +416,9 @@ export async function applyOrderStatusStockTransition (input: ApplyOrderStatusSt
   }
 
   // Entrada na fase consumidora ou reconciliação (qty↑/qty↓/remoção).
+  // Produto com estoque 0 ainda baixa (saldo pode ficar negativo).
   for (const productId of productIds) {
+    if (stocklessProductIds.has(productId)) continue
     const line = desiredByProduct.get(productId)
     const desired = Math.abs(Number(line?.quantity) || 0)
     const unit = Math.max(0, Number(line?.unitCostCents) || 0)

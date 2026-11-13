@@ -22,7 +22,6 @@ import {
 	isFinalizedOrderStatus,
 	isValidOrderStatus,
 } from '@/lib/orders/order-status'
-import { rollbackOrderStatusAfterStockFailure } from '@/lib/orders/rollback-order-status-after-stock-failure'
 import { applyOrderStatusStockTransition } from '@/lib/orders/stock-by-status'
 import {
 	createSupabaseServerClient,
@@ -362,18 +361,9 @@ export async function updateOrderAction(
 			actorUserId: user.id,
 		})
 	} catch (err) {
+		// Não bloqueia o salvamento da OS quando a baixa de estoque falha
+		// (produto sem estoque, pai sem movimentação, etc.).
 		console.error('[order-save stock]', err)
-		// Mesma regra de `applyOrderStatusChange`: status sem estoque consistente
-		// trava o retry (ex.: cancelada sem devolução). Reverte status/closed_at.
-		await rollbackOrderStatusAfterStockFailure(supabase, {
-			orderId: formOrderId,
-			previousStatus,
-			previousClosedAt: (existing.closed_at as string | null | undefined) ?? null,
-			updatePayload,
-			logLabel: 'order-save',
-			nextStatus,
-		})
-		return { ok: false, error: 'estoque_nao_sincronizado' }
 	}
 
 	try {
