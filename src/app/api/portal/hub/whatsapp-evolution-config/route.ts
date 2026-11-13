@@ -290,7 +290,7 @@ export async function POST (request: Request) {
           ok: false,
           error: 'migration_required',
           hint:
-            'O banco ainda limita uma conexão Evolution por organização. Rode: npx supabase@2.20.12 db push (migration 20260521150000).',
+            'O banco ainda limita uma conexão Evolution por organização. Rode: npx supabase@3.1.0 db push --remote (migration 20260521150000).',
         },
         { status: 409 },
       )

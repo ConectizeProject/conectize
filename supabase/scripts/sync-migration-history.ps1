@@ -2,14 +2,14 @@
 # Use quando o cloud já tem o schema, mas o CLI tenta reaplicar tudo no db push.
 #
 # Pré-requisitos:
-#   npx supabase@2.20.12 login
-#   npx supabase@2.20.12 link --project-ref SEU_REF
+#   npx supabase@3.1.0 login
+#   npx supabase@3.1.0 link --project-ref SEU_REF
 #
 # Uso:
 #   .\supabase\scripts\sync-migration-history.ps1 -DryRun
 #   .\supabase\scripts\sync-migration-history.ps1
-#   npx supabase@2.20.12 migration list
-#   npx supabase@2.20.12 db push
+#   npx supabase@3.1.0 migration list --remote
+#   npx supabase@3.1.0 db push --remote
 
 param(
   [string[]] $PendingVersions = @('20260520120000', '20260520130000'),
@@ -21,7 +21,7 @@ $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $migrationsDir = Join-Path $root 'supabase\migrations'
 
 if (-not (Test-Path (Join-Path $root 'supabase\.temp\project-ref'))) {
-  Write-Error 'Projeto não linkado. Rode: npx supabase@2.20.12 link --project-ref SEU_REF'
+  Write-Error 'Projeto não linkado. Rode: npx supabase@3.1.0 link --project-ref SEU_REF'
 }
 
 $all = Get-ChildItem (Join-Path $migrationsDir '*.sql') | ForEach-Object {
@@ -54,7 +54,7 @@ try {
     $end = [Math]::Min($i + $batchSize - 1, $toMark.Count - 1)
     $batch = $toMark[$i..$end]
     Write-Host "  Lote $([int]($i / $batchSize) + 1): $($batch[0]) .. $($batch[-1]) ($($batch.Count) versoes)"
-    $args = @('supabase@2.20.12', 'migration', 'repair', '--status', 'applied') + $batch
+    $args = @('supabase@3.1.0', 'migration', 'repair', '--status', 'applied', '--remote', '--yes') + $batch
     & npx @args
     if ($LASTEXITCODE -ne 0) {
       Write-Error "migration repair falhou no lote com $($batch[0])"
@@ -62,8 +62,8 @@ try {
   }
   Write-Host ''
   Write-Host 'OK. Proximo passo:'
-  Write-Host '  npx supabase@2.20.12 migration list'
-  Write-Host '  npx supabase@2.20.12 db push'
+  Write-Host '  npx supabase@3.1.0 migration list --remote'
+  Write-Host '  npx supabase@3.1.0 db push --remote'
 }
 finally {
   Pop-Location

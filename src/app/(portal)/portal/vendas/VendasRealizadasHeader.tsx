@@ -249,14 +249,30 @@ function ComparisonTooltip ({
   )
 }
 
+function ChartBarsSkeleton () {
+  return (
+    <div className='flex h-16 items-end gap-px' aria-hidden='true'>
+      {Array.from({ length: 14 }).map((_, index) => (
+        <Skeleton
+          key={index}
+          className='min-w-0 flex-1 rounded-[1px]'
+          style={{ height: `${28 + ((index * 17) % 56)}%` }}
+        />
+      ))}
+    </div>
+  )
+}
+
 function SummaryCard ({
   title,
   kind,
   summary,
+  loading,
 }: {
   title: string
   kind: MetricKind
   summary: Summary | null
+  loading: boolean
 }) {
   const tooltipId = useId()
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
@@ -278,7 +294,7 @@ function SummaryCard ({
 
   return (
     <Card className='overflow-visible'>
-      <CardContent className='space-y-3 overflow-visible p-4'>
+      <CardContent className='space-y-3 overflow-visible p-4' aria-busy={loading}>
         <p className='text-sm text-muted-foreground'>{title}</p>
         <div
           className='relative z-10'
@@ -291,30 +307,38 @@ function SummaryCard ({
             <div className='space-y-2 sm:pr-4'>
               <div>
                 <p className='text-xs text-muted-foreground'>Mês passado</p>
-                <p className='text-xl font-semibold tabular-nums'>
-                  {summary
-                    ? formatMetric(
-                      kind === 'count' ? summary.previous.count : summary.previous.totalCents,
-                      kind,
-                    )
-                    : '...'}
-                </p>
+                {loading ? (
+                  <Skeleton className='mt-1 h-7 w-24' />
+                ) : (
+                  <p className='text-xl font-semibold tabular-nums'>
+                    {summary
+                      ? formatMetric(
+                        kind === 'count' ? summary.previous.count : summary.previous.totalCents,
+                        kind,
+                      )
+                      : formatMetric(0, kind)}
+                  </p>
+                )}
               </div>
               <div className='relative'>
-                <MonthBars
-                  days={previousDays.length > 0 ? previousDays : [{ day: 'prev', count: 0, totalCents: 0 }]}
-                  kind={kind}
-                  max={max}
-                  label={`${title}: mês passado`}
-                  activeIndex={hoverSide === 'previous' ? hoverIndex : null}
-                  onHover={(index) => {
-                    setHoverSide('previous')
-                    setHoverIndex(index)
-                  }}
-                  onLeave={() => {}}
-                  barClassName='bg-violet-400/80 dark:bg-violet-500/70'
-                />
-                {showTooltip && hoverSide === 'previous' && activeIndex != null ? (
+                {loading ? (
+                  <ChartBarsSkeleton />
+                ) : (
+                  <MonthBars
+                    days={previousDays.length > 0 ? previousDays : [{ day: 'prev', count: 0, totalCents: 0 }]}
+                    kind={kind}
+                    max={max}
+                    label={`${title}: mês passado`}
+                    activeIndex={hoverSide === 'previous' ? hoverIndex : null}
+                    onHover={(index) => {
+                      setHoverSide('previous')
+                      setHoverIndex(index)
+                    }}
+                    onLeave={() => {}}
+                    barClassName='bg-violet-400/80 dark:bg-violet-500/70'
+                  />
+                )}
+                {!loading && showTooltip && hoverSide === 'previous' && activeIndex != null ? (
                   <ComparisonTooltip
                     id={tooltipId}
                     kind={kind}
@@ -330,30 +354,38 @@ function SummaryCard ({
             <div className='space-y-2 border-border/70 sm:border-l sm:pl-4'>
               <div>
                 <p className='text-xs text-muted-foreground'>Mês atual</p>
-                <p className='text-xl font-semibold tabular-nums'>
-                  {summary
-                    ? formatMetric(
-                      kind === 'count' ? summary.current.count : summary.current.totalCents,
-                      kind,
-                    )
-                    : '...'}
-                </p>
+                {loading ? (
+                  <Skeleton className='mt-1 h-7 w-24' />
+                ) : (
+                  <p className='text-xl font-semibold tabular-nums'>
+                    {summary
+                      ? formatMetric(
+                        kind === 'count' ? summary.current.count : summary.current.totalCents,
+                        kind,
+                      )
+                      : formatMetric(0, kind)}
+                  </p>
+                )}
               </div>
               <div className='relative'>
-                <MonthBars
-                  days={currentDays.length > 0 ? currentDays : [{ day: 'curr', count: 0, totalCents: 0 }]}
-                  kind={kind}
-                  max={max}
-                  label={`${title}: mês atual`}
-                  activeIndex={hoverSide === 'current' ? hoverIndex : null}
-                  onHover={(index) => {
-                    setHoverSide('current')
-                    setHoverIndex(index)
-                  }}
-                  onLeave={() => {}}
-                  barClassName='bg-primary/80'
-                />
-                {showTooltip && hoverSide === 'current' && activeIndex != null ? (
+                {loading ? (
+                  <ChartBarsSkeleton />
+                ) : (
+                  <MonthBars
+                    days={currentDays.length > 0 ? currentDays : [{ day: 'curr', count: 0, totalCents: 0 }]}
+                    kind={kind}
+                    max={max}
+                    label={`${title}: mês atual`}
+                    activeIndex={hoverSide === 'current' ? hoverIndex : null}
+                    onHover={(index) => {
+                      setHoverSide('current')
+                      setHoverIndex(index)
+                    }}
+                    onLeave={() => {}}
+                    barClassName='bg-primary/80'
+                  />
+                )}
+                {!loading && showTooltip && hoverSide === 'current' && activeIndex != null ? (
                   <ComparisonTooltip
                     id={tooltipId}
                     kind={kind}
@@ -523,12 +555,25 @@ function ShippingBoard ({
             {card.footerLabel && card.footerCount > 0 ? (
               <button
                 type='button'
-                onClick={() => onCardSelect('canceled')}
+                onClick={() => onCardSelect(card.footerLane || card.lane)}
                 className='mt-3 flex w-full items-center justify-between gap-2 rounded-md px-1 py-1 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/50'
               >
                 <span>{card.footerLabel}</span>
-                <span className='inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500/15 px-1 text-xs font-semibold text-rose-700 dark:text-rose-300'>
+                <span className='inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-sky-600/15 px-1 text-xs font-semibold text-sky-800 dark:text-sky-300'>
                   {card.footerCount}
+                </span>
+              </button>
+            ) : null}
+
+            {card.canceledLabel && card.canceledCount > 0 ? (
+              <button
+                type='button'
+                onClick={() => onCardSelect('dont_ship')}
+                className='mt-1.5 flex w-full items-center justify-between gap-2 rounded-md px-1 py-1 text-left text-sm text-foreground transition-colors hover:bg-muted/50'
+              >
+                <span className='font-medium'>{card.canceledLabel}</span>
+                <span className='inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-rose-500/15 px-1 text-xs font-semibold text-rose-800 dark:text-rose-300'>
+                  {card.canceledCount}
                 </span>
               </button>
             ) : null}
@@ -540,7 +585,7 @@ function ShippingBoard ({
 }
 
 function tabFromLane (lane: SalesLane): MeliShippingTabId {
-  if (lane === 'preparing' || lane === 'flex') return 'today'
+  if (lane === 'preparing' || lane === 'flex' || lane === 'dont_ship') return 'today'
   if (lane === 'pending_shipment') return 'upcoming'
   if (lane === 'shipped') return 'transit'
   if (lane === 'canceled') return 'finished'
@@ -559,56 +604,81 @@ export function VendasRealizadasHeader ({
   onToggleFilters: () => void
 }) {
   const [summary, setSummary] = useState<Summary | null>(null)
+  const [summaryLoading, setSummaryLoading] = useState(true)
   const [shippingBoard, setShippingBoard] = useState<MeliShippingBoard | null>(null)
   const [showShippingBoard, setShowShippingBoard] = useState(false)
   const [shippingLoading, setShippingLoading] = useState(true)
   const [shippingTab, setShippingTab] = useState<MeliShippingTabId>(() => tabFromLane(lane))
 
   useEffect(() => {
+    // Canceladas / não enviar filtram a lista, mas o painel permanece em Hoje/Próximos dias.
+    if (lane === 'canceled' || lane === 'dont_ship') return
     setShippingTab(tabFromLane(lane))
   }, [lane])
 
   useEffect(() => {
     let cancelled = false
-    async function load () {
-      setShippingLoading(true)
-      const res = await portalFetch('/api/portal/sales-orders/summary')
-      const data = await res?.json().catch(() => null)
-      if (cancelled) return
-      if (!data?.ok) {
-        setShippingLoading(false)
-        return
+
+    async function loadCharts () {
+      setSummaryLoading(true)
+      try {
+        const res = await portalFetch('/api/portal/sales-orders/summary/charts')
+        const data = await res?.json().catch(() => null)
+        if (cancelled) return
+        if (!data?.ok) {
+          setSummary(null)
+          return
+        }
+        const previousDays = Array.isArray(data.previous?.days) ? data.previous.days : []
+        const currentDays = Array.isArray(data.current?.days) ? data.current.days : []
+        setSummary({
+          current: {
+            count: Number(data.current?.count) || 0,
+            totalCents: Number(data.current?.totalCents) || 0,
+            days: currentDays,
+            startDate: data.current?.startDate,
+            endDate: data.current?.endDate,
+            label: data.current?.label,
+          },
+          previous: {
+            count: Number(data.previous?.count) || 0,
+            totalCents: Number(data.previous?.totalCents) || 0,
+            days: previousDays,
+            startDate: data.previous?.startDate,
+            endDate: data.previous?.endDate,
+            label: data.previous?.label,
+          },
+        })
+      } finally {
+        if (!cancelled) setSummaryLoading(false)
       }
-      const previousDays = Array.isArray(data.previous?.days) ? data.previous.days : []
-      const currentDays = Array.isArray(data.current?.days) ? data.current.days : []
-      setSummary({
-        current: {
-          count: Number(data.current?.count) || 0,
-          totalCents: Number(data.current?.totalCents) || 0,
-          days: currentDays,
-          startDate: data.current?.startDate,
-          endDate: data.current?.endDate,
-          label: data.current?.label,
-        },
-        previous: {
-          count: Number(data.previous?.count) || 0,
-          totalCents: Number(data.previous?.totalCents) || 0,
-          days: previousDays,
-          startDate: data.previous?.startDate,
-          endDate: data.previous?.endDate,
-          label: data.previous?.label,
-        },
-      })
-      const showBoard = data.showShippingBoard === true
-      setShowShippingBoard(showBoard)
-      if (showBoard && data.shippingBoard?.tabs && data.shippingBoard?.cardsByTab) {
-        setShippingBoard(data.shippingBoard as MeliShippingBoard)
-      } else {
-        setShippingBoard(null)
-      }
-      setShippingLoading(false)
     }
-    void load()
+
+    async function loadShippingBoard () {
+      setShippingLoading(true)
+      try {
+        const res = await portalFetch('/api/portal/sales-orders/summary/shipping-board')
+        const data = await res?.json().catch(() => null)
+        if (cancelled) return
+        if (!data?.ok) {
+          setShowShippingBoard(false)
+          setShippingBoard(null)
+          return
+        }
+        const showBoard = data.showShippingBoard === true
+        setShowShippingBoard(showBoard)
+        if (showBoard && data.shippingBoard?.tabs && data.shippingBoard?.cardsByTab) {
+          setShippingBoard(data.shippingBoard as MeliShippingBoard)
+        } else {
+          setShippingBoard(null)
+        }
+      } finally {
+        if (!cancelled) setShippingLoading(false)
+      }
+    }
+
+    void loadCharts()
+    void loadShippingBoard()
     return () => {
       cancelled = true
     }
@@ -621,15 +691,17 @@ export function VendasRealizadasHeader ({
           title='Vendas aprovadas (qtd)'
           kind='count'
           summary={summary}
+          loading={summaryLoading}
         />
         <SummaryCard
           title='Vendas aprovadas (R$)'
           kind='money'
           summary={summary}
+          loading={summaryLoading}
         />
       </div>
 
-      {showShippingBoard ? (
+      {(showShippingBoard || shippingLoading) ? (
         <Card className='overflow-visible border-0 bg-muted/50 shadow-none'>
           <CardContent className='space-y-3 p-4'>
             <ShippingBoard

@@ -5,19 +5,31 @@ import {
 	getMeliItem,
 	getMeliOrder,
 	getMeliShipment,
+	getMeliShipmentCosts,
 	loadMeliUserProductStockById,
 	type HubConnection,
 	pickMeliClaimForDisplay,
 	searchMeliClaimsByOrderId,
 } from '@/lib/integrations/mercado-livre/api'
 import { persistMeliFulfillment } from '@/lib/integrations/mercado-livre/fulfillment'
-import { stockFromMeliLocations } from '@/lib/integrations/mercado-livre/listing-display'
+import {
+	stockFromMeliItem,
+	stockFromMeliLocations,
+} from '@/lib/integrations/mercado-livre/listing-display'
+import {
+	meliOrderItemDiscountCents,
+	meliSaleDisplayFromPayloads,
+} from '@/lib/vendas/meli-sale-display'
 import {
 	parseMeliOrderItemRef,
 	resolveMeliProductId,
 } from '@/lib/integrations/mercado-livre/product-resolve'
 import { userProductIdFromMeliItem } from '@/lib/integrations/mercado-livre/listing-variations'
-import { meliLogisticTypeFromShipment } from '@/lib/vendas/sales-lane'
+import {
+	isMeliOpenFulfillmentStage,
+	meliLogisticTypeFromShipment,
+	resolveMeliFulfillmentStage,
+} from '@/lib/vendas/sales-lane'
 import { extractMeliOrderIdFromResource } from '@/lib/integrations/mercado-livre/webhooks'
 import {
 	cancelSalesOrder,
@@ -377,8 +389,114 @@ async function resolveUserProductIdForMlItem(params: {
 }
 
 /**
- * Consulta o estoque Full (meli_facility) no momento do sync.
- * Esse valor já é o disponível após a venda e fica gravado no item.
+ * Remanescente Full após a venda.
+ * Estoque atual no CD + unidades Full vendidas depois desta compra.
+ * Ex.: 10 → vende 1 → 9; próxima venda → 8.
+ */
+export function remanescenteFullAfterSale(
+	currentFullStock: number,
+	laterFullSoldQty: number,
+): number {
+	const current = Math.max(0, Math.round(Number(currentFullStock) || 0))
+	const later = Math.max(0, Math.round(Number(laterFullSoldQty) || 0))
+	return current + later
+}
+
+type LaterFullSaleLine = {
+	productId: string
+	orderId: string
+	createdAt: string
+	quantity: number
+}
+
+/**
+ * Carrega vendas Full (não canceladas) dos produtos após `afterCreatedAt`
+ * para reconstruir o remanescente histórico.
+ */
+export async function loadLaterFullSaleLines(params: {
+	supabase: ServiceClient
+	organizationId: string
+	productIds: string[]
+	afterCreatedAt: string
+}): Promise<LaterFullSaleLine[]> {
+	const productIds = [...new Set(
+		params.productIds.map((id) => String(id || '').trim()).filter(Boolean),
+	)]
+	const afterCreatedAt = String(params.afterCreatedAt || '').trim()
+	if (productIds.length === 0 || !afterCreatedAt) return []
+
+	const { data, error } = await params.supabase
+		.from('sales_order_items')
+		.select(`
+			product_id,
+			quantity,
+			sales_order_id,
+			sales_orders!inner (
+				id,
+				created_at,
+				status,
+				ml_logistic_type
+			)
+		`)
+		.eq('organization_id', params.organizationId)
+		.in('product_id', productIds)
+		.eq('sales_orders.ml_logistic_type', 'fulfillment')
+		.neq('sales_orders.status', 'canceled')
+		.gt('sales_orders.created_at', afterCreatedAt)
+		.limit(2000)
+
+	if (error) {
+		console.error('[meli later full sales]', error.message)
+		return []
+	}
+
+	const out: LaterFullSaleLine[] = []
+	for (const row of data ?? []) {
+		const orderRaw = (row as {
+			sales_orders?: Record<string, unknown> | Record<string, unknown>[] | null
+		}).sales_orders
+		const order = Array.isArray(orderRaw) ? orderRaw[0] : orderRaw
+		const productId = String((row as { product_id?: string }).product_id || '').trim()
+		const orderId = String(
+			(row as { sales_order_id?: string }).sales_order_id
+			|| order?.id
+			|| '',
+		).trim()
+		const createdAt = String(order?.created_at || '').trim()
+		const quantity = Math.max(
+			0,
+			Math.round(Number((row as { quantity?: number }).quantity) || 0),
+		)
+		if (!productId || !orderId || !createdAt || quantity <= 0) continue
+		out.push({ productId, orderId, createdAt, quantity })
+	}
+	return out
+}
+
+export function laterFullSoldQtyForSale(params: {
+	lines: LaterFullSaleLine[]
+	productId: string
+	orderId: string
+	createdAt: string
+}): number {
+	const productId = String(params.productId || '').trim()
+	const orderId = String(params.orderId || '').trim()
+	const createdAt = String(params.createdAt || '').trim()
+	if (!productId || !createdAt) return 0
+	let total = 0
+	for (const line of params.lines) {
+		if (line.productId !== productId) continue
+		if (orderId && line.orderId === orderId) continue
+		if (line.createdAt <= createdAt) continue
+		total += line.quantity
+	}
+	return total
+}
+
+/**
+ * Consulta o estoque Full (meli_facility) e grava o remanescente após esta venda.
+ * No sync recente o estoque atual já é o pós-venda; se o pedido é antigo,
+ * soma as unidades Full vendidas depois para reconstruir o histórico (10→9→8).
  */
 async function attachMeliFullStockAfterSale(params: {
 	supabase: ServiceClient
@@ -386,22 +504,28 @@ async function attachMeliFullStockAfterSale(params: {
 	connection: HubConnection
 	order: Record<string, unknown>
 	items: Array<SalesOrderItemInput & { mlItemId?: string | null }>
+	/** Quando o banco/shipment já confirmou FULL (order.shipping pode ainda não ter). */
+	knownLogisticType?: string | null
+	/** Pedido já persistido (backfill): exclui a si nas vendas posteriores. */
+	excludeOrderId?: string | null
 }): Promise<SalesOrderItemInput[]> {
-	const logistic = meliLogisticTypeFromShipment({
-		shipping: params.order.shipping,
-		shipment: null,
-		tags: params.order.tags,
-	})
+	const logistic = String(params.knownLogisticType || '').trim().toLowerCase()
+		|| meliLogisticTypeFromShipment({
+			shipping: params.order.shipping,
+			shipment: null,
+			tags: params.order.tags,
+		})
 	if (logistic !== 'fulfillment') {
 		return params.items.map(({ mlItemId: _mlItemId, ...item }) => item)
 	}
 
-	const userProductIds: string[] = []
 	const userProductByIndex = new Map<number, string>()
+	const mlItemByIndex = new Map<number, string>()
 	await Promise.all(
 		params.items.map(async (item, index) => {
 			const mlItemId = String(item.mlItemId || '').trim()
 			if (!mlItemId) return
+			mlItemByIndex.set(index, mlItemId)
 			const userProductId = await resolveUserProductIdForMlItem({
 				supabase: params.supabase,
 				organizationId: params.organizationId,
@@ -409,34 +533,151 @@ async function attachMeliFullStockAfterSale(params: {
 				mlItemId,
 			})
 			if (!userProductId) return
-			userProductIds.push(userProductId)
 			userProductByIndex.set(index, userProductId)
 		}),
 	)
 
-	if (userProductByIndex.size === 0) {
-		return params.items.map(({ mlItemId: _mlItemId, ...item }) => item)
-	}
+	const userProductIds = [...new Set(userProductByIndex.values())]
+	const locationsByUserProduct = userProductIds.length > 0
+		? await loadMeliUserProductStockById(
+			params.connection,
+			userProductIds,
+			params.supabase,
+		)
+		: new Map<string, unknown>()
 
-	const locationsByUserProduct = await loadMeliUserProductStockById(
-		params.connection,
-		userProductIds,
-		params.supabase,
+	const stockByIndex = new Map<number, number>()
+	await Promise.all(
+		params.items.map(async (_item, index) => {
+			const userProductId = userProductByIndex.get(index)
+			if (userProductId) {
+				const locations = locationsByUserProduct.get(userProductId)
+				const fromLocations = locations != null
+					? stockFromMeliLocations(locations).stock_full
+					: null
+				if (fromLocations != null) {
+					stockByIndex.set(index, Math.max(0, Math.round(fromLocations)))
+					return
+				}
+			}
+			const mlItemId = mlItemByIndex.get(index)
+			if (!mlItemId) return
+			try {
+				const meliItem = await getMeliItem(
+					params.connection,
+					mlItemId,
+					params.supabase,
+				)
+				const fromItem = stockFromMeliItem(meliItem).stock_full
+				if (fromItem != null) {
+					stockByIndex.set(index, Math.max(0, Math.round(fromItem)))
+				}
+			} catch {
+				// Mantém sem snapshot; a listagem pode tentar de novo.
+			}
+		}),
 	)
+
+	const orderCreatedAt =
+		trimText(params.order.date_created)
+		|| trimText(params.order.date_closed)
+		|| null
+	const productIds = params.items
+		.map((item) => String(item.product_id || '').trim())
+		.filter(Boolean)
+	const laterLines = orderCreatedAt && productIds.length > 0
+		? await loadLaterFullSaleLines({
+			supabase: params.supabase,
+			organizationId: params.organizationId,
+			productIds,
+			afterCreatedAt: orderCreatedAt,
+		})
+		: []
+	const excludeOrderId = String(params.excludeOrderId || '').trim()
 
 	return params.items.map((item, index) => {
 		const { mlItemId: _mlItemId, ...rest } = item
-		const userProductId = userProductByIndex.get(index)
-		if (!userProductId) return rest
-		const locations = locationsByUserProduct.get(userProductId)
-		if (locations == null) return rest
-		const stockFull = stockFromMeliLocations(locations).stock_full
-		if (stockFull == null) return rest
+		const currentFull = stockByIndex.get(index)
+		if (currentFull == null) return rest
+		const laterQty = orderCreatedAt
+			? laterFullSoldQtyForSale({
+				lines: laterLines,
+				productId: item.product_id,
+				orderId: excludeOrderId,
+				createdAt: orderCreatedAt,
+			})
+			: 0
 		return {
 			...rest,
-			stock_after_sale: Math.max(0, Math.round(stockFull)),
+			stock_after_sale: remanescenteFullAfterSale(currentFull, laterQty),
 		}
 	})
+}
+
+/** Resolve estoque Full atual por anúncio MELI (para listagem / backfill). */
+export async function resolveMeliFullStockByMlItemIds(params: {
+	supabase: ServiceClient
+	organizationId: string
+	connection: HubConnection
+	mlItemIds: string[]
+}): Promise<Map<string, number>> {
+	const unique = [...new Set(
+		params.mlItemIds.map((id) => String(id || '').trim()).filter(Boolean),
+	)]
+	const out = new Map<string, number>()
+	if (unique.length === 0) return out
+
+	const userProductByMlItem = new Map<string, string>()
+	await Promise.all(
+		unique.map(async (mlItemId) => {
+			const userProductId = await resolveUserProductIdForMlItem({
+				supabase: params.supabase,
+				organizationId: params.organizationId,
+				connection: params.connection,
+				mlItemId,
+			})
+			if (userProductId) userProductByMlItem.set(mlItemId, userProductId)
+		}),
+	)
+
+	const locationsByUserProduct = userProductByMlItem.size > 0
+		? await loadMeliUserProductStockById(
+			params.connection,
+			[...new Set(userProductByMlItem.values())],
+			params.supabase,
+		)
+		: new Map<string, unknown>()
+
+	await Promise.all(
+		unique.map(async (mlItemId) => {
+			const userProductId = userProductByMlItem.get(mlItemId)
+			if (userProductId) {
+				const locations = locationsByUserProduct.get(userProductId)
+				const fromLocations = locations != null
+					? stockFromMeliLocations(locations).stock_full
+					: null
+				if (fromLocations != null) {
+					out.set(mlItemId, Math.max(0, Math.round(fromLocations)))
+					return
+				}
+			}
+			try {
+				const meliItem = await getMeliItem(
+					params.connection,
+					mlItemId,
+					params.supabase,
+				)
+				const fromItem = stockFromMeliItem(meliItem).stock_full
+				if (fromItem != null) {
+					out.set(mlItemId, Math.max(0, Math.round(fromItem)))
+				}
+			} catch {
+				// ignore
+			}
+		}),
+	)
+
+	return out
 }
 
 async function mapOrderItems(params: {
@@ -466,10 +707,13 @@ async function mapOrderItems(params: {
 		})
 		const quantity = Math.max(1, Math.round(Number(row.quantity) || 1))
 		const unitPriceCents = reaisToCents(row.unit_price ?? row.full_unit_price)
+		const discount = meliOrderItemDiscountCents(row)
 		drafted.push({
 			product_id: productId,
 			quantity,
 			unit_price_cents: unitPriceCents,
+			ml_discount_total_cents: discount.totalCents > 0 ? discount.totalCents : null,
+			ml_discount_seller_cents: discount.sellerCents > 0 ? discount.sellerCents : null,
 			mlItemId: itemRef?.itemId ?? null,
 		})
 	}
@@ -573,7 +817,13 @@ export async function upsertSalesOrderFromMeliOrder(params: {
 		const currentItems = await listSalesOrderItems(auth, existing.id)
 		if (!currentItems.ok) throw new Error('meli_order_items_load_failed')
 		let itemsUpdated = false
-		if (!sameMeliItems(currentItems.items, canonicalItems)) {
+		const missingPromoDiscount = canonicalItems.some((item) => (
+			(item.ml_discount_total_cents ?? 0) > 0
+		)) && currentItems.items.some((item) => {
+			const row = item as { ml_discount_total_cents?: number | null }
+			return row.ml_discount_total_cents == null
+		})
+		if (!sameMeliItems(currentItems.items, canonicalItems) || missingPromoDiscount) {
 			itemsUpdated = true
 			const repaired = await updateSalesOrderDraft(
 				auth,
@@ -740,6 +990,16 @@ function canonicalizeMeliItems(
 					item.stock_after_sale,
 				)
 			}
+			const nextTotal = item.ml_discount_total_cents
+			if (nextTotal != null && nextTotal > 0) {
+				previous.ml_discount_total_cents =
+					(previous.ml_discount_total_cents ?? 0) + nextTotal
+			}
+			const nextSeller = item.ml_discount_seller_cents
+			if (nextSeller != null && nextSeller > 0) {
+				previous.ml_discount_seller_cents =
+					(previous.ml_discount_seller_cents ?? 0) + nextSeller
+			}
 		} else {
 			grouped.set(key, { ...item })
 		}
@@ -798,15 +1058,23 @@ async function backfillMissingMeliStockAfterSale(params: {
 	)
 
 	const drafted: Array<SalesOrderItemInput & { mlItemId?: string | null }> =
-		listed.items.map((item) => ({
-			product_id: item.product_id,
-			quantity: item.quantity,
-			unit_price_cents: item.unit_price_cents,
-			unit_cost_cents: item.unit_cost_cents ?? 0,
-			discount_cents: item.discount_cents ?? 0,
-			stock_after_sale: item.stock_after_sale ?? null,
-			mlItemId: mlItemByProductId.get(item.product_id) ?? null,
-		}))
+		listed.items.map((item) => {
+			const row = item as {
+				ml_discount_total_cents?: number | null
+				ml_discount_seller_cents?: number | null
+			}
+			return {
+				product_id: item.product_id,
+				quantity: item.quantity,
+				unit_price_cents: item.unit_price_cents,
+				unit_cost_cents: item.unit_cost_cents ?? 0,
+				discount_cents: item.discount_cents ?? 0,
+				stock_after_sale: item.stock_after_sale ?? null,
+				ml_discount_total_cents: row.ml_discount_total_cents ?? null,
+				ml_discount_seller_cents: row.ml_discount_seller_cents ?? null,
+				mlItemId: mlItemByProductId.get(item.product_id) ?? null,
+			}
+		})
 
 	const enriched = await attachMeliFullStockAfterSale({
 		supabase: params.supabase,
@@ -814,18 +1082,27 @@ async function backfillMissingMeliStockAfterSale(params: {
 		connection: params.connection,
 		order: params.order,
 		items: drafted,
+		knownLogisticType: 'fulfillment',
+		excludeOrderId: params.salesOrderId,
 	})
-	if (!enriched.some((item) => item.stock_after_sale != null)) return
+	const withStock = enriched.filter((item) => item.stock_after_sale != null)
+	if (withStock.length === 0) return
 
-	const repaired = await updateSalesOrderDraft(
-		params.auth,
-		params.salesOrderId,
-		{},
-		canonicalizeMeliItems(enriched),
+	// Atualiza só o snapshot: evita replace de itens em pedido pago (reversão de estoque).
+	await Promise.all(
+		withStock.map(async (item) => {
+			const { error } = await params.supabase
+				.from('sales_order_items')
+				.update({ stock_after_sale: item.stock_after_sale })
+				.eq('organization_id', params.organizationId)
+				.eq('sales_order_id', params.salesOrderId)
+				.eq('product_id', item.product_id)
+				.is('stock_after_sale', null)
+			if (error) {
+				console.error('[meli stock_after_sale backfill]', error.message)
+			}
+		}),
 	)
-	if (repaired.ok === false) {
-		console.error('[meli stock_after_sale backfill]', repaired.error)
-	}
 }
 
 function sameMeliItems(
@@ -940,13 +1217,23 @@ async function attachMeliFulfillment(params: {
 	const shipping = asRecord(params.order.shipping)
 	const shipmentId = trimText(shipping?.id)
 	let shipment: Record<string, unknown> | null = null
+	let costs: Record<string, unknown> | null = null
 	if (shipmentId) {
 		try {
-			shipment = await getMeliShipment(
-				params.connection,
-				shipmentId,
-				params.supabase,
-			)
+			const [shipmentRow, costsRow] = await Promise.all([
+				getMeliShipment(
+					params.connection,
+					shipmentId,
+					params.supabase,
+				).catch(() => null),
+				getMeliShipmentCosts(
+					params.connection,
+					shipmentId,
+					params.supabase,
+				).catch(() => null),
+			])
+			shipment = shipmentRow
+			costs = costsRow
 		} catch (err) {
 			const message = err instanceof Error ? err.message : 'unknown_error'
 			console.error('[meli shipment]', message)
@@ -970,6 +1257,12 @@ async function attachMeliFulfillment(params: {
 			).catch(() => [])
 		: []
 	const claim = pickMeliClaimForDisplay(claims)
+	const sale = meliSaleDisplayFromPayloads({
+		order: params.order,
+		shipment,
+		costs,
+		sla: null,
+	})
 
 	await persistMeliFulfillment({
 		supabase: params.supabase,
@@ -978,6 +1271,10 @@ async function attachMeliFulfillment(params: {
 		order: params.order,
 		shipment,
 		claimStatus: claim?.status ?? null,
+		shippingMethod: sale.shippingMethodName,
+		saleFeeCents: sale.saleFeeCents ?? 0,
+		shippingGrossCents: sale.shippingGrossCents ?? 0,
+		shippingRefundCents: sale.shippingRefundCents ?? 0,
 	})
 
 	const auth: AuthCtx = {
@@ -1137,4 +1434,112 @@ export function orderIdFromMeliResource(
 	resource: string | null | undefined,
 ): string | null {
 	return extractMeliOrderIdFromResource(resource)
+}
+
+type ShippingBoardCancelRow = {
+	id?: string | null
+	status?: string | null
+	ml_order_id?: string | null
+	ml_fulfillment_stage?: string | null
+	ml_shipment_status?: string | null
+	ml_shipment_substatus?: string | null
+}
+
+/**
+ * Pedidos ainda "paid" no banco, mas cancelados no MELI: cancela localmente
+ * para o painel/lista de canceladas refletirem (ex.: não enviar).
+ */
+export async function reconcileOpenMeliCancelsForShippingBoard<T extends ShippingBoardCancelRow>(params: {
+	supabase: ServiceClient
+	organizationId: string
+	rows: T[]
+	limit?: number
+}): Promise<T[]> {
+	const connection = await getMeliConnectionByOrganizationId(
+		params.supabase,
+		params.organizationId,
+	)
+	if (!connection) return params.rows
+
+	const openPaid = params.rows.filter((row) => {
+		const status = String(row.status || '').trim().toLowerCase()
+		if (status !== 'paid') return false
+		const mlOrderId = String(row.ml_order_id || '').trim()
+		if (!mlOrderId) return false
+		const shipStatus = String(row.ml_shipment_status || '').trim().toLowerCase()
+		if (shipStatus === 'cancelled' || shipStatus === 'canceled') return false
+		const stage = resolveMeliFulfillmentStage({
+			ml_fulfillment_stage: row.ml_fulfillment_stage,
+			ml_shipment_status: row.ml_shipment_status,
+			ml_shipment_substatus: row.ml_shipment_substatus,
+		})
+		return isMeliOpenFulfillmentStage(stage)
+	}).slice(0, Math.min(20, Math.max(1, Math.trunc(params.limit ?? 12))))
+
+	if (openPaid.length === 0) return params.rows
+
+	const actorUserId = await resolveActorUserId(
+		params.supabase,
+		params.organizationId,
+		connection,
+	)
+	const auth: AuthCtx = {
+		organizationId: params.organizationId,
+		userId: actorUserId,
+		supabase: params.supabase,
+	}
+
+	const canceledIds = new Set<string>()
+	let cursor = 0
+	async function worker () {
+		for (;;) {
+			const index = cursor
+			cursor += 1
+			const row = openPaid[index]
+			if (!row) return
+			const mlOrderId = String(row.ml_order_id || '').trim()
+			const salesOrderId = String(row.id || '').trim()
+			if (!mlOrderId || !salesOrderId) continue
+			try {
+				const order = await getMeliOrder(connection, mlOrderId, params.supabase)
+				if (mapMeliOrderStatus(order) !== 'canceled') continue
+				const canceled = await cancelSalesOrder(
+					auth,
+					salesOrderId,
+					'Cancelado no Mercado Livre',
+				)
+				if (canceled.ok === false && canceled.error !== 'already_canceled') {
+					console.error('[meli board cancel]', canceled.error)
+					continue
+				}
+				canceledIds.add(salesOrderId)
+				await attachMeliFulfillment({
+					supabase: params.supabase,
+					organizationId: params.organizationId,
+					userId: actorUserId,
+					connection,
+					salesOrderId,
+					order,
+				})
+			} catch (err) {
+				const message = err instanceof Error ? err.message : 'unknown_error'
+				console.error('[meli board cancel]', mlOrderId, message)
+			}
+		}
+	}
+
+	await Promise.all(
+		Array.from({ length: Math.min(4, openPaid.length) }, () => worker()),
+	)
+
+	if (canceledIds.size === 0) return params.rows
+	return params.rows.map((row) => {
+		const id = String(row.id || '').trim()
+		if (!id || !canceledIds.has(id)) return row
+		return {
+			...row,
+			status: 'canceled',
+			ml_shipment_status: row.ml_shipment_status || 'cancelled',
+		}
+	})
 }

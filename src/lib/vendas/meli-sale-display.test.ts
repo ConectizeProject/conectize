@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   meliLabelStatus,
+  meliOrderItemDiscountCents,
   meliSaleDisplayFromPayloads,
   saleExitAt,
   saleProfitBreakdown,
@@ -67,6 +68,21 @@ describe('meli sale display', () => {
       sla: null,
     })
     expect(display.saleFeeCents).toBe(520)
+  })
+
+  it('lê desconto promocional full/seller e fallback full_unit_price', () => {
+    expect(meliOrderItemDiscountCents({
+      quantity: 1,
+      unit_price: 22.99,
+      full_unit_price: 25.39,
+      discounts: [{ amounts: { full: 2.4, seller: 2.4 } }],
+    })).toEqual({ totalCents: 240, sellerCents: 240 })
+
+    expect(meliOrderItemDiscountCents({
+      quantity: 2,
+      unit_price: 20,
+      full_unit_price: 25,
+    })).toEqual({ totalCents: 1000, sellerCents: 1000 })
   })
 
   it('lê a data de disponibilidade da etiqueta no buffering', () => {

@@ -9,7 +9,7 @@ O schema deles **já está** no banco de produção (aplicado no passado via SQL
 ## Fluxo recomendado daqui pra frente
 
 1. Toda alteração nova → arquivo `supabase/migrations/20260521120000_descricao.sql`
-2. `npx supabase@2.20.12 db push` (remoto linkado) ou `--local` em dev
+2. `npx supabase@3.1.0 db push --remote` (cloud linkado) ou `npx supabase@3.1.0 db push` em local
 3. Se o cloud estiver à frente do histórico → `.\supabase\scripts\sync-migration-history.ps1` (uma vez após alinhar)
 
 ## Versões só no remoto (órfãs)
@@ -17,7 +17,7 @@ O schema deles **já está** no banco de produção (aplicado no passado via SQL
 Se o CLI listar versões no remoto que não existem na pasta local, use **uma vez**:
 
 ```powershell
-npx supabase@2.20.12 migration repair --status reverted 20240320000000 20240320000003 20240321000001 20250305214254
+npx supabase@3.1.0 migration repair --status reverted --remote 20240320000000 20240320000003 20240321000001 20250305214254
 ```
 
 Depois rode `sync-migration-history.ps1` (sem incluir essas versões — elas não são locais).

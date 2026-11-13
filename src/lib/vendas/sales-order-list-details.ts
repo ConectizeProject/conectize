@@ -18,6 +18,8 @@ export type SalesOrderListItem = {
   costTotalCents: number
   stockCurrent: number | null
   stockAfterSale: number | null
+  /** Snapshot Full MELI (sales_order_items.stock_after_sale). */
+  stockFullSnapshot: number | null
 }
 
 type OrderRef = {
@@ -76,6 +78,7 @@ export async function loadSalesOrderListPresentation (params: {
         quantity,
         unit_price_cents,
         unit_cost_cents,
+        stock_after_sale,
         products (
           name,
           sku,
@@ -91,12 +94,47 @@ export async function loadSalesOrderListPresentation (params: {
     (fiscalRes.data as { margin_tax_percent?: number | null } | null)?.margin_tax_percent,
   ) || 0
 
+  type ItemRow = {
+    sales_order_id?: string | null
+    product_id?: string | null
+    quantity?: number | null
+    unit_price_cents?: number | null
+    unit_cost_cents?: number | null
+    stock_after_sale?: number | null
+    products?: unknown
+  }
+  let itemRows: ItemRow[] = (itemsRes.data ?? []) as ItemRow[]
   if (itemsRes.error) {
-    console.error('[sales-orders items]', itemsRes.error.message)
-    return { marginTaxPercent, itemsByOrderId: empty.itemsByOrderId }
+    if (String(itemsRes.error.message || '').includes('stock_after_sale')) {
+      const fallback = await params.supabase
+        .from('sales_order_items')
+        .select(`
+          sales_order_id,
+          product_id,
+          quantity,
+          unit_price_cents,
+          unit_cost_cents,
+          products (
+            name,
+            sku,
+            image_url,
+            cost_price_cents
+          )
+        `)
+        .eq('organization_id', params.organizationId)
+        .in('sales_order_id', orderIds)
+      if (fallback.error) {
+        console.error('[sales-orders items]', fallback.error.message)
+        return { marginTaxPercent, itemsByOrderId: empty.itemsByOrderId }
+      }
+      itemRows = (fallback.data ?? []) as ItemRow[]
+    } else {
+      console.error('[sales-orders items]', itemsRes.error.message)
+      return { marginTaxPercent, itemsByOrderId: empty.itemsByOrderId }
+    }
   }
 
-  const rows = itemsRes.data ?? []
+  const rows = itemRows
   const productIds = [...new Set(rows.map((row) => String(row.product_id || '')).filter(Boolean))]
   const oldest = params.orders
     .map((order) => String(order.created_at || ''))
@@ -176,6 +214,10 @@ export async function loadSalesOrderListPresentation (params: {
       lineUnitCostCents: toInt(row.unit_cost_cents),
       productCostCents: product?.cost_price_cents,
     })
+    const snapshotRaw = (row as { stock_after_sale?: number | null }).stock_after_sale
+    const stockFullSnapshot = snapshotRaw == null
+      ? null
+      : Math.max(0, toInt(snapshotRaw))
     const item: SalesOrderListItem = {
       productId,
       name: String(product?.name || '').trim() || 'Produto não vinculado',
@@ -188,6 +230,7 @@ export async function loadSalesOrderListPresentation (params: {
       costTotalCents: (unitCostCents ?? 0) * quantity,
       stockCurrent,
       stockAfterSale: after,
+      stockFullSnapshot,
     }
     const list = itemsByOrderId.get(orderId) ?? []
     list.push(item)

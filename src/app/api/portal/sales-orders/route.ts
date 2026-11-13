@@ -8,7 +8,6 @@ import {
 } from '@/lib/sales-orders/service'
 import { getOpenCashSession } from '@/lib/pdv/service'
 import { vendasListPage, vendasListRange } from '@/lib/vendas/list-pagination'
-import { withLiveMeliFulfillment } from '@/lib/integrations/mercado-livre/fulfillment'
 import {
   fulfillmentStagesForLane,
   laneExcludesMeliFull,
@@ -21,7 +20,7 @@ import { loadSalesOrderListPresentation, orderTaxCents } from '@/lib/vendas/sale
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const ORDER_COLUMNS = 'id, order_number, status, seller_user_id, customer_name, customer_type, customer_document, subtotal_cents, discount_total_cents, total_cents, paid_amount_cents, change_cents, cash_session_id, bling_pedido_id, bling_nfce_id, created_at, updated_at, ml_order_id, ml_pack_id'
-const FULFILLMENT_COLUMNS = `${ORDER_COLUMNS}, ml_shipment_status, ml_shipment_substatus, ml_logistic_type, ml_fulfillment_stage, ml_shipment_id, ml_claim_status, ml_label_available_at, ml_posting_deadline, ml_shipping_method`
+const FULFILLMENT_COLUMNS = `${ORDER_COLUMNS}, ml_shipment_status, ml_shipment_substatus, ml_logistic_type, ml_fulfillment_stage, ml_shipment_id, ml_claim_status, ml_label_available_at, ml_posting_deadline, ml_shipping_method, ml_sale_fee_cents, ml_shipping_gross_cents, ml_shipping_refund_cents`
 
 function missingFulfillmentColumn (message: string | undefined) {
   const text = String(message || '')
@@ -36,6 +35,13 @@ function missingFulfillmentColumn (message: string | undefined) {
     || text.includes('ml_posting_deadline')
     || text.includes('ml_shipping_method')
 }
+
+function missingMeliFeeColumn (message: string | undefined) {
+  return /ml_sale_fee_cents|ml_shipping_gross_cents|ml_shipping_refund_cents/i
+    .test(String(message || ''))
+}
+
+const FULFILLMENT_COLUMNS_WITHOUT_FEES = `${ORDER_COLUMNS}, ml_shipment_status, ml_shipment_substatus, ml_logistic_type, ml_fulfillment_stage, ml_shipment_id, ml_claim_status, ml_label_available_at, ml_posting_deadline, ml_shipping_method`
 
 export const maxDuration = 60
 
@@ -74,6 +80,7 @@ export async function GET (request: NextRequest) {
   const laneNeedsReadyDay = lane === 'flex'
     || lane === 'preparing'
     || lane === 'pending_shipment'
+    || lane === 'dont_ship'
 
   function buildOrdersQuery (columns: string, options?: { deferPagination?: boolean }) {
     let query = staffAuth.supabase
@@ -146,8 +153,17 @@ export async function GET (request: NextRequest) {
       next = next.lte('created_at', brazilDayRangeUtc(to).endIso)
     }
     if (sellerUserId) next = next.eq('seller_user_id', sellerUserId)
-    if (lane === 'canceled') next = next.eq('status', 'canceled')
-    else if (lane === 'all' || mlOrder) {
+    if (lane === 'canceled') {
+      next = next.eq('status', 'canceled')
+    } else if (lane === 'dont_ship') {
+      // Canceladas MELI do dia (não enviar): exclui FULL; recorte fino em memória.
+      next = next
+        .not('ml_order_id', 'is', null)
+        .or(
+          'status.eq.canceled,ml_shipment_status.eq.cancelled,ml_shipment_status.eq.canceled',
+        )
+        .or('ml_logistic_type.is.null,ml_logistic_type.neq.fulfillment')
+    } else if (lane === 'all' || mlOrder) {
       // Canceladas entram em "Todas" e na busca por pedido MELI.
       next = next.in('status', ['paid', 'canceled'])
     } else if (lane === 'flex' || lane === 'preparing' || lane === 'shipped' || lane === 'pending_shipment') {
@@ -156,10 +172,8 @@ export async function GET (request: NextRequest) {
         .eq('status', 'paid')
         .not('ml_order_id', 'is', null)
         .in('ml_fulfillment_stage', stages)
-      if (lane === 'flex') {
-        next = next.eq('ml_logistic_type', 'self_service')
-      } else if (laneExcludesMeliFull(lane)) {
-        // Mantém null/outros tipos; só tira FULL (logística do ML).
+      if (laneExcludesMeliFull(lane)) {
+        // Flex também filtra em memória (Prioritario / self_service); só tira FULL.
         next = next.or('ml_logistic_type.is.null,ml_logistic_type.neq.fulfillment')
       }
     } else if (status) next = next.eq('status', status)
@@ -201,15 +215,21 @@ export async function GET (request: NextRequest) {
     || lane === 'preparing'
     || lane === 'shipped'
     || lane === 'pending_shipment'
+    || lane === 'dont_ship'
 
   let classifyLaneInMemory = laneNeedsReadyDay
   let listed = await filteredQuery(FULFILLMENT_COLUMNS, {
     deferPagination: laneNeedsReadyDay,
   })
+  if (listed.error && missingMeliFeeColumn(listed.error.message)) {
+    listed = await filteredQuery(FULFILLMENT_COLUMNS_WITHOUT_FEES, {
+      deferPagination: laneNeedsReadyDay,
+    })
+  }
   if (listed.error && missingFulfillmentColumn(listed.error.message)) {
     classifyLaneInMemory = laneNeedsFulfillment
     listed = laneNeedsFulfillment
-      ? await recentMarketplaceQuery(FULFILLMENT_COLUMNS)
+      ? await recentMarketplaceQuery(FULFILLMENT_COLUMNS_WITHOUT_FEES)
       : await filteredQuery(ORDER_COLUMNS)
   }
   if (listed.error) {
@@ -220,11 +240,6 @@ export async function GET (request: NextRequest) {
 
   let orders = (data ?? []) as unknown as ListedOrder[]
   let total = count ?? orders.length
-  orders = await withLiveMeliFulfillment({
-    supabase: auth.supabase,
-    organizationId: auth.organizationId,
-    orders,
-  })
   if (classifyLaneInMemory && lane) {
     const matched = orders.filter((order) => orderMatchesSalesLane(order, lane))
     total = matched.length
@@ -284,17 +299,21 @@ export async function GET (request: NextRequest) {
         nfe_status: nfe?.status ?? null,
         nfe_document_id: nfe?.id ?? null,
         tax_cents: orderTaxCents(Number(order.total_cents) || 0, presentation?.marginTaxPercent ?? 0),
-        items: items.map((item) => ({
-          product_id: item.productId,
-          name: item.name,
-          sku: item.sku,
-          image_url: item.imageUrl,
-          quantity: item.quantity,
-          unit_price_cents: item.unitPriceCents,
-          cost_total_cents: item.costTotalCents,
-          stock_current: item.stockCurrent,
-          stock_after_sale: item.stockAfterSale,
-        })),
+        items: items.map((item) => {
+          const isFull = String(order.ml_logistic_type || '').trim().toLowerCase() === 'fulfillment'
+          return {
+            product_id: item.productId,
+            name: item.name,
+            sku: item.sku,
+            image_url: item.imageUrl,
+            quantity: item.quantity,
+            unit_price_cents: item.unitPriceCents,
+            cost_total_cents: item.costTotalCents,
+            stock_current: isFull ? null : item.stockCurrent,
+            stock_after_sale: isFull ? null : item.stockAfterSale,
+            stock_full: isFull ? item.stockFullSnapshot : null,
+          }
+        }),
       }
     }),
     total,

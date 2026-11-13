@@ -81,7 +81,7 @@ describe('applyOrderStatusChange stock sync', () => {
     financeSyncMock.mockResolvedValue(undefined)
   })
 
-  it('reverte o status e retorna stock_sync_failed quando a baixa de estoque falha', async () => {
+  it('mantém o status e segue quando a baixa de estoque falha', async () => {
     stockTransitionMock.mockRejectedValue(new Error('stock db down'))
 
     const existing: OrderRow = {
@@ -112,10 +112,10 @@ describe('applyOrderStatusChange stock sync', () => {
       editorUserId: '44444444-4444-4444-4444-444444444444',
     })
 
-    expect(result).toEqual({ ok: false, error: 'stock_sync_failed' })
+    expect(result).toEqual({ ok: true })
+    expect(updates).toHaveLength(1)
     expect(updates[0]).toMatchObject({ status: 'aprovado' })
-    expect(updates[1]).toMatchObject({ status: 'orcamento' })
-    expect(financeSyncMock).not.toHaveBeenCalled()
+    expect(financeSyncMock).toHaveBeenCalledOnce()
   })
 
   it('retorna ok quando a sincronização de estoque conclui', async () => {
