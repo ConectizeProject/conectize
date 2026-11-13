@@ -547,12 +547,12 @@ export async function GET (request: NextRequest) {
     if (lane === 'canceled') {
       next = next.eq('status', 'canceled')
     } else if (lane === 'dont_ship') {
+      // Cast evita TS2589: a cadeia .or().or() no client Supabase explode a profundidade de tipos.
       next = next
-        .not('ml_order_id', 'is', null)
         .or(
           'status.eq.canceled,ml_shipment_status.eq.cancelled,ml_shipment_status.eq.canceled',
         )
-        .or('ml_logistic_type.is.null,ml_logistic_type.neq.fulfillment')
+        .or('ml_logistic_type.is.null,ml_logistic_type.neq.fulfillment') as typeof next
     } else if (lane === 'all' || mlOrder) {
       next = next.in('status', ['paid', 'canceled'])
     } else {
